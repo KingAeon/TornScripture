@@ -34,7 +34,7 @@
     name: 'War Intelligence HUD',
     shortName: 'WIH',
     version: '0.1.0',
-    dbName: 'script-kitty-war-intel',
+    dbName: 'TornScripture-war-intel',
     dbVersion: 1,
     observationsStore: 'observations',
     playersStore: 'players',
