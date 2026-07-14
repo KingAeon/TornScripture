@@ -4,6 +4,7 @@
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @version      0.1.0
+// @description  Records visible player activity from Torn faction and ranked war pages and displays a compact local HUD.
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
