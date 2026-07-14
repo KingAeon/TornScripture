@@ -1,9 +1,9 @@
 // ==UserScript==
-// // @name         TornScripture - War Intelligence HUD
+// @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
 // @author       KingAeon
 // @match        https://www.torn.com/*
-// @version.     0.1.0
+// @version      0.1.0
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
