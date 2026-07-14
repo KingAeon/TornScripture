@@ -1,13 +1,15 @@
 // ==UserScript==
-// @name         Script Kitty - War Intelligence HUD
-// @namespace    https://github.com/script-kitty-torn
-// @version      0.1.0
-// @description  Locally records enemy activity already visible on Torn faction/war pages and displays a compact HUD.
-// @author       Script Kitty
+// // @name         TornScripture - War Intelligence HUD
+// @namespace    https://github.com/KingAeon/TornScripture
+// @author       KingAeon
 // @match        https://www.torn.com/*
+// @version.     0.1.0
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
+// @homepageURL https://github.com/KingAeon/TornScripture
+// @downloadURL https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-War-Intelligence-HUD.user.js
+// @updateURL https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-War-Intelligence-HUD.user.js
 // ==/UserScript==
 
 (() => {
