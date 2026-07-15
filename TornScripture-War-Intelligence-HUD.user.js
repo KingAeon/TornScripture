@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.1
+// @version      0.1.2
 // @description  Locally records enemy activity already visible on Torn faction/war pages and displays a compact HUD.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.1.1
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.1.2
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,20 +25,22 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.1.1 PURPOSE
+   * v0.1.2 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
    * - Provide export, import, purge, and diagnostics.
    * - Recognize Torn status text stored in visible rows and element attributes.
    * - Report rejected profile candidates instead of silently hiding them.
+   * - Store activity and life status as separate values.
+   * - Poll rendered rows every minute and save a ten-minute heartbeat.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.1.1',
+    version: '0.1.2',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -49,7 +51,8 @@
     styleId: 'sk-wih-style',
     maxRowsInPanel: 50,
     captureDebounceMs: 1800,
-    minimumRepeatObservationMs: 45_000,
+    renderedPagePollMs: 60_000,
+    unchangedObservationHeartbeatMs: 10 * 60_000,
   });
 
   const DEFAULT_SETTINGS = Object.freeze({
@@ -64,6 +67,7 @@
     db: null,
     settings: loadSettings(),
     captureTimer: null,
+    pollTimer: null,
     mutationObserver: null,
     lastUrl: location.href,
     lastCaptureAt: null,
@@ -72,6 +76,7 @@
     lastDiscoveryStats: {
       uniqueProfileIds: 0,
       acceptedCount: 0,
+      acceptedCandidates: [],
       rejectedCandidates: [],
     },
     initialized: false,
@@ -133,12 +138,18 @@
     }
   }
 
-  function classifyStatus(text) {
+  function classifyActivityStatus(text) {
     const value = normalizeWhitespace(text).toLowerCase();
 
     if (/\bonline\b/.test(value)) return 'online';
     if (/\bidle\b/.test(value)) return 'idle';
     if (/\boffline\b/.test(value)) return 'offline';
+    return 'unknown';
+  }
+
+  function classifyLifeStatus(text) {
+    const value = normalizeWhitespace(text).toLowerCase();
+
     if (/\bhospital(?:ized)?\b/.test(value)) return 'hospital';
     if (/\bjail(?:ed)?\b/.test(value)) return 'jail';
     if (/\btravel(?:ing|ling)?\b|\babroad\b|\breturning\b/.test(value)) return 'travel';
@@ -253,7 +264,14 @@
         element?.getAttribute?.('aria-label') ||
         element?.textContent
       );
-      if (value && !/^last action:?$/i.test(value)) return value;
+      if (
+        value &&
+        value.length <= 180 &&
+        !/^last action:?$/i.test(value) &&
+        /last action|\bago\b|\b(?:online|offline|idle)\b|\d+\s*[dhms]\b/i.test(value)
+      ) {
+        return value;
+      }
     }
 
     const attributeText = collectElementAttributeText(container);
@@ -337,13 +355,16 @@
       if (!text || text.length > 1000) continue;
 
       const attributeText = collectElementAttributeText(container);
-      const status = classifyStatus(`${text} ${attributeText}`);
+      const combinedStatusText = `${text} ${attributeText}`;
+      const activityStatus = classifyActivityStatus(combinedStatusText);
+      const lifeStatus = classifyLifeStatus(combinedStatusText);
       const name = extractName(anchor, playerId);
       const lastActionText = extractLastActionText(container);
 
       const rowLike = container.matches?.('li, tr, [class*="row"], [class*="member"], [class*="user"]');
       const candidateScore =
-        (status !== 'unknown' ? 12 : 0) +
+        (activityStatus !== 'unknown' ? 12 : 0) +
+        (lifeStatus !== 'unknown' ? 6 : 0) +
         (lastActionText ? 7 : 0) +
         (rowLike ? 4 : 0) +
         (text.length <= 300 ? 2 : 0) -
@@ -357,7 +378,10 @@
       const candidate = {
         playerId,
         name,
-        status,
+        // Keep status as a compatibility alias for v0.1.0/v0.1.1 exports.
+        status: activityStatus,
+        activityStatus,
+        lifeStatus,
         lastActionText,
         visibleText: text.slice(0, 500),
         attributeText: attributeText.slice(0, 500),
@@ -378,19 +402,31 @@
     const accepted = candidates.filter(
       (player) =>
         !/text based rpg\s*-\s*torn/i.test(player.visibleText) &&
-        (player.status !== 'unknown' || player.lastActionText)
+        (
+          player.activityStatus !== 'unknown' ||
+          player.lifeStatus !== 'unknown' ||
+          player.lastActionText
+        )
     );
 
     state.lastDiscoveryStats = {
       uniqueProfileIds: candidates.length,
       acceptedCount: accepted.length,
+      acceptedCandidates: accepted.slice(0, 75).map((player) => ({
+        playerId: player.playerId,
+        activityStatus: player.activityStatus,
+        lifeStatus: player.lifeStatus,
+        visibleTextSample: player.visibleText.slice(0, 180),
+        attributeTextSample: player.attributeText.slice(0, 240),
+      })),
       rejectedCandidates: candidates
         .filter((player) => !accepted.includes(player))
         .slice(0, 75)
         .map((player) => ({
           playerId: player.playerId,
           name: player.name,
-          status: player.status,
+          activityStatus: player.activityStatus,
+          lifeStatus: player.lifeStatus,
           lastActionText: player.lastActionText,
           visibleTextSample: player.visibleText.slice(0, 180),
           attributeTextSample: player.attributeText.slice(0, 240),
@@ -399,7 +435,11 @@
 
     return accepted
       .map(({ candidateScore, attributeText, ...player }) => player)
-      .sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name));
+      .sort(
+        (a, b) =>
+          statusRank(a.activityStatus) - statusRank(b.activityStatus) ||
+          a.name.localeCompare(b.name)
+      );
   }
 
   function openDatabase() {
@@ -455,11 +495,25 @@
     return cursor?.value ?? null;
   }
 
+  async function getPlayerSummary(playerId) {
+    const tx = state.db.transaction(APP.playersStore, 'readonly');
+    return requestResult(tx.objectStore(APP.playersStore).get(playerId));
+  }
+
   function observationMeaningfullyChanged(previous, current) {
     if (!previous) return true;
-    if (previous.status !== current.status) return true;
+    const previousActivity = previous.activityStatus ?? previous.status ?? 'unknown';
+    const currentActivity = current.activityStatus ?? current.status ?? 'unknown';
+    const previousLife = previous.lifeStatus ?? 'unknown';
+    const currentLife = current.lifeStatus ?? 'unknown';
+
+    if (previousActivity !== currentActivity) return true;
+    if (previousLife !== currentLife) return true;
     if (previous.lastActionText !== current.lastActionText) return true;
-    return current.capturedAt - previous.capturedAt >= APP.minimumRepeatObservationMs;
+    return (
+      current.capturedAt - previous.capturedAt >=
+      APP.unchangedObservationHeartbeatMs
+    );
   }
 
   async function saveObservations(players) {
@@ -468,6 +522,7 @@
     for (const player of players) {
       const previous = await getLatestObservation(player.playerId);
       if (!observationMeaningfullyChanged(previous, player)) continue;
+      const existingSummary = await getPlayerSummary(player.playerId);
 
       const tx = state.db.transaction(
         [APP.observationsStore, APP.playersStore],
@@ -480,9 +535,14 @@
         name: player.name,
         profileUrl: player.profileUrl,
         factionId: player.factionId,
-        firstSeenAt: previous?.capturedAt ?? player.capturedAt,
+        firstSeenAt:
+          existingSummary?.firstSeenAt ??
+          previous?.capturedAt ??
+          player.capturedAt,
         lastSeenAt: player.capturedAt,
-        latestStatus: player.status,
+        latestStatus: player.activityStatus,
+        latestActivityStatus: player.activityStatus,
+        latestLifeStatus: player.lifeStatus,
         latestLastActionText: player.lastActionText,
       });
 
@@ -555,7 +615,19 @@
   function observePageChanges() {
     state.mutationObserver?.disconnect();
 
-    state.mutationObserver = new MutationObserver(() => {
+    state.mutationObserver = new MutationObserver((mutations) => {
+      const hasOutsideMutation = mutations.some((mutation) => {
+        const target =
+          mutation.target?.nodeType === Node.ELEMENT_NODE
+            ? mutation.target
+            : mutation.target?.parentElement;
+        return !target?.closest?.(`#${APP.panelId}`);
+      });
+
+      // Rendering the HUD changes its own DOM. Ignore those changes so the HUD
+      // cannot trigger an endless capture/render loop.
+      if (!hasOutsideMutation) return;
+
       if (location.href !== state.lastUrl) {
         state.lastUrl = location.href;
         scheduleCapture();
@@ -572,6 +644,25 @@
 
     window.addEventListener('popstate', scheduleCapture);
     window.addEventListener('hashchange', scheduleCapture);
+  }
+
+  function startRenderedPagePolling() {
+    clearInterval(state.pollTimer);
+    state.pollTimer = setInterval(() => {
+      if (
+        !state.settings.autoCaptureVisiblePage ||
+        document.hidden ||
+        !pageLooksRelevant()
+      ) {
+        return;
+      }
+
+      capturePage().catch(reportError);
+    }, APP.renderedPagePollMs);
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && pageLooksRelevant()) scheduleCapture();
+    });
   }
 
   function injectStyles() {
@@ -728,6 +819,11 @@
         font-size: 11px;
         font-weight: 700;
       }
+      #${APP.panelId} .wih-badges {
+        display: grid;
+        gap: 4px;
+        justify-items: end;
+      }
       #${APP.panelId} .status-online { background: rgba(51, 199, 116, .2); color: #8ef0b7; }
       #${APP.panelId} .status-idle { background: rgba(242, 185, 73, .2); color: #ffd782; }
       #${APP.panelId} .status-offline { background: rgba(150, 156, 166, .2); color: #d0d3d8; }
@@ -796,8 +892,8 @@
     panel.classList.toggle('wih-collapsed', state.settings.collapsed);
 
     const rows = state.currentRows.slice(0, APP.maxRowsInPanel);
-    const online = state.currentRows.filter((row) => row.status === 'online').length;
-    const offline = state.currentRows.filter((row) => row.status === 'offline').length;
+    const online = state.currentRows.filter((row) => row.activityStatus === 'online').length;
+    const offline = state.currentRows.filter((row) => row.activityStatus === 'offline').length;
 
     panel.innerHTML = `
       <div class="wih-header">
@@ -840,10 +936,22 @@
                         <span class="wih-note">[${escapeHtml(row.playerId)}]</span>
                       </div>
                       <div class="wih-detail" title="${escapeHtml(row.lastActionText || row.visibleText)}">
-                        ${escapeHtml(row.lastActionText || 'No last-action text detected')}
+                        ${escapeHtml(
+                          row.lastActionText ||
+                          (row.lifeStatus !== 'unknown'
+                            ? `Condition: ${row.lifeStatus}`
+                            : 'No life-status text detected')
+                        )}
                       </div>
                     </div>
-                    <div class="wih-badge status-${escapeHtml(row.status)}">${escapeHtml(row.status)}</div>
+                    <div class="wih-badges">
+                      <div class="wih-badge status-${escapeHtml(row.activityStatus)}">${escapeHtml(row.activityStatus)}</div>
+                      ${
+                        row.lifeStatus !== 'unknown'
+                          ? `<div class="wih-badge status-${escapeHtml(row.lifeStatus)}">${escapeHtml(row.lifeStatus)}</div>`
+                          : ''
+                      }
+                    </div>
                   </div>
                 `).join('')
               : `
@@ -857,7 +965,7 @@
 
         <div class="wih-settings" data-settings hidden>
           <label class="wih-setting">
-            <span>Auto-capture rendered changes</span>
+            <span>Auto-capture changes + 10m heartbeat</span>
             <input type="checkbox" data-setting="autoCaptureVisiblePage" ${state.settings.autoCaptureVisiblePage ? 'checked' : ''}>
           </label>
           <label class="wih-setting">
@@ -868,7 +976,7 @@
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.1 records only information already rendered on the page. It does not make API calls,
+            v0.1.2 records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
@@ -1024,10 +1132,13 @@
       acceptedCandidateCount: state.lastDiscoveryStats.acceptedCount,
       detectedRows: state.currentRows.map((row) => ({
         playerId: row.playerId,
-        status: row.status,
+        status: row.activityStatus,
+        activityStatus: row.activityStatus,
+        lifeStatus: row.lifeStatus,
         lastActionText: row.lastActionText,
         visibleTextSample: row.visibleText.slice(0, 180),
       })),
+      acceptedCandidateEvidence: state.lastDiscoveryStats.acceptedCandidates,
       rejectedCandidates: state.lastDiscoveryStats.rejectedCandidates,
       archiveStats: stats,
       userAgent: navigator.userAgent,
@@ -1080,6 +1191,7 @@
     await purgeOldObservations();
     await renderPanel();
     observePageChanges();
+    startRenderedPagePolling();
 
     if (state.settings.autoCaptureVisiblePage) {
       await capturePage();
