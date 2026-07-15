@@ -1,23 +1,23 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
+// @version      0.1.1
+// @description  Locally records enemy activity already visible on Torn faction/war pages and displays a compact HUD.
 // @author       KingAeon
 // @match        https://www.torn.com/*
-// @version      0.1.0
-// @description  Records visible player activity from Torn faction and ranked war pages and displays a compact local HUD.
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
-// @homepageURL https://github.com/KingAeon/TornScripture
-// @downloadURL https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-War-Intelligence-HUD.user.js
-// @updateURL https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-War-Intelligence-HUD.user.js
+// @homepageURL  https://github.com/KingAeon/TornScripture
+// @downloadURL  https://raw.githubusercontent.com/KingAeon/TornScripture/refs/heads/main/TornScripture-War-Intelligence-HUD.user.js
+// @updateURL    https://raw.githubusercontent.com/KingAeon/TornScripture/refs/heads/main/TornScripture-War-Intelligence-HUD.user.js
 // ==/UserScript==
 
 (() => {
   'use strict';
 
   /*
-   * SCRIPT KITTY - WAR INTELLIGENCE HUD v0.1.0
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.1.1
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,19 +25,22 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.1.0 PURPOSE
+   * v0.1.1 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
    * - Provide export, import, purge, and diagnostics.
+   * - Recognize Torn status text stored in visible rows and element attributes.
+   * - Report rejected profile candidates instead of silently hiding them.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.1.0',
-    dbName: 'TornScripture-war-intel',
+    version: '0.1.1',
+    // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
+    dbName: 'script-kitty-war-intel',
     dbVersion: 1,
     observationsStore: 'observations',
     playersStore: 'players',
@@ -66,6 +69,11 @@
     lastCaptureAt: null,
     lastCaptureCount: 0,
     currentRows: [],
+    lastDiscoveryStats: {
+      uniqueProfileIds: 0,
+      acceptedCount: 0,
+      rejectedCandidates: [],
+    },
     initialized: false,
   };
 
@@ -135,6 +143,7 @@
     if (/\bjail(?:ed)?\b/.test(value)) return 'jail';
     if (/\btravel(?:ing|ling)?\b|\babroad\b|\breturning\b/.test(value)) return 'travel';
     if (/\bfederal\b|\bfedded\b/.test(value)) return 'federal';
+    if (/\bfallen\b/.test(value)) return 'fallen';
     if (/\bokay\b|\bhealthy\b/.test(value)) return 'okay';
     return 'unknown';
   }
@@ -149,8 +158,35 @@
       jail: 5,
       travel: 6,
       federal: 7,
-      unknown: 8,
+      fallen: 8,
+      unknown: 9,
     }[status] ?? 9;
+  }
+
+  function collectElementAttributeText(container) {
+    if (!container?.querySelectorAll) return '';
+
+    const attributeNames = [
+      'title',
+      'aria-label',
+      'data-tooltip',
+      'data-original-title',
+      'data-last-action',
+      'data-status',
+      'data-state',
+      'class',
+    ];
+    const values = [];
+    const elements = [container, ...container.querySelectorAll('*')].slice(0, 250);
+
+    for (const element of elements) {
+      for (const attributeName of attributeNames) {
+        const value = normalizeWhitespace(element.getAttribute?.(attributeName));
+        if (value) values.push(value);
+      }
+    }
+
+    return normalizeWhitespace(values.join(' ')).slice(0, 4000);
   }
 
   function findLikelyPlayerContainer(anchor) {
@@ -175,7 +211,7 @@
           node,
           score:
             (profileLinks === 1 ? 6 : 0) +
-            (/\b(?:online|offline|idle|hospital|jail|travel|okay)\b/i.test(text) ? 5 : 0) +
+            (/\b(?:online|offline|idle|hospital(?:ized)?|jail(?:ed)?|travel(?:ing|ling)?|abroad|returning|federal|fedded|fallen|okay|healthy)\b/i.test(text) ? 5 : 0) +
             (node.matches('li, tr, [class*="row"], [class*="member"], [class*="user"]') ? 3 : 0) -
             Math.min(text.length / 250, 3),
         });
@@ -217,7 +253,19 @@
         element?.getAttribute?.('aria-label') ||
         element?.textContent
       );
-      if (value) return value;
+      if (value && !/^last action:?$/i.test(value)) return value;
+    }
+
+    const attributeText = collectElementAttributeText(container);
+    const attributePatterns = [
+      /last action[:\s-]+([^|•]{2,100})/i,
+      /\b(\d+\s+(?:seconds?|minutes?|hours?|days?)\s+ago)\b/i,
+      /\b((?:\d+\s*[dhms]\s*){1,4})\s+(?:ago|offline)\b/i,
+    ];
+
+    for (const pattern of attributePatterns) {
+      const match = attributeText.match(pattern);
+      if (match?.[1]) return normalizeWhitespace(match[1]);
     }
 
     const text = normalizeWhitespace(container.innerText);
@@ -235,6 +283,14 @@
   }
 
   function inferFactionId() {
+    try {
+      const currentUrl = new URL(location.href);
+      const currentId = currentUrl.searchParams.get('ID');
+      if (currentId && /^\d+$/.test(currentId)) return currentId;
+    } catch {
+      // Fall through to page-link detection.
+    }
+
     const candidates = [
       ...document.querySelectorAll('a[href*="factions.php"][href*="ID="], a[href*="/factions/"]'),
     ];
@@ -268,12 +324,11 @@
       ),
     ];
 
-    const seen = new Set();
-    const players = [];
+    const candidatesByPlayer = new Map();
 
     for (const anchor of anchors) {
       const playerId = parsePlayerId(anchor.href);
-      if (!playerId || seen.has(playerId)) continue;
+      if (!playerId) continue;
 
       const container = findLikelyPlayerContainer(anchor);
       if (!container || container.closest(`#${APP.panelId}`)) continue;
@@ -281,31 +336,69 @@
       const text = normalizeWhitespace(container.innerText);
       if (!text || text.length > 1000) continue;
 
-      const status = classifyStatus(text);
+      const attributeText = collectElementAttributeText(container);
+      const status = classifyStatus(`${text} ${attributeText}`);
       const name = extractName(anchor, playerId);
       const lastActionText = extractLastActionText(container);
+
+      const rowLike = container.matches?.('li, tr, [class*="row"], [class*="member"], [class*="user"]');
+      const candidateScore =
+        (status !== 'unknown' ? 12 : 0) +
+        (lastActionText ? 7 : 0) +
+        (rowLike ? 4 : 0) +
+        (text.length <= 300 ? 2 : 0) -
+        (/text based rpg\s*-\s*torn/i.test(text) ? 30 : 0);
 
       /*
        * Enemy certainty is intentionally conservative in v0.1.
        * On a clearly relevant war/faction page, visible player rows are candidates.
        * The UI labels them "page players" rather than claiming perfect enemy detection.
        */
-      players.push({
+      const candidate = {
         playerId,
         name,
         status,
         lastActionText,
         visibleText: text.slice(0, 500),
+        attributeText: attributeText.slice(0, 500),
         profileUrl: anchor.href,
         factionId: inferFactionId(),
         pageUrl: location.href,
         capturedAt: Date.now(),
-      });
-      seen.add(playerId);
+        candidateScore,
+      };
+
+      const existing = candidatesByPlayer.get(playerId);
+      if (!existing || candidate.candidateScore > existing.candidateScore) {
+        candidatesByPlayer.set(playerId, candidate);
+      }
     }
 
-    return players
-      .filter((player) => player.status !== 'unknown' || player.lastActionText)
+    const candidates = [...candidatesByPlayer.values()];
+    const accepted = candidates.filter(
+      (player) =>
+        !/text based rpg\s*-\s*torn/i.test(player.visibleText) &&
+        (player.status !== 'unknown' || player.lastActionText)
+    );
+
+    state.lastDiscoveryStats = {
+      uniqueProfileIds: candidates.length,
+      acceptedCount: accepted.length,
+      rejectedCandidates: candidates
+        .filter((player) => !accepted.includes(player))
+        .slice(0, 75)
+        .map((player) => ({
+          playerId: player.playerId,
+          name: player.name,
+          status: player.status,
+          lastActionText: player.lastActionText,
+          visibleTextSample: player.visibleText.slice(0, 180),
+          attributeTextSample: player.attributeText.slice(0, 240),
+        })),
+    };
+
+    return accepted
+      .map(({ candidateScore, attributeText, ...player }) => player)
       .sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.name.localeCompare(b.name));
   }
 
@@ -642,6 +735,7 @@
       #${APP.panelId} .status-jail,
       #${APP.panelId} .status-federal { background: rgba(228, 78, 78, .2); color: #ffaaaa; }
       #${APP.panelId} .status-travel { background: rgba(109, 154, 255, .2); color: #b9d0ff; }
+      #${APP.panelId} .status-fallen { background: rgba(171, 112, 255, .2); color: #d9bdff; }
       #${APP.panelId} .status-okay { background: rgba(120, 205, 190, .18); color: #b6eee4; }
       #${APP.panelId} .status-unknown { background: rgba(255,255,255,.08); color: #ccc; }
       #${APP.panelId} .wih-settings {
@@ -858,7 +952,7 @@
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `script-kitty-war-intel-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    anchor.download = `tornscripture-war-intel-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -926,12 +1020,15 @@
       profileAnchorCount: document.querySelectorAll(
         'a[href*="profiles.php?XID="], a[href*="/profile/"], a[href*="/profiles/"]'
       ).length,
+      uniqueProfileIdsEvaluated: state.lastDiscoveryStats.uniqueProfileIds,
+      acceptedCandidateCount: state.lastDiscoveryStats.acceptedCount,
       detectedRows: state.currentRows.map((row) => ({
         playerId: row.playerId,
         status: row.status,
         lastActionText: row.lastActionText,
         visibleTextSample: row.visibleText.slice(0, 180),
       })),
+      rejectedCandidates: state.lastDiscoveryStats.rejectedCandidates,
       archiveStats: stats,
       userAgent: navigator.userAgent,
       generatedAt: new Date().toISOString(),
