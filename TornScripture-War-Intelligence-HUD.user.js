@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.2
+// @version      0.1.3
 // @description  Locally records enemy activity already visible on Torn faction/war pages and displays a compact HUD.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.1.2
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.1.3
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,7 +25,7 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.1.2 PURPOSE
+   * v0.1.3 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
@@ -34,13 +34,16 @@
    * - Report rejected profile candidates instead of silently hiding them.
    * - Store activity and life status as separate values.
    * - Poll rendered rows every minute and save a ten-minute heartbeat.
+   * - Normalize legacy observations for analysis without deleting raw history.
+   * - Distinguish Abroad, Traveling, and Returning life states.
+   * - Provide Android-friendly copy, view, share, and text export paths.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.1.2',
+    version: '0.1.3',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -53,6 +56,8 @@
     captureDebounceMs: 1800,
     renderedPagePollMs: 60_000,
     unchangedObservationHeartbeatMs: 10 * 60_000,
+    legacyDuplicateWindowMs: 1_000,
+    coverageGapThresholdMs: 15 * 60_000,
   });
 
   const DEFAULT_SETTINGS = Object.freeze({
@@ -68,6 +73,7 @@
     settings: loadSettings(),
     captureTimer: null,
     pollTimer: null,
+    capturePromise: null,
     mutationObserver: null,
     lastUrl: location.href,
     lastCaptureAt: null,
@@ -78,6 +84,7 @@
       acceptedCount: 0,
       acceptedCandidates: [],
       rejectedCandidates: [],
+      ignoredPageChromeCount: 0,
     },
     initialized: false,
   };
@@ -152,7 +159,9 @@
 
     if (/\bhospital(?:ized)?\b/.test(value)) return 'hospital';
     if (/\bjail(?:ed)?\b/.test(value)) return 'jail';
-    if (/\btravel(?:ing|ling)?\b|\babroad\b|\breturning\b/.test(value)) return 'travel';
+    if (/\breturning\b/.test(value)) return 'returning';
+    if (/\btravel(?:ing|ling)?\b/.test(value)) return 'traveling';
+    if (/\babroad\b/.test(value)) return 'abroad';
     if (/\bfederal\b|\bfedded\b/.test(value)) return 'federal';
     if (/\bfallen\b/.test(value)) return 'fallen';
     if (/\bokay\b|\bhealthy\b/.test(value)) return 'okay';
@@ -167,11 +176,13 @@
       offline: 3,
       hospital: 4,
       jail: 5,
-      travel: 6,
-      federal: 7,
-      fallen: 8,
-      unknown: 9,
-    }[status] ?? 9;
+      traveling: 6,
+      returning: 7,
+      abroad: 8,
+      federal: 9,
+      fallen: 10,
+      unknown: 11,
+    }[status] ?? 11;
   }
 
   function collectElementAttributeText(container) {
@@ -234,14 +245,26 @@
   }
 
   function extractName(anchor, playerId) {
-    const text = normalizeWhitespace(
-      anchor.getAttribute('title') ||
-      anchor.getAttribute('aria-label') ||
-      anchor.textContent
-    );
+    const candidates = [
+      anchor.getAttribute('title'),
+      anchor.getAttribute('aria-label'),
+      anchor.textContent,
+    ];
 
-    if (text && text !== playerId && text.length <= 80) {
-      return text.replace(/\s*\[\d+\]\s*$/, '').trim();
+    for (const candidate of candidates) {
+      const text = normalizeWhitespace(candidate)
+        .replace(/^view profile of\s+/i, '')
+        .replace(/\s*\[\d+\]\s*$/, '')
+        .trim();
+
+      if (
+        text &&
+        text !== playerId &&
+        !/^view profile$/i.test(text) &&
+        text.length <= 80
+      ) {
+        return text;
+      }
     }
     return `Player ${playerId}`;
   }
@@ -268,7 +291,9 @@
         value &&
         value.length <= 180 &&
         !/^last action:?$/i.test(value) &&
-        /last action|\bago\b|\b(?:online|offline|idle)\b|\d+\s*[dhms]\b/i.test(value)
+        (/last action[:\s-]+.{2,120}/i.test(value) ||
+          /\b\d+\s+(?:seconds?|minutes?|hours?|days?)\s+ago\b/i.test(value) ||
+          /\b(?:\d+\s*[dhms]\s*){1,4}\s+ago\b/i.test(value))
       ) {
         return value;
       }
@@ -343,6 +368,7 @@
     ];
 
     const candidatesByPlayer = new Map();
+    let ignoredPageChromeCount = 0;
 
     for (const anchor of anchors) {
       const playerId = parsePlayerId(anchor.href);
@@ -353,6 +379,10 @@
 
       const text = normalizeWhitespace(container.innerText);
       if (!text || text.length > 1000) continue;
+      if (/text based rpg\s*-\s*torn/i.test(text)) {
+        ignoredPageChromeCount += 1;
+        continue;
+      }
 
       const attributeText = collectElementAttributeText(container);
       const combinedStatusText = `${text} ${attributeText}`;
@@ -431,6 +461,7 @@
           visibleTextSample: player.visibleText.slice(0, 180),
           attributeTextSample: player.attributeText.slice(0, 240),
         })),
+      ignoredPageChromeCount,
     };
 
     return accepted
@@ -560,6 +591,30 @@
     return { playersCount, observationsCount };
   }
 
+  async function cleanPlayerSummaryNames() {
+    const tx = state.db.transaction(APP.playersStore, 'readwrite');
+    const store = tx.objectStore(APP.playersStore);
+    const request = store.openCursor();
+
+    await new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve();
+          return;
+        }
+
+        const player = cursor.value;
+        const cleanedName = cleanStoredName(player.name, player.playerId);
+        if (cleanedName !== player.name) cursor.update({ ...player, name: cleanedName });
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    await transactionDone(tx);
+  }
+
   async function purgeOldObservations() {
     const cutoff = Date.now() - state.settings.keepDays * 86_400_000;
     const tx = state.db.transaction(APP.observationsStore, 'readwrite');
@@ -582,7 +637,7 @@
     await transactionDone(tx);
   }
 
-  async function capturePage({ manual = false } = {}) {
+  async function performCapture({ manual = false } = {}) {
     if (!state.db) return;
 
     const players = discoverVisiblePlayers();
@@ -604,6 +659,15 @@
     }
   }
 
+  function capturePage(options = {}) {
+    if (state.capturePromise) return state.capturePromise;
+
+    state.capturePromise = performCapture(options).finally(() => {
+      state.capturePromise = null;
+    });
+    return state.capturePromise;
+  }
+
   function scheduleCapture() {
     if (!state.settings.autoCaptureVisiblePage) return;
     clearTimeout(state.captureTimer);
@@ -621,7 +685,7 @@
           mutation.target?.nodeType === Node.ELEMENT_NODE
             ? mutation.target
             : mutation.target?.parentElement;
-        return !target?.closest?.(`#${APP.panelId}`);
+        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-toast`);
       });
 
       // Rendering the HUD changes its own DOM. Ignore those changes so the HUD
@@ -830,7 +894,10 @@
       #${APP.panelId} .status-hospital,
       #${APP.panelId} .status-jail,
       #${APP.panelId} .status-federal { background: rgba(228, 78, 78, .2); color: #ffaaaa; }
-      #${APP.panelId} .status-travel { background: rgba(109, 154, 255, .2); color: #b9d0ff; }
+      #${APP.panelId} .status-travel,
+      #${APP.panelId} .status-traveling { background: rgba(109, 154, 255, .2); color: #b9d0ff; }
+      #${APP.panelId} .status-returning { background: rgba(98, 191, 255, .2); color: #bde5ff; }
+      #${APP.panelId} .status-abroad { background: rgba(91, 208, 170, .18); color: #b9f1df; }
       #${APP.panelId} .status-fallen { background: rgba(171, 112, 255, .2); color: #d9bdff; }
       #${APP.panelId} .status-okay { background: rgba(120, 205, 190, .18); color: #b6eee4; }
       #${APP.panelId} .status-unknown { background: rgba(255,255,255,.08); color: #ccc; }
@@ -869,6 +936,52 @@
         color: #fff;
         box-shadow: 0 8px 24px rgba(0,0,0,.42);
         font: 13px/1.35 Arial, sans-serif;
+      }
+      #wih-export-viewer {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: grid;
+        place-items: center;
+        padding: 14px;
+        background: rgba(0, 0, 0, .78);
+        font: 13px/1.35 Arial, sans-serif;
+      }
+      #wih-export-viewer .wih-export-card {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        width: min(920px, 100%);
+        height: min(82vh, 760px);
+        padding: 12px;
+        border: 1px solid rgba(255,255,255,.2);
+        border-radius: 12px;
+        background: #17191d;
+        color: #fff;
+      }
+      #wih-export-viewer textarea {
+        width: 100%;
+        min-height: 0;
+        resize: none;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 8px;
+        padding: 9px;
+        background: #0e1013;
+        color: #e8eaed;
+        font: 11px/1.4 monospace;
+      }
+      #wih-export-viewer .wih-export-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      #wih-export-viewer button {
+        min-height: 36px;
+        padding: 7px 11px;
+        border: 1px solid rgba(255,255,255,.18);
+        border-radius: 8px;
+        background: #2b2f36;
+        color: #fff;
       }
     `;
     document.head.append(style);
@@ -916,8 +1029,8 @@
 
         <div class="wih-actions">
           <button class="wih-button wih-primary" data-action="capture">Capture page</button>
-          <button class="wih-button" data-action="export">Export TXT</button>
           <button class="wih-button" data-action="copy-export">Copy export</button>
+          <button class="wih-button" data-action="view-export">View export</button>
           <button class="wih-button" data-action="import">Import data</button>
         </div>
 
@@ -974,10 +1087,12 @@
             <input type="number" min="1" max="365" step="1" data-setting="keepDays" value="${state.settings.keepDays}">
           </label>
           <button class="wih-button" data-action="purge-old">Purge expired observations</button>
+          <button class="wih-button" data-action="share-export">Share export</button>
+          <button class="wih-button" data-action="download-export">Download export file</button>
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.1.2 records only information already rendered on the page. It does not make API calls,
+            v0.1.3 records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
@@ -1003,12 +1118,20 @@
       capturePage({ manual: true }).catch(reportError);
     });
 
-    panel.querySelector('[data-action="export"]')?.addEventListener('click', () => {
+    panel.querySelector('[data-action="download-export"]')?.addEventListener('click', () => {
       exportData().catch(reportError);
     });
 
     panel.querySelector('[data-action="copy-export"]')?.addEventListener('click', () => {
       copyExportData().catch(reportError);
+    });
+
+    panel.querySelector('[data-action="view-export"]')?.addEventListener('click', () => {
+      viewExportData().catch(reportError);
+    });
+
+    panel.querySelector('[data-action="share-export"]')?.addEventListener('click', () => {
+      shareExportData().catch(reportError);
     });
 
     panel.querySelector('[data-action="import"]')?.addEventListener('click', importData);
@@ -1046,27 +1169,121 @@
     return requestResult(tx.objectStore(storeName).getAll());
   }
 
+  function cleanStoredName(name, playerId) {
+    const cleaned = normalizeWhitespace(name)
+      .replace(/^view profile of\s+/i, '')
+      .trim();
+    return cleaned && !/^view profile$/i.test(cleaned)
+      ? cleaned
+      : `Player ${playerId}`;
+  }
+
+  function normalizeObservationForAnalysis(observation) {
+    const visibleText = normalizeWhitespace(observation?.visibleText);
+    const inferredLifeStatus = classifyLifeStatus(visibleText);
+    const legacyLifeStatus = observation?.lifeStatus;
+    const lifeStatus =
+      inferredLifeStatus !== 'unknown'
+        ? inferredLifeStatus
+        : legacyLifeStatus === 'travel'
+          ? 'traveling'
+          : legacyLifeStatus || 'unknown';
+    const activityStatus =
+      observation?.activityStatus || observation?.status || 'unknown';
+
+    return {
+      ...observation,
+      name: cleanStoredName(observation?.name, observation?.playerId),
+      status: activityStatus,
+      activityStatus,
+      lifeStatus,
+    };
+  }
+
+  function buildAnalysisObservations(rawObservations) {
+    const sorted = rawObservations
+      .map(normalizeObservationForAnalysis)
+      .sort(
+        (a, b) =>
+          Number(a.capturedAt || 0) - Number(b.capturedAt || 0) ||
+          Number(a.id || 0) - Number(b.id || 0)
+      );
+    const latestByPlayer = new Map();
+    const observations = [];
+    let ignoredLegacyDuplicates = 0;
+
+    for (const observation of sorted) {
+      const previous = latestByPlayer.get(observation.playerId);
+      const isLegacyDuplicate = Boolean(
+        previous &&
+        observation.capturedAt - previous.capturedAt <= APP.legacyDuplicateWindowMs &&
+        observation.activityStatus === previous.activityStatus &&
+        observation.lifeStatus === previous.lifeStatus &&
+        observation.visibleText === previous.visibleText
+      );
+
+      if (isLegacyDuplicate) {
+        ignoredLegacyDuplicates += 1;
+        continue;
+      }
+
+      observations.push(observation);
+      latestByPlayer.set(observation.playerId, observation);
+    }
+
+    return { observations, ignoredLegacyDuplicates };
+  }
+
+  function findCoverageGaps(analysisObservations) {
+    const scanTimes = [];
+
+    for (const observation of analysisObservations) {
+      const timestamp = Number(observation.capturedAt || 0);
+      if (!timestamp) continue;
+      const previous = scanTimes.at(-1);
+      if (!previous || timestamp - previous > 5_000) scanTimes.push(timestamp);
+    }
+
+    const gaps = [];
+    for (let index = 1; index < scanTimes.length; index += 1) {
+      const from = scanTimes[index - 1];
+      const to = scanTimes[index];
+      const durationMs = to - from;
+      if (durationMs >= APP.coverageGapThresholdMs) {
+        gaps.push({ from, to, durationMs });
+      }
+    }
+    return gaps;
+  }
+
   async function buildExportPayload() {
-    const [players, observations] = await Promise.all([
+    const [players, rawObservations] = await Promise.all([
       getAllFromStore(APP.playersStore),
       getAllFromStore(APP.observationsStore),
     ]);
+    const analysis = buildAnalysisObservations(rawObservations);
+    const coverageGaps = findCoverageGaps(analysis.observations);
 
     return {
       schema: 'script-kitty-war-intel-export',
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
       appVersion: APP.version,
+      analysisSummary: {
+        rawObservationCount: rawObservations.length,
+        usableObservationCount: analysis.observations.length,
+        ignoredLegacyDuplicateCount: analysis.ignoredLegacyDuplicates,
+        coverageGapCount: coverageGaps.length,
+        coverageGaps,
+      },
       players,
-      observations,
+      observations: rawObservations,
     };
   }
 
   async function exportData() {
     const payload = await buildExportPayload();
-    const exportText = JSON.stringify(payload, null, 2);
-
-    const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -1075,13 +1292,96 @@
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(`Exported ${payload.observations.length} observations as TXT.`);
+    toast(`Prepared ${payload.observations.length} observations for download.`);
+  }
+
+  async function writeTextToClipboard(value) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('Clipboard copy was not available.');
   }
 
   async function copyExportData() {
     const payload = await buildExportPayload();
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    toast(`Copied ${payload.observations.length} observations to the clipboard.`);
+    await writeTextToClipboard(JSON.stringify(payload, null, 2));
+    toast(`Copied ${payload.observations.length} observations.`);
+  }
+
+  async function viewExportData() {
+    const payload = await buildExportPayload();
+    const serialized = JSON.stringify(payload, null, 2);
+    document.getElementById('wih-export-viewer')?.remove();
+
+    const viewer = document.createElement('div');
+    viewer.id = 'wih-export-viewer';
+    viewer.innerHTML = `
+      <section class="wih-export-card" role="dialog" aria-modal="true" aria-label="TornScripture export">
+        <strong>TornScripture export · ${payload.observations.length} raw observations</strong>
+        <textarea readonly aria-label="Export data"></textarea>
+        <div class="wih-export-actions">
+          <button type="button" data-export-action="copy">Copy all</button>
+          <button type="button" data-export-action="share">Share</button>
+          <button type="button" data-export-action="close">Close</button>
+        </div>
+      </section>
+    `;
+    viewer.querySelector('textarea').value = serialized;
+    document.body.append(viewer);
+
+    viewer.querySelector('[data-export-action="copy"]')?.addEventListener('click', () => {
+      writeTextToClipboard(serialized)
+        .then(() => toast('Export copied.'))
+        .catch(reportError);
+    });
+    viewer.querySelector('[data-export-action="share"]')?.addEventListener('click', () => {
+      shareSerializedExport(serialized).catch(reportError);
+    });
+    viewer.querySelector('[data-export-action="close"]')?.addEventListener('click', () => {
+      viewer.remove();
+    });
+  }
+
+  function exportFilename() {
+    return `tornscripture-war-intel-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+  }
+
+  async function shareSerializedExport(serialized) {
+    const filename = exportFilename();
+    const file = typeof File === 'function'
+      ? new File([serialized], filename, { type: 'text/plain' })
+      : null;
+
+    try {
+      if (file && navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: 'TornScripture export',
+          text: 'War Intelligence HUD local export',
+          files: [file],
+        });
+        return;
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+    }
+
+    await writeTextToClipboard(serialized);
+    toast('File sharing is unavailable here; export copied instead.');
+  }
+
+  async function shareExportData() {
+    const payload = await buildExportPayload();
+    await shareSerializedExport(JSON.stringify(payload, null, 2));
   }
 
   function importData() {
@@ -1135,6 +1435,9 @@
 
   async function copyDiagnostics() {
     const stats = await getDatabaseStats();
+    const rawObservations = await getAllFromStore(APP.observationsStore);
+    const analysis = buildAnalysisObservations(rawObservations);
+    const coverageGaps = findCoverageGaps(analysis.observations);
     const diagnostics = {
       app: APP.name,
       version: APP.version,
@@ -1156,12 +1459,18 @@
       })),
       acceptedCandidateEvidence: state.lastDiscoveryStats.acceptedCandidates,
       rejectedCandidates: state.lastDiscoveryStats.rejectedCandidates,
+      ignoredPageChromeCount: state.lastDiscoveryStats.ignoredPageChromeCount,
       archiveStats: stats,
+      analysisStats: {
+        usableObservationCount: analysis.observations.length,
+        ignoredLegacyDuplicateCount: analysis.ignoredLegacyDuplicates,
+        coverageGapCount: coverageGaps.length,
+      },
       userAgent: navigator.userAgent,
       generatedAt: new Date().toISOString(),
     };
 
-    await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
+    await writeTextToClipboard(JSON.stringify(diagnostics, null, 2));
     toast('Diagnostics copied. Player IDs and visible row samples are included.');
   }
 
@@ -1204,6 +1513,7 @@
 
     injectStyles();
     state.db = await openDatabase();
+    await cleanPlayerSummaryNames();
     await purgeOldObservations();
     await renderPanel();
     observePageChanges();
