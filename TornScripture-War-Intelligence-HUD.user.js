@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.3.1
+// @version      0.3.2
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.3.1',
+    version: '0.3.2',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -79,6 +79,7 @@
     showOnlyLikelyEnemies: true,
     keepDays: 30,
     localTime: true,
+    hudPosition: null,
   });
 
   function createCollectorId(prefix) {
@@ -461,6 +462,7 @@
         pageUrl: location.href,
         capturedAt: Date.now(),
         candidateScore,
+        rowLike: Boolean(rowLike),
       };
 
       const existing = candidatesByPlayer.get(playerId);
@@ -476,7 +478,7 @@
         (
           player.activityStatus !== 'unknown' ||
           player.lifeStatus !== 'unknown' ||
-          player.lastActionText
+          (player.rowLike && player.lastActionText && !/^Player\s+\d+$/i.test(player.name))
         )
     );
 
@@ -506,7 +508,7 @@
     };
 
     return accepted
-      .map(({ candidateScore, attributeText, ...player }) => player)
+      .map(({ candidateScore, attributeText, rowLike, ...player }) => player)
       .sort(
         (a, b) =>
           statusRank(a.activityStatus) - statusRank(b.activityStatus) ||
@@ -900,7 +902,11 @@
         padding: 10px 11px;
         border-bottom: 1px solid var(--wih-border);
         background: linear-gradient(135deg, rgba(255,122,89,.16), rgba(255,255,255,.025));
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
       }
+      #${APP.panelId}.wih-dragging .wih-header { cursor: grabbing; }
       #${APP.panelId} .wih-title {
         min-width: 0;
         flex: 1;
@@ -1536,7 +1542,101 @@
     panel.id = APP.panelId;
     panel.setAttribute('aria-label', APP.name);
     document.body.append(panel);
+    window.addEventListener('resize', () => {
+      if (!state.settings.hudPosition || !panel.isConnected) return;
+      applyHudPosition(panel, state.settings.hudPosition, { persist: true });
+    });
     return panel;
+  }
+
+  function clampHudPosition(panel, position) {
+    const margin = 8;
+    const rect = panel.getBoundingClientRect();
+    const requestedX = Number(position?.x);
+    const requestedY = Number(position?.y);
+    const maxX = Math.max(margin, window.innerWidth - rect.width - margin);
+    const maxY = Math.max(margin, window.innerHeight - rect.height - margin);
+    return {
+      x: Math.min(maxX, Math.max(margin, Number.isFinite(requestedX) ? requestedX : rect.left)),
+      y: Math.min(maxY, Math.max(margin, Number.isFinite(requestedY) ? requestedY : rect.top)),
+    };
+  }
+
+  function applyHudPosition(panel, position = state.settings.hudPosition, { persist = false } = {}) {
+    if (!position || !Number.isFinite(Number(position.x)) || !Number.isFinite(Number(position.y))) {
+      panel.style.removeProperty('left');
+      panel.style.removeProperty('top');
+      panel.style.removeProperty('right');
+      panel.style.removeProperty('bottom');
+      panel.classList.remove('wih-positioned');
+      return null;
+    }
+
+    panel.style.left = `${Number(position.x)}px`;
+    panel.style.top = `${Number(position.y)}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.classList.add('wih-positioned');
+    const clamped = clampHudPosition(panel, position);
+    panel.style.left = `${clamped.x}px`;
+    panel.style.top = `${clamped.y}px`;
+    if (persist) {
+      state.settings.hudPosition = clamped;
+      saveSettings();
+    }
+    return clamped;
+  }
+
+  function bindHudDragging(panel) {
+    const handle = panel.querySelector('[data-drag-handle]');
+    if (!handle) return;
+    let drag = null;
+
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || event.target.closest('button, a, input, select')) return;
+      const rect = panel.getBoundingClientRect();
+      drag = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        panelX: rect.left,
+        panelY: rect.top,
+        currentX: event.clientX,
+        currentY: event.clientY,
+      };
+      panel.classList.add('wih-dragging');
+      handle.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+
+    handle.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      drag.currentX = event.clientX;
+      drag.currentY = event.clientY;
+      applyHudPosition(panel, {
+        x: drag.panelX + event.clientX - drag.startX,
+        y: drag.panelY + event.clientY - drag.startY,
+      });
+      event.preventDefault();
+    });
+
+    const finishDrag = (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const clientX = Number.isFinite(event.clientX) ? event.clientX : drag.currentX;
+      const clientY = Number.isFinite(event.clientY) ? event.clientY : drag.currentY;
+      const position = applyHudPosition(panel, {
+        x: drag.panelX + clientX - drag.startX,
+        y: drag.panelY + clientY - drag.startY,
+      });
+      drag = null;
+      panel.classList.remove('wih-dragging');
+      if (position) {
+        state.settings.hudPosition = position;
+        saveSettings();
+      }
+    };
+    handle.addEventListener('pointerup', finishDrag);
+    handle.addEventListener('pointercancel', finishDrag);
   }
 
   async function renderPanel() {
@@ -1556,7 +1656,7 @@
     const offline = state.currentRows.filter((row) => row.activityStatus === 'offline').length;
 
     panel.innerHTML = `
-      <div class="wih-header">
+      <div class="wih-header" data-drag-handle title="Drag to move">
         <div class="wih-title">
           🐾 ${escapeHtml(APP.name)}
           <span class="wih-version">v${escapeHtml(APP.version)}</span>
@@ -1638,19 +1738,22 @@
             <input type="number" min="1" max="365" step="1" data-setting="keepDays" value="${state.settings.keepDays}">
           </label>
           <button class="wih-button" data-action="purge-old">Purge expired local history</button>
+          <button class="wih-button" data-action="reset-position">Reset HUD position</button>
           <button class="wih-button" data-action="share-export">Share export</button>
           <button class="wih-button" data-action="download-export">Download export file</button>
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.3.0 records only information already rendered on the page. It does not make API calls,
+            v${escapeHtml(APP.version)} records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
       </div>
     `;
 
+    applyHudPosition(panel);
     bindPanelEvents(panel);
+    bindHudDragging(panel);
   }
 
   function bindPanelEvents(panel) {
@@ -1703,6 +1806,13 @@
       await purgeOldObservations();
       await renderPanel();
       toast('Expired observation and collector-health history purged.');
+    });
+
+    panel.querySelector('[data-action="reset-position"]')?.addEventListener('click', () => {
+      state.settings.hudPosition = null;
+      saveSettings();
+      applyHudPosition(panel, null);
+      toast('HUD position reset.');
     });
 
     panel.querySelector('[data-action="diagnostics"]')?.addEventListener('click', () => {
@@ -1774,8 +1884,16 @@
     const latestByPlayer = new Map();
     const observations = [];
     let ignoredLegacyDuplicates = 0;
+    let ignoredUnknownObservations = 0;
 
     for (const observation of sorted) {
+      if (
+        observation.activityStatus === 'unknown' &&
+        observation.lifeStatus === 'unknown'
+      ) {
+        ignoredUnknownObservations += 1;
+        continue;
+      }
       const previous = latestByPlayer.get(observation.playerId);
       const isLegacyDuplicate = Boolean(
         previous &&
@@ -1794,7 +1912,7 @@
       latestByPlayer.set(observation.playerId, observation);
     }
 
-    return { observations, ignoredLegacyDuplicates };
+    return { observations, ignoredLegacyDuplicates, ignoredUnknownObservations };
   }
 
   function findCoverageGaps(analysisObservations) {
@@ -1942,6 +2060,10 @@
         latestActivityStatus: player.latestActivityStatus || player.latestStatus || 'unknown',
         latestLifeStatus: player.latestLifeStatus || 'unknown',
       }))
+      .filter(
+        (player) =>
+          player.latestActivityStatus !== 'unknown' || player.latestLifeStatus !== 'unknown'
+      )
       .sort(
         (a, b) =>
           statusRank(a.latestActivityStatus) - statusRank(b.latestActivityStatus) ||
@@ -2119,6 +2241,7 @@
           <div class="wih-muted" style="margin-top:9px">
             First seen ${escapeHtml(formatDateTime(first?.capturedAt))} · Last seen ${escapeHtml(formatDateTime(latest?.capturedAt))}
             ${analysis.ignoredLegacyDuplicates ? ` · ${analysis.ignoredLegacyDuplicates} legacy duplicate${analysis.ignoredLegacyDuplicates === 1 ? '' : 's'} ignored` : ''}
+            ${analysis.ignoredUnknownObservations ? ` · ${analysis.ignoredUnknownObservations} unusable unknown observation${analysis.ignoredUnknownObservations === 1 ? '' : 's'} ignored` : ''}
           </div>
         </section>
 
@@ -2337,8 +2460,11 @@
         name: cleanStoredName(player.name, player.playerId),
       }));
       const observationAnalysis = buildAnalysisObservations(rawObservations);
+      const usablePlayerIds = new Set(
+        observationAnalysis.observations.map((observation) => String(observation.playerId))
+      );
       const nextIntelligence = buildFactionIntelligence(
-        normalizedPlayers,
+        normalizedPlayers.filter((player) => usablePlayerIds.has(String(player.playerId))),
         observationAnalysis.observations
       );
       const nextFactionIds = [...new Set(
@@ -2995,6 +3121,7 @@
         rawObservationCount: rawObservations.length,
         usableObservationCount: analysis.observations.length,
         ignoredLegacyDuplicateCount: analysis.ignoredLegacyDuplicates,
+        ignoredUnknownObservationCount: analysis.ignoredUnknownObservations,
         coverageGapCount: coverageGaps.length,
         coverageGaps,
       },
@@ -3213,6 +3340,7 @@
       analysisStats: {
         usableObservationCount: analysis.observations.length,
         ignoredLegacyDuplicateCount: analysis.ignoredLegacyDuplicates,
+        ignoredUnknownObservationCount: analysis.ignoredUnknownObservations,
         coverageGapCount: coverageGaps.length,
       },
       collectorHealthStats: {
