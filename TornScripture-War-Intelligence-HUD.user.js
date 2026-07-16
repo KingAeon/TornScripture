@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.3.0
+// @version      0.3.1
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.3.0',
+    version: '0.3.1',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -929,6 +929,11 @@
       #${APP.panelId}.wih-collapsed .wih-body {
         display: none;
       }
+      @media (max-width: 759px) {
+        #${APP.panelId}.wih-collapsed {
+          bottom: max(82px, calc(env(safe-area-inset-bottom) + 72px));
+        }
+      }
       #${APP.panelId} .wih-status-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1448,6 +1453,15 @@
         background: var(--wih-surface-2);
         color: var(--wih-text);
         text-decoration: none;
+      }
+      #wih-intel-viewer .wih-intel-action:disabled { opacity: .6; cursor: wait; }
+      #wih-intel-viewer .wih-intel-context-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 7px;
+        margin-top: 7px;
       }
       #wih-intel-viewer .wih-intel-content { display: grid; gap: 11px; max-width: 1260px; margin: 0 auto; padding: 12px; }
       #wih-intel-viewer .wih-intel-card {
@@ -2313,22 +2327,32 @@
 
   async function openFactionIntelligenceViewer() {
     document.getElementById('wih-intel-viewer')?.remove();
-    const [storedPlayers, rawObservations] = await Promise.all([
-      getAllFromStore(APP.playersStore),
-      getAllFromStore(APP.observationsStore),
-    ]);
-    const normalizedPlayers = storedPlayers.map((player) => ({
-      ...player,
-      name: cleanStoredName(player.name, player.playerId),
-    }));
-    const observationAnalysis = buildAnalysisObservations(rawObservations);
-    const intelligence = buildFactionIntelligence(
-      normalizedPlayers,
-      observationAnalysis.observations
-    );
-    const factionIds = [...new Set(
-      intelligence.map((player) => player.factionId).filter((value) => value && value !== 'unknown')
-    )].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    async function loadIntelligenceData() {
+      const [storedPlayers, rawObservations] = await Promise.all([
+        getAllFromStore(APP.playersStore),
+        getAllFromStore(APP.observationsStore),
+      ]);
+      const normalizedPlayers = storedPlayers.map((player) => ({
+        ...player,
+        name: cleanStoredName(player.name, player.playerId),
+      }));
+      const observationAnalysis = buildAnalysisObservations(rawObservations);
+      const nextIntelligence = buildFactionIntelligence(
+        normalizedPlayers,
+        observationAnalysis.observations
+      );
+      const nextFactionIds = [...new Set(
+        nextIntelligence
+          .map((player) => player.factionId)
+          .filter((value) => value && value !== 'unknown')
+      )].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+      return { intelligence: nextIntelligence, factionIds: nextFactionIds };
+    }
+
+    let { intelligence, factionIds } = await loadIntelligenceData();
+    let lastUpdatedAt = Date.now();
+    let refreshPromise = null;
+    let refreshTimer = null;
     const currentFactionId = inferFactionId();
     const viewerState = {
       factionId: factionIds.includes(currentFactionId) ? currentFactionId : factionIds[0] || 'all',
@@ -2347,8 +2371,9 @@
       <header class="wih-intel-header">
         <div class="wih-intel-title">
           <strong>Faction Intelligence</strong>
-          <span class="wih-muted">Observed facts only · 24-hour coverage confidence</span>
+          <span class="wih-muted">Observed facts only · 24-hour coverage confidence · <span data-intel-updated>Updated just now</span></span>
         </div>
+        <button type="button" class="wih-intel-action" data-intel-action="refresh">Refresh</button>
         <button type="button" class="wih-intel-close" data-intel-action="close">Close</button>
       </header>
       <main class="wih-intel-content"></main>
@@ -2457,7 +2482,10 @@
               <option value="name" ${viewerState.sort === 'name' ? 'selected' : ''}>Name</option>
             </select>
           </div>
-          <div class="wih-muted" style="margin-top:7px">Showing ${visiblePlayers.length} of ${allFactionPlayers.length} players. “Recent” means directly observed online or idle within one hour. Confidence: high ≥75%, medium ≥40%, otherwise low 24-hour coverage.</div>
+          <div class="wih-intel-context-row">
+            <div class="wih-muted">Showing ${visiblePlayers.length} of ${allFactionPlayers.length} players. “Recent” means directly observed online or idle within one hour. Confidence: high ≥75%, medium ≥40%, otherwise low 24-hour coverage.</div>
+            ${viewerState.factionId === 'all' ? '' : `<a class="wih-intel-action" href="https://www.torn.com/factions.php?step=profile&amp;ID=${encodeURIComponent(viewerState.factionId)}">Open faction ${escapeHtml(viewerState.factionId)}</a>`}
+          </div>
         </section>
 
         <div class="wih-intel-columns">
@@ -2538,15 +2566,80 @@
       });
     }
 
+    function updateRefreshLabel() {
+      const label = viewer.querySelector('[data-intel-updated]');
+      if (label) label.textContent = `Updated ${formatAgo(lastUpdatedAt)}`;
+    }
+
+    async function refreshIntelligence() {
+      if (refreshPromise || !viewer.isConnected) return refreshPromise;
+      const refreshButton = viewer.querySelector('[data-intel-action="refresh"]');
+      const preservedScrollTop = viewer.scrollTop;
+      const activeElement = document.activeElement;
+      const restoreSearchFocus = activeElement?.matches?.('[data-intel-query]');
+      const selectionStart = restoreSearchFocus ? activeElement.selectionStart : null;
+      const selectionEnd = restoreSearchFocus ? activeElement.selectionEnd : null;
+      if (refreshButton) {
+        refreshButton.disabled = true;
+        refreshButton.textContent = 'Refreshing…';
+      }
+
+      refreshPromise = (async () => {
+        const next = await loadIntelligenceData();
+        intelligence = next.intelligence;
+        factionIds = next.factionIds;
+        if (viewerState.factionId !== 'all' && !factionIds.includes(viewerState.factionId)) {
+          viewerState.factionId = factionIds.includes(currentFactionId)
+            ? currentFactionId
+            : factionIds[0] || 'all';
+        }
+        lastUpdatedAt = Date.now();
+        renderIntelligence();
+        updateRefreshLabel();
+        viewer.scrollTop = preservedScrollTop;
+        requestAnimationFrame(() => {
+          if (!viewer.isConnected) return;
+          viewer.scrollTop = preservedScrollTop;
+          if (restoreSearchFocus) {
+            const search = content.querySelector('[data-intel-query]');
+            search?.focus();
+            search?.setSelectionRange?.(selectionStart, selectionEnd);
+          }
+        });
+      })().finally(() => {
+        refreshPromise = null;
+        if (refreshButton?.isConnected) {
+          refreshButton.disabled = false;
+          refreshButton.textContent = 'Refresh';
+        }
+      });
+      return refreshPromise;
+    }
+
     const closeViewer = () => {
+      if (refreshTimer) clearInterval(refreshTimer);
       document.body.style.overflow = previousBodyOverflow;
       viewer.remove();
     };
+    viewer.querySelector('[data-intel-action="refresh"]')?.addEventListener('click', () => {
+      refreshIntelligence().catch(reportError);
+    });
     viewer.querySelector('[data-intel-action="close"]')?.addEventListener('click', closeViewer);
     viewer.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') closeViewer();
     });
     renderIntelligence();
+    updateRefreshLabel();
+    refreshTimer = setInterval(() => {
+      if (!viewer.isConnected) {
+        clearInterval(refreshTimer);
+        return;
+      }
+      updateRefreshLabel();
+      if (Date.now() - lastUpdatedAt >= 60_000) {
+        refreshIntelligence().catch(reportError);
+      }
+    }, 10_000);
   }
 
   function analyzeCollectorHealth(records, now = Date.now()) {
