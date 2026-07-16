@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.3.3
+// @version      0.4.0
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.3.3',
+    version: '0.4.0',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -1512,6 +1512,10 @@
       #wih-intel-viewer .wih-intel-pill.status-traveling,
       #wih-intel-viewer .wih-intel-pill.status-returning,
       #wih-intel-viewer .wih-intel-pill.status-abroad { background: rgba(91,154,255,.2); color: #c4d7ff; }
+      #wih-intel-viewer .wih-intel-pill.priority-ready { background: rgba(51,199,116,.24); color: #9bf4bf; }
+      #wih-intel-viewer .wih-intel-pill.priority-watch { background: rgba(242,185,73,.2); color: #ffd782; }
+      #wih-intel-viewer .wih-intel-pill.priority-unavailable { background: rgba(228,78,78,.18); color: #ffb1b1; }
+      #wih-intel-viewer .wih-intel-pill.priority-stale { background: rgba(255,255,255,.08); color: #c3c7ce; }
       #wih-intel-viewer .wih-target-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; margin-top: 9px; }
       #wih-intel-viewer .wih-target-metric { padding: 7px; border-radius: 7px; background: rgba(0,0,0,.15); }
       #wih-intel-viewer .wih-target-metric strong { display: block; }
@@ -1524,7 +1528,7 @@
       #wih-intel-viewer .wih-intel-empty { padding: 20px 8px; color: var(--wih-muted); text-align: center; }
       @media (min-width: 760px) {
         #wih-intel-viewer .wih-intel-stats { grid-template-columns: repeat(6,minmax(0,1fr)); }
-        #wih-intel-viewer .wih-intel-controls { grid-template-columns: minmax(220px,1.4fr) repeat(4,minmax(130px,.7fr)); }
+        #wih-intel-viewer .wih-intel-controls { grid-template-columns: minmax(220px,1.4fr) repeat(5,minmax(120px,.7fr)); }
         #wih-intel-viewer .wih-intel-controls .wih-intel-search { grid-column: auto; }
         #wih-intel-viewer .wih-intel-columns { grid-template-columns: minmax(0,1.7fr) minmax(300px,.8fr); align-items: start; }
         #wih-intel-viewer .wih-intel-changes-card { position: sticky; top: 68px; }
@@ -2396,6 +2400,57 @@
     return { label: 'low', className: 'low' };
   }
 
+  function intelligenceActionability(player, now = Date.now()) {
+    const unavailableLifeStatuses = new Set([
+      'hospital', 'jail', 'federal', 'fallen', 'traveling', 'returning', 'abroad',
+    ]);
+    const observationAge = player.lastObservedAt
+      ? Math.max(0, now - Number(player.lastObservedAt))
+      : Number.POSITIVE_INFINITY;
+    const activeNow = player.activityStatus === 'online' || player.activityStatus === 'idle';
+    const lifeOkay = player.lifeStatus === 'okay';
+    const unavailable = unavailableLifeStatuses.has(player.lifeStatus);
+    let score = 0;
+
+    if (player.currentlyCovered) score += 15;
+    if (observationAge <= 5 * 60_000) score += 15;
+    else if (observationAge <= APP.coverageGapThresholdMs) score += 8;
+    if (player.activityStatus === 'online') score += 30;
+    else if (player.activityStatus === 'idle') score += 22;
+    else if (player.activityStatus === 'offline') score += 5;
+    if (lifeOkay) score += 25;
+    if (player.recentlyActive) score += 5;
+    score += Math.round(Math.min(10, player.coveragePercent / 10));
+
+    let tier;
+    let label;
+    let reason;
+    if (!player.currentlyCovered) {
+      tier = 'stale';
+      label = 'stale';
+      reason = 'No observation within 15 minutes';
+      score = Math.min(score, 20);
+    } else if (unavailable) {
+      tier = 'unavailable';
+      label = 'unavailable';
+      reason = `Latest observed condition is ${player.lifeStatus}`;
+      score = Math.min(score, 25);
+    } else if (activeNow && lifeOkay) {
+      tier = 'ready';
+      label = 'observed ready';
+      reason = `Fresh ${player.activityStatus} + Okay observation`;
+    } else {
+      tier = 'watch';
+      label = 'watch';
+      reason = lifeOkay
+        ? `Fresh ${player.activityStatus} + Okay observation`
+        : `Fresh observation; condition is ${player.lifeStatus}`;
+      score = Math.min(score, 69);
+    }
+
+    return { score: Math.max(0, Math.min(100, score)), tier, label, reason };
+  }
+
   function buildFactionIntelligence(players, observations, now = Date.now()) {
     const observationsByPlayer = new Map();
     for (const observation of observations) {
@@ -2448,7 +2503,7 @@
         lastObservedAt && now - lastObservedAt <= APP.coverageGapThresholdMs
       );
 
-      return {
+      const intelligencePlayer = {
         playerId: player.playerId,
         name: cleanStoredName(player.name, player.playerId),
         profileUrl: player.profileUrl || `https://www.torn.com/profiles.php?XID=${player.playerId}`,
@@ -2467,6 +2522,8 @@
         transitions,
         latestTransition: transitions.at(-1) || null,
       };
+      intelligencePlayer.actionability = intelligenceActionability(intelligencePlayer, now);
+      return intelligencePlayer;
     });
   }
 
@@ -2518,6 +2575,7 @@
       query: '',
       activity: 'all',
       life: 'all',
+      priority: 'all',
       sort: 'priority',
     };
 
@@ -2561,7 +2619,9 @@
           viewerState.life === 'all' ||
           player.lifeStatus === viewerState.life ||
           (viewerState.life === 'other' && !['okay', 'hospital', 'jail', 'traveling', 'returning', 'abroad'].includes(player.lifeStatus));
-        return queryMatches && activityMatches && lifeMatches;
+        const priorityMatches =
+          viewerState.priority === 'all' || player.actionability.tier === viewerState.priority;
+        return queryMatches && activityMatches && lifeMatches && priorityMatches;
       });
 
       return filtered.sort((a, b) => {
@@ -2573,8 +2633,7 @@
           return Number(b.lastActiveAt || 0) - Number(a.lastActiveAt || 0) || a.name.localeCompare(b.name);
         }
         return (
-          Number(b.currentlyCovered) - Number(a.currentlyCovered) ||
-          statusRank(a.activityStatus) - statusRank(b.activityStatus) ||
+          b.actionability.score - a.actionability.score ||
           Number(b.lastActiveAt || 0) - Number(a.lastActiveAt || 0) ||
           b.coveragePercent - a.coveragePercent ||
           a.name.localeCompare(b.name)
@@ -2585,6 +2644,7 @@
     function renderIntelligence() {
       const allFactionPlayers = factionPlayers();
       const visiblePlayers = filteredPlayers();
+      const observedReady = allFactionPlayers.filter((player) => player.actionability.tier === 'ready').length;
       const online = allFactionPlayers.filter((player) => player.currentlyCovered && player.activityStatus === 'online').length;
       const idle = allFactionPlayers.filter((player) => player.currentlyCovered && player.activityStatus === 'idle').length;
       const recentlyActive = allFactionPlayers.filter((player) => player.recentlyActive).length;
@@ -2603,7 +2663,7 @@
           <div class="wih-intel-stats">
             <div class="wih-intel-stat"><strong>${online}</strong><span class="wih-muted">covered online</span></div>
             <div class="wih-intel-stat"><strong>${idle}</strong><span class="wih-muted">covered idle</span></div>
-            <div class="wih-intel-stat"><strong>${recentlyActive}</strong><span class="wih-muted">active within 1h</span></div>
+            <div class="wih-intel-stat"><strong>${observedReady}</strong><span class="wih-muted">observed ready now</span></div>
             <div class="wih-intel-stat"><strong>${hospital}</strong><span class="wih-muted">latest hospital</span></div>
             <div class="wih-intel-stat"><strong>${traveling}</strong><span class="wih-muted">latest travel/abroad</span></div>
             <div class="wih-intel-stat"><strong>${averageCoverage}%</strong><span class="wih-muted">average 24h coverage</span></div>
@@ -2635,14 +2695,21 @@
               <option value="other" ${viewerState.life === 'other' ? 'selected' : ''}>Other/unknown</option>
             </select>
             <select data-intel-sort aria-label="Sort players">
-              <option value="priority" ${viewerState.sort === 'priority' ? 'selected' : ''}>Target priority</option>
+              <option value="priority" ${viewerState.sort === 'priority' ? 'selected' : ''}>Observed priority</option>
               <option value="recent" ${viewerState.sort === 'recent' ? 'selected' : ''}>Most recently active</option>
               <option value="coverage" ${viewerState.sort === 'coverage' ? 'selected' : ''}>Best coverage</option>
               <option value="name" ${viewerState.sort === 'name' ? 'selected' : ''}>Name</option>
             </select>
+            <select data-intel-priority aria-label="Observed priority filter">
+              <option value="all" ${viewerState.priority === 'all' ? 'selected' : ''}>All priorities</option>
+              <option value="ready" ${viewerState.priority === 'ready' ? 'selected' : ''}>Observed ready</option>
+              <option value="watch" ${viewerState.priority === 'watch' ? 'selected' : ''}>Watch</option>
+              <option value="unavailable" ${viewerState.priority === 'unavailable' ? 'selected' : ''}>Unavailable</option>
+              <option value="stale" ${viewerState.priority === 'stale' ? 'selected' : ''}>Stale/no coverage</option>
+            </select>
           </div>
           <div class="wih-intel-context-row">
-            <div class="wih-muted">Showing ${visiblePlayers.length} of ${allFactionPlayers.length} players. “Recent” means directly observed online or idle within one hour. Confidence: high ≥75%, medium ≥40%, otherwise low 24-hour coverage.</div>
+            <div class="wih-muted">Showing ${visiblePlayers.length} of ${allFactionPlayers.length} players. “Observed ready” means currently covered, online/idle, and Okay; it is not an attack guarantee. Score uses only freshness, activity, condition, recent activity, and coverage confidence.</div>
             ${viewerState.factionId === 'all' ? '' : `<a class="wih-intel-action" href="https://www.torn.com/factions.php?step=profile&amp;ID=${encodeURIComponent(viewerState.factionId)}">Open faction ${escapeHtml(viewerState.factionId)}</a>`}
           </div>
         </section>
@@ -2659,11 +2726,13 @@
                       <div class="wih-muted">${escapeHtml(player.playerId)} · ${player.observationCount} usable observations</div>
                     </div>
                     <div class="wih-intel-pills">
+                      <span class="wih-intel-pill priority-${escapeHtml(player.actionability.tier)}">${escapeHtml(player.actionability.label)} · ${player.actionability.score}</span>
                       <span class="wih-intel-pill status-${escapeHtml(player.activityStatus)}">${escapeHtml(player.activityStatus)}</span>
                       <span class="wih-intel-pill status-${escapeHtml(player.lifeStatus)}">${escapeHtml(player.lifeStatus)}</span>
                       ${player.currentlyCovered ? '' : '<span class="wih-intel-pill">no current coverage</span>'}
                     </div>
                   </div>
+                  <div class="wih-muted" style="margin-top:7px">Priority evidence: ${escapeHtml(player.actionability.reason)}</div>
                   <div class="wih-target-metrics">
                     <div class="wih-target-metric"><strong>${escapeHtml(formatAgo(player.lastOnlineAt))}</strong><span class="wih-muted">last observed online</span></div>
                     <div class="wih-target-metric"><strong>${escapeHtml(formatAgo(player.lastObservedAt))}</strong><span class="wih-muted">last observation</span></div>
@@ -2709,6 +2778,7 @@
         ['[data-intel-faction]', 'factionId'],
         ['[data-intel-activity]', 'activity'],
         ['[data-intel-life]', 'life'],
+        ['[data-intel-priority]', 'priority'],
         ['[data-intel-sort]', 'sort'],
       ]) {
         content.querySelector(selector)?.addEventListener('change', (event) => {
