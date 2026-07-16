@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.1
+// @version      0.2.2
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.1
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.2
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,7 +25,7 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.2.1 PURPOSE
+   * v0.2.2 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
@@ -41,18 +41,22 @@
    * - Render activity timelines with explicit coverage gaps.
    * - Provide 12-hour, 24-hour, 3-day, and all-history ranges.
    * - Let users tap the timeline to inspect its corresponding time.
+   * - Record collector wake-ups and scans to measure background reliability.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.2.1',
+    version: '0.2.2',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
     observationsStore: 'observations',
     playersStore: 'players',
+    healthDbName: 'script-kitty-war-intel-health',
+    healthDbVersion: 1,
+    healthStore: 'collectorHealth',
     settingsKey: 'sk-wih-settings-v1',
     panelId: 'sk-wih-panel',
     styleId: 'sk-wih-style',
@@ -62,6 +66,8 @@
     unchangedObservationHeartbeatMs: 10 * 60_000,
     legacyDuplicateWindowMs: 1_000,
     coverageGapThresholdMs: 15 * 60_000,
+    collectorTickGapThresholdMs: 2.5 * 60_000,
+    collectorHealthKeepDays: 7,
   });
 
   const DEFAULT_SETTINGS = Object.freeze({
@@ -74,6 +80,7 @@
 
   const state = {
     db: null,
+    healthDb: null,
     settings: loadSettings(),
     captureTimer: null,
     pollTimer: null,
@@ -82,6 +89,9 @@
     lastUrl: location.href,
     lastCaptureAt: null,
     lastCaptureCount: 0,
+    lastWakeAt: null,
+    lastPageContentChangeAt: null,
+    lastPageFingerprint: null,
     currentRows: [],
     lastDiscoveryStats: {
       uniqueProfileIds: 0,
@@ -498,11 +508,32 @@
           const store = db.createObjectStore(APP.playersStore, { keyPath: 'playerId' });
           store.createIndex('byLastSeen', 'lastSeenAt', { unique: false });
         }
+
       };
 
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
       request.onblocked = () => reject(new Error('IndexedDB upgrade blocked by another Torn tab.'));
+    });
+  }
+
+  function openHealthDatabase() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(APP.healthDbName, APP.healthDbVersion);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(APP.healthStore)) {
+          const store = db.createObjectStore(APP.healthStore, {
+            keyPath: 'id',
+            autoIncrement: true,
+          });
+          store.createIndex('byRecordedAt', 'recordedAt', { unique: false });
+          store.createIndex('byTypeRecordedAt', ['type', 'recordedAt'], { unique: false });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('Collector health database was blocked.'));
     });
   }
 
@@ -519,6 +550,37 @@
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  async function recordCollectorHealth(type, details = {}) {
+    if (!state.healthDb) return;
+    const recordedAt = Date.now();
+    state.lastWakeAt = recordedAt;
+    const tx = state.healthDb.transaction(APP.healthStore, 'readwrite');
+    tx.objectStore(APP.healthStore).add({
+      type,
+      recordedAt,
+      hidden: document.hidden,
+      relevantPage: pageLooksRelevant(),
+      pageUrl: location.href,
+      factionId: inferFactionId(),
+      lastPageContentChangeAt: state.lastPageContentChangeAt,
+      ...details,
+    });
+    await transactionDone(tx);
+  }
+
+  async function getCollectorHealthRecords(since = 0) {
+    const tx = state.healthDb.transaction(APP.healthStore, 'readonly');
+    const index = tx.objectStore(APP.healthStore).index('byRecordedAt');
+    return requestResult(index.getAll(IDBKeyRange.lowerBound(since)));
+  }
+
+  async function getLatestCollectorHealthRecord() {
+    const tx = state.healthDb.transaction(APP.healthStore, 'readonly');
+    const index = tx.objectStore(APP.healthStore).index('byRecordedAt');
+    const cursor = await requestResult(index.openCursor(null, 'prev'));
+    return cursor?.value ?? null;
   }
 
   async function getLatestObservation(playerId) {
@@ -592,7 +654,11 @@
     const tx = state.db.transaction([APP.playersStore, APP.observationsStore], 'readonly');
     const playersCount = await requestResult(tx.objectStore(APP.playersStore).count());
     const observationsCount = await requestResult(tx.objectStore(APP.observationsStore).count());
-    return { playersCount, observationsCount };
+    const healthTx = state.healthDb.transaction(APP.healthStore, 'readonly');
+    const healthRecordsCount = await requestResult(
+      healthTx.objectStore(APP.healthStore).count()
+    );
+    return { playersCount, observationsCount, healthRecordsCount };
   }
 
   async function cleanPlayerSummaryNames() {
@@ -620,12 +686,12 @@
   }
 
   async function purgeOldObservations() {
-    const cutoff = Date.now() - state.settings.keepDays * 86_400_000;
+    const observationCutoff = Date.now() - state.settings.keepDays * 86_400_000;
+    const healthCutoff = Date.now() - APP.collectorHealthKeepDays * 86_400_000;
     const tx = state.db.transaction(APP.observationsStore, 'readwrite');
-    const index = tx.objectStore(APP.observationsStore).index('byCapturedAt');
-    const request = index.openCursor(IDBKeyRange.upperBound(cutoff));
-
-    await new Promise((resolve, reject) => {
+    const healthTx = state.healthDb.transaction(APP.healthStore, 'readwrite');
+    const deleteBefore = (index, cutoff) => new Promise((resolve, reject) => {
+      const request = index.openCursor(IDBKeyRange.upperBound(cutoff));
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) {
@@ -637,20 +703,43 @@
       };
       request.onerror = () => reject(request.error);
     });
-
-    await transactionDone(tx);
+    await Promise.all([
+      deleteBefore(
+        tx.objectStore(APP.observationsStore).index('byCapturedAt'),
+        observationCutoff
+      ),
+      deleteBefore(
+        healthTx.objectStore(APP.healthStore).index('byRecordedAt'),
+        healthCutoff
+      ),
+    ]);
+    await Promise.all([transactionDone(tx), transactionDone(healthTx)]);
   }
 
   async function performCapture({ manual = false } = {}) {
     if (!state.db) return;
 
     const players = discoverVisiblePlayers();
+    const pageFingerprint = players
+      .map((player) => `${player.playerId}:${player.activityStatus}:${player.lifeStatus}`)
+      .sort()
+      .join('|');
+    const pageContentChanged = pageFingerprint !== state.lastPageFingerprint;
+    if (pageContentChanged) state.lastPageContentChangeAt = Date.now();
+    state.lastPageFingerprint = pageFingerprint;
     state.currentRows = players;
     state.lastCaptureAt = Date.now();
     state.lastCaptureCount = players.length;
 
     let saved = 0;
     if (players.length) saved = await saveObservations(players);
+
+    await recordCollectorHealth('scan', {
+      source: manual ? 'manual' : 'automatic',
+      playersFound: players.length,
+      observationsSaved: saved,
+      pageContentChanged,
+    });
 
     await renderPanel();
 
@@ -689,7 +778,7 @@
           mutation.target?.nodeType === Node.ELEMENT_NODE
             ? mutation.target
             : mutation.target?.parentElement;
-        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-history-viewer, #wih-toast`);
+        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-history-viewer, #wih-health-viewer, #wih-toast`);
       });
 
       // Rendering the HUD changes its own DOM. Ignore those changes so the HUD
@@ -717,6 +806,7 @@
   function startRenderedPagePolling() {
     clearInterval(state.pollTimer);
     state.pollTimer = setInterval(() => {
+      recordCollectorHealth('tick', { source: 'poll' }).catch(reportError);
       if (
         !state.settings.autoCaptureVisiblePage ||
         document.hidden ||
@@ -729,6 +819,9 @@
     }, APP.renderedPagePollMs);
 
     document.addEventListener('visibilitychange', () => {
+      recordCollectorHealth('visibility', {
+        source: document.hidden ? 'hidden' : 'visible',
+      }).catch(reportError);
       if (!document.hidden && pageLooksRelevant()) scheduleCapture();
     });
   }
@@ -1187,6 +1280,76 @@
         #wih-history-viewer .wih-roster-list { grid-template-columns: 1fr; max-height: calc(100vh - 140px); }
         #wih-history-viewer .wih-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       }
+      #wih-health-viewer {
+        --wih-surface: #1b1e25;
+        --wih-surface-2: #232731;
+        --wih-border: rgba(255,255,255,.13);
+        --wih-text: #f3f4f6;
+        --wih-muted: #a7adb7;
+        position: fixed;
+        inset: 0;
+        z-index: 2147483646;
+        overflow: auto;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        background: #111318;
+        color: var(--wih-text);
+        font: 13px/1.4 Arial, sans-serif;
+      }
+      #wih-health-viewer * { box-sizing: border-box; }
+      #wih-health-viewer button { font: inherit; }
+      #wih-health-viewer .wih-health-header {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 56px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--wih-border);
+        background: rgba(17,19,24,.96);
+      }
+      #wih-health-viewer .wih-health-title { min-width: 0; flex: 1; }
+      #wih-health-viewer .wih-health-title strong { display: block; font-size: 16px; }
+      #wih-health-viewer .wih-muted { color: var(--wih-muted); font-size: 11px; }
+      #wih-health-viewer .wih-health-close {
+        min-height: 36px;
+        padding: 7px 11px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface-2);
+        color: var(--wih-text);
+      }
+      #wih-health-viewer .wih-health-content { display: grid; gap: 11px; max-width: 1040px; margin: 0 auto; padding: 12px; }
+      #wih-health-viewer .wih-health-card {
+        padding: 11px;
+        border: 1px solid var(--wih-border);
+        border-radius: 11px;
+        background: var(--wih-surface);
+      }
+      #wih-health-viewer .wih-health-state { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+      #wih-health-viewer .wih-health-state-dot { width: 13px; height: 13px; border-radius: 50%; background: #777d86; }
+      #wih-health-viewer .wih-health-state-dot.is-awake { background: #33c774; box-shadow: 0 0 8px rgba(51,199,116,.7); }
+      #wih-health-viewer .wih-health-state strong { font-size: 17px; }
+      #wih-health-viewer .wih-health-stats { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+      #wih-health-viewer .wih-health-stat { padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-health-viewer .wih-health-stat strong { display: block; font-size: 15px; }
+      #wih-health-viewer .wih-health-bar {
+        position: relative;
+        height: 32px;
+        overflow: hidden;
+        margin-top: 9px;
+        border: 1px solid var(--wih-border);
+        border-radius: 8px;
+        background: repeating-linear-gradient(135deg,#343840,#343840 5px,#292d34 5px,#292d34 10px);
+      }
+      #wih-health-viewer .wih-health-segment { position: absolute; top: 0; bottom: 0; min-width: 1px; background: #299a5c; }
+      #wih-health-viewer .wih-health-event-list { display: grid; gap: 7px; margin-top: 9px; }
+      #wih-health-viewer .wih-health-event { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-health-viewer .wih-health-event strong { text-transform: capitalize; }
+      @media (min-width: 760px) {
+        #wih-health-viewer .wih-health-stats { grid-template-columns: repeat(4, minmax(0,1fr)); }
+      }
     `;
     document.head.append(style);
   }
@@ -1204,7 +1367,13 @@
 
   async function renderPanel() {
     const panel = ensurePanel();
-    const stats = await getDatabaseStats();
+    const [stats, latestHealth] = await Promise.all([
+      getDatabaseStats(),
+      getLatestCollectorHealthRecord(),
+    ]);
+    const collectorRecentlyAwake = Boolean(
+      latestHealth && Date.now() - latestHealth.recordedAt <= APP.collectorTickGapThresholdMs
+    );
 
     panel.classList.toggle('wih-collapsed', state.settings.collapsed);
 
@@ -1234,6 +1403,7 @@
         <div class="wih-actions">
           <button class="wih-button wih-primary" data-action="capture">Capture page</button>
           <button class="wih-button wih-primary" data-action="history">History</button>
+          <button class="wih-button" data-action="health">Collector health</button>
           <button class="wih-button" data-action="copy-export">Copy export</button>
           <button class="wih-button" data-action="view-export">View export</button>
           <button class="wih-button" data-action="import">Import data</button>
@@ -1241,7 +1411,8 @@
 
         <div class="wih-note">
           Local archive: ${stats.playersCount} players · ${stats.observationsCount} observations<br>
-          Last scan: ${escapeHtml(formatDateTime(state.lastCaptureAt))}
+          Last scan: ${escapeHtml(formatDateTime(state.lastCaptureAt))}<br>
+          Collector: ${collectorRecentlyAwake ? 'awake' : 'no recent wake-up'} · ${escapeHtml(formatAgo(latestHealth?.recordedAt))}
         </div>
 
         <div class="wih-list">
@@ -1291,13 +1462,13 @@
             <span>Keep history, days</span>
             <input type="number" min="1" max="365" step="1" data-setting="keepDays" value="${state.settings.keepDays}">
           </label>
-          <button class="wih-button" data-action="purge-old">Purge expired observations</button>
+          <button class="wih-button" data-action="purge-old">Purge expired local history</button>
           <button class="wih-button" data-action="share-export">Share export</button>
           <button class="wih-button" data-action="download-export">Download export file</button>
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.2.1 records only information already rendered on the page. It does not make API calls,
+            v0.2.2 records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
@@ -1327,6 +1498,10 @@
       openHistoryViewer().catch(reportError);
     });
 
+    panel.querySelector('[data-action="health"]')?.addEventListener('click', () => {
+      openCollectorHealthViewer().catch(reportError);
+    });
+
     panel.querySelector('[data-action="download-export"]')?.addEventListener('click', () => {
       exportData().catch(reportError);
     });
@@ -1348,7 +1523,7 @@
     panel.querySelector('[data-action="purge-old"]')?.addEventListener('click', async () => {
       await purgeOldObservations();
       await renderPanel();
-      toast('Expired observations purged.');
+      toast('Expired observation and collector-health history purged.');
     });
 
     panel.querySelector('[data-action="diagnostics"]')?.addEventListener('click', () => {
@@ -1484,6 +1659,13 @@
     const days = Math.floor(hours / 24);
     const remainingHours = hours % 24;
     return remainingHours ? `${days}d ${remainingHours}h` : `${days}d`;
+  }
+
+  function formatAgo(timestamp, now = Date.now()) {
+    if (!timestamp) return 'never';
+    const elapsed = Math.max(0, now - Number(timestamp));
+    if (elapsed < 60_000) return 'just now';
+    return `${formatDuration(elapsed)} ago`;
   }
 
   function historyRangeStart(rangeName, observations, now) {
@@ -1871,10 +2053,191 @@
     await renderDetail();
   }
 
+  function analyzeCollectorHealth(records, now = Date.now()) {
+    const rangeStart = now - 24 * 60 * 60_000;
+    const sorted = records
+      .filter((record) => Number(record.recordedAt || 0) >= rangeStart)
+      .sort((a, b) => Number(a.recordedAt) - Number(b.recordedAt));
+    const totalMs = now - rangeStart;
+    const segments = [];
+    const gaps = [];
+    let coveredMs = 0;
+    let cursor = rangeStart;
+
+    for (let index = 0; index < sorted.length; index += 1) {
+      const from = Math.max(rangeStart, Number(sorted[index].recordedAt));
+      const nextAt = Number(sorted[index + 1]?.recordedAt || now);
+      const to = Math.min(now, nextAt, from + APP.collectorTickGapThresholdMs);
+      if (from > cursor) {
+        if (cursor > rangeStart || index > 0) {
+          gaps.push({ from: cursor, to: from, durationMs: from - cursor });
+        }
+      }
+      if (to > from) {
+        segments.push({ from, to });
+        coveredMs += to - from;
+        cursor = Math.max(cursor, to);
+      }
+    }
+
+    if (sorted.length && cursor < now) {
+      gaps.push({ from: cursor, to: now, durationMs: now - cursor });
+    }
+
+    const scans = sorted.filter((record) => record.type === 'scan');
+    const ticks = sorted.filter((record) => record.type === 'tick');
+    const savedScans = scans.filter((record) => Number(record.observationsSaved || 0) > 0);
+    const latest = sorted.at(-1) || null;
+    const measurementStart = Number(sorted[0]?.recordedAt || now);
+    const measurementMs = Math.max(1, now - measurementStart);
+    const latestScan = scans.at(-1) || null;
+    const latestSavedScan = savedScans.at(-1) || null;
+    const contentChangeTimes = sorted
+      .map((record) => Number(record.lastPageContentChangeAt || 0))
+      .filter(Boolean);
+    const relevantTicks = ticks.filter((record) => record.relevantPage).length;
+    const hiddenTicks = ticks.filter((record) => record.hidden).length;
+    const longestGap = gaps.reduce(
+      (longest, gap) => gap.durationMs > (longest?.durationMs || 0) ? gap : longest,
+      null
+    );
+
+    return {
+      rangeStart,
+      rangeEnd: now,
+      totalMs,
+      sorted,
+      segments,
+      gaps,
+      scans,
+      ticks,
+      latest,
+      latestScan,
+      latestSavedScan,
+      latestContentChangeAt: contentChangeTimes.length ? Math.max(...contentChangeTimes) : null,
+      relevantTickPercent: ticks.length ? Math.round((relevantTicks / ticks.length) * 100) : 0,
+      hiddenTickPercent: ticks.length ? Math.round((hiddenTicks / ticks.length) * 100) : 0,
+      observationsSaved: scans.reduce(
+        (total, record) => total + Number(record.observationsSaved || 0),
+        0
+      ),
+      coveragePercent: Math.min(100, Math.round((coveredMs / measurementMs) * 100)),
+      longestGap,
+      recentlyAwake: Boolean(
+        latest && now - latest.recordedAt <= APP.collectorTickGapThresholdMs
+      ),
+    };
+  }
+
+  async function openCollectorHealthViewer() {
+    document.getElementById('wih-health-viewer')?.remove();
+    const now = Date.now();
+    const records = await getCollectorHealthRecords(now - 24 * 60 * 60_000);
+    const analysis = analyzeCollectorHealth(records, now);
+    const events = [...analysis.sorted]
+      .reverse()
+      .filter((record) => record.type !== 'tick')
+      .slice(0, 40);
+
+    const viewer = document.createElement('div');
+    viewer.id = 'wih-health-viewer';
+    viewer.setAttribute('role', 'dialog');
+    viewer.setAttribute('aria-modal', 'true');
+    viewer.setAttribute('aria-label', 'Collector health');
+    viewer.innerHTML = `
+      <header class="wih-health-header">
+        <div class="wih-health-title">
+          <strong>Collector Health</strong>
+          <span class="wih-muted">Measured userscript activity · last 24 hours</span>
+        </div>
+        <button type="button" class="wih-health-close" data-health-action="close">Close</button>
+      </header>
+      <main class="wih-health-content">
+        <section class="wih-health-card">
+          <div class="wih-health-state">
+            <span class="wih-health-state-dot ${analysis.recentlyAwake ? 'is-awake' : ''}"></span>
+            <div>
+              <strong>${analysis.recentlyAwake ? 'Collector awake recently' : 'No recent collector wake-up'}</strong>
+              <div class="wih-muted">Last measured activity ${escapeHtml(formatAgo(analysis.latest?.recordedAt, now))}</div>
+            </div>
+          </div>
+          <div class="wih-health-stats">
+            <div class="wih-health-stat"><strong>${analysis.coveragePercent}%</strong><span class="wih-muted">measured 24h runtime coverage</span></div>
+            <div class="wih-health-stat"><strong>${analysis.scans.length}</strong><span class="wih-muted">completed scans</span></div>
+            <div class="wih-health-stat"><strong>${analysis.observationsSaved}</strong><span class="wih-muted">observations saved</span></div>
+            <div class="wih-health-stat"><strong>${analysis.gaps.length}</strong><span class="wih-muted">likely suspension gaps</span></div>
+          </div>
+        </section>
+
+        <section class="wih-health-card">
+          <strong>Measured runtime</strong>
+          <div class="wih-health-bar" aria-label="Green is measured userscript runtime; hatched gray is no health coverage">
+            ${analysis.segments.map((segment) => {
+              const left = ((segment.from - analysis.rangeStart) / analysis.totalMs) * 100;
+              const width = ((segment.to - segment.from) / analysis.totalMs) * 100;
+              return `<span class="wih-health-segment" style="left:${left.toFixed(5)}%;width:${width.toFixed(5)}%" title="Measured awake · ${escapeHtml(formatDuration(segment.to - segment.from))}"></span>`;
+            }).join('')}
+          </div>
+          <div class="wih-muted" style="margin-top:7px">Green means the userscript reported activity. Hatched gray means no health record; Android suspension is likely once instrumentation history exists.</div>
+          <div class="wih-muted" style="margin-top:5px">${escapeHtml(formatDateTime(analysis.rangeStart))} → ${escapeHtml(formatDateTime(analysis.rangeEnd))}</div>
+        </section>
+
+        <section class="wih-health-card">
+          <strong>Background evidence</strong>
+          <div class="wih-health-stats" style="margin-top:9px">
+            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestScan?.recordedAt, now))}</strong><span class="wih-muted">last successful scan</span></div>
+            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestSavedScan?.recordedAt, now))}</strong><span class="wih-muted">last saved observation</span></div>
+            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestContentChangeAt, now))}</strong><span class="wih-muted">last rendered status change</span></div>
+            <div class="wih-health-stat"><strong>${analysis.longestGap ? escapeHtml(formatDuration(analysis.longestGap.durationMs)) : 'None'}</strong><span class="wih-muted">longest measured gap</span></div>
+            <div class="wih-health-stat"><strong>${analysis.relevantTickPercent}%</strong><span class="wih-muted">polls with relevant page</span></div>
+            <div class="wih-health-stat"><strong>${analysis.hiddenTickPercent}%</strong><span class="wih-muted">polls reporting hidden tab</span></div>
+          </div>
+        </section>
+
+        <section class="wih-health-card">
+          <strong>Recent collector events</strong>
+          <div class="wih-muted">Newest first · routine one-minute ticks are summarized above</div>
+          <div class="wih-health-event-list">
+            ${events.length ? events.map((record) => {
+              const detail = record.type === 'scan'
+                ? `${record.playersFound || 0} players · ${record.observationsSaved || 0} saved · rendered data ${record.pageContentChanged ? 'changed' : 'unchanged'}`
+                : `Tab reported ${record.source || (record.hidden ? 'hidden' : 'visible')}`;
+              return `
+                <div class="wih-health-event">
+                  <div>
+                    <strong>${escapeHtml(record.type)}</strong>
+                    <div class="wih-muted">${escapeHtml(detail)} · ${record.relevantPage ? 'relevant page' : 'other page'}</div>
+                  </div>
+                  <time class="wih-muted">${escapeHtml(formatDateTime(record.recordedAt))}</time>
+                </div>
+              `;
+            }).join('') : '<div class="wih-muted" style="padding:16px 0">Health history begins with this version. Let it run, switch tabs, minimize Torn PDA, and check back later.</div>'}
+          </div>
+        </section>
+
+        <section class="wih-health-card wih-muted">
+          This proves when the userscript ran and inspected rendered data. It cannot prove that Torn refreshed unchanged server data. Early gray time before v0.2.2 is simply unmeasured, not a confirmed suspension.
+        </section>
+      </main>
+    `;
+    document.body.append(viewer);
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeViewer = () => {
+      document.body.style.overflow = previousBodyOverflow;
+      viewer.remove();
+    };
+    viewer.querySelector('[data-health-action="close"]')?.addEventListener('click', closeViewer);
+    viewer.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeViewer();
+    });
+  }
+
   async function buildExportPayload() {
-    const [players, rawObservations] = await Promise.all([
+    const [players, rawObservations, collectorHealth] = await Promise.all([
       getAllFromStore(APP.playersStore),
       getAllFromStore(APP.observationsStore),
+      getCollectorHealthRecords(0),
     ]);
     const analysis = buildAnalysisObservations(rawObservations);
     const coverageGaps = findCoverageGaps(analysis.observations);
@@ -1893,6 +2256,7 @@
       },
       players,
       observations: rawObservations,
+      collectorHealth,
     };
   }
 
@@ -2038,6 +2402,17 @@
         }
 
         await transactionDone(tx);
+        if (Array.isArray(payload.collectorHealth) && payload.collectorHealth.length) {
+          const healthTx = state.healthDb.transaction(APP.healthStore, 'readwrite');
+          const healthStore = healthTx.objectStore(APP.healthStore);
+          for (const record of payload.collectorHealth) {
+            if (!record?.recordedAt || !record?.type) continue;
+            const clean = { ...record };
+            delete clean.id;
+            healthStore.add(clean);
+          }
+          await transactionDone(healthTx);
+        }
         await renderPanel();
         toast(`Imported ${payload.observations.length} observations.`);
       } catch (error) {
@@ -2050,9 +2425,13 @@
 
   async function copyDiagnostics() {
     const stats = await getDatabaseStats();
-    const rawObservations = await getAllFromStore(APP.observationsStore);
+    const [rawObservations, healthRecords] = await Promise.all([
+      getAllFromStore(APP.observationsStore),
+      getCollectorHealthRecords(Date.now() - 24 * 60 * 60_000),
+    ]);
     const analysis = buildAnalysisObservations(rawObservations);
     const coverageGaps = findCoverageGaps(analysis.observations);
+    const collectorHealth = analyzeCollectorHealth(healthRecords);
     const diagnostics = {
       app: APP.name,
       version: APP.version,
@@ -2081,6 +2460,20 @@
         ignoredLegacyDuplicateCount: analysis.ignoredLegacyDuplicates,
         coverageGapCount: coverageGaps.length,
       },
+      collectorHealthStats: {
+        recordedEvents24h: collectorHealth.sorted.length,
+        tickCount24h: collectorHealth.ticks.length,
+        scanCount24h: collectorHealth.scans.length,
+        observationsSaved24h: collectorHealth.observationsSaved,
+        likelySuspensionGapCount24h: collectorHealth.gaps.length,
+        longestLikelySuspensionGapMs24h: collectorHealth.longestGap?.durationMs || 0,
+        measuredRuntimeCoveragePercent24h: collectorHealth.coveragePercent,
+        relevantPagePollPercent24h: collectorHealth.relevantTickPercent,
+        hiddenTabPollPercent24h: collectorHealth.hiddenTickPercent,
+        lastWakeAt: collectorHealth.latest?.recordedAt || null,
+        lastScanAt: collectorHealth.latestScan?.recordedAt || null,
+        lastRenderedStatusChangeAt: collectorHealth.latestContentChangeAt,
+      },
       userAgent: navigator.userAgent,
       generatedAt: new Date().toISOString(),
     };
@@ -2091,7 +2484,7 @@
 
   async function eraseAllData() {
     const confirmed = window.confirm(
-      'Erase every locally stored War Intelligence HUD player and observation? This cannot be undone unless you exported a backup.'
+      'Erase every locally stored War Intelligence HUD player, observation, and collector-health record? This cannot be undone unless you exported a backup.'
     );
     if (!confirmed) return;
 
@@ -2101,11 +2494,13 @@
     );
     tx.objectStore(APP.playersStore).clear();
     tx.objectStore(APP.observationsStore).clear();
-    await transactionDone(tx);
+    const healthTx = state.healthDb.transaction(APP.healthStore, 'readwrite');
+    healthTx.objectStore(APP.healthStore).clear();
+    await Promise.all([transactionDone(tx), transactionDone(healthTx)]);
 
     state.currentRows = [];
     await renderPanel();
-    toast('All local WIH data erased.');
+    toast('All local WIH data and collector-health history erased.');
   }
 
   function toast(message) {
@@ -2128,8 +2523,10 @@
 
     injectStyles();
     state.db = await openDatabase();
+    state.healthDb = await openHealthDatabase();
     await cleanPlayerSummaryNames();
     await purgeOldObservations();
+    await recordCollectorHealth('init', { source: 'script-start' });
     await renderPanel();
     observePageChanges();
     startRenderedPagePolling();
