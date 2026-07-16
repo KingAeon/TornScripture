@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.3
+// @version      0.3.0
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.3
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.3.0
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,7 +25,7 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.2.3 PURPOSE
+   * v0.3.0 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
@@ -44,13 +44,14 @@
    * - Record collector wake-ups and scans to measure background reliability.
    * - Deduplicate observation writes atomically across Torn PDA tabs.
    * - Attribute health records to persistent tabs and individual script runs.
+   * - Provide a faction-level intelligence dashboard with honest coverage.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.2.3',
+    version: '0.3.0',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -810,7 +811,7 @@
           mutation.target?.nodeType === Node.ELEMENT_NODE
             ? mutation.target
             : mutation.target?.parentElement;
-        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-history-viewer, #wih-health-viewer, #wih-toast`);
+        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-history-viewer, #wih-health-viewer, #wih-intel-viewer, #wih-toast`);
       });
 
       // Rendering the HUD changes its own DOM. Ignore those changes so the HUD
@@ -1402,6 +1403,113 @@
       @media (min-width: 760px) {
         #wih-health-viewer .wih-health-stats { grid-template-columns: repeat(4, minmax(0,1fr)); }
       }
+      #wih-intel-viewer {
+        --wih-surface: #1b1e25;
+        --wih-surface-2: #232731;
+        --wih-border: rgba(255,255,255,.13);
+        --wih-text: #f3f4f6;
+        --wih-muted: #a7adb7;
+        --wih-accent: #ff7a59;
+        position: fixed;
+        inset: 0;
+        z-index: 2147483646;
+        overflow: auto;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        background: #111318;
+        color: var(--wih-text);
+        font: 13px/1.4 Arial, sans-serif;
+      }
+      #wih-intel-viewer * { box-sizing: border-box; }
+      #wih-intel-viewer button,
+      #wih-intel-viewer input,
+      #wih-intel-viewer select { font: inherit; }
+      #wih-intel-viewer .wih-intel-header {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 56px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--wih-border);
+        background: rgba(17,19,24,.96);
+        backdrop-filter: blur(10px);
+      }
+      #wih-intel-viewer .wih-intel-title { min-width: 0; flex: 1; }
+      #wih-intel-viewer .wih-intel-title strong { display: block; font-size: 16px; }
+      #wih-intel-viewer .wih-muted { color: var(--wih-muted); font-size: 11px; }
+      #wih-intel-viewer .wih-intel-close,
+      #wih-intel-viewer .wih-intel-action {
+        min-height: 36px;
+        padding: 7px 11px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface-2);
+        color: var(--wih-text);
+        text-decoration: none;
+      }
+      #wih-intel-viewer .wih-intel-content { display: grid; gap: 11px; max-width: 1260px; margin: 0 auto; padding: 12px; }
+      #wih-intel-viewer .wih-intel-card {
+        padding: 11px;
+        border: 1px solid var(--wih-border);
+        border-radius: 11px;
+        background: var(--wih-surface);
+      }
+      #wih-intel-viewer .wih-intel-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; }
+      #wih-intel-viewer .wih-intel-stat { padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-intel-viewer .wih-intel-stat strong { display: block; font-size: 17px; }
+      #wih-intel-viewer .wih-intel-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+      #wih-intel-viewer .wih-intel-controls .wih-intel-search { grid-column: 1 / -1; }
+      #wih-intel-viewer .wih-intel-controls input,
+      #wih-intel-viewer .wih-intel-controls select {
+        width: 100%;
+        min-height: 40px;
+        padding: 8px 9px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface-2);
+        color: var(--wih-text);
+      }
+      #wih-intel-viewer .wih-intel-columns { display: grid; gap: 11px; }
+      #wih-intel-viewer .wih-intel-list,
+      #wih-intel-viewer .wih-intel-changes { display: grid; gap: 8px; margin-top: 9px; }
+      #wih-intel-viewer .wih-target {
+        padding: 10px;
+        border: 1px solid var(--wih-border);
+        border-radius: 10px;
+        background: var(--wih-surface-2);
+      }
+      #wih-intel-viewer .wih-target-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 9px; }
+      #wih-intel-viewer .wih-target-name { min-width: 0; font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #wih-intel-viewer .wih-intel-pills { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+      #wih-intel-viewer .wih-intel-pill { padding: 3px 7px; border-radius: 99px; background: rgba(255,255,255,.08); text-transform: capitalize; font-size: 11px; font-weight: 700; }
+      #wih-intel-viewer .wih-intel-pill.status-online { background: rgba(51,199,116,.2); color: #8ef0b7; }
+      #wih-intel-viewer .wih-intel-pill.status-idle { background: rgba(242,185,73,.2); color: #ffd782; }
+      #wih-intel-viewer .wih-intel-pill.status-hospital,
+      #wih-intel-viewer .wih-intel-pill.status-jail,
+      #wih-intel-viewer .wih-intel-pill.status-federal { background: rgba(228,78,78,.2); color: #ffaaaa; }
+      #wih-intel-viewer .wih-intel-pill.status-traveling,
+      #wih-intel-viewer .wih-intel-pill.status-returning,
+      #wih-intel-viewer .wih-intel-pill.status-abroad { background: rgba(91,154,255,.2); color: #c4d7ff; }
+      #wih-intel-viewer .wih-target-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; margin-top: 9px; }
+      #wih-intel-viewer .wih-target-metric { padding: 7px; border-radius: 7px; background: rgba(0,0,0,.15); }
+      #wih-intel-viewer .wih-target-metric strong { display: block; }
+      #wih-intel-viewer .wih-confidence-high { color: #8ef0b7; }
+      #wih-intel-viewer .wih-confidence-medium { color: #ffd782; }
+      #wih-intel-viewer .wih-confidence-low { color: #c3c7ce; }
+      #wih-intel-viewer .wih-target-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+      #wih-intel-viewer .wih-transition { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-intel-viewer .wih-transition strong { display: block; }
+      #wih-intel-viewer .wih-intel-empty { padding: 20px 8px; color: var(--wih-muted); text-align: center; }
+      @media (min-width: 760px) {
+        #wih-intel-viewer .wih-intel-stats { grid-template-columns: repeat(6,minmax(0,1fr)); }
+        #wih-intel-viewer .wih-intel-controls { grid-template-columns: minmax(220px,1.4fr) repeat(4,minmax(130px,.7fr)); }
+        #wih-intel-viewer .wih-intel-controls .wih-intel-search { grid-column: auto; }
+        #wih-intel-viewer .wih-intel-columns { grid-template-columns: minmax(0,1.7fr) minmax(300px,.8fr); align-items: start; }
+        #wih-intel-viewer .wih-intel-changes-card { position: sticky; top: 68px; }
+        #wih-intel-viewer .wih-target-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); }
+      }
     `;
     document.head.append(style);
   }
@@ -1454,6 +1562,7 @@
 
         <div class="wih-actions">
           <button class="wih-button wih-primary" data-action="capture">Capture page</button>
+          <button class="wih-button wih-primary" data-action="intelligence">Intelligence</button>
           <button class="wih-button wih-primary" data-action="history">History</button>
           <button class="wih-button" data-action="health">Collector health</button>
           <button class="wih-button" data-action="copy-export">Copy export</button>
@@ -1520,7 +1629,7 @@
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.2.3 records only information already rendered on the page. It does not make API calls,
+            v0.3.0 records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
@@ -1548,6 +1657,10 @@
 
     panel.querySelector('[data-action="history"]')?.addEventListener('click', () => {
       openHistoryViewer().catch(reportError);
+    });
+
+    panel.querySelector('[data-action="intelligence"]')?.addEventListener('click', () => {
+      openFactionIntelligenceViewer().catch(reportError);
     });
 
     panel.querySelector('[data-action="health"]')?.addEventListener('click', () => {
@@ -1805,7 +1918,7 @@
     return `<span class="wih-pill status-${escapeHtml(normalized)}">${escapeHtml(normalized)}</span>`;
   }
 
-  async function openHistoryViewer() {
+  async function openHistoryViewer({ selectedPlayerId = null } = {}) {
     document.getElementById('wih-history-viewer')?.remove();
 
     const players = (await getAllFromStore(APP.playersStore))
@@ -1823,12 +1936,14 @@
 
     const currentFactionId = inferFactionId(location.href);
     const initialPlayer =
-      players.find((player) => player.factionId === currentFactionId) || players[0] || null;
+      players.find((player) => String(player.playerId) === String(selectedPlayerId)) ||
+      players.find((player) => player.factionId === currentFactionId) ||
+      players[0] || null;
     const viewerState = {
       players,
       selectedPlayerId: initialPlayer?.playerId || null,
-      factionId: currentFactionId && players.some((player) => player.factionId === currentFactionId)
-        ? currentFactionId
+      factionId: initialPlayer?.factionId && players.some((player) => player.factionId === initialPlayer.factionId)
+        ? initialPlayer.factionId
         : 'all',
       query: '',
       range: '24h',
@@ -2103,6 +2218,335 @@
     });
     renderRoster();
     await renderDetail();
+  }
+
+  function intelligenceConfidence(coveragePercent) {
+    if (coveragePercent >= 75) return { label: 'high', className: 'high' };
+    if (coveragePercent >= 40) return { label: 'medium', className: 'medium' };
+    return { label: 'low', className: 'low' };
+  }
+
+  function buildFactionIntelligence(players, observations, now = Date.now()) {
+    const observationsByPlayer = new Map();
+    for (const observation of observations) {
+      if (!observationsByPlayer.has(observation.playerId)) {
+        observationsByPlayer.set(observation.playerId, []);
+      }
+      observationsByPlayer.get(observation.playerId).push(observation);
+    }
+
+    return players.map((player) => {
+      const playerObservations = (observationsByPlayer.get(player.playerId) || [])
+        .sort((a, b) => Number(a.capturedAt) - Number(b.capturedAt));
+      const latest = playerObservations.at(-1);
+      const activityStatus =
+        latest?.activityStatus || player.latestActivityStatus || player.latestStatus || 'unknown';
+      const lifeStatus = latest?.lifeStatus || player.latestLifeStatus || 'unknown';
+      let lastOnlineAt = null;
+      let lastActiveAt = null;
+      const transitions = [];
+
+      for (let index = 0; index < playerObservations.length; index += 1) {
+        const observation = playerObservations[index];
+        if (observation.activityStatus === 'online') lastOnlineAt = observation.capturedAt;
+        if (observation.activityStatus === 'online' || observation.activityStatus === 'idle') {
+          lastActiveAt = observation.capturedAt;
+        }
+        const previous = playerObservations[index - 1];
+        if (!previous) continue;
+        const activityChanged = previous.activityStatus !== observation.activityStatus;
+        const lifeChanged = previous.lifeStatus !== observation.lifeStatus;
+        if (!activityChanged && !lifeChanged) continue;
+        transitions.push({
+          playerId: player.playerId,
+          name: cleanStoredName(player.name, player.playerId),
+          capturedAt: observation.capturedAt,
+          previousActivityStatus: previous.activityStatus,
+          activityStatus: observation.activityStatus,
+          previousLifeStatus: previous.lifeStatus,
+          lifeStatus: observation.lifeStatus,
+          activityChanged,
+          lifeChanged,
+        });
+      }
+
+      const timeline = buildPlayerTimeline(playerObservations, '24h', now);
+      const coveragePercent = timeline.coveragePercent;
+      const confidence = intelligenceConfidence(coveragePercent);
+      const lastObservedAt = latest?.capturedAt || player.lastSeenAt || null;
+      const currentlyCovered = Boolean(
+        lastObservedAt && now - lastObservedAt <= APP.coverageGapThresholdMs
+      );
+
+      return {
+        playerId: player.playerId,
+        name: cleanStoredName(player.name, player.playerId),
+        profileUrl: player.profileUrl || `https://www.torn.com/profiles.php?XID=${player.playerId}`,
+        factionId: player.factionId || latest?.factionId || 'unknown',
+        activityStatus,
+        lifeStatus,
+        lastObservedAt,
+        firstObservedAt: playerObservations[0]?.capturedAt || player.firstSeenAt || null,
+        lastOnlineAt,
+        lastActiveAt,
+        recentlyActive: Boolean(lastActiveAt && now - lastActiveAt <= 60 * 60_000),
+        currentlyCovered,
+        coveragePercent,
+        confidence,
+        observationCount: playerObservations.length,
+        transitions,
+        latestTransition: transitions.at(-1) || null,
+      };
+    });
+  }
+
+  function intelligenceTransitionText(transition) {
+    const parts = [];
+    if (transition.activityChanged) {
+      parts.push(`${transition.previousActivityStatus} → ${transition.activityStatus}`);
+    }
+    if (transition.lifeChanged) {
+      parts.push(`${transition.previousLifeStatus} → ${transition.lifeStatus}`);
+    }
+    return parts.join(' · ');
+  }
+
+  async function openFactionIntelligenceViewer() {
+    document.getElementById('wih-intel-viewer')?.remove();
+    const [storedPlayers, rawObservations] = await Promise.all([
+      getAllFromStore(APP.playersStore),
+      getAllFromStore(APP.observationsStore),
+    ]);
+    const normalizedPlayers = storedPlayers.map((player) => ({
+      ...player,
+      name: cleanStoredName(player.name, player.playerId),
+    }));
+    const observationAnalysis = buildAnalysisObservations(rawObservations);
+    const intelligence = buildFactionIntelligence(
+      normalizedPlayers,
+      observationAnalysis.observations
+    );
+    const factionIds = [...new Set(
+      intelligence.map((player) => player.factionId).filter((value) => value && value !== 'unknown')
+    )].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    const currentFactionId = inferFactionId();
+    const viewerState = {
+      factionId: factionIds.includes(currentFactionId) ? currentFactionId : factionIds[0] || 'all',
+      query: '',
+      activity: 'all',
+      life: 'all',
+      sort: 'priority',
+    };
+
+    const viewer = document.createElement('div');
+    viewer.id = 'wih-intel-viewer';
+    viewer.setAttribute('role', 'dialog');
+    viewer.setAttribute('aria-modal', 'true');
+    viewer.setAttribute('aria-label', 'Faction intelligence');
+    viewer.innerHTML = `
+      <header class="wih-intel-header">
+        <div class="wih-intel-title">
+          <strong>Faction Intelligence</strong>
+          <span class="wih-muted">Observed facts only · 24-hour coverage confidence</span>
+        </div>
+        <button type="button" class="wih-intel-close" data-intel-action="close">Close</button>
+      </header>
+      <main class="wih-intel-content"></main>
+    `;
+    document.body.append(viewer);
+    const content = viewer.querySelector('.wih-intel-content');
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function factionPlayers() {
+      return intelligence.filter(
+        (player) => viewerState.factionId === 'all' || player.factionId === viewerState.factionId
+      );
+    }
+
+    function filteredPlayers() {
+      const query = viewerState.query.toLowerCase();
+      const filtered = factionPlayers().filter((player) => {
+        const queryMatches =
+          !query || player.name.toLowerCase().includes(query) || String(player.playerId).includes(query);
+        const activityMatches =
+          viewerState.activity === 'all' ||
+          player.activityStatus === viewerState.activity ||
+          (viewerState.activity === 'recent' && player.recentlyActive);
+        const lifeMatches =
+          viewerState.life === 'all' ||
+          player.lifeStatus === viewerState.life ||
+          (viewerState.life === 'other' && !['okay', 'hospital', 'jail', 'traveling', 'returning', 'abroad'].includes(player.lifeStatus));
+        return queryMatches && activityMatches && lifeMatches;
+      });
+
+      return filtered.sort((a, b) => {
+        if (viewerState.sort === 'name') return a.name.localeCompare(b.name);
+        if (viewerState.sort === 'coverage') {
+          return b.coveragePercent - a.coveragePercent || a.name.localeCompare(b.name);
+        }
+        if (viewerState.sort === 'recent') {
+          return Number(b.lastActiveAt || 0) - Number(a.lastActiveAt || 0) || a.name.localeCompare(b.name);
+        }
+        return (
+          Number(b.currentlyCovered) - Number(a.currentlyCovered) ||
+          statusRank(a.activityStatus) - statusRank(b.activityStatus) ||
+          Number(b.lastActiveAt || 0) - Number(a.lastActiveAt || 0) ||
+          b.coveragePercent - a.coveragePercent ||
+          a.name.localeCompare(b.name)
+        );
+      });
+    }
+
+    function renderIntelligence() {
+      const allFactionPlayers = factionPlayers();
+      const visiblePlayers = filteredPlayers();
+      const online = allFactionPlayers.filter((player) => player.currentlyCovered && player.activityStatus === 'online').length;
+      const idle = allFactionPlayers.filter((player) => player.currentlyCovered && player.activityStatus === 'idle').length;
+      const recentlyActive = allFactionPlayers.filter((player) => player.recentlyActive).length;
+      const hospital = allFactionPlayers.filter((player) => player.lifeStatus === 'hospital').length;
+      const traveling = allFactionPlayers.filter((player) => ['traveling', 'returning', 'abroad'].includes(player.lifeStatus)).length;
+      const averageCoverage = allFactionPlayers.length
+        ? Math.round(allFactionPlayers.reduce((sum, player) => sum + player.coveragePercent, 0) / allFactionPlayers.length)
+        : 0;
+      const recentTransitions = allFactionPlayers
+        .flatMap((player) => player.transitions)
+        .sort((a, b) => Number(b.capturedAt) - Number(a.capturedAt))
+        .slice(0, 15);
+
+      content.innerHTML = `
+        <section class="wih-intel-card">
+          <div class="wih-intel-stats">
+            <div class="wih-intel-stat"><strong>${online}</strong><span class="wih-muted">covered online</span></div>
+            <div class="wih-intel-stat"><strong>${idle}</strong><span class="wih-muted">covered idle</span></div>
+            <div class="wih-intel-stat"><strong>${recentlyActive}</strong><span class="wih-muted">active within 1h</span></div>
+            <div class="wih-intel-stat"><strong>${hospital}</strong><span class="wih-muted">latest hospital</span></div>
+            <div class="wih-intel-stat"><strong>${traveling}</strong><span class="wih-muted">latest travel/abroad</span></div>
+            <div class="wih-intel-stat"><strong>${averageCoverage}%</strong><span class="wih-muted">average 24h coverage</span></div>
+          </div>
+        </section>
+
+        <section class="wih-intel-card">
+          <div class="wih-intel-controls">
+            <input class="wih-intel-search" type="search" data-intel-query placeholder="Search name or ID" value="${escapeHtml(viewerState.query)}" aria-label="Search faction players">
+            <select data-intel-faction aria-label="Faction">
+              <option value="all" ${viewerState.factionId === 'all' ? 'selected' : ''}>All factions</option>
+              ${factionIds.map((factionId) => `<option value="${escapeHtml(factionId)}" ${viewerState.factionId === factionId ? 'selected' : ''}>Faction ${escapeHtml(factionId)}</option>`).join('')}
+            </select>
+            <select data-intel-activity aria-label="Activity filter">
+              <option value="all" ${viewerState.activity === 'all' ? 'selected' : ''}>All activity</option>
+              <option value="online" ${viewerState.activity === 'online' ? 'selected' : ''}>Online</option>
+              <option value="idle" ${viewerState.activity === 'idle' ? 'selected' : ''}>Idle</option>
+              <option value="offline" ${viewerState.activity === 'offline' ? 'selected' : ''}>Offline</option>
+              <option value="recent" ${viewerState.activity === 'recent' ? 'selected' : ''}>Active within 1h</option>
+            </select>
+            <select data-intel-life aria-label="Life-status filter">
+              <option value="all" ${viewerState.life === 'all' ? 'selected' : ''}>All conditions</option>
+              <option value="okay" ${viewerState.life === 'okay' ? 'selected' : ''}>Okay</option>
+              <option value="hospital" ${viewerState.life === 'hospital' ? 'selected' : ''}>Hospital</option>
+              <option value="jail" ${viewerState.life === 'jail' ? 'selected' : ''}>Jail</option>
+              <option value="traveling" ${viewerState.life === 'traveling' ? 'selected' : ''}>Traveling</option>
+              <option value="returning" ${viewerState.life === 'returning' ? 'selected' : ''}>Returning</option>
+              <option value="abroad" ${viewerState.life === 'abroad' ? 'selected' : ''}>Abroad</option>
+              <option value="other" ${viewerState.life === 'other' ? 'selected' : ''}>Other/unknown</option>
+            </select>
+            <select data-intel-sort aria-label="Sort players">
+              <option value="priority" ${viewerState.sort === 'priority' ? 'selected' : ''}>Target priority</option>
+              <option value="recent" ${viewerState.sort === 'recent' ? 'selected' : ''}>Most recently active</option>
+              <option value="coverage" ${viewerState.sort === 'coverage' ? 'selected' : ''}>Best coverage</option>
+              <option value="name" ${viewerState.sort === 'name' ? 'selected' : ''}>Name</option>
+            </select>
+          </div>
+          <div class="wih-muted" style="margin-top:7px">Showing ${visiblePlayers.length} of ${allFactionPlayers.length} players. “Recent” means directly observed online or idle within one hour. Confidence: high ≥75%, medium ≥40%, otherwise low 24-hour coverage.</div>
+        </section>
+
+        <div class="wih-intel-columns">
+          <section class="wih-intel-card">
+            <strong>Observed roster</strong>
+            <div class="wih-intel-list">
+              ${visiblePlayers.length ? visiblePlayers.map((player) => `
+                <article class="wih-target">
+                  <div class="wih-target-head">
+                    <div style="min-width:0">
+                      <div class="wih-target-name">${escapeHtml(player.name)}</div>
+                      <div class="wih-muted">${escapeHtml(player.playerId)} · ${player.observationCount} usable observations</div>
+                    </div>
+                    <div class="wih-intel-pills">
+                      <span class="wih-intel-pill status-${escapeHtml(player.activityStatus)}">${escapeHtml(player.activityStatus)}</span>
+                      <span class="wih-intel-pill status-${escapeHtml(player.lifeStatus)}">${escapeHtml(player.lifeStatus)}</span>
+                      ${player.currentlyCovered ? '' : '<span class="wih-intel-pill">no current coverage</span>'}
+                    </div>
+                  </div>
+                  <div class="wih-target-metrics">
+                    <div class="wih-target-metric"><strong>${escapeHtml(formatAgo(player.lastOnlineAt))}</strong><span class="wih-muted">last observed online</span></div>
+                    <div class="wih-target-metric"><strong>${escapeHtml(formatAgo(player.lastObservedAt))}</strong><span class="wih-muted">last observation</span></div>
+                    <div class="wih-target-metric"><strong>${player.coveragePercent}%</strong><span class="wih-muted">24h coverage</span></div>
+                    <div class="wih-target-metric"><strong class="wih-confidence-${player.confidence.className}">${escapeHtml(player.confidence.label)}</strong><span class="wih-muted">confidence</span></div>
+                  </div>
+                  <div class="wih-muted" style="margin-top:7px">Latest change: ${player.latestTransition ? `${escapeHtml(intelligenceTransitionText(player.latestTransition))} · ${escapeHtml(formatAgo(player.latestTransition.capturedAt))}` : 'none observed'}</div>
+                  <div class="wih-target-actions">
+                    <button type="button" class="wih-intel-action" data-intel-history="${escapeHtml(player.playerId)}">History</button>
+                    <a class="wih-intel-action" href="${escapeHtml(player.profileUrl)}">Profile</a>
+                  </div>
+                </article>
+              `).join('') : '<div class="wih-intel-empty">No players match these filters.</div>'}
+            </div>
+          </section>
+
+          <section class="wih-intel-card wih-intel-changes-card">
+            <strong>Recent observed changes</strong>
+            <div class="wih-muted">Newest first · observations, not predictions</div>
+            <div class="wih-intel-changes">
+              ${recentTransitions.length ? recentTransitions.map((transition) => `
+                <div class="wih-transition">
+                  <div>
+                    <strong>${escapeHtml(transition.name)}</strong>
+                    <div class="wih-muted">${escapeHtml(intelligenceTransitionText(transition))}</div>
+                  </div>
+                  <time class="wih-muted">${escapeHtml(formatAgo(transition.capturedAt))}</time>
+                </div>
+              `).join('') : '<div class="wih-intel-empty">No status changes have been observed for this faction.</div>'}
+            </div>
+          </section>
+        </div>
+      `;
+
+      content.querySelector('[data-intel-query]')?.addEventListener('input', (event) => {
+        viewerState.query = event.currentTarget.value;
+        renderIntelligence();
+        const search = content.querySelector('[data-intel-query]');
+        search?.focus();
+        search?.setSelectionRange?.(viewerState.query.length, viewerState.query.length);
+      });
+      for (const [selector, key] of [
+        ['[data-intel-faction]', 'factionId'],
+        ['[data-intel-activity]', 'activity'],
+        ['[data-intel-life]', 'life'],
+        ['[data-intel-sort]', 'sort'],
+      ]) {
+        content.querySelector(selector)?.addEventListener('change', (event) => {
+          viewerState[key] = event.currentTarget.value;
+          renderIntelligence();
+        });
+      }
+      content.querySelectorAll('[data-intel-history]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const playerId = button.dataset.intelHistory;
+          closeViewer();
+          openHistoryViewer({ selectedPlayerId: playerId }).catch(reportError);
+        });
+      });
+    }
+
+    const closeViewer = () => {
+      document.body.style.overflow = previousBodyOverflow;
+      viewer.remove();
+    };
+    viewer.querySelector('[data-intel-action="close"]')?.addEventListener('click', closeViewer);
+    viewer.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeViewer();
+    });
+    renderIntelligence();
   }
 
   function analyzeCollectorHealth(records, now = Date.now()) {
