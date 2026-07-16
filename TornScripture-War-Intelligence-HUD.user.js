@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.5.0
+// @version      0.5.1
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.5.0',
+    version: '0.5.1',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -415,6 +415,19 @@
     return null;
   }
 
+  function inferCollectorFactionId() {
+    try {
+      const currentUrl = new URL(location.href);
+      const factionId = currentUrl.searchParams.get('ID');
+      const isFactionProfile =
+        /\/factions\.php$/i.test(currentUrl.pathname) &&
+        currentUrl.searchParams.get('step') === 'profile';
+      return isFactionProfile && factionId && /^\d+$/.test(factionId) ? factionId : null;
+    } catch {
+      return null;
+    }
+  }
+
   function pageLooksRelevant() {
     const url = `${location.pathname}${location.search}${location.hash}`.toLowerCase();
     const pageText = normalizeWhitespace(document.body?.innerText).slice(0, 7000).toLowerCase();
@@ -617,7 +630,7 @@
       hidden: document.hidden,
       relevantPage: pageLooksRelevant(),
       pageUrl: location.href,
-      factionId: inferFactionId(),
+      factionId: inferCollectorFactionId(),
       lastPageContentChangeAt: state.lastPageContentChangeAt,
       ...details,
     });
@@ -1555,6 +1568,10 @@
       #wih-intel-viewer .wih-faction-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 7px; }
       #wih-intel-viewer .wih-faction-card-name { min-width: 0; overflow: hidden; font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
       #wih-intel-viewer .wih-faction-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
+      #wih-intel-viewer .wih-monitor-live { background: rgba(51,199,116,.24); color: #9bf4bf; }
+      #wih-intel-viewer .wih-monitor-stale { background: rgba(242,185,73,.2); color: #ffd782; }
+      #wih-intel-viewer .wih-monitor-unmonitored { background: rgba(255,255,255,.08); color: #c3c7ce; }
+      #wih-intel-viewer .wih-monitor-warning { padding: 7px; border: 1px solid rgba(242,185,73,.35); border-radius: 7px; background: rgba(242,185,73,.1); color: #ffd782; font-size: 11px; }
       #wih-intel-viewer .wih-transition { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
       #wih-intel-viewer .wih-transition strong { display: block; }
       #wih-intel-viewer .wih-intel-empty { padding: 20px 8px; color: var(--wih-muted); text-align: center; }
@@ -2573,9 +2590,10 @@
   async function openFactionIntelligenceViewer() {
     document.getElementById('wih-intel-viewer')?.remove();
     async function loadIntelligenceData() {
-      const [storedPlayers, rawObservations] = await Promise.all([
+      const [storedPlayers, rawObservations, collectorHealth] = await Promise.all([
         getAllFromStore(APP.playersStore),
         getAllFromStore(APP.observationsStore),
+        getCollectorHealthRecords(Date.now() - 24 * 60 * 60_000),
       ]);
       const normalizedPlayers = storedPlayers.map((player) => ({
         ...player,
@@ -2594,10 +2612,16 @@
           .map((player) => player.factionId)
           .filter((value) => value && value !== 'unknown')
       )].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
-      return { intelligence: nextIntelligence, factionIds: nextFactionIds };
+      return {
+        intelligence: nextIntelligence,
+        factionIds: nextFactionIds,
+        factionHealthRecords: collectorHealth.filter(
+          (record) => record.factionId && record.relevantPage
+        ),
+      };
     }
 
-    let { intelligence, factionIds } = await loadIntelligenceData();
+    let { intelligence, factionIds, factionHealthRecords } = await loadIntelligenceData();
     let lastUpdatedAt = Date.now();
     let refreshPromise = null;
     let refreshTimer = null;
@@ -2687,8 +2711,34 @@
     function buildFactionSummaries() {
       const watchedPlayers = watchedPlayerIdSet();
       const watchedFactions = watchedFactionIdSet();
+      const now = Date.now();
       return factionIds.map((factionId) => {
         const players = intelligence.filter((player) => player.factionId === factionId);
+        const healthRecords = factionHealthRecords
+          .filter((record) => String(record.factionId) === String(factionId))
+          .sort((a, b) => Number(a.recordedAt) - Number(b.recordedAt));
+        const healthAnalysis = analyzeCollectorHealth(healthRecords, now);
+        const latestHealthAt = Number(healthAnalysis.latest?.recordedAt || 0);
+        const latestSuccessfulScan = [...healthAnalysis.scans]
+          .reverse()
+          .find((record) => Number(record.playersFound || 0) > 0) || null;
+        const recentHealthRecords = healthRecords.filter(
+          (record) => now - Number(record.recordedAt || 0) <= APP.collectorTickGapThresholdMs
+        );
+        const activeTabCount = new Set(
+          recentHealthRecords.map((record) => record.tabId || 'legacy-tab')
+        ).size;
+        const tabCount24h = new Set(
+          healthRecords.map((record) => record.tabId || 'legacy-tab')
+        ).size;
+        const runCount24h = new Set(
+          healthRecords.map((record) => record.runId || 'legacy-run')
+        ).size;
+        const monitorStatus = latestHealthAt && now - latestHealthAt <= APP.collectorTickGapThresholdMs
+          ? 'live'
+          : latestHealthAt
+            ? 'stale'
+            : 'unmonitored';
         const latestObservedAt = Math.max(
           0,
           ...players.map((player) => Number(player.lastObservedAt || 0))
@@ -2708,6 +2758,19 @@
           watchedTargetCount: players.filter((player) => watchedPlayers.has(String(player.playerId))).length,
           averageCoverage,
           latestObservedAt,
+          monitorStatus,
+          monitorLabel: monitorStatus === 'live'
+            ? 'actively monitored'
+            : monitorStatus === 'stale'
+              ? 'collector stale'
+              : 'not monitored',
+          latestHealthAt: latestHealthAt || null,
+          latestScanAt: healthAnalysis.latestScan?.recordedAt || null,
+          latestSuccessfulScanAt: latestSuccessfulScan?.recordedAt || null,
+          activeTabCount,
+          tabCount24h,
+          runCount24h,
+          longestGapMs: healthAnalysis.longestGap?.durationMs || 0,
         };
       }).sort(
         (a, b) =>
@@ -2814,7 +2877,10 @@
                     <div class="wih-faction-card-name">${escapeHtml(faction.name)}</div>
                     <div class="wih-muted">ID ${escapeHtml(faction.factionId)} · ${faction.playerCount} observed players</div>
                   </div>
-                  <span class="wih-intel-pill ${faction.pinned ? 'priority-watch' : ''}">${faction.pinned ? '★ pinned' : 'observed'}</span>
+                  <div class="wih-intel-pills">
+                    <span class="wih-intel-pill wih-monitor-${escapeHtml(faction.monitorStatus)}">${escapeHtml(faction.monitorLabel)}</span>
+                    <span class="wih-intel-pill ${faction.pinned ? 'priority-watch' : ''}">${faction.pinned ? '★ pinned' : 'observed'}</span>
+                  </div>
                 </div>
                 <div class="wih-faction-metrics">
                   <div class="wih-target-metric"><strong>${faction.readyCount}</strong><span class="wih-muted">observed ready</span></div>
@@ -2822,7 +2888,12 @@
                   <div class="wih-target-metric"><strong>${faction.watchedTargetCount}</strong><span class="wih-muted">watched targets</span></div>
                   <div class="wih-target-metric"><strong>${faction.averageCoverage}%</strong><span class="wih-muted">average 24h coverage</span></div>
                 </div>
-                <div class="wih-muted">Latest observation ${escapeHtml(formatAgo(faction.latestObservedAt))}</div>
+                <div class="wih-muted">
+                  Latest observation ${escapeHtml(formatAgo(faction.latestObservedAt))} · collector wake ${escapeHtml(formatAgo(faction.latestHealthAt))}<br>
+                  Last faction scan ${escapeHtml(formatAgo(faction.latestSuccessfulScanAt))} · ${faction.activeTabCount} active / ${faction.tabCount24h} tab${faction.tabCount24h === 1 ? '' : 's'} · ${faction.runCount24h} run${faction.runCount24h === 1 ? '' : 's'} in 24h
+                  ${faction.longestGapMs >= APP.collectorTickGapThresholdMs ? `<br>Longest measured collector gap: ${escapeHtml(formatDuration(faction.longestGapMs))}` : ''}
+                </div>
+                ${faction.pinned && faction.monitorStatus !== 'live' ? `<div class="wih-monitor-warning">Pinned faction has no collector tab reporting within ${escapeHtml(formatDuration(APP.collectorTickGapThresholdMs))}.</div>` : ''}
                 <div class="wih-target-actions" style="margin-top:0">
                   <button type="button" class="wih-intel-action" data-intel-select-faction="${escapeHtml(faction.factionId)}">${viewerState.factionId === faction.factionId ? 'Selected' : 'Select'}</button>
                   <button type="button" class="wih-intel-action" data-intel-watch-faction="${escapeHtml(faction.factionId)}">${faction.pinned ? 'Unpin' : 'Pin'}</button>
@@ -3080,6 +3151,7 @@
         previousTierByPlayer = nextTierByPlayer;
         intelligence = next.intelligence;
         factionIds = next.factionIds;
+        factionHealthRecords = next.factionHealthRecords;
         if (viewerState.factionId !== 'all' && !factionIds.includes(viewerState.factionId)) {
           viewerState.factionId = factionIds.includes(currentFactionId)
             ? currentFactionId
