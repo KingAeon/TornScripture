@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.0
+// @version      0.2.1
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.0
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.1
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,7 +25,7 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.2.0 PURPOSE
+   * v0.2.1 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
@@ -39,13 +39,15 @@
    * - Provide Android-friendly copy, view, share, and text export paths.
    * - Provide a full-screen, mobile-first player history viewer.
    * - Render activity timelines with explicit coverage gaps.
+   * - Provide 12-hour, 24-hour, 3-day, and all-history ranges.
+   * - Let users tap the timeline to inspect its corresponding time.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.2.0',
+    version: '0.2.1',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -1138,12 +1140,34 @@
         border: 1px solid var(--wih-border);
         border-radius: 8px;
         background: repeating-linear-gradient(135deg, #343840, #343840 5px, #292d34 5px, #292d34 10px);
+        cursor: crosshair;
+        touch-action: manipulation;
       }
+      #wih-history-viewer .wih-timeline:focus-visible { outline: 2px solid var(--wih-accent); outline-offset: 2px; }
       #wih-history-viewer .wih-segment { height: 100%; min-width: 1px; }
       #wih-history-viewer .wih-segment.status-online { background: #299a5c; }
       #wih-history-viewer .wih-segment.status-idle { background: #c08a27; }
       #wih-history-viewer .wih-segment.status-offline { background: #626873; }
       #wih-history-viewer .wih-segment.status-unknown { background: transparent; }
+      #wih-history-viewer .wih-timeline-marker {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        z-index: 2;
+        width: 2px;
+        transform: translateX(-1px);
+        background: #fff;
+        box-shadow: 0 0 0 1px rgba(0,0,0,.48), 0 0 7px rgba(255,255,255,.85);
+        pointer-events: none;
+      }
+      #wih-history-viewer .wih-marker-readout {
+        min-height: 18px;
+        margin-top: 6px;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        text-align: center;
+      }
       #wih-history-viewer .wih-timeline-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 7px; }
       #wih-history-viewer .wih-legend-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; }
       #wih-history-viewer .wih-event-list { display: grid; gap: 7px; }
@@ -1273,7 +1297,7 @@
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.2.0 records only information already rendered on the page. It does not make API calls,
+            v0.2.1 records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
@@ -1463,8 +1487,9 @@
   }
 
   function historyRangeStart(rangeName, observations, now) {
+    if (rangeName === '12h') return now - 12 * 60 * 60_000;
     if (rangeName === '24h') return now - 24 * 60 * 60_000;
-    if (rangeName === '7d') return now - 7 * 24 * 60 * 60_000;
+    if (rangeName === '3d') return now - 3 * 24 * 60 * 60_000;
     return Number(observations[0]?.capturedAt || now);
   }
 
@@ -1573,6 +1598,7 @@
         : 'all',
       query: '',
       range: '24h',
+      markerTimestamp: null,
       detailRequest: 0,
     };
 
@@ -1662,6 +1688,7 @@
         const first = filteredPlayers()[0];
         if (first && !filteredPlayers().some((player) => player.playerId === viewerState.selectedPlayerId)) {
           viewerState.selectedPlayerId = first.playerId;
+          viewerState.markerTimestamp = null;
           renderDetail().catch(reportError);
         }
         renderRoster();
@@ -1669,6 +1696,7 @@
       rosterElement.querySelectorAll('[data-history-player]').forEach((button) => {
         button.addEventListener('click', () => {
           viewerState.selectedPlayerId = button.dataset.historyPlayer;
+          viewerState.markerTimestamp = null;
           renderRoster();
           renderDetail().catch(reportError);
           if (window.innerWidth < 760) detailElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1691,6 +1719,14 @@
       if (requestNumber !== viewerState.detailRequest || !viewer.isConnected) return;
       const analysis = buildAnalysisObservations(rawObservations);
       const timeline = buildPlayerTimeline(analysis.observations, viewerState.range);
+      const markerTimestamp =
+        viewerState.markerTimestamp >= timeline.rangeStart &&
+        viewerState.markerTimestamp <= timeline.rangeEnd
+          ? viewerState.markerTimestamp
+          : null;
+      const markerPercent = markerTimestamp === null
+        ? null
+        : ((markerTimestamp - timeline.rangeStart) / timeline.totalMs) * 100;
       const latest = analysis.observations.at(-1) || {
         activityStatus: player.latestActivityStatus,
         lifeStatus: player.latestLifeStatus,
@@ -1725,11 +1761,16 @@
 
         <section class="wih-card">
           <div class="wih-range-row" aria-label="Timeline range">
-            ${['24h', '7d', 'all'].map((rangeName) => `
-              <button type="button" class="wih-range-button" data-history-range="${rangeName}" aria-pressed="${viewerState.range === rangeName}">${rangeName === 'all' ? 'All' : rangeName}</button>
+            ${[
+              ['12h', '12hr'],
+              ['24h', '24hr'],
+              ['3d', '3 days'],
+              ['all', 'All'],
+            ].map(([rangeName, rangeLabel]) => `
+              <button type="button" class="wih-range-button" data-history-range="${rangeName}" aria-pressed="${viewerState.range === rangeName}">${rangeLabel}</button>
             `).join('')}
           </div>
-          <div class="wih-timeline" aria-label="Activity timeline from ${escapeHtml(formatDateTime(timeline.rangeStart))} to ${escapeHtml(formatDateTime(timeline.rangeEnd))}">
+          <div class="wih-timeline" data-history-timeline tabindex="0" role="slider" aria-label="Activity timeline. Tap to inspect a time." aria-valuemin="${timeline.rangeStart}" aria-valuemax="${timeline.rangeEnd}" ${markerTimestamp === null ? '' : `aria-valuenow="${markerTimestamp}" aria-valuetext="${escapeHtml(formatDateTime(markerTimestamp))}"`}>
             ${timeline.segments.map((segment) => {
               const width = ((segment.to - segment.from) / timeline.totalMs) * 100;
               const label = segment.isGap
@@ -1737,7 +1778,9 @@
                 : `${segment.status} · ${formatDuration(segment.to - segment.from)}`;
               return `<span class="wih-segment status-${escapeHtml(segment.status)}" style="width:${width.toFixed(5)}%" title="${escapeHtml(label)}"></span>`;
             }).join('')}
+            ${markerPercent === null ? '' : `<span class="wih-timeline-marker" style="left:${markerPercent.toFixed(5)}%" aria-hidden="true"></span>`}
           </div>
+          <div class="wih-marker-readout" data-history-marker-readout>${markerTimestamp === null ? 'Tap the timeline to inspect a time' : escapeHtml(formatDateTime(markerTimestamp))}</div>
           <div class="wih-timeline-legend wih-muted">
             <span><i class="wih-legend-swatch" style="background:#299a5c"></i>Online</span>
             <span><i class="wih-legend-swatch" style="background:#c08a27"></i>Idle</span>
@@ -1774,8 +1817,49 @@
       detailElement.querySelectorAll('[data-history-range]').forEach((button) => {
         button.addEventListener('click', () => {
           viewerState.range = button.dataset.historyRange;
+          viewerState.markerTimestamp = null;
           renderDetail().catch(reportError);
         });
+      });
+
+      const timelineElement = detailElement.querySelector('[data-history-timeline]');
+      const setTimelineMarker = (ratio) => {
+        const boundedRatio = Math.max(0, Math.min(1, ratio));
+        viewerState.markerTimestamp = Math.round(
+          timeline.rangeStart + boundedRatio * timeline.totalMs
+        );
+        let markerElement = timelineElement?.querySelector('.wih-timeline-marker');
+        if (!markerElement && timelineElement) {
+          markerElement = document.createElement('span');
+          markerElement.className = 'wih-timeline-marker';
+          markerElement.setAttribute('aria-hidden', 'true');
+          timelineElement.append(markerElement);
+        }
+        if (markerElement) markerElement.style.left = `${(boundedRatio * 100).toFixed(5)}%`;
+        const formattedTime = formatDateTime(viewerState.markerTimestamp);
+        const readout = detailElement.querySelector('[data-history-marker-readout]');
+        if (readout) readout.textContent = formattedTime;
+        timelineElement?.setAttribute('aria-valuenow', String(viewerState.markerTimestamp));
+        timelineElement?.setAttribute('aria-valuetext', formattedTime);
+      };
+      timelineElement?.addEventListener('click', (event) => {
+        const rect = timelineElement.getBoundingClientRect();
+        if (!rect.width) return;
+        setTimelineMarker((event.clientX - rect.left) / rect.width);
+      });
+      timelineElement?.addEventListener('keydown', (event) => {
+        const currentMarkerTimestamp = viewerState.markerTimestamp;
+        const currentRatio = currentMarkerTimestamp === null
+          ? 0.5
+          : (currentMarkerTimestamp - timeline.rangeStart) / timeline.totalMs;
+        let nextRatio = currentRatio;
+        if (event.key === 'ArrowLeft') nextRatio -= 0.01;
+        else if (event.key === 'ArrowRight') nextRatio += 0.01;
+        else if (event.key === 'Home') nextRatio = 0;
+        else if (event.key === 'End') nextRatio = 1;
+        else return;
+        event.preventDefault();
+        setTimelineMarker(nextRatio);
       });
     }
 
