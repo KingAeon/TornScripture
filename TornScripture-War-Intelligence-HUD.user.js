@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.4.0
+// @version      0.4.1
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.4.0',
+    version: '0.4.1',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -80,6 +80,7 @@
     keepDays: 30,
     localTime: true,
     hudPosition: null,
+    watchedPlayerIds: [],
   });
 
   function createCollectorId(prefix) {
@@ -133,9 +134,16 @@
 
   function loadSettings() {
     try {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(APP.settingsKey) || '{}') };
+      const settings = {
+        ...DEFAULT_SETTINGS,
+        ...JSON.parse(localStorage.getItem(APP.settingsKey) || '{}'),
+      };
+      settings.watchedPlayerIds = Array.isArray(settings.watchedPlayerIds)
+        ? [...new Set(settings.watchedPlayerIds.map(String))]
+        : [];
+      return settings;
     } catch {
-      return { ...DEFAULT_SETTINGS };
+      return { ...DEFAULT_SETTINGS, watchedPlayerIds: [] };
     }
   }
 
@@ -1523,6 +1531,9 @@
       #wih-intel-viewer .wih-confidence-medium { color: #ffd782; }
       #wih-intel-viewer .wih-confidence-low { color: #c3c7ce; }
       #wih-intel-viewer .wih-target-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+      #wih-intel-viewer .wih-watchlist-grid { display: grid; gap: 7px; margin-top: 9px; }
+      #wih-intel-viewer .wih-watch-target { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 9px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-intel-viewer .wih-changed-marker { color: #ffd782; font-size: 11px; font-weight: 700; }
       #wih-intel-viewer .wih-transition { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
       #wih-intel-viewer .wih-transition strong { display: block; }
       #wih-intel-viewer .wih-intel-empty { padding: 20px 8px; color: var(--wih-muted); text-align: center; }
@@ -2569,6 +2580,11 @@
     let lastUpdatedAt = Date.now();
     let refreshPromise = null;
     let refreshTimer = null;
+    let previousTierByPlayer = new Map(
+      intelligence.map((player) => [String(player.playerId), player.actionability.tier])
+    );
+    const changedPlayerIds = new Set();
+    const priorityChanges = [];
     const currentFactionId = inferFactionId();
     const viewerState = {
       factionId: factionIds.includes(currentFactionId) ? currentFactionId : factionIds[0] || 'all',
@@ -2599,6 +2615,19 @@
     const content = viewer.querySelector('.wih-intel-content');
     const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+
+    function watchedPlayerIdSet() {
+      return new Set((state.settings.watchedPlayerIds || []).map(String));
+    }
+
+    function toggleWatchedPlayer(playerId) {
+      const normalizedId = String(playerId);
+      const watched = watchedPlayerIdSet();
+      if (watched.has(normalizedId)) watched.delete(normalizedId);
+      else watched.add(normalizedId);
+      state.settings.watchedPlayerIds = [...watched];
+      saveSettings();
+    }
 
     function factionPlayers() {
       return intelligence.filter(
@@ -2644,6 +2673,19 @@
     function renderIntelligence() {
       const allFactionPlayers = factionPlayers();
       const visiblePlayers = filteredPlayers();
+      const watchedIds = watchedPlayerIdSet();
+      const watchedPlayers = allFactionPlayers
+        .filter((player) => watchedIds.has(String(player.playerId)))
+        .sort(
+          (a, b) =>
+            b.actionability.score - a.actionability.score || a.name.localeCompare(b.name)
+        );
+      const visiblePriorityChanges = priorityChanges
+        .filter(
+          (change) =>
+            viewerState.factionId === 'all' || change.factionId === viewerState.factionId
+        )
+        .slice(0, 12);
       const observedReady = allFactionPlayers.filter((player) => player.actionability.tier === 'ready').length;
       const online = allFactionPlayers.filter((player) => player.currentlyCovered && player.activityStatus === 'online').length;
       const idle = allFactionPlayers.filter((player) => player.currentlyCovered && player.activityStatus === 'idle').length;
@@ -2714,6 +2756,32 @@
           </div>
         </section>
 
+        <section class="wih-intel-card">
+          <strong>Watched targets</strong>
+          <div class="wih-muted">Persistent pins · visual alerts while Intelligence is open</div>
+          <div class="wih-watchlist-grid">
+            ${watchedPlayers.length ? watchedPlayers.map((player) => `
+              <div class="wih-watch-target">
+                <div style="min-width:0">
+                  <div class="wih-target-name">${escapeHtml(player.name)}</div>
+                  <div class="wih-intel-pills" style="justify-content:flex-start;margin-top:5px">
+                    <span class="wih-intel-pill priority-${escapeHtml(player.actionability.tier)}">${escapeHtml(player.actionability.label)} · ${player.actionability.score}</span>
+                    <span class="wih-intel-pill status-${escapeHtml(player.activityStatus)}">${escapeHtml(player.activityStatus)}</span>
+                    <span class="wih-intel-pill status-${escapeHtml(player.lifeStatus)}">${escapeHtml(player.lifeStatus)}</span>
+                  </div>
+                  ${changedPlayerIds.has(String(player.playerId)) ? '<div class="wih-changed-marker" style="margin-top:5px">Changed since Intelligence opened</div>' : ''}
+                </div>
+                <div class="wih-target-actions" style="justify-content:flex-end;margin-top:0">
+                  <button type="button" class="wih-intel-action" data-intel-history="${escapeHtml(player.playerId)}">History</button>
+                  <a class="wih-intel-action" href="${escapeHtml(player.profileUrl)}">Profile</a>
+                  ${player.factionId && player.factionId !== 'unknown' ? `<a class="wih-intel-action" href="https://www.torn.com/factions.php?step=profile&amp;ID=${encodeURIComponent(player.factionId)}">Faction</a>` : ''}
+                  <button type="button" class="wih-intel-action" data-intel-watch="${escapeHtml(player.playerId)}">Unpin</button>
+                </div>
+              </div>
+            `).join('') : '<div class="wih-intel-empty">Pin a player from the observed roster to add them here.</div>'}
+          </div>
+        </section>
+
         <div class="wih-intel-columns">
           <section class="wih-intel-card">
             <strong>Observed roster</strong>
@@ -2724,6 +2792,7 @@
                     <div style="min-width:0">
                       <div class="wih-target-name">${escapeHtml(player.name)}</div>
                       <div class="wih-muted">${escapeHtml(player.playerId)} · ${player.observationCount} usable observations</div>
+                      ${changedPlayerIds.has(String(player.playerId)) ? '<div class="wih-changed-marker">Changed since opened</div>' : ''}
                     </div>
                     <div class="wih-intel-pills">
                       <span class="wih-intel-pill priority-${escapeHtml(player.actionability.tier)}">${escapeHtml(player.actionability.label)} · ${player.actionability.score}</span>
@@ -2741,8 +2810,10 @@
                   </div>
                   <div class="wih-muted" style="margin-top:7px">Latest change: ${player.latestTransition ? `${escapeHtml(intelligenceTransitionText(player.latestTransition))} · ${escapeHtml(formatAgo(player.latestTransition.capturedAt))}` : 'none observed'}</div>
                   <div class="wih-target-actions">
+                    <button type="button" class="wih-intel-action" data-intel-watch="${escapeHtml(player.playerId)}">${watchedIds.has(String(player.playerId)) ? '★ Pinned' : '☆ Pin'}</button>
                     <button type="button" class="wih-intel-action" data-intel-history="${escapeHtml(player.playerId)}">History</button>
                     <a class="wih-intel-action" href="${escapeHtml(player.profileUrl)}">Profile</a>
+                    ${player.factionId && player.factionId !== 'unknown' ? `<a class="wih-intel-action" href="https://www.torn.com/factions.php?step=profile&amp;ID=${encodeURIComponent(player.factionId)}">Faction</a>` : ''}
                   </div>
                 </article>
               `).join('') : '<div class="wih-intel-empty">No players match these filters.</div>'}
@@ -2750,6 +2821,20 @@
           </section>
 
           <section class="wih-intel-card wih-intel-changes-card">
+            <strong>Priority changes this session</strong>
+            <div class="wih-muted">Detected while this Intelligence window is open</div>
+            <div class="wih-intel-changes">
+              ${visiblePriorityChanges.length ? visiblePriorityChanges.map((change) => `
+                <div class="wih-transition">
+                  <div>
+                    <strong>${escapeHtml(change.name)}${change.watched ? ' ★' : ''}</strong>
+                    <div class="wih-muted">${escapeHtml(change.from)} → ${escapeHtml(change.to)}</div>
+                  </div>
+                  <time class="wih-muted">${escapeHtml(formatAgo(change.changedAt))}</time>
+                </div>
+              `).join('') : '<div class="wih-intel-empty">No priority changes detected since opening.</div>'}
+            </div>
+            <div style="height:10px"></div>
             <strong>Recent observed changes</strong>
             <div class="wih-muted">Newest first · observations, not predictions</div>
             <div class="wih-intel-changes">
@@ -2786,6 +2871,14 @@
           renderIntelligence();
         });
       }
+      content.querySelectorAll('[data-intel-watch]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const preservedScrollTop = viewer.scrollTop;
+          toggleWatchedPlayer(button.dataset.intelWatch);
+          renderIntelligence();
+          viewer.scrollTop = preservedScrollTop;
+        });
+      });
       content.querySelectorAll('[data-intel-history]').forEach((button) => {
         button.addEventListener('click', () => {
           const playerId = button.dataset.intelHistory;
@@ -2815,6 +2908,30 @@
 
       refreshPromise = (async () => {
         const next = await loadIntelligenceData();
+        const watchedIds = watchedPlayerIdSet();
+        const readyAlerts = [];
+        const nextTierByPlayer = new Map();
+        for (const player of next.intelligence) {
+          const playerId = String(player.playerId);
+          const nextTier = player.actionability.tier;
+          const previousTier = previousTierByPlayer.get(playerId);
+          nextTierByPlayer.set(playerId, nextTier);
+          if (!previousTier || previousTier === nextTier) continue;
+          const watched = watchedIds.has(playerId);
+          changedPlayerIds.add(playerId);
+          priorityChanges.unshift({
+            playerId,
+            name: player.name,
+            factionId: player.factionId,
+            from: previousTier,
+            to: nextTier,
+            watched,
+            changedAt: Date.now(),
+          });
+          if (watched && nextTier === 'ready') readyAlerts.push(player.name);
+        }
+        if (priorityChanges.length > 100) priorityChanges.length = 100;
+        previousTierByPlayer = nextTierByPlayer;
         intelligence = next.intelligence;
         factionIds = next.factionIds;
         if (viewerState.factionId !== 'all' && !factionIds.includes(viewerState.factionId)) {
@@ -2825,6 +2942,10 @@
         lastUpdatedAt = Date.now();
         renderIntelligence();
         updateRefreshLabel();
+        if (readyAlerts.length) {
+          const names = readyAlerts.slice(0, 3).join(', ');
+          toast(`${names}${readyAlerts.length > 3 ? ` +${readyAlerts.length - 3} more` : ''} now observed ready.`);
+        }
         viewer.scrollTop = preservedScrollTop;
         requestAnimationFrame(() => {
           if (!viewer.isConnected) return;
