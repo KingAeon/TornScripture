@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.3
-// @description  Locally records enemy activity already visible on Torn faction/war pages and displays a compact HUD.
+// @version      0.2.0
+// @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.1.3
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.0
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,7 +25,7 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.1.3 PURPOSE
+   * v0.2.0 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
@@ -37,13 +37,15 @@
    * - Normalize legacy observations for analysis without deleting raw history.
    * - Distinguish Abroad, Traveling, and Returning life states.
    * - Provide Android-friendly copy, view, share, and text export paths.
+   * - Provide a full-screen, mobile-first player history viewer.
+   * - Render activity timelines with explicit coverage gaps.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.1.3',
+    version: '0.2.0',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -685,7 +687,7 @@
           mutation.target?.nodeType === Node.ELEMENT_NODE
             ? mutation.target
             : mutation.target?.parentElement;
-        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-toast`);
+        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-history-viewer, #wih-toast`);
       });
 
       // Rendering the HUD changes its own DOM. Ignore those changes so the HUD
@@ -983,6 +985,184 @@
         background: #2b2f36;
         color: #fff;
       }
+      #wih-history-viewer {
+        --wih-bg: #111318;
+        --wih-surface: #1b1e25;
+        --wih-surface-2: #232731;
+        --wih-border: rgba(255,255,255,.13);
+        --wih-text: #f3f4f6;
+        --wih-muted: #a7adb7;
+        --wih-accent: #ff7a59;
+        position: fixed;
+        inset: 0;
+        z-index: 2147483646;
+        overflow: auto;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        background: var(--wih-bg);
+        color: var(--wih-text);
+        font: 13px/1.4 Arial, sans-serif;
+      }
+      #wih-history-viewer * { box-sizing: border-box; }
+      #wih-history-viewer button,
+      #wih-history-viewer input,
+      #wih-history-viewer select { font: inherit; }
+      #wih-history-viewer .wih-history-shell { min-height: 100%; }
+      #wih-history-viewer .wih-history-header {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 56px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--wih-border);
+        background: rgba(17,19,24,.96);
+        backdrop-filter: blur(10px);
+      }
+      #wih-history-viewer .wih-history-title { min-width: 0; flex: 1; }
+      #wih-history-viewer .wih-history-title strong { display: block; font-size: 16px; }
+      #wih-history-viewer .wih-muted { color: var(--wih-muted); font-size: 11px; }
+      #wih-history-viewer .wih-close,
+      #wih-history-viewer .wih-range-button {
+        min-height: 36px;
+        padding: 7px 11px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface-2);
+        color: var(--wih-text);
+      }
+      #wih-history-viewer .wih-history-grid { display: grid; gap: 12px; padding: 12px; }
+      #wih-history-viewer .wih-roster,
+      #wih-history-viewer .wih-history-detail { min-width: 0; }
+      #wih-history-viewer .wih-roster-tools {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(105px, .42fr);
+        gap: 7px;
+        margin-bottom: 8px;
+      }
+      #wih-history-viewer .wih-roster-tools input,
+      #wih-history-viewer .wih-roster-tools select {
+        width: 100%;
+        min-height: 40px;
+        padding: 8px 10px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface);
+        color: var(--wih-text);
+      }
+      #wih-history-viewer .wih-roster-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+        max-height: 36vh;
+        overflow: auto;
+      }
+      #wih-history-viewer .wih-player-button {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+        align-items: center;
+        min-height: 48px;
+        padding: 7px 9px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface);
+        color: var(--wih-text);
+        text-align: left;
+      }
+      #wih-history-viewer .wih-player-button[aria-current="true"] {
+        border-color: var(--wih-accent);
+        box-shadow: inset 3px 0 var(--wih-accent);
+      }
+      #wih-history-viewer .wih-player-name {
+        overflow: hidden;
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #wih-history-viewer .wih-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #777d86;
+      }
+      #wih-history-viewer .wih-dot.status-online { background: #33c774; }
+      #wih-history-viewer .wih-dot.status-idle { background: #f2b949; }
+      #wih-history-viewer .wih-card {
+        margin-bottom: 10px;
+        padding: 11px;
+        border: 1px solid var(--wih-border);
+        border-radius: 11px;
+        background: var(--wih-surface);
+      }
+      #wih-history-viewer .wih-player-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      #wih-history-viewer .wih-player-heading h2 { margin: 0 0 2px; font-size: 20px; }
+      #wih-history-viewer .wih-status-pills { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+      #wih-history-viewer .wih-pill {
+        padding: 4px 7px;
+        border-radius: 99px;
+        background: var(--wih-surface-2);
+        text-transform: capitalize;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      #wih-history-viewer .wih-pill.status-online { background: rgba(51,199,116,.2); color: #8ef0b7; }
+      #wih-history-viewer .wih-pill.status-idle { background: rgba(242,185,73,.2); color: #ffd782; }
+      #wih-history-viewer .wih-pill.status-hospital,
+      #wih-history-viewer .wih-pill.status-jail,
+      #wih-history-viewer .wih-pill.status-federal { background: rgba(228,78,78,.2); color: #ffaaaa; }
+      #wih-history-viewer .wih-pill.status-traveling,
+      #wih-history-viewer .wih-pill.status-returning,
+      #wih-history-viewer .wih-pill.status-abroad { background: rgba(91,154,255,.2); color: #c4d7ff; }
+      #wih-history-viewer .wih-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+        margin-top: 10px;
+      }
+      #wih-history-viewer .wih-summary-stat { padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-history-viewer .wih-summary-stat strong { display: block; font-size: 15px; }
+      #wih-history-viewer .wih-range-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+      #wih-history-viewer .wih-range-button[aria-pressed="true"] { border-color: var(--wih-accent); background: rgba(255,122,89,.18); }
+      #wih-history-viewer .wih-timeline {
+        position: relative;
+        display: flex;
+        height: 34px;
+        overflow: hidden;
+        border: 1px solid var(--wih-border);
+        border-radius: 8px;
+        background: repeating-linear-gradient(135deg, #343840, #343840 5px, #292d34 5px, #292d34 10px);
+      }
+      #wih-history-viewer .wih-segment { height: 100%; min-width: 1px; }
+      #wih-history-viewer .wih-segment.status-online { background: #299a5c; }
+      #wih-history-viewer .wih-segment.status-idle { background: #c08a27; }
+      #wih-history-viewer .wih-segment.status-offline { background: #626873; }
+      #wih-history-viewer .wih-segment.status-unknown { background: transparent; }
+      #wih-history-viewer .wih-timeline-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 7px; }
+      #wih-history-viewer .wih-legend-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; }
+      #wih-history-viewer .wih-event-list { display: grid; gap: 7px; }
+      #wih-history-viewer .wih-event {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 7px;
+        padding: 8px;
+        border-radius: 8px;
+        background: var(--wih-surface-2);
+      }
+      #wih-history-viewer .wih-event-status { text-transform: capitalize; font-weight: 700; }
+      #wih-history-viewer .wih-empty { padding: 24px 12px; text-align: center; color: var(--wih-muted); }
+      @media (min-width: 760px) {
+        #wih-history-viewer .wih-history-grid { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: start; max-width: 1320px; margin: 0 auto; }
+        #wih-history-viewer .wih-roster { position: sticky; top: 68px; }
+        #wih-history-viewer .wih-roster-list { grid-template-columns: 1fr; max-height: calc(100vh - 140px); }
+        #wih-history-viewer .wih-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      }
     `;
     document.head.append(style);
   }
@@ -1029,6 +1209,7 @@
 
         <div class="wih-actions">
           <button class="wih-button wih-primary" data-action="capture">Capture page</button>
+          <button class="wih-button wih-primary" data-action="history">History</button>
           <button class="wih-button" data-action="copy-export">Copy export</button>
           <button class="wih-button" data-action="view-export">View export</button>
           <button class="wih-button" data-action="import">Import data</button>
@@ -1092,7 +1273,7 @@
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.1.3 records only information already rendered on the page. It does not make API calls,
+            v0.2.0 records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
@@ -1116,6 +1297,10 @@
 
     panel.querySelector('[data-action="capture"]')?.addEventListener('click', () => {
       capturePage({ manual: true }).catch(reportError);
+    });
+
+    panel.querySelector('[data-action="history"]')?.addEventListener('click', () => {
+      openHistoryViewer().catch(reportError);
     });
 
     panel.querySelector('[data-action="download-export"]')?.addEventListener('click', () => {
@@ -1254,6 +1439,352 @@
       }
     }
     return gaps;
+  }
+
+  async function getObservationsForPlayer(playerId) {
+    const tx = state.db.transaction(APP.observationsStore, 'readonly');
+    const index = tx.objectStore(APP.observationsStore).index('byPlayerCapturedAt');
+    const range = IDBKeyRange.bound(
+      [String(playerId), 0],
+      [String(playerId), Number.MAX_SAFE_INTEGER]
+    );
+    return requestResult(index.getAll(range));
+  }
+
+  function formatDuration(durationMs) {
+    const minutes = Math.max(0, Math.round(Number(durationMs || 0) / 60_000));
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (hours < 24) return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    return remainingHours ? `${days}d ${remainingHours}h` : `${days}d`;
+  }
+
+  function historyRangeStart(rangeName, observations, now) {
+    if (rangeName === '24h') return now - 24 * 60 * 60_000;
+    if (rangeName === '7d') return now - 7 * 24 * 60 * 60_000;
+    return Number(observations[0]?.capturedAt || now);
+  }
+
+  function buildPlayerTimeline(observations, rangeName, now = Date.now()) {
+    const sorted = observations
+      .filter((observation) => Number(observation.capturedAt || 0) <= now)
+      .sort((a, b) => Number(a.capturedAt) - Number(b.capturedAt));
+    const rangeStart = historyRangeStart(rangeName, sorted, now);
+    const totalMs = Math.max(1, now - rangeStart);
+    const segments = [];
+    let coveredMs = 0;
+    let cursor = rangeStart;
+
+    for (let index = 0; index < sorted.length; index += 1) {
+      const observation = sorted[index];
+      const capturedAt = Number(observation.capturedAt || 0);
+      const nextAt = Number(sorted[index + 1]?.capturedAt || now);
+      if (nextAt <= rangeStart || capturedAt >= now) continue;
+
+      const statusFrom = Math.max(rangeStart, capturedAt);
+      const statusTo = Math.min(
+        now,
+        nextAt,
+        capturedAt + APP.coverageGapThresholdMs
+      );
+
+      if (statusFrom > cursor) {
+        segments.push({ from: cursor, to: statusFrom, status: 'unknown', isGap: true });
+      }
+      if (statusTo > statusFrom) {
+        segments.push({
+          from: statusFrom,
+          to: statusTo,
+          status: observation.activityStatus || 'unknown',
+          isGap: false,
+        });
+        coveredMs += statusTo - statusFrom;
+        cursor = Math.max(cursor, statusTo);
+      }
+    }
+
+    if (cursor < now) {
+      segments.push({ from: cursor, to: now, status: 'unknown', isGap: true });
+    }
+
+    const visibleObservations = sorted.filter(
+      (observation) => Number(observation.capturedAt || 0) >= rangeStart
+    );
+    let transitions = 0;
+    let previous = null;
+    for (const observation of sorted) {
+      if (Number(observation.capturedAt || 0) >= rangeStart) break;
+      previous = observation;
+    }
+    for (const observation of visibleObservations) {
+      if (
+        previous &&
+        (observation.activityStatus !== previous.activityStatus ||
+          observation.lifeStatus !== previous.lifeStatus)
+      ) {
+        transitions += 1;
+      }
+      previous = observation;
+    }
+
+    return {
+      rangeStart,
+      rangeEnd: now,
+      totalMs,
+      segments,
+      visibleObservations,
+      transitions,
+      coveragePercent: Math.min(100, Math.round((coveredMs / totalMs) * 100)),
+    };
+  }
+
+  function historyStatusPill(status) {
+    const normalized = normalizeWhitespace(status || 'unknown').toLowerCase();
+    return `<span class="wih-pill status-${escapeHtml(normalized)}">${escapeHtml(normalized)}</span>`;
+  }
+
+  async function openHistoryViewer() {
+    document.getElementById('wih-history-viewer')?.remove();
+
+    const players = (await getAllFromStore(APP.playersStore))
+      .map((player) => ({
+        ...player,
+        name: cleanStoredName(player.name, player.playerId),
+        latestActivityStatus: player.latestActivityStatus || player.latestStatus || 'unknown',
+        latestLifeStatus: player.latestLifeStatus || 'unknown',
+      }))
+      .sort(
+        (a, b) =>
+          statusRank(a.latestActivityStatus) - statusRank(b.latestActivityStatus) ||
+          a.name.localeCompare(b.name)
+      );
+
+    const currentFactionId = inferFactionId(location.href);
+    const initialPlayer =
+      players.find((player) => player.factionId === currentFactionId) || players[0] || null;
+    const viewerState = {
+      players,
+      selectedPlayerId: initialPlayer?.playerId || null,
+      factionId: currentFactionId && players.some((player) => player.factionId === currentFactionId)
+        ? currentFactionId
+        : 'all',
+      query: '',
+      range: '24h',
+      detailRequest: 0,
+    };
+
+    const viewer = document.createElement('div');
+    viewer.id = 'wih-history-viewer';
+    viewer.setAttribute('role', 'dialog');
+    viewer.setAttribute('aria-modal', 'true');
+    viewer.setAttribute('aria-label', 'War Intelligence history');
+    viewer.innerHTML = `
+      <div class="wih-history-shell">
+        <header class="wih-history-header">
+          <div class="wih-history-title">
+            <strong>War Intelligence History</strong>
+            <span class="wih-muted">Local observations · gaps are shown honestly</span>
+          </div>
+          <button type="button" class="wih-close" data-history-action="close">Close</button>
+        </header>
+        <main class="wih-history-grid">
+          <section class="wih-roster" aria-label="Player roster"></section>
+          <section class="wih-history-detail" aria-live="polite"></section>
+        </main>
+      </div>
+    `;
+    document.body.append(viewer);
+
+    const rosterElement = viewer.querySelector('.wih-roster');
+    const detailElement = viewer.querySelector('.wih-history-detail');
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const closeViewer = () => {
+      document.body.style.overflow = previousBodyOverflow;
+      viewer.remove();
+    };
+
+    function filteredPlayers() {
+      const query = viewerState.query.toLowerCase();
+      return viewerState.players.filter((player) => {
+        const factionMatches =
+          viewerState.factionId === 'all' || player.factionId === viewerState.factionId;
+        const queryMatches =
+          !query ||
+          player.name.toLowerCase().includes(query) ||
+          String(player.playerId).includes(query);
+        return factionMatches && queryMatches;
+      });
+    }
+
+    function renderRoster() {
+      const factionIds = [...new Set(
+        viewerState.players.map((player) => player.factionId).filter(Boolean)
+      )].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+      const filtered = filteredPlayers();
+      rosterElement.innerHTML = `
+        <div class="wih-roster-tools">
+          <input type="search" data-history-search placeholder="Search name or ID" value="${escapeHtml(viewerState.query)}" aria-label="Search players">
+          <select data-history-faction aria-label="Filter faction">
+            <option value="all" ${viewerState.factionId === 'all' ? 'selected' : ''}>All factions</option>
+            ${factionIds.map((factionId) => `
+              <option value="${escapeHtml(factionId)}" ${viewerState.factionId === factionId ? 'selected' : ''}>
+                Faction ${escapeHtml(factionId)}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="wih-muted" style="margin:0 2px 7px">${filtered.length} player${filtered.length === 1 ? '' : 's'}</div>
+        <div class="wih-roster-list">
+          ${filtered.length ? filtered.map((player) => `
+            <button type="button" class="wih-player-button" data-history-player="${escapeHtml(player.playerId)}" aria-current="${player.playerId === viewerState.selectedPlayerId}">
+              <span>
+                <span class="wih-player-name">${escapeHtml(player.name)}</span>
+                <span class="wih-muted">${escapeHtml(player.latestLifeStatus)} · ${escapeHtml(formatDateTime(player.lastSeenAt))}</span>
+              </span>
+              <span class="wih-dot status-${escapeHtml(player.latestActivityStatus)}" title="${escapeHtml(player.latestActivityStatus)}"></span>
+            </button>
+          `).join('') : '<div class="wih-empty">No players match this filter.</div>'}
+        </div>
+      `;
+
+      rosterElement.querySelector('[data-history-search]')?.addEventListener('input', (event) => {
+        viewerState.query = event.currentTarget.value;
+        renderRoster();
+        rosterElement.querySelector('[data-history-search]')?.focus();
+      });
+      rosterElement.querySelector('[data-history-faction]')?.addEventListener('change', (event) => {
+        viewerState.factionId = event.currentTarget.value;
+        const first = filteredPlayers()[0];
+        if (first && !filteredPlayers().some((player) => player.playerId === viewerState.selectedPlayerId)) {
+          viewerState.selectedPlayerId = first.playerId;
+          renderDetail().catch(reportError);
+        }
+        renderRoster();
+      });
+      rosterElement.querySelectorAll('[data-history-player]').forEach((button) => {
+        button.addEventListener('click', () => {
+          viewerState.selectedPlayerId = button.dataset.historyPlayer;
+          renderRoster();
+          renderDetail().catch(reportError);
+          if (window.innerWidth < 760) detailElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    }
+
+    async function renderDetail() {
+      const requestNumber = ++viewerState.detailRequest;
+      const player = viewerState.players.find(
+        (candidate) => candidate.playerId === viewerState.selectedPlayerId
+      );
+      if (!player) {
+        detailElement.innerHTML = '<div class="wih-empty">Capture a faction page to begin building player history.</div>';
+        return;
+      }
+
+      detailElement.innerHTML = '<div class="wih-empty">Loading player history…</div>';
+      const rawObservations = await getObservationsForPlayer(player.playerId);
+      if (requestNumber !== viewerState.detailRequest || !viewer.isConnected) return;
+      const analysis = buildAnalysisObservations(rawObservations);
+      const timeline = buildPlayerTimeline(analysis.observations, viewerState.range);
+      const latest = analysis.observations.at(-1) || {
+        activityStatus: player.latestActivityStatus,
+        lifeStatus: player.latestLifeStatus,
+        capturedAt: player.lastSeenAt,
+      };
+      const first = analysis.observations[0];
+      const events = [...timeline.visibleObservations].reverse().slice(0, 100);
+
+      detailElement.innerHTML = `
+        <section class="wih-card">
+          <div class="wih-player-heading">
+            <div>
+              <h2>${escapeHtml(player.name)}</h2>
+              <div class="wih-muted">Player ${escapeHtml(player.playerId)} · Faction ${escapeHtml(player.factionId || 'unknown')}</div>
+            </div>
+            <div class="wih-status-pills">
+              ${historyStatusPill(latest.activityStatus)}
+              ${historyStatusPill(latest.lifeStatus)}
+            </div>
+          </div>
+          <div class="wih-summary-grid">
+            <div class="wih-summary-stat"><strong>${analysis.observations.length}</strong><span class="wih-muted">usable observations</span></div>
+            <div class="wih-summary-stat"><strong>${timeline.transitions}</strong><span class="wih-muted">changes in range</span></div>
+            <div class="wih-summary-stat"><strong>${timeline.coveragePercent}%</strong><span class="wih-muted">range coverage</span></div>
+            <div class="wih-summary-stat"><strong>${formatDuration(timeline.totalMs)}</strong><span class="wih-muted">selected range</span></div>
+          </div>
+          <div class="wih-muted" style="margin-top:9px">
+            First seen ${escapeHtml(formatDateTime(first?.capturedAt))} · Last seen ${escapeHtml(formatDateTime(latest?.capturedAt))}
+            ${analysis.ignoredLegacyDuplicates ? ` · ${analysis.ignoredLegacyDuplicates} legacy duplicate${analysis.ignoredLegacyDuplicates === 1 ? '' : 's'} ignored` : ''}
+          </div>
+        </section>
+
+        <section class="wih-card">
+          <div class="wih-range-row" aria-label="Timeline range">
+            ${['24h', '7d', 'all'].map((rangeName) => `
+              <button type="button" class="wih-range-button" data-history-range="${rangeName}" aria-pressed="${viewerState.range === rangeName}">${rangeName === 'all' ? 'All' : rangeName}</button>
+            `).join('')}
+          </div>
+          <div class="wih-timeline" aria-label="Activity timeline from ${escapeHtml(formatDateTime(timeline.rangeStart))} to ${escapeHtml(formatDateTime(timeline.rangeEnd))}">
+            ${timeline.segments.map((segment) => {
+              const width = ((segment.to - segment.from) / timeline.totalMs) * 100;
+              const label = segment.isGap
+                ? `No coverage · ${formatDuration(segment.to - segment.from)}`
+                : `${segment.status} · ${formatDuration(segment.to - segment.from)}`;
+              return `<span class="wih-segment status-${escapeHtml(segment.status)}" style="width:${width.toFixed(5)}%" title="${escapeHtml(label)}"></span>`;
+            }).join('')}
+          </div>
+          <div class="wih-timeline-legend wih-muted">
+            <span><i class="wih-legend-swatch" style="background:#299a5c"></i>Online</span>
+            <span><i class="wih-legend-swatch" style="background:#c08a27"></i>Idle</span>
+            <span><i class="wih-legend-swatch" style="background:#626873"></i>Offline</span>
+            <span><i class="wih-legend-swatch" style="background:repeating-linear-gradient(135deg,#343840,#343840 3px,#292d34 3px,#292d34 6px)"></i>No coverage</span>
+          </div>
+          <div class="wih-muted" style="margin-top:8px">${escapeHtml(formatDateTime(timeline.rangeStart))} → ${escapeHtml(formatDateTime(timeline.rangeEnd))}</div>
+        </section>
+
+        <section class="wih-card">
+          <strong>Observation events</strong>
+          <div class="wih-muted" style="margin:2px 0 9px">Newest first${events.length === 100 ? ' · showing latest 100 in range' : ''}</div>
+          <div class="wih-event-list">
+            ${events.length ? events.map((observation, index) => {
+              const prior = events[index + 1];
+              const changed = prior && (
+                observation.activityStatus !== prior.activityStatus ||
+                observation.lifeStatus !== prior.lifeStatus
+              );
+              return `
+                <div class="wih-event">
+                  <div>
+                    <div class="wih-event-status">${escapeHtml(observation.activityStatus)} · ${escapeHtml(observation.lifeStatus)}</div>
+                    <div class="wih-muted">${changed ? 'Status change' : 'Observation'}${observation.lastActionText ? ` · ${escapeHtml(observation.lastActionText)}` : ''}</div>
+                  </div>
+                  <time class="wih-muted">${escapeHtml(formatDateTime(observation.capturedAt))}</time>
+                </div>
+              `;
+            }).join('') : '<div class="wih-empty">No observations fall inside this range.</div>'}
+          </div>
+        </section>
+      `;
+
+      detailElement.querySelectorAll('[data-history-range]').forEach((button) => {
+        button.addEventListener('click', () => {
+          viewerState.range = button.dataset.historyRange;
+          renderDetail().catch(reportError);
+        });
+      });
+    }
+
+    viewer.querySelector('[data-history-action="close"]')?.addEventListener('click', closeViewer);
+    viewer.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeViewer();
+    });
+    renderRoster();
+    await renderDetail();
   }
 
   async function buildExportPayload() {
