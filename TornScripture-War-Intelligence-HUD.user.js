@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.2
+// @version      0.2.3
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.2
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.2.3
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -25,7 +25,7 @@
    * - Performs no gameplay actions.
    * - Stores observations locally in IndexedDB.
    *
-   * v0.2.2 PURPOSE
+   * v0.2.3 PURPOSE
    * - Establish reliable local storage.
    * - Discover player rows conservatively.
    * - Capture visible player status / last-action text.
@@ -42,13 +42,15 @@
    * - Provide 12-hour, 24-hour, 3-day, and all-history ranges.
    * - Let users tap the timeline to inspect its corresponding time.
    * - Record collector wake-ups and scans to measure background reliability.
+   * - Deduplicate observation writes atomically across Torn PDA tabs.
+   * - Attribute health records to persistent tabs and individual script runs.
    * - Do NOT predict sleep windows yet.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.2.2',
+    version: '0.2.3',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -78,6 +80,28 @@
     localTime: true,
   });
 
+  function createCollectorId(prefix) {
+    const randomPart = globalThis.crypto?.randomUUID?.() ||
+      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return `${prefix}-${randomPart}`;
+  }
+
+  function getOrCreateCollectorTabId() {
+    const key = 'sk-wih-collector-tab-id-v1';
+    try {
+      const existing = sessionStorage.getItem(key);
+      if (existing) return existing;
+      const created = createCollectorId('tab');
+      sessionStorage.setItem(key, created);
+      return created;
+    } catch {
+      return createCollectorId('tab');
+    }
+  }
+
+  const COLLECTOR_TAB_ID = getOrCreateCollectorTabId();
+  const COLLECTOR_RUN_ID = createCollectorId('run');
+
   const state = {
     db: null,
     healthDb: null,
@@ -92,6 +116,8 @@
     lastWakeAt: null,
     lastPageContentChangeAt: null,
     lastPageFingerprint: null,
+    collectorTabId: COLLECTOR_TAB_ID,
+    collectorRunId: COLLECTOR_RUN_ID,
     currentRows: [],
     lastDiscoveryStats: {
       uniqueProfileIds: 0,
@@ -560,6 +586,8 @@
     tx.objectStore(APP.healthStore).add({
       type,
       recordedAt,
+      tabId: state.collectorTabId,
+      runId: state.collectorRunId,
       hidden: document.hidden,
       relevantPage: pageLooksRelevant(),
       pageUrl: location.href,
@@ -583,20 +611,6 @@
     return cursor?.value ?? null;
   }
 
-  async function getLatestObservation(playerId) {
-    const tx = state.db.transaction(APP.observationsStore, 'readonly');
-    const index = tx.objectStore(APP.observationsStore).index('byPlayerCapturedAt');
-    const range = IDBKeyRange.bound([playerId, 0], [playerId, Number.MAX_SAFE_INTEGER]);
-    const request = index.openCursor(range, 'prev');
-    const cursor = await requestResult(request);
-    return cursor?.value ?? null;
-  }
-
-  async function getPlayerSummary(playerId) {
-    const tx = state.db.transaction(APP.playersStore, 'readonly');
-    return requestResult(tx.objectStore(APP.playersStore).get(playerId));
-  }
-
   function observationMeaningfullyChanged(previous, current) {
     if (!previous) return true;
     const previousActivity = previous.activityStatus ?? previous.status ?? 'unknown';
@@ -617,17 +631,35 @@
     let saved = 0;
 
     for (const player of players) {
-      const previous = await getLatestObservation(player.playerId);
-      if (!observationMeaningfullyChanged(previous, player)) continue;
-      const existingSummary = await getPlayerSummary(player.playerId);
-
       const tx = state.db.transaction(
         [APP.observationsStore, APP.playersStore],
         'readwrite'
       );
+      const done = transactionDone(tx);
+      const observationsStore = tx.objectStore(APP.observationsStore);
+      const playersStore = tx.objectStore(APP.playersStore);
+      const index = observationsStore.index('byPlayerCapturedAt');
+      const range = IDBKeyRange.bound(
+        [player.playerId, 0],
+        [player.playerId, Number.MAX_SAFE_INTEGER]
+      );
+      const [cursor, existingSummary] = await Promise.all([
+        requestResult(index.openCursor(range, 'prev')),
+        requestResult(playersStore.get(player.playerId)),
+      ]);
+      const previous = cursor?.value ?? null;
 
-      tx.objectStore(APP.observationsStore).add(player);
-      tx.objectStore(APP.playersStore).put({
+      if (!observationMeaningfullyChanged(previous, player)) {
+        await done;
+        continue;
+      }
+
+      observationsStore.add({
+        ...player,
+        collectorTabId: state.collectorTabId,
+        collectorRunId: state.collectorRunId,
+      });
+      playersStore.put({
         playerId: player.playerId,
         name: player.name,
         profileUrl: player.profileUrl,
@@ -643,7 +675,7 @@
         latestLastActionText: player.lastActionText,
       });
 
-      await transactionDone(tx);
+      await done;
       saved += 1;
     }
 
@@ -1321,6 +1353,26 @@
         color: var(--wih-text);
       }
       #wih-health-viewer .wih-health-content { display: grid; gap: 11px; max-width: 1040px; margin: 0 auto; padding: 12px; }
+      #wih-health-viewer .wih-health-controls { display: grid; grid-template-columns: minmax(0,1fr) minmax(120px,.55fr); gap: 7px; }
+      #wih-health-viewer .wih-health-controls select {
+        width: 100%;
+        min-height: 40px;
+        padding: 7px 9px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface-2);
+        color: var(--wih-text);
+        font: inherit;
+      }
+      #wih-health-viewer .wih-health-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+      #wih-health-viewer .wih-health-action {
+        min-height: 36px;
+        padding: 7px 11px;
+        border: 1px solid var(--wih-border);
+        border-radius: 9px;
+        background: var(--wih-surface-2);
+        color: var(--wih-text);
+      }
       #wih-health-viewer .wih-health-card {
         padding: 11px;
         border: 1px solid var(--wih-border);
@@ -1468,7 +1520,7 @@
           <button class="wih-button" data-action="diagnostics">Copy diagnostics</button>
           <button class="wih-button" data-action="erase">Erase all local WIH data</button>
           <div class="wih-note">
-            v0.2.2 records only information already rendered on the page. It does not make API calls,
+            v0.2.3 records only information already rendered on the page. It does not make API calls,
             navigate, click, attack, or submit game actions.
           </div>
         </div>
@@ -2054,24 +2106,23 @@
   }
 
   function analyzeCollectorHealth(records, now = Date.now()) {
-    const rangeStart = now - 24 * 60 * 60_000;
+    const cutoff = now - 24 * 60 * 60_000;
     const sorted = records
-      .filter((record) => Number(record.recordedAt || 0) >= rangeStart)
+      .filter((record) => Number(record.recordedAt || 0) >= cutoff)
       .sort((a, b) => Number(a.recordedAt) - Number(b.recordedAt));
-    const totalMs = now - rangeStart;
+    const rangeStart = Number(sorted[0]?.recordedAt || now);
+    const totalMs = Math.max(1, now - rangeStart);
     const segments = [];
     const gaps = [];
     let coveredMs = 0;
     let cursor = rangeStart;
 
     for (let index = 0; index < sorted.length; index += 1) {
-      const from = Math.max(rangeStart, Number(sorted[index].recordedAt));
+      const from = Number(sorted[index].recordedAt);
       const nextAt = Number(sorted[index + 1]?.recordedAt || now);
       const to = Math.min(now, nextAt, from + APP.collectorTickGapThresholdMs);
       if (from > cursor) {
-        if (cursor > rangeStart || index > 0) {
-          gaps.push({ from: cursor, to: from, durationMs: from - cursor });
-        }
+        gaps.push({ from: cursor, to: from, durationMs: from - cursor });
       }
       if (to > from) {
         segments.push({ from, to });
@@ -2088,8 +2139,6 @@
     const ticks = sorted.filter((record) => record.type === 'tick');
     const savedScans = scans.filter((record) => Number(record.observationsSaved || 0) > 0);
     const latest = sorted.at(-1) || null;
-    const measurementStart = Number(sorted[0]?.recordedAt || now);
-    const measurementMs = Math.max(1, now - measurementStart);
     const latestScan = scans.at(-1) || null;
     const latestSavedScan = savedScans.at(-1) || null;
     const contentChangeTimes = sorted
@@ -2121,7 +2170,7 @@
         (total, record) => total + Number(record.observationsSaved || 0),
         0
       ),
-      coveragePercent: Math.min(100, Math.round((coveredMs / measurementMs) * 100)),
+      coveragePercent: Math.min(100, Math.round((coveredMs / totalMs) * 100)),
       longestGap,
       recentlyAwake: Boolean(
         latest && now - latest.recordedAt <= APP.collectorTickGapThresholdMs
@@ -2129,15 +2178,52 @@
     };
   }
 
+  function shortCollectorId(value) {
+    const parts = String(value || 'legacy').split('-');
+    return (parts.at(-1) || 'legacy').slice(0, 8);
+  }
+
+  function collectorHealthSummary(analysis) {
+    return {
+      recordedEvents: analysis.sorted.length,
+      ticks: analysis.ticks.length,
+      scans: analysis.scans.length,
+      observationsSaved: analysis.observationsSaved,
+      likelySuspensionGaps: analysis.gaps.length,
+      longestLikelySuspensionGapMs: analysis.longestGap?.durationMs || 0,
+      measuredRuntimeCoveragePercent: analysis.coveragePercent,
+      relevantPagePollPercent: analysis.relevantTickPercent,
+      hiddenTabPollPercent: analysis.hiddenTickPercent,
+      firstRecordAt: analysis.sorted[0]?.recordedAt || null,
+      lastWakeAt: analysis.latest?.recordedAt || null,
+      lastScanAt: analysis.latestScan?.recordedAt || null,
+      lastRenderedStatusChangeAt: analysis.latestContentChangeAt,
+    };
+  }
+
+  function buildCollectorHealthReport(records, analysis, selection) {
+    return {
+      schema: 'script-kitty-collector-health-report',
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      appVersion: APP.version,
+      currentTabId: state.collectorTabId,
+      currentRunId: state.collectorRunId,
+      selection,
+      summary: collectorHealthSummary(analysis),
+      gaps: analysis.gaps,
+      records,
+    };
+  }
+
   async function openCollectorHealthViewer() {
     document.getElementById('wih-health-viewer')?.remove();
     const now = Date.now();
-    const records = await getCollectorHealthRecords(now - 24 * 60 * 60_000);
-    const analysis = analyzeCollectorHealth(records, now);
-    const events = [...analysis.sorted]
-      .reverse()
-      .filter((record) => record.type !== 'tick')
-      .slice(0, 40);
+    const allRecords = await getCollectorHealthRecords(now - 24 * 60 * 60_000);
+    const viewerState = {
+      scope: `tab:${state.collectorTabId}`,
+      factionId: 'all',
+    };
 
     const viewer = document.createElement('div');
     viewer.id = 'wih-health-viewer';
@@ -2148,21 +2234,119 @@
       <header class="wih-health-header">
         <div class="wih-health-title">
           <strong>Collector Health</strong>
-          <span class="wih-muted">Measured userscript activity · last 24 hours</span>
+          <span class="wih-muted">Measured userscript activity · up to 24 hours</span>
         </div>
         <button type="button" class="wih-health-close" data-health-action="close">Close</button>
       </header>
-      <main class="wih-health-content">
+      <main class="wih-health-content"></main>
+    `;
+    document.body.append(viewer);
+    const content = viewer.querySelector('.wih-health-content');
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const normalizedRecords = allRecords.map((record) => ({
+      ...record,
+      tabId: record.tabId || 'legacy-tab',
+      runId: record.runId || 'legacy-run',
+    }));
+    const runMap = new Map();
+    for (const record of normalizedRecords) {
+      const existing = runMap.get(record.runId);
+      if (!existing || record.recordedAt > existing.recordedAt) {
+        runMap.set(record.runId, record);
+      }
+    }
+    const recentRuns = [...runMap.values()].sort((a, b) => b.recordedAt - a.recordedAt);
+    const tabMap = new Map();
+    for (const record of normalizedRecords) {
+      const existing = tabMap.get(record.tabId);
+      if (!existing || record.recordedAt > existing.recordedAt) {
+        tabMap.set(record.tabId, record);
+      }
+    }
+    const recentTabs = [...tabMap.values()].sort((a, b) => b.recordedAt - a.recordedAt);
+    const factionIds = [...new Set(
+      normalizedRecords.map((record) => record.factionId).filter(Boolean)
+    )].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+
+    function selectedRecords() {
+      return normalizedRecords.filter((record) => {
+        let scopeMatches = true;
+        if (viewerState.scope.startsWith('run:')) {
+          scopeMatches = record.runId === viewerState.scope.slice(4);
+        } else if (viewerState.scope.startsWith('tab:')) {
+          scopeMatches = record.tabId === viewerState.scope.slice(4);
+        }
+        const factionMatches =
+          viewerState.factionId === 'all' || record.factionId === viewerState.factionId;
+        return scopeMatches && factionMatches;
+      });
+    }
+
+    function scopeLabel() {
+      if (viewerState.scope === 'all') return 'All tabs combined';
+      if (viewerState.scope.startsWith('tab:')) {
+        return `Tab ${shortCollectorId(viewerState.scope.slice(4))}`;
+      }
+      const runId = viewerState.scope.slice(4);
+      const run = runMap.get(runId);
+      return `Run ${shortCollectorId(runId)} · Tab ${shortCollectorId(run?.tabId)}`;
+    }
+
+    function renderHealth() {
+      const records = selectedRecords();
+      const analysis = analyzeCollectorHealth(records, Date.now());
+      const events = [...analysis.sorted]
+        .reverse()
+        .filter((record) => record.type !== 'tick')
+        .slice(0, 40);
+
+      const otherRunOptions = recentRuns
+        .filter((record) => record.runId !== state.collectorRunId)
+        .map((record) => `
+          <option value="run:${escapeHtml(record.runId)}" ${viewerState.scope === `run:${record.runId}` ? 'selected' : ''}>
+            Run ${escapeHtml(shortCollectorId(record.runId))} · Tab ${escapeHtml(shortCollectorId(record.tabId))}
+          </option>
+        `).join('');
+      const otherTabOptions = recentTabs
+        .filter((record) => record.tabId !== state.collectorTabId)
+        .map((record) => `
+          <option value="tab:${escapeHtml(record.tabId)}" ${viewerState.scope === `tab:${record.tabId}` ? 'selected' : ''}>
+            Tab ${escapeHtml(shortCollectorId(record.tabId))} · all runs
+          </option>
+        `).join('');
+
+      content.innerHTML = `
+        <section class="wih-health-card">
+          <div class="wih-health-controls">
+            <select data-health-scope aria-label="Collector tab or run">
+              <option value="run:${escapeHtml(state.collectorRunId)}" ${viewerState.scope === `run:${state.collectorRunId}` ? 'selected' : ''}>Current run · ${escapeHtml(shortCollectorId(state.collectorRunId))}</option>
+              <option value="tab:${escapeHtml(state.collectorTabId)}" ${viewerState.scope === `tab:${state.collectorTabId}` ? 'selected' : ''}>Current tab · ${escapeHtml(shortCollectorId(state.collectorTabId))}</option>
+              <option value="all" ${viewerState.scope === 'all' ? 'selected' : ''}>All tabs combined</option>
+              ${otherTabOptions}
+              ${otherRunOptions}
+            </select>
+            <select data-health-faction aria-label="Collector faction filter">
+              <option value="all" ${viewerState.factionId === 'all' ? 'selected' : ''}>All pages</option>
+              ${factionIds.map((factionId) => `
+                <option value="${escapeHtml(factionId)}" ${viewerState.factionId === factionId ? 'selected' : ''}>Faction ${escapeHtml(factionId)}</option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="wih-muted" style="margin-top:7px">${escapeHtml(scopeLabel())} · ${records.length} health record${records.length === 1 ? '' : 's'}</div>
+        </section>
+
         <section class="wih-health-card">
           <div class="wih-health-state">
             <span class="wih-health-state-dot ${analysis.recentlyAwake ? 'is-awake' : ''}"></span>
             <div>
               <strong>${analysis.recentlyAwake ? 'Collector awake recently' : 'No recent collector wake-up'}</strong>
-              <div class="wih-muted">Last measured activity ${escapeHtml(formatAgo(analysis.latest?.recordedAt, now))}</div>
+              <div class="wih-muted">Last measured activity ${escapeHtml(formatAgo(analysis.latest?.recordedAt))}</div>
             </div>
           </div>
           <div class="wih-health-stats">
-            <div class="wih-health-stat"><strong>${analysis.coveragePercent}%</strong><span class="wih-muted">measured 24h runtime coverage</span></div>
+            <div class="wih-health-stat"><strong>${analysis.coveragePercent}%</strong><span class="wih-muted">selected runtime coverage</span></div>
             <div class="wih-health-stat"><strong>${analysis.scans.length}</strong><span class="wih-muted">completed scans</span></div>
             <div class="wih-health-stat"><strong>${analysis.observationsSaved}</strong><span class="wih-muted">observations saved</span></div>
             <div class="wih-health-stat"><strong>${analysis.gaps.length}</strong><span class="wih-muted">likely suspension gaps</span></div>
@@ -2171,26 +2355,31 @@
 
         <section class="wih-health-card">
           <strong>Measured runtime</strong>
-          <div class="wih-health-bar" aria-label="Green is measured userscript runtime; hatched gray is no health coverage">
-            ${analysis.segments.map((segment) => {
-              const left = ((segment.from - analysis.rangeStart) / analysis.totalMs) * 100;
-              const width = ((segment.to - segment.from) / analysis.totalMs) * 100;
-              return `<span class="wih-health-segment" style="left:${left.toFixed(5)}%;width:${width.toFixed(5)}%" title="Measured awake · ${escapeHtml(formatDuration(segment.to - segment.from))}"></span>`;
-            }).join('')}
-          </div>
-          <div class="wih-muted" style="margin-top:7px">Green means the userscript reported activity. Hatched gray means no health record; Android suspension is likely once instrumentation history exists.</div>
-          <div class="wih-muted" style="margin-top:5px">${escapeHtml(formatDateTime(analysis.rangeStart))} → ${escapeHtml(formatDateTime(analysis.rangeEnd))}</div>
+          ${analysis.sorted.length ? `
+            <div class="wih-health-bar" aria-label="Green is measured userscript runtime; hatched gray is no health coverage">
+              ${analysis.segments.map((segment) => {
+                const left = ((segment.from - analysis.rangeStart) / analysis.totalMs) * 100;
+                const width = ((segment.to - segment.from) / analysis.totalMs) * 100;
+                return `<span class="wih-health-segment" style="left:${left.toFixed(5)}%;width:${width.toFixed(5)}%" title="Measured awake · ${escapeHtml(formatDuration(segment.to - segment.from))}"></span>`;
+              }).join('')}
+            </div>
+            <div class="wih-muted" style="margin-top:7px">Green means this selection reported activity. Hatched gray is a likely suspension gap.</div>
+            <div class="wih-muted" style="margin-top:5px">${escapeHtml(formatDateTime(analysis.rangeStart))} → ${escapeHtml(formatDateTime(analysis.rangeEnd))}</div>
+          ` : '<div class="wih-muted" style="padding-top:9px">No health records match this selection yet.</div>'}
         </section>
 
         <section class="wih-health-card">
           <strong>Background evidence</strong>
           <div class="wih-health-stats" style="margin-top:9px">
-            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestScan?.recordedAt, now))}</strong><span class="wih-muted">last successful scan</span></div>
-            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestSavedScan?.recordedAt, now))}</strong><span class="wih-muted">last saved observation</span></div>
-            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestContentChangeAt, now))}</strong><span class="wih-muted">last rendered status change</span></div>
+            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestScan?.recordedAt))}</strong><span class="wih-muted">last successful scan</span></div>
+            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestSavedScan?.recordedAt))}</strong><span class="wih-muted">last saved observation</span></div>
+            <div class="wih-health-stat"><strong>${escapeHtml(formatAgo(analysis.latestContentChangeAt))}</strong><span class="wih-muted">last rendered status change</span></div>
             <div class="wih-health-stat"><strong>${analysis.longestGap ? escapeHtml(formatDuration(analysis.longestGap.durationMs)) : 'None'}</strong><span class="wih-muted">longest measured gap</span></div>
             <div class="wih-health-stat"><strong>${analysis.relevantTickPercent}%</strong><span class="wih-muted">polls with relevant page</span></div>
             <div class="wih-health-stat"><strong>${analysis.hiddenTickPercent}%</strong><span class="wih-muted">polls reporting hidden tab</span></div>
+          </div>
+          <div class="wih-health-actions" style="margin-top:10px">
+            <button type="button" class="wih-health-action" data-health-action="copy-report">Copy health report</button>
           </div>
         </section>
 
@@ -2206,23 +2395,40 @@
                 <div class="wih-health-event">
                   <div>
                     <strong>${escapeHtml(record.type)}</strong>
-                    <div class="wih-muted">${escapeHtml(detail)} · ${record.relevantPage ? 'relevant page' : 'other page'}</div>
+                    <div class="wih-muted">${escapeHtml(detail)} · ${record.relevantPage ? 'relevant page' : 'other page'} · tab ${escapeHtml(shortCollectorId(record.tabId))}</div>
                   </div>
                   <time class="wih-muted">${escapeHtml(formatDateTime(record.recordedAt))}</time>
                 </div>
               `;
-            }).join('') : '<div class="wih-muted" style="padding:16px 0">Health history begins with this version. Let it run, switch tabs, minimize Torn PDA, and check back later.</div>'}
+            }).join('') : '<div class="wih-muted" style="padding:16px 0">No non-tick events match this selection.</div>'}
           </div>
         </section>
 
         <section class="wih-health-card wih-muted">
-          This proves when the userscript ran and inspected rendered data. It cannot prove that Torn refreshed unchanged server data. Early gray time before v0.2.2 is simply unmeasured, not a confirmed suspension.
+          Current run isolates this script load. Current tab combines reloads of this Torn PDA tab. All tabs combined reveals periods when every instrumented tab stopped. This proves script activity, not that Torn refreshed unchanged server data.
         </section>
-      </main>
-    `;
-    document.body.append(viewer);
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+      `;
+
+      content.querySelector('[data-health-scope]')?.addEventListener('change', (event) => {
+        viewerState.scope = event.currentTarget.value;
+        renderHealth();
+      });
+      content.querySelector('[data-health-faction]')?.addEventListener('change', (event) => {
+        viewerState.factionId = event.currentTarget.value;
+        renderHealth();
+      });
+      content.querySelector('[data-health-action="copy-report"]')?.addEventListener('click', () => {
+        const report = buildCollectorHealthReport(records, analysis, {
+          scope: viewerState.scope,
+          scopeLabel: scopeLabel(),
+          factionId: viewerState.factionId,
+        });
+        writeTextToClipboard(JSON.stringify(report, null, 2))
+          .then(() => toast(`Copied ${records.length} collector-health records.`))
+          .catch(reportError);
+      });
+    }
+
     const closeViewer = () => {
       document.body.style.overflow = previousBodyOverflow;
       viewer.remove();
@@ -2231,6 +2437,7 @@
     viewer.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') closeViewer();
     });
+    renderHealth();
   }
 
   async function buildExportPayload() {
@@ -2431,7 +2638,18 @@
     ]);
     const analysis = buildAnalysisObservations(rawObservations);
     const coverageGaps = findCoverageGaps(analysis.observations);
-    const collectorHealth = analyzeCollectorHealth(healthRecords);
+    const normalizedHealthRecords = healthRecords.map((record) => ({
+      ...record,
+      tabId: record.tabId || 'legacy-tab',
+      runId: record.runId || 'legacy-run',
+    }));
+    const combinedCollectorHealth = analyzeCollectorHealth(normalizedHealthRecords);
+    const currentTabCollectorHealth = analyzeCollectorHealth(
+      normalizedHealthRecords.filter((record) => record.tabId === state.collectorTabId)
+    );
+    const currentRunCollectorHealth = analyzeCollectorHealth(
+      normalizedHealthRecords.filter((record) => record.runId === state.collectorRunId)
+    );
     const diagnostics = {
       app: APP.name,
       version: APP.version,
@@ -2461,18 +2679,13 @@
         coverageGapCount: coverageGaps.length,
       },
       collectorHealthStats: {
-        recordedEvents24h: collectorHealth.sorted.length,
-        tickCount24h: collectorHealth.ticks.length,
-        scanCount24h: collectorHealth.scans.length,
-        observationsSaved24h: collectorHealth.observationsSaved,
-        likelySuspensionGapCount24h: collectorHealth.gaps.length,
-        longestLikelySuspensionGapMs24h: collectorHealth.longestGap?.durationMs || 0,
-        measuredRuntimeCoveragePercent24h: collectorHealth.coveragePercent,
-        relevantPagePollPercent24h: collectorHealth.relevantTickPercent,
-        hiddenTabPollPercent24h: collectorHealth.hiddenTickPercent,
-        lastWakeAt: collectorHealth.latest?.recordedAt || null,
-        lastScanAt: collectorHealth.latestScan?.recordedAt || null,
-        lastRenderedStatusChangeAt: collectorHealth.latestContentChangeAt,
+        currentTabId: state.collectorTabId,
+        currentRunId: state.collectorRunId,
+        distinctTabCount24h: new Set(normalizedHealthRecords.map((record) => record.tabId)).size,
+        distinctRunCount24h: new Set(normalizedHealthRecords.map((record) => record.runId)).size,
+        currentRun: collectorHealthSummary(currentRunCollectorHealth),
+        currentTab: collectorHealthSummary(currentTabCollectorHealth),
+        allTabsCombined: collectorHealthSummary(combinedCollectorHealth),
       },
       userAgent: navigator.userAgent,
       generatedAt: new Date().toISOString(),
