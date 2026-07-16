@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.4.1
+// @version      0.5.0
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.4.1',
+    version: '0.5.0',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -81,6 +81,8 @@
     localTime: true,
     hudPosition: null,
     watchedPlayerIds: [],
+    watchedFactionIds: [],
+    factionAliases: {},
   });
 
   function createCollectorId(prefix) {
@@ -141,9 +143,22 @@
       settings.watchedPlayerIds = Array.isArray(settings.watchedPlayerIds)
         ? [...new Set(settings.watchedPlayerIds.map(String))]
         : [];
+      settings.watchedFactionIds = Array.isArray(settings.watchedFactionIds)
+        ? [...new Set(settings.watchedFactionIds.map(String))]
+        : [];
+      settings.factionAliases = settings.factionAliases &&
+        typeof settings.factionAliases === 'object' &&
+        !Array.isArray(settings.factionAliases)
+        ? settings.factionAliases
+        : {};
       return settings;
     } catch {
-      return { ...DEFAULT_SETTINGS, watchedPlayerIds: [] };
+      return {
+        ...DEFAULT_SETTINGS,
+        watchedPlayerIds: [],
+        watchedFactionIds: [],
+        factionAliases: {},
+      };
     }
   }
 
@@ -1534,6 +1549,12 @@
       #wih-intel-viewer .wih-watchlist-grid { display: grid; gap: 7px; margin-top: 9px; }
       #wih-intel-viewer .wih-watch-target { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 9px; border-radius: 8px; background: var(--wih-surface-2); }
       #wih-intel-viewer .wih-changed-marker { color: #ffd782; font-size: 11px; font-weight: 700; }
+      #wih-intel-viewer .wih-war-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(245px, 310px); gap: 8px; overflow-x: auto; margin-top: 9px; padding-bottom: 4px; scroll-snap-type: x proximity; }
+      #wih-intel-viewer .wih-faction-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--wih-border); border-radius: 10px; background: var(--wih-surface-2); scroll-snap-align: start; }
+      #wih-intel-viewer .wih-faction-card.is-selected { border-color: var(--wih-accent); box-shadow: inset 0 0 0 1px rgba(255,122,89,.28); }
+      #wih-intel-viewer .wih-faction-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 7px; }
+      #wih-intel-viewer .wih-faction-card-name { min-width: 0; overflow: hidden; font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+      #wih-intel-viewer .wih-faction-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
       #wih-intel-viewer .wih-transition { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
       #wih-intel-viewer .wih-transition strong { display: block; }
       #wih-intel-viewer .wih-intel-empty { padding: 20px 8px; color: var(--wih-muted); text-align: center; }
@@ -2629,6 +2650,74 @@
       saveSettings();
     }
 
+    function watchedFactionIdSet() {
+      return new Set((state.settings.watchedFactionIds || []).map(String));
+    }
+
+    function factionDisplayName(factionId) {
+      const alias = normalizeWhitespace(state.settings.factionAliases?.[String(factionId)]);
+      return alias || `Faction ${factionId}`;
+    }
+
+    function toggleWatchedFaction(factionId) {
+      const normalizedId = String(factionId);
+      const watched = watchedFactionIdSet();
+      if (watched.has(normalizedId)) watched.delete(normalizedId);
+      else watched.add(normalizedId);
+      state.settings.watchedFactionIds = [...watched];
+      saveSettings();
+    }
+
+    function nameFaction(factionId) {
+      const normalizedId = String(factionId);
+      const currentName = normalizeWhitespace(state.settings.factionAliases?.[normalizedId]);
+      const enteredName = window.prompt(
+        `Custom name for faction ${normalizedId}. Leave blank to remove it.`,
+        currentName
+      );
+      if (enteredName === null) return false;
+      const cleanedName = normalizeWhitespace(enteredName).slice(0, 60);
+      state.settings.factionAliases = { ...(state.settings.factionAliases || {}) };
+      if (cleanedName) state.settings.factionAliases[normalizedId] = cleanedName;
+      else delete state.settings.factionAliases[normalizedId];
+      saveSettings();
+      return true;
+    }
+
+    function buildFactionSummaries() {
+      const watchedPlayers = watchedPlayerIdSet();
+      const watchedFactions = watchedFactionIdSet();
+      return factionIds.map((factionId) => {
+        const players = intelligence.filter((player) => player.factionId === factionId);
+        const latestObservedAt = Math.max(
+          0,
+          ...players.map((player) => Number(player.lastObservedAt || 0))
+        );
+        const averageCoverage = players.length
+          ? Math.round(
+              players.reduce((sum, player) => sum + player.coveragePercent, 0) / players.length
+            )
+          : 0;
+        return {
+          factionId,
+          name: factionDisplayName(factionId),
+          pinned: watchedFactions.has(String(factionId)),
+          playerCount: players.length,
+          coveredCount: players.filter((player) => player.currentlyCovered).length,
+          readyCount: players.filter((player) => player.actionability.tier === 'ready').length,
+          watchedTargetCount: players.filter((player) => watchedPlayers.has(String(player.playerId))).length,
+          averageCoverage,
+          latestObservedAt,
+        };
+      }).sort(
+        (a, b) =>
+          Number(b.pinned) - Number(a.pinned) ||
+          Number(b.factionId === viewerState.factionId) - Number(a.factionId === viewerState.factionId) ||
+          b.latestObservedAt - a.latestObservedAt ||
+          a.name.localeCompare(b.name)
+      );
+    }
+
     function factionPlayers() {
       return intelligence.filter(
         (player) => viewerState.factionId === 'all' || player.factionId === viewerState.factionId
@@ -2673,6 +2762,8 @@
     function renderIntelligence() {
       const allFactionPlayers = factionPlayers();
       const visiblePlayers = filteredPlayers();
+      const factionSummaries = buildFactionSummaries();
+      const pinnedFactionCount = factionSummaries.filter((faction) => faction.pinned).length;
       const watchedIds = watchedPlayerIdSet();
       const watchedPlayers = allFactionPlayers
         .filter((player) => watchedIds.has(String(player.playerId)))
@@ -2713,11 +2804,42 @@
         </section>
 
         <section class="wih-intel-card">
+          <strong>Multi-faction war board</strong>
+          <div class="wih-muted">${factionSummaries.length} observed faction${factionSummaries.length === 1 ? '' : 's'} · ${pinnedFactionCount} pinned · swipe horizontally</div>
+          <div class="wih-war-board">
+            ${factionSummaries.length ? factionSummaries.map((faction) => `
+              <article class="wih-faction-card ${viewerState.factionId === faction.factionId ? 'is-selected' : ''}">
+                <div class="wih-faction-card-head">
+                  <div style="min-width:0">
+                    <div class="wih-faction-card-name">${escapeHtml(faction.name)}</div>
+                    <div class="wih-muted">ID ${escapeHtml(faction.factionId)} · ${faction.playerCount} observed players</div>
+                  </div>
+                  <span class="wih-intel-pill ${faction.pinned ? 'priority-watch' : ''}">${faction.pinned ? '★ pinned' : 'observed'}</span>
+                </div>
+                <div class="wih-faction-metrics">
+                  <div class="wih-target-metric"><strong>${faction.readyCount}</strong><span class="wih-muted">observed ready</span></div>
+                  <div class="wih-target-metric"><strong>${faction.coveredCount}/${faction.playerCount}</strong><span class="wih-muted">currently covered</span></div>
+                  <div class="wih-target-metric"><strong>${faction.watchedTargetCount}</strong><span class="wih-muted">watched targets</span></div>
+                  <div class="wih-target-metric"><strong>${faction.averageCoverage}%</strong><span class="wih-muted">average 24h coverage</span></div>
+                </div>
+                <div class="wih-muted">Latest observation ${escapeHtml(formatAgo(faction.latestObservedAt))}</div>
+                <div class="wih-target-actions" style="margin-top:0">
+                  <button type="button" class="wih-intel-action" data-intel-select-faction="${escapeHtml(faction.factionId)}">${viewerState.factionId === faction.factionId ? 'Selected' : 'Select'}</button>
+                  <button type="button" class="wih-intel-action" data-intel-watch-faction="${escapeHtml(faction.factionId)}">${faction.pinned ? 'Unpin' : 'Pin'}</button>
+                  <button type="button" class="wih-intel-action" data-intel-name-faction="${escapeHtml(faction.factionId)}">Name</button>
+                  <a class="wih-intel-action" href="https://www.torn.com/factions.php?step=profile&amp;ID=${encodeURIComponent(faction.factionId)}">Open</a>
+                </div>
+              </article>
+            `).join('') : '<div class="wih-intel-empty">Capture faction pages to populate the war board.</div>'}
+          </div>
+        </section>
+
+        <section class="wih-intel-card">
           <div class="wih-intel-controls">
             <input class="wih-intel-search" type="search" data-intel-query placeholder="Search name or ID" value="${escapeHtml(viewerState.query)}" aria-label="Search faction players">
             <select data-intel-faction aria-label="Faction">
               <option value="all" ${viewerState.factionId === 'all' ? 'selected' : ''}>All factions</option>
-              ${factionIds.map((factionId) => `<option value="${escapeHtml(factionId)}" ${viewerState.factionId === factionId ? 'selected' : ''}>Faction ${escapeHtml(factionId)}</option>`).join('')}
+              ${factionIds.map((factionId) => `<option value="${escapeHtml(factionId)}" ${viewerState.factionId === factionId ? 'selected' : ''}>${escapeHtml(factionDisplayName(factionId))}</option>`).join('')}
             </select>
             <select data-intel-activity aria-label="Activity filter">
               <option value="all" ${viewerState.activity === 'all' ? 'selected' : ''}>All activity</option>
@@ -2871,6 +2993,30 @@
           renderIntelligence();
         });
       }
+      content.querySelectorAll('[data-intel-select-faction]').forEach((button) => {
+        button.addEventListener('click', () => {
+          viewerState.factionId = button.dataset.intelSelectFaction;
+          renderIntelligence();
+        });
+      });
+      content.querySelectorAll('[data-intel-watch-faction]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const boardScrollLeft = content.querySelector('.wih-war-board')?.scrollLeft || 0;
+          toggleWatchedFaction(button.dataset.intelWatchFaction);
+          renderIntelligence();
+          const board = content.querySelector('.wih-war-board');
+          if (board) board.scrollLeft = boardScrollLeft;
+        });
+      });
+      content.querySelectorAll('[data-intel-name-faction]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const boardScrollLeft = content.querySelector('.wih-war-board')?.scrollLeft || 0;
+          if (!nameFaction(button.dataset.intelNameFaction)) return;
+          renderIntelligence();
+          const board = content.querySelector('.wih-war-board');
+          if (board) board.scrollLeft = boardScrollLeft;
+        });
+      });
       content.querySelectorAll('[data-intel-watch]').forEach((button) => {
         button.addEventListener('click', () => {
           const preservedScrollTop = viewer.scrollTop;
