@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.5.1
+// @version      0.6.0
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.5.1',
+    version: '0.6.0',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -61,6 +61,7 @@
     healthDbVersion: 1,
     healthStore: 'collectorHealth',
     settingsKey: 'sk-wih-settings-v1',
+    warSessionsKey: 'sk-wih-war-sessions-v1',
     panelId: 'sk-wih-panel',
     styleId: 'sk-wih-style',
     maxRowsInPanel: 50,
@@ -111,6 +112,7 @@
     db: null,
     healthDb: null,
     settings: loadSettings(),
+    warSessions: loadWarSessions(),
     captureTimer: null,
     pollTimer: null,
     capturePromise: null,
@@ -164,6 +166,24 @@
 
   function saveSettings() {
     localStorage.setItem(APP.settingsKey, JSON.stringify(state.settings));
+  }
+
+  function loadWarSessions() {
+    try {
+      const sessions = JSON.parse(localStorage.getItem(APP.warSessionsKey) || '[]');
+      return Array.isArray(sessions)
+        ? sessions.filter(
+            (session) => session?.id && session?.startedAt && Array.isArray(session.factionIds)
+          ).slice(-30)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveWarSessions() {
+    state.warSessions = state.warSessions.slice(-30);
+    localStorage.setItem(APP.warSessionsKey, JSON.stringify(state.warSessions));
   }
 
   function normalizeWhitespace(value) {
@@ -849,7 +869,7 @@
           mutation.target?.nodeType === Node.ELEMENT_NODE
             ? mutation.target
             : mutation.target?.parentElement;
-        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-history-viewer, #wih-health-viewer, #wih-intel-viewer, #wih-toast`);
+        return !target?.closest?.(`#${APP.panelId}, #wih-export-viewer, #wih-history-viewer, #wih-health-viewer, #wih-intel-viewer, #wih-session-viewer, #wih-toast`);
       });
 
       // Rendering the HUD changes its own DOM. Ignore those changes so the HUD
@@ -1583,6 +1603,25 @@
         #wih-intel-viewer .wih-intel-changes-card { position: sticky; top: 68px; }
         #wih-intel-viewer .wih-target-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); }
       }
+      #wih-session-viewer { --wih-surface:#1b1e25; --wih-surface-2:#232731; --wih-border:rgba(255,255,255,.13); --wih-text:#f3f4f6; --wih-muted:#a7adb7; --wih-accent:#ff7a59; position:fixed; inset:0; z-index:2147483646; overflow:auto; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background:#111318; color:var(--wih-text); font:13px/1.4 Arial,sans-serif; }
+      #wih-session-viewer * { box-sizing:border-box; }
+      #wih-session-viewer button, #wih-session-viewer input { font:inherit; }
+      #wih-session-viewer .wih-session-header { position:sticky; top:0; z-index:4; display:flex; align-items:center; gap:10px; min-height:56px; padding:9px 12px; border-bottom:1px solid var(--wih-border); background:rgba(17,19,24,.96); }
+      #wih-session-viewer .wih-session-title { min-width:0; flex:1; }
+      #wih-session-viewer .wih-session-title strong { display:block; font-size:16px; }
+      #wih-session-viewer .wih-muted { color:var(--wih-muted); font-size:11px; }
+      #wih-session-viewer .wih-session-content { display:grid; gap:11px; max-width:1100px; margin:0 auto; padding:12px; }
+      #wih-session-viewer .wih-session-card { padding:11px; border:1px solid var(--wih-border); border-radius:11px; background:var(--wih-surface); }
+      #wih-session-viewer .wih-session-action { min-height:36px; padding:7px 11px; border:1px solid var(--wih-border); border-radius:9px; background:var(--wih-surface-2); color:var(--wih-text); }
+      #wih-session-viewer .wih-session-actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+      #wih-session-viewer .wih-session-name { width:100%; min-height:40px; margin-top:9px; padding:7px 9px; border:1px solid var(--wih-border); border-radius:9px; background:var(--wih-surface-2); color:var(--wih-text); }
+      #wih-session-viewer .wih-session-factions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-top:9px; }
+      #wih-session-viewer .wih-session-check { display:flex; align-items:center; gap:7px; padding:8px; border-radius:8px; background:var(--wih-surface-2); }
+      #wih-session-viewer .wih-session-list { display:grid; gap:7px; margin-top:9px; }
+      #wih-session-viewer .wih-session-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; padding:9px; border-radius:8px; background:var(--wih-surface-2); }
+      #wih-session-viewer .wih-report-chunk { display:grid; gap:7px; margin-top:9px; }
+      #wih-session-viewer textarea { width:100%; min-height:260px; resize:vertical; padding:9px; border:1px solid var(--wih-border); border-radius:8px; background:#0e1013; color:#e8eaed; font:12px/1.4 monospace; }
+      @media (min-width:760px) { #wih-session-viewer .wih-session-factions { grid-template-columns:repeat(4,minmax(0,1fr)); } }
     `;
     document.head.append(style);
   }
@@ -1763,6 +1802,7 @@
         <div class="wih-actions">
           <button class="wih-button wih-primary" data-action="capture">Capture page</button>
           <button class="wih-button wih-primary" data-action="intelligence">Intelligence</button>
+          <button class="wih-button wih-primary" data-action="sessions">War sessions</button>
           <button class="wih-button wih-primary" data-action="history">History</button>
           <button class="wih-button" data-action="health">Collector health</button>
           <button class="wih-button" data-action="copy-export">Copy export</button>
@@ -1864,6 +1904,10 @@
 
     panel.querySelector('[data-action="intelligence"]')?.addEventListener('click', () => {
       openFactionIntelligenceViewer().catch(reportError);
+    });
+
+    panel.querySelector('[data-action="sessions"]')?.addEventListener('click', () => {
+      openWarSessionsViewer().catch(reportError);
     });
 
     panel.querySelector('[data-action="health"]')?.addEventListener('click', () => {
@@ -2651,6 +2695,7 @@
           <strong>Faction Intelligence</strong>
           <span class="wih-muted">Observed facts only · 24-hour coverage confidence · <span data-intel-updated>Updated just now</span></span>
         </div>
+        <button type="button" class="wih-intel-action" data-intel-action="sessions">Sessions</button>
         <button type="button" class="wih-intel-action" data-intel-action="refresh">Refresh</button>
         <button type="button" class="wih-intel-close" data-intel-action="close">Close</button>
       </header>
@@ -3192,6 +3237,10 @@
     viewer.querySelector('[data-intel-action="refresh"]')?.addEventListener('click', () => {
       refreshIntelligence().catch(reportError);
     });
+    viewer.querySelector('[data-intel-action="sessions"]')?.addEventListener('click', () => {
+      closeViewer();
+      openWarSessionsViewer().catch(reportError);
+    });
     viewer.querySelector('[data-intel-action="close"]')?.addEventListener('click', closeViewer);
     viewer.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') closeViewer();
@@ -3208,6 +3257,345 @@
         refreshIntelligence().catch(reportError);
       }
     }, 10_000);
+  }
+
+  function measureSessionHealth(records, rangeStart, rangeEnd) {
+    const intervals = records
+      .map((record) => Number(record.recordedAt || 0))
+      .filter((timestamp) => timestamp >= rangeStart && timestamp <= rangeEnd)
+      .sort((a, b) => a - b)
+      .map((timestamp) => ({
+        from: timestamp,
+        to: Math.min(rangeEnd, timestamp + APP.collectorTickGapThresholdMs),
+      }));
+    const merged = [];
+    for (const interval of intervals) {
+      const previous = merged.at(-1);
+      if (previous && interval.from <= previous.to) previous.to = Math.max(previous.to, interval.to);
+      else merged.push({ ...interval });
+    }
+    let coveredMs = 0;
+    let longestGapMs = 0;
+    let gapCount = 0;
+    let cursor = rangeStart;
+    for (const interval of merged) {
+      if (interval.from > cursor) {
+        gapCount += 1;
+        longestGapMs = Math.max(longestGapMs, interval.from - cursor);
+      }
+      coveredMs += Math.max(0, interval.to - Math.max(cursor, interval.from));
+      cursor = Math.max(cursor, interval.to);
+    }
+    if (cursor < rangeEnd) {
+      gapCount += 1;
+      longestGapMs = Math.max(longestGapMs, rangeEnd - cursor);
+    }
+    const totalMs = Math.max(1, rangeEnd - rangeStart);
+    return {
+      coveragePercent: Math.min(100, Math.round((coveredMs / totalMs) * 100)),
+      gapCount,
+      longestGapMs,
+    };
+  }
+
+  function splitDiscordReport(text, title) {
+    const maxBodyLength = 1700;
+    const lines = text.split('\n');
+    const bodies = [];
+    let current = '';
+    for (const originalLine of lines) {
+      const lineParts = originalLine.length > maxBodyLength
+        ? originalLine.match(new RegExp(`.{1,${maxBodyLength}}`, 'g')) || ['']
+        : [originalLine];
+      for (const line of lineParts) {
+        const candidate = current ? `${current}\n${line}` : line;
+        if (candidate.length > maxBodyLength && current) {
+          bodies.push(current);
+          current = line;
+        } else current = candidate;
+      }
+    }
+    if (current) bodies.push(current);
+    return bodies.map(
+      (body, index) => `**${title} — ${index + 1}/${bodies.length}**\n${body}`
+    );
+  }
+
+  async function buildWarSessionDiscordReport(session) {
+    const rangeStart = Number(session.startedAt);
+    const rangeEnd = Number(session.endedAt || Date.now());
+    const [players, rawObservations, healthRecords] = await Promise.all([
+      getAllFromStore(APP.playersStore),
+      getAllFromStore(APP.observationsStore),
+      getCollectorHealthRecords(rangeStart),
+    ]);
+    const factionIds = session.factionIds.map(String);
+    const analysis = buildAnalysisObservations(rawObservations);
+    const sessionObservations = analysis.observations.filter(
+      (observation) =>
+        Number(observation.capturedAt) >= rangeStart &&
+        Number(observation.capturedAt) <= rangeEnd &&
+        factionIds.includes(String(observation.factionId))
+    );
+    const watchedIds = new Set((state.settings.watchedPlayerIds || []).map(String));
+    const playerNames = new Map(
+      players.map((player) => [String(player.playerId), cleanStoredName(player.name, player.playerId)])
+    );
+    let totalTransitions = 0;
+    let totalPriorityTransitions = 0;
+    const watchedChanges = [];
+    const observationsByPlayer = new Map();
+    for (const observation of sessionObservations) {
+      const playerId = String(observation.playerId);
+      if (!observationsByPlayer.has(playerId)) observationsByPlayer.set(playerId, []);
+      observationsByPlayer.get(playerId).push(observation);
+    }
+    for (const [playerId, observations] of observationsByPlayer) {
+      observations.sort((a, b) => Number(a.capturedAt) - Number(b.capturedAt));
+      for (let index = 1; index < observations.length; index += 1) {
+        const previous = observations[index - 1];
+        const current = observations[index];
+        const observedTier = (observation) => {
+          if (['hospital', 'jail', 'federal', 'fallen', 'traveling', 'returning', 'abroad'].includes(observation.lifeStatus)) return 'unavailable';
+          if (
+            observation.lifeStatus === 'okay' &&
+            (observation.activityStatus === 'online' || observation.activityStatus === 'idle')
+          ) return 'ready';
+          return 'watch';
+        };
+        if (observedTier(previous) !== observedTier(current)) totalPriorityTransitions += 1;
+        if (
+          previous.activityStatus === current.activityStatus &&
+          previous.lifeStatus === current.lifeStatus
+        ) continue;
+        totalTransitions += 1;
+        if (watchedIds.has(playerId)) {
+          watchedChanges.push({
+            name: playerNames.get(playerId) || `Player ${playerId}`,
+            at: current.capturedAt,
+            from: `${previous.activityStatus}/${previous.lifeStatus}`,
+            to: `${current.activityStatus}/${current.lifeStatus}`,
+          });
+        }
+      }
+    }
+
+    const lines = [
+      `**Session:** ${session.name}`,
+      `**Window:** ${formatDateTime(rangeStart)} → ${formatDateTime(rangeEnd)}`,
+      `**Duration:** ${formatDuration(rangeEnd - rangeStart)}`,
+      `**Factions:** ${factionIds.length} • **Usable observations:** ${sessionObservations.length}`,
+      `**Observed status changes:** ${totalTransitions} • **Priority-tier changes:** ${totalPriorityTransitions}`,
+      '',
+      '**Faction coverage**',
+    ];
+
+    for (const factionId of factionIds) {
+      const factionName = normalizeWhitespace(state.settings.factionAliases?.[factionId]) || `Faction ${factionId}`;
+      const factionObservations = sessionObservations.filter(
+        (observation) => String(observation.factionId) === factionId
+      );
+      const factionHealth = healthRecords.filter(
+        (record) =>
+          String(record.factionId) === factionId &&
+          Number(record.recordedAt) <= rangeEnd &&
+          record.relevantPage
+      );
+      const health = measureSessionHealth(factionHealth, rangeStart, rangeEnd);
+      const scans = factionHealth.filter((record) => record.type === 'scan');
+      const saved = scans.reduce(
+        (sum, record) => sum + Number(record.observationsSaved || 0),
+        0
+      );
+      const uniquePlayers = new Set(factionObservations.map((observation) => String(observation.playerId))).size;
+      const latestByPlayer = new Map();
+      for (const observation of factionObservations) {
+        latestByPlayer.set(String(observation.playerId), observation);
+      }
+      const latest = [...latestByPlayer.values()];
+      const active = latest.filter(
+        (observation) => observation.activityStatus === 'online' || observation.activityStatus === 'idle'
+      ).length;
+      const okay = latest.filter((observation) => observation.lifeStatus === 'okay').length;
+      lines.push(
+        `**${factionName}** \`${factionId}\``,
+        `• Collector coverage: **${health.coveragePercent}%** • scans: ${scans.length} • saved: ${saved}`,
+        `• Gaps: ${health.gapCount} • longest: ${formatDuration(health.longestGapMs)} • observed players: ${uniquePlayers}`,
+        `• Final observed snapshot: ${active} active • ${okay} Okay`,
+        ''
+      );
+    }
+
+    lines.push('**Watched-target changes**');
+    if (watchedChanges.length) {
+      watchedChanges
+        .sort((a, b) => Number(b.at) - Number(a.at))
+        .slice(0, 30)
+        .forEach((change) => {
+          lines.push(`• **${change.name}:** ${change.from} → ${change.to} • ${formatDateTime(change.at)}`);
+        });
+      if (watchedChanges.length > 30) lines.push(`• …and ${watchedChanges.length - 30} more watched changes`);
+    } else lines.push('• No watched-target status changes were observed.');
+    lines.push('', '_Observed data only; coverage gaps are not treated as offline time._');
+    const title = `WIH War Report: ${session.name}`.slice(0, 80);
+    return { chunks: splitDiscordReport(lines.join('\n'), title), sessionObservations, totalTransitions, totalPriorityTransitions };
+  }
+
+  async function shareTextReport(title, text) {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text });
+        return;
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+    }
+    await writeTextToClipboard(text);
+    toast('Sharing unavailable; report chunk copied instead.');
+  }
+
+  async function openWarSessionsViewer() {
+    document.getElementById('wih-session-viewer')?.remove();
+    const players = await getAllFromStore(APP.playersStore);
+    const factionIds = [...new Set(
+      players.map((player) => String(player.factionId || '')).filter((id) => /^\d+$/.test(id))
+    )].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const pinnedFactions = new Set((state.settings.watchedFactionIds || []).map(String));
+    const currentFactionId = inferFactionId();
+    const defaultFactions = factionIds.filter((id) => pinnedFactions.has(id));
+    if (!defaultFactions.length && currentFactionId && factionIds.includes(currentFactionId)) {
+      defaultFactions.push(currentFactionId);
+    }
+    const uiState = {
+      selectedSessionId: null,
+      setupFactionIds: new Set(defaultFactions.length ? defaultFactions : factionIds.slice(0, 1)),
+    };
+    const viewer = document.createElement('div');
+    viewer.id = 'wih-session-viewer';
+    viewer.setAttribute('role', 'dialog');
+    viewer.setAttribute('aria-modal', 'true');
+    viewer.innerHTML = `
+      <header class="wih-session-header">
+        <div class="wih-session-title"><strong>War Sessions</strong><span class="wih-muted">Timestamped monitoring windows · Discord-ready reports</span></div>
+        <button type="button" class="wih-session-action" data-session-action="close">Close</button>
+      </header>
+      <main class="wih-session-content"></main>
+    `;
+    document.body.append(viewer);
+    const content = viewer.querySelector('.wih-session-content');
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const factionName = (id) => normalizeWhitespace(state.settings.factionAliases?.[id]) || `Faction ${id}`;
+
+    function renderSessions() {
+      const active = state.warSessions.find((session) => !session.endedAt) || null;
+      const completed = [...state.warSessions].filter((session) => session.endedAt).reverse();
+      content.innerHTML = `
+        ${active ? `
+          <section class="wih-session-card">
+            <strong>Active: ${escapeHtml(active.name)}</strong>
+            <div class="wih-muted">Started ${escapeHtml(formatDateTime(active.startedAt))} · running ${escapeHtml(formatDuration(Date.now() - active.startedAt))}</div>
+            <div style="margin-top:7px">${active.factionIds.map((id) => escapeHtml(factionName(String(id)))).join(' · ')}</div>
+            <div class="wih-session-actions">
+              <button class="wih-session-action" data-session-live-report="${escapeHtml(active.id)}">Build live report</button>
+              <button class="wih-session-action" data-session-end="${escapeHtml(active.id)}">End session</button>
+            </div>
+          </section>
+        ` : `
+          <section class="wih-session-card">
+            <strong>Start a war session</strong>
+            <div class="wih-muted">Choose factions. The report will reference observations and collector health inside this timestamp window.</div>
+            <input class="wih-session-name" data-session-name maxlength="80" value="War ${escapeHtml(new Date().toLocaleDateString())}" aria-label="Session name">
+            <div class="wih-session-factions">
+              ${factionIds.map((id) => `<label class="wih-session-check"><input type="checkbox" data-session-faction="${escapeHtml(id)}" ${uiState.setupFactionIds.has(id) ? 'checked' : ''}><span>${escapeHtml(factionName(id))}</span></label>`).join('') || '<div class="wih-muted">Capture at least one faction first.</div>'}
+            </div>
+            <div class="wih-session-actions"><button class="wih-session-action" data-session-action="start" ${factionIds.length ? '' : 'disabled'}>Start session</button></div>
+          </section>
+        `}
+        <section class="wih-session-card">
+          <strong>Completed sessions</strong>
+          <div class="wih-session-list">
+            ${completed.length ? completed.map((session) => `
+              <div class="wih-session-row">
+                <div><strong>${escapeHtml(session.name)}</strong><div class="wih-muted">${escapeHtml(formatDateTime(session.startedAt))} · ${escapeHtml(formatDuration(session.endedAt - session.startedAt))} · ${session.factionIds.length} faction${session.factionIds.length === 1 ? '' : 's'}</div></div>
+                <button class="wih-session-action" data-session-report="${escapeHtml(session.id)}">Report</button>
+              </div>
+            `).join('') : '<div class="wih-muted">No completed sessions yet.</div>'}
+          </div>
+        </section>
+        <section class="wih-session-card" data-session-report-area ${uiState.selectedSessionId ? '' : 'hidden'}></section>
+      `;
+      bindSessionControls();
+      if (uiState.selectedSessionId) renderReport(uiState.selectedSessionId).catch(reportError);
+    }
+
+    function bindSessionControls() {
+      content.querySelector('[data-session-action="start"]')?.addEventListener('click', () => {
+        const name = normalizeWhitespace(content.querySelector('[data-session-name]')?.value).slice(0, 80);
+        const selected = [...content.querySelectorAll('[data-session-faction]:checked')].map((input) => input.dataset.sessionFaction);
+        if (!name || !selected.length) {
+          toast('Enter a session name and select at least one faction.');
+          return;
+        }
+        state.warSessions.push({ id: createCollectorId('war'), name, factionIds: selected, startedAt: Date.now(), endedAt: null });
+        saveWarSessions();
+        renderSessions();
+      });
+      content.querySelectorAll('[data-session-end]').forEach((button) => button.addEventListener('click', () => {
+        if (!window.confirm('End this war session and finalize its report window?')) return;
+        const session = state.warSessions.find((item) => item.id === button.dataset.sessionEnd);
+        if (!session) return;
+        session.endedAt = Date.now();
+        uiState.selectedSessionId = session.id;
+        saveWarSessions();
+        renderSessions();
+      }));
+      content.querySelectorAll('[data-session-report], [data-session-live-report]').forEach((button) => button.addEventListener('click', () => {
+        uiState.selectedSessionId = button.dataset.sessionReport || button.dataset.sessionLiveReport;
+        renderSessions();
+      }));
+    }
+
+    async function renderReport(sessionId) {
+      const area = content.querySelector('[data-session-report-area]');
+      const session = state.warSessions.find((item) => item.id === sessionId);
+      if (!area || !session) return;
+      area.hidden = false;
+      area.innerHTML = '<div class="wih-muted">Building report from the local archive…</div>';
+      const report = await buildWarSessionDiscordReport(session);
+      if (!area.isConnected || uiState.selectedSessionId !== sessionId) return;
+      area.innerHTML = `
+        <strong>Discord report: ${escapeHtml(session.name)}</strong>
+        <div class="wih-muted">${report.chunks.length} Discord-safe message chunk${report.chunks.length === 1 ? '' : 's'} · each stays below Discord’s standard message limit</div>
+        ${report.chunks.map((chunk, index) => `
+          <div class="wih-report-chunk">
+            <strong>Chunk ${index + 1} of ${report.chunks.length}</strong>
+            <textarea readonly data-report-text="${index}">${escapeHtml(chunk)}</textarea>
+            <div class="wih-session-actions">
+              <button class="wih-session-action" data-report-copy="${index}">Copy chunk ${index + 1}</button>
+              <button class="wih-session-action" data-report-share="${index}">Share chunk ${index + 1}</button>
+            </div>
+          </div>
+        `).join('')}
+      `;
+      area.querySelectorAll('[data-report-copy]').forEach((button) => button.addEventListener('click', async () => {
+        await writeTextToClipboard(report.chunks[Number(button.dataset.reportCopy)]);
+        toast(`Copied report chunk ${Number(button.dataset.reportCopy) + 1}.`);
+      }));
+      area.querySelectorAll('[data-report-share]').forEach((button) => button.addEventListener('click', () => {
+        const index = Number(button.dataset.reportShare);
+        shareTextReport(`WIH War Report: ${session.name}`, report.chunks[index]).catch(reportError);
+      }));
+    }
+
+    const closeViewer = () => {
+      document.body.style.overflow = previousBodyOverflow;
+      viewer.remove();
+    };
+    viewer.querySelector('[data-session-action="close"]')?.addEventListener('click', closeViewer);
+    viewer.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeViewer(); });
+    renderSessions();
   }
 
   function analyzeCollectorHealth(records, now = Date.now()) {
@@ -3570,6 +3958,7 @@
       players,
       observations: rawObservations,
       collectorHealth,
+      warSessions: state.warSessions,
     };
   }
 
@@ -3726,6 +4115,17 @@
           }
           await transactionDone(healthTx);
         }
+        if (Array.isArray(payload.warSessions)) {
+          const sessionsById = new Map(state.warSessions.map((session) => [session.id, session]));
+          for (const session of payload.warSessions) {
+            if (!session?.id || !session?.startedAt || !Array.isArray(session.factionIds)) continue;
+            sessionsById.set(session.id, session);
+          }
+          state.warSessions = [...sessionsById.values()]
+            .sort((a, b) => Number(a.startedAt) - Number(b.startedAt))
+            .slice(-30);
+          saveWarSessions();
+        }
         await renderPanel();
         toast(`Imported ${payload.observations.length} observations.`);
       } catch (error) {
@@ -3804,7 +4204,7 @@
 
   async function eraseAllData() {
     const confirmed = window.confirm(
-      'Erase every locally stored War Intelligence HUD player, observation, and collector-health record? This cannot be undone unless you exported a backup.'
+      'Erase every locally stored War Intelligence HUD player, observation, collector-health record, and war session? This cannot be undone unless you exported a backup.'
     );
     if (!confirmed) return;
 
@@ -3819,8 +4219,10 @@
     await Promise.all([transactionDone(tx), transactionDone(healthTx)]);
 
     state.currentRows = [];
+    state.warSessions = [];
+    localStorage.removeItem(APP.warSessionsKey);
     await renderPanel();
-    toast('All local WIH data and collector-health history erased.');
+    toast('All local WIH data, collector-health history, and war sessions erased.');
   }
 
   function toast(message) {
