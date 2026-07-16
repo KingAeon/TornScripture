@@ -916,7 +916,8 @@
 
         <div class="wih-actions">
           <button class="wih-button wih-primary" data-action="capture">Capture page</button>
-          <button class="wih-button" data-action="export">Export data</button>
+          <button class="wih-button" data-action="export">Export TXT</button>
+          <button class="wih-button" data-action="copy-export">Copy export</button>
           <button class="wih-button" data-action="import">Import data</button>
         </div>
 
@@ -1006,6 +1007,10 @@
       exportData().catch(reportError);
     });
 
+    panel.querySelector('[data-action="copy-export"]')?.addEventListener('click', () => {
+      copyExportData().catch(reportError);
+    });
+
     panel.querySelector('[data-action="import"]')?.addEventListener('click', importData);
 
     panel.querySelector('[data-action="purge-old"]')?.addEventListener('click', async () => {
@@ -1041,13 +1046,13 @@
     return requestResult(tx.objectStore(storeName).getAll());
   }
 
-  async function exportData() {
+  async function buildExportPayload() {
     const [players, observations] = await Promise.all([
       getAllFromStore(APP.playersStore),
       getAllFromStore(APP.observationsStore),
     ]);
 
-    const payload = {
+    return {
       schema: 'script-kitty-war-intel-export',
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
@@ -1055,23 +1060,34 @@
       players,
       observations,
     };
+  }
 
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  async function exportData() {
+    const payload = await buildExportPayload();
+    const exportText = JSON.stringify(payload, null, 2);
+
+    const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `tornscripture-war-intel-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    anchor.download = `tornscripture-war-intel-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(`Exported ${observations.length} observations.`);
+    toast(`Exported ${payload.observations.length} observations as TXT.`);
+  }
+
+  async function copyExportData() {
+    const payload = await buildExportPayload();
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    toast(`Copied ${payload.observations.length} observations to the clipboard.`);
   }
 
   function importData() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'application/json,.json';
+    input.accept = 'application/json,text/plain,.json,.txt';
 
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
