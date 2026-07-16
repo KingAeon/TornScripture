@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.3.2
+// @version      0.3.3
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -51,7 +51,7 @@
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.3.2',
+    version: '0.3.3',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -1552,17 +1552,34 @@
   function clampHudPosition(panel, position) {
     const margin = 8;
     const rect = panel.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = Number(viewport?.offsetLeft || 0);
+    const viewportTop = Number(viewport?.offsetTop || 0);
+    const viewportWidth = Number(
+      viewport?.width || document.documentElement.clientWidth || window.innerWidth
+    );
+    const viewportHeight = Number(
+      viewport?.height || document.documentElement.clientHeight || window.innerHeight
+    );
     const requestedX = Number(position?.x);
     const requestedY = Number(position?.y);
-    const maxX = Math.max(margin, window.innerWidth - rect.width - margin);
-    const maxY = Math.max(margin, window.innerHeight - rect.height - margin);
+    const minX = viewportLeft + margin;
+    const minY = viewportTop + margin;
+    const maxX = Math.max(minX, viewportLeft + viewportWidth - rect.width - margin);
+    const maxY = Math.max(minY, viewportTop + viewportHeight - rect.height - margin);
     return {
-      x: Math.min(maxX, Math.max(margin, Number.isFinite(requestedX) ? requestedX : rect.left)),
-      y: Math.min(maxY, Math.max(margin, Number.isFinite(requestedY) ? requestedY : rect.top)),
+      x: Math.min(maxX, Math.max(minX, Number.isFinite(requestedX) ? requestedX : rect.left)),
+      y: Math.min(maxY, Math.max(minY, Number.isFinite(requestedY) ? requestedY : rect.top)),
+      space: 'rendered-v1',
     };
   }
 
   function applyHudPosition(panel, position = state.settings.hudPosition, { persist = false } = {}) {
+    if (position && position.space !== 'rendered-v1') {
+      state.settings.hudPosition = null;
+      saveSettings();
+      position = null;
+    }
     if (!position || !Number.isFinite(Number(position.x)) || !Number.isFinite(Number(position.y))) {
       panel.style.removeProperty('left');
       panel.style.removeProperty('top');
@@ -1572,14 +1589,30 @@
       return null;
     }
 
-    panel.style.left = `${Number(position.x)}px`;
-    panel.style.top = `${Number(position.y)}px`;
-    panel.style.right = 'auto';
-    panel.style.bottom = 'auto';
-    panel.classList.add('wih-positioned');
     const clamped = clampHudPosition(panel, position);
-    panel.style.left = `${clamped.x}px`;
-    panel.style.top = `${clamped.y}px`;
+    if (!panel.classList.contains('wih-positioned')) {
+      const renderedStart = panel.getBoundingClientRect();
+      panel.style.left = '0px';
+      panel.style.top = '0px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      const renderedOrigin = panel.getBoundingClientRect();
+      const scaleX = renderedOrigin.width / Math.max(1, panel.offsetWidth);
+      const scaleY = renderedOrigin.height / Math.max(1, panel.offsetHeight);
+      panel.style.left = `${(renderedStart.left - renderedOrigin.left) / Math.max(.01, scaleX)}px`;
+      panel.style.top = `${(renderedStart.top - renderedOrigin.top) / Math.max(.01, scaleY)}px`;
+      panel.classList.add('wih-positioned');
+    }
+
+    for (let pass = 0; pass < 2; pass += 1) {
+      const rendered = panel.getBoundingClientRect();
+      const scaleX = rendered.width / Math.max(1, panel.offsetWidth);
+      const scaleY = rendered.height / Math.max(1, panel.offsetHeight);
+      const cssLeft = Number.parseFloat(panel.style.left) || 0;
+      const cssTop = Number.parseFloat(panel.style.top) || 0;
+      panel.style.left = `${cssLeft + (clamped.x - rendered.left) / Math.max(.01, scaleX)}px`;
+      panel.style.top = `${cssTop + (clamped.y - rendered.top) / Math.max(.01, scaleY)}px`;
+    }
     if (persist) {
       state.settings.hudPosition = clamped;
       saveSettings();
@@ -1597,10 +1630,8 @@
       const rect = panel.getBoundingClientRect();
       drag = {
         pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        panelX: rect.left,
-        panelY: rect.top,
+        grabX: event.clientX - rect.left,
+        grabY: event.clientY - rect.top,
         currentX: event.clientX,
         currentY: event.clientY,
       };
@@ -1614,8 +1645,9 @@
       drag.currentX = event.clientX;
       drag.currentY = event.clientY;
       applyHudPosition(panel, {
-        x: drag.panelX + event.clientX - drag.startX,
-        y: drag.panelY + event.clientY - drag.startY,
+        x: event.clientX - drag.grabX,
+        y: event.clientY - drag.grabY,
+        space: 'rendered-v1',
       });
       event.preventDefault();
     });
@@ -1625,8 +1657,9 @@
       const clientX = Number.isFinite(event.clientX) ? event.clientX : drag.currentX;
       const clientY = Number.isFinite(event.clientY) ? event.clientY : drag.currentY;
       const position = applyHudPosition(panel, {
-        x: drag.panelX + clientX - drag.startX,
-        y: drag.panelY + clientY - drag.startY,
+        x: clientX - drag.grabX,
+        y: clientY - drag.grabY,
+        space: 'rendered-v1',
       });
       drag = null;
       panel.classList.remove('wih-dragging');
