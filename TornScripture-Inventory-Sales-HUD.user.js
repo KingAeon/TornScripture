@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Inventory Sales HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.1
+// @version      0.2.0
 // @description  Scans your Torn inventory on demand, excludes equipment, and builds local keep/trader/store/trash sale plans.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - INVENTORY SALES HUD v0.1.1
+   * TORNSCRIPTURE - INVENTORY SALES HUD v0.2.0
    *
    * SAFETY BOUNDARY
    * - Inventory API calls happen only after the user presses Scan.
@@ -31,12 +31,14 @@
   const APP = Object.freeze({
     name: 'Inventory Sales HUD',
     shortName: 'ISH',
-    version: '0.1.1',
+    version: '0.2.0',
     apiUrl: 'https://api.torn.com/v2/user/inventory',
+    catalogApiBase: 'https://api.torn.com/v2/torn',
     apiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     settingsStorageKey: 'tornscripture-ish-settings-v1',
     rulesStorageKey: 'tornscripture-ish-rules-v1',
     inventoryStorageKey: 'tornscripture-ish-inventory-v1',
+    catalogStorageKey: 'tornscripture-ish-torn-catalog-v1',
     priceStorageKey: 'tornscripture-ish-price-config-v1',
     panelId: 'tornscripture-ish-panel',
     overlayId: 'tornscripture-ish-overlay',
@@ -44,6 +46,7 @@
     styleId: 'tornscripture-ish-style',
     pageSize: 100,
     maxPagesPerCategory: 10,
+    catalogBatchSize: 50,
     defaultPriceConfigUrl:
       'https://raw.githubusercontent.com/KingAeon/TornScripture/refs/heads/main/data/trader-prices.json',
   });
@@ -102,11 +105,16 @@
     traders: [],
     items: {},
   });
+  const EMPTY_CATALOG = Object.freeze({
+    updatedAt: null,
+    items: {},
+  });
 
   const state = {
     settings: loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS),
     rules: loadJson(APP.rulesStorageKey, {}),
     inventory: loadJson(APP.inventoryStorageKey, []),
+    catalog: normalizeCatalog(loadJson(APP.catalogStorageKey, EMPTY_CATALOG)),
     priceConfig: normalizePriceConfig(loadJson(APP.priceStorageKey, EMPTY_PRICE_CONFIG)),
     scanning: false,
     scanProgress: '',
@@ -274,6 +282,51 @@
     );
   }
 
+  function nullableNonNegativeNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, number) : null;
+  }
+
+  function normalizeCatalogItem(raw) {
+    const id = Number(raw?.itemId ?? raw?.id);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    const value = raw?.value && typeof raw.value === 'object' ? raw.value : {};
+    const vendor = value.vendor && typeof value.vendor === 'object' ? value.vendor : {};
+    return {
+      itemId: id,
+      name: normalizeWhitespace(raw?.name),
+      type: normalizeWhitespace(raw?.type),
+      marketPrice: nullableNonNegativeNumber(raw?.marketPrice ?? value.market_price) ?? 0,
+      shopBuyPrice: nullableNonNegativeNumber(raw?.shopBuyPrice ?? value.buy_price),
+      shopSellPrice: nullableNonNegativeNumber(raw?.shopSellPrice ?? value.sell_price),
+      vendorName: normalizeWhitespace(raw?.vendorName ?? vendor.name),
+      vendorCountry: normalizeWhitespace(raw?.vendorCountry ?? vendor.country),
+      isTradable: Boolean(raw?.isTradable ?? raw?.is_tradable),
+      circulation: nullableNonNegativeNumber(raw?.circulation),
+    };
+  }
+
+  function normalizeCatalog(value) {
+    const normalized = {
+      updatedAt: value?.updatedAt || null,
+      items: {},
+    };
+    const sourceItems = value?.items && typeof value.items === 'object' ? value.items : {};
+    const entries = Array.isArray(sourceItems)
+      ? sourceItems.map((item) => [String(item?.id ?? ''), item])
+      : Object.entries(sourceItems);
+    for (const [key, raw] of entries) {
+      const item = normalizeCatalogItem({ ...raw, itemId: raw?.itemId ?? Number(key) });
+      if (item) normalized.items[String(item.itemId)] = item;
+    }
+    return normalized;
+  }
+
+  function catalogRecord(itemId) {
+    return state.catalog.items?.[String(itemId)] || null;
+  }
+
   function normalizePriceConfig(value) {
     if (!isPriceConfig(value)) {
       return structuredCloneSafe(EMPTY_PRICE_CONFIG);
@@ -317,6 +370,25 @@
     return state.priceConfig.items?.[String(itemId)] || {};
   }
 
+  function mergeItemPrices(configured = {}, catalog = null) {
+    const catalogMarket = nullableNonNegativeNumber(catalog?.marketPrice);
+    const catalogSell = nullableNonNegativeNumber(catalog?.shopSellPrice);
+    return {
+      marketPrice: catalogMarket && catalogMarket > 0
+        ? catalogMarket
+        : nullableNonNegativeNumber(configured.marketValue) ?? 0,
+      shopSellPrice: catalogSell !== null
+        ? catalogSell
+        : nullableNonNegativeNumber(configured.citySellPrice) ?? 0,
+      shopBuyPrice: nullableNonNegativeNumber(catalog?.shopBuyPrice),
+      catalog,
+    };
+  }
+
+  function effectivePrices(itemId) {
+    return mergeItemPrices(itemPriceRecord(itemId), catalogRecord(itemId));
+  }
+
   function activeTraders() {
     return state.priceConfig.traders.filter((trader) => trader.active !== false);
   }
@@ -352,7 +424,7 @@
       return record.classification;
     }
     const best = bestTraderFor(item.itemId);
-    const storePrice = Number(record.citySellPrice) || 0;
+    const storePrice = effectivePrices(item.itemId).shopSellPrice;
     if (best?.unitPrice > 0 && best.unitPrice >= storePrice) return 'trader';
     if (storePrice > 0) return 'store';
     return 'review';
@@ -370,12 +442,12 @@
   }
 
   function itemView(item) {
-    const record = itemPriceRecord(item.itemId);
     const action = classificationFor(item);
     const quantity = saleQuantityFor(item);
     const bestTrader = bestTraderFor(item.itemId);
-    const marketValue = Number(record.marketValue) || 0;
-    const citySellPrice = Number(record.citySellPrice) || 0;
+    const prices = effectivePrices(item.itemId);
+    const marketValue = prices.marketPrice;
+    const citySellPrice = prices.shopSellPrice;
     let unitPrice = 0;
     let destination = ACTION_LABELS[action];
     if (action === 'trader' && bestTrader) {
@@ -383,6 +455,9 @@
       destination = bestTrader.name;
     } else if (action === 'store') {
       unitPrice = citySellPrice;
+      destination = prices.catalog?.vendorName
+        ? `${prices.catalog.vendorName} shop`
+        : ACTION_LABELS.store;
     }
     return {
       ...item,
@@ -392,6 +467,12 @@
       bestTrader,
       marketValue,
       citySellPrice,
+      shopBuyPrice: prices.shopBuyPrice,
+      vendorName: prices.catalog?.vendorName || '',
+      vendorCountry: prices.catalog?.vendorCountry || '',
+      isTradable: prices.catalog?.isTradable ?? null,
+      circulation: prices.catalog?.circulation ?? null,
+      marketTotal: item.amount * marketValue,
       unitPrice,
       total: quantity * unitPrice,
       destination,
@@ -430,6 +511,94 @@
     }
     if (!response.ok || payload?.error) throw new Error(apiErrorMessage(payload, response));
     return payload;
+  }
+
+  function catalogRequestUrl(itemIds) {
+    const ids = [...new Set(itemIds.map(Number))]
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (!ids.length) throw new Error('No valid item IDs were supplied for Torn price lookup.');
+    const url = new URL(`${APP.catalogApiBase}/${ids.join(',')}/items`);
+    url.searchParams.set('comment', 'TornScripture Inventory Sales HUD');
+    return url;
+  }
+
+  async function fetchCatalogBatch(key, itemIds) {
+    const response = await fetch(catalogRequestUrl(itemIds), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `ApiKey ${key}`,
+      },
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error(`Torn item catalog returned unreadable data (${response.status}).`);
+    }
+    if (!response.ok || payload?.error) throw new Error(apiErrorMessage(payload, response));
+    return Array.isArray(payload?.items) ? payload.items : [];
+  }
+
+  async function refreshTornCatalog(key, inventory = state.inventory) {
+    const ids = [...new Set(inventory.map((item) => Number(item?.itemId)).filter((id) => id > 0))];
+    if (!ids.length) {
+      state.catalog = structuredCloneSafe(EMPTY_CATALOG);
+      saveJson(APP.catalogStorageKey, state.catalog);
+      return 0;
+    }
+    const batches = [];
+    for (let index = 0; index < ids.length; index += APP.catalogBatchSize) {
+      batches.push(ids.slice(index, index + APP.catalogBatchSize));
+    }
+    const items = {};
+    for (let index = 0; index < batches.length; index += 1) {
+      state.scanProgress = `prices ${index + 1}/${batches.length}`;
+      renderPanel();
+      renderOverlay();
+      const returned = await fetchCatalogBatch(key, batches[index]);
+      for (const raw of returned) {
+        const item = normalizeCatalogItem(raw);
+        if (item) items[String(item.itemId)] = item;
+      }
+    }
+    state.catalog = {
+      updatedAt: new Date().toISOString(),
+      items,
+    };
+    saveJson(APP.catalogStorageKey, state.catalog);
+    return Object.keys(items).length;
+  }
+
+  async function refreshTornCatalogOnly() {
+    if (state.scanning) return;
+    const key = currentApiKey();
+    if (!key) {
+      openSettings();
+      toast('Connect a Limited Access API key before refreshing Torn prices.');
+      return;
+    }
+    if (!state.inventory.length) {
+      toast('Scan inventory first so there are item IDs to price.');
+      return;
+    }
+    state.scanning = true;
+    state.scanProgress = 'prices';
+    renderPanel();
+    renderOverlay();
+    try {
+      const count = await refreshTornCatalog(key);
+      renderPanel();
+      renderOverlay();
+      toast(`Updated ${count} Torn item price records.`);
+    } finally {
+      state.scanning = false;
+      state.scanProgress = '';
+      renderPanel();
+      renderOverlay();
+    }
   }
 
   async function scanInventory() {
@@ -475,9 +644,21 @@
       saveJson(APP.inventoryStorageKey, state.inventory);
       state.settings.lastScanAt = new Date().toISOString();
       saveJson(APP.settingsStorageKey, state.settings);
+      let catalogCount = 0;
+      let catalogError = null;
+      try {
+        catalogCount = await refreshTornCatalog(key, rawItems);
+      } catch (error) {
+        catalogError = error;
+        console.warn(`[${APP.shortName}] Torn catalog`, error);
+      }
       renderPanel();
       renderOverlay();
-      toast(`Scanned ${inventoryViews().length} inventory stacks.`);
+      if (catalogError) {
+        toast(`Inventory saved, but Torn prices failed: ${catalogError?.message || String(catalogError)}`);
+      } else {
+        toast(`Scanned ${inventoryViews().length} stacks and priced ${catalogCount} items.`);
+      }
     } finally {
       state.scanning = false;
       state.scanProgress = '';
@@ -645,6 +826,7 @@
     return {
       stacks: views.length,
       units: views.reduce((sum, item) => sum + item.amount, 0),
+      marketWorth: views.reduce((sum, item) => sum + item.marketTotal, 0),
       payout: views.reduce((sum, item) => sum + item.total, 0),
       review: views.filter((item) => item.action === 'review').length,
       excluded: views.filter((item) => item.action === 'excluded').length,
@@ -687,7 +869,7 @@
       :root{--ish-navy:#18243a;--ish-blue:#243b5a;--ish-teal:#10b7a5;--ish-bg:#f4f7fb;--ish-card:#fff;--ish-line:#c9d2df;--ish-ink:#18212f;--ish-muted:#5b677a;--ish-green:#177245;--ish-red:#b42318;--ish-gold:#9a5a00}
       #${APP.panelId}{position:fixed;right:10px;bottom:132px;width:min(330px,calc(100vw - 20px));z-index:2147483000;background:var(--ish-card);color:var(--ish-ink);border:1px solid var(--ish-line);border-radius:13px;box-shadow:0 12px 32px #0004;font:13px/1.35 Arial,sans-serif;overflow:hidden}
       #${APP.panelId} *{box-sizing:border-box} .ish-mini-head{display:flex;align-items:center;gap:8px;padding:10px 11px;background:var(--ish-navy);color:#fff}.ish-mini-head strong{flex:1}.ish-mini-head button,.ish-btn{border:0;border-radius:8px;padding:8px 10px;background:var(--ish-blue);color:#fff;font-weight:700;cursor:pointer}.ish-mini-head button{padding:3px 7px}.ish-mini-body{padding:10px}.ish-mini-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:9px}.ish-mini-stat{background:#e8f0fa;border-radius:8px;padding:7px;text-align:center}.ish-mini-stat strong{display:block;font-size:15px}.ish-mini-actions{display:flex;flex-wrap:wrap;gap:6px}.ish-btn.primary{background:var(--ish-teal);color:#082b28}.ish-btn.light{background:#e8f0fa;color:var(--ish-ink)}.ish-btn.danger{background:#fce3e3;color:var(--ish-red)}.ish-muted{color:var(--ish-muted);font-size:11px}
-      #${APP.overlayId},#${APP.settingsId}{position:fixed;inset:0;z-index:2147483200;background:var(--ish-bg);color:var(--ish-ink);font:14px/1.4 Arial,sans-serif;overflow:auto}#${APP.overlayId} *,#${APP.settingsId} *{box-sizing:border-box}.ish-topbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:9px;padding:11px 12px;background:var(--ish-navy);color:#fff}.ish-topbar strong{flex:1;font-size:17px}.ish-topbar button{border:0;border-radius:8px;background:#ffffff20;color:#fff;padding:7px 10px;font-weight:700}.ish-content{max-width:1050px;margin:0 auto;padding:12px}.ish-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.ish-summary-card{background:#ddf7f2;border:1px solid #90ddd3;border-radius:10px;padding:9px}.ish-summary-card strong{display:block;font-size:18px;color:var(--ish-green)}.ish-toolbar{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}.ish-toolbar input{flex:1;min-width:180px;border:1px solid var(--ish-line);border-radius:8px;padding:9px}.ish-tabs{display:flex;gap:5px;overflow:auto;padding-bottom:5px}.ish-tab{white-space:nowrap;border:1px solid var(--ish-line);border-radius:999px;background:#fff;color:var(--ish-ink);padding:7px 10px}.ish-tab.active{background:var(--ish-blue);color:#fff;border-color:var(--ish-blue)}.ish-list{display:grid;gap:8px;margin-top:10px}.ish-item{display:grid;grid-template-columns:minmax(160px,1fr) auto auto;gap:9px;align-items:center;background:#fff;border:1px solid var(--ish-line);border-radius:10px;padding:10px}.ish-item-name{font-weight:700}.ish-item-meta{color:var(--ish-muted);font-size:12px}.ish-item-value{text-align:right}.ish-item select,.ish-item input,.ish-field input{border:1px solid var(--ish-line);border-radius:7px;padding:7px;background:#fff;color:var(--ish-ink)}.ish-badge{display:inline-block;border-radius:999px;padding:3px 7px;background:#e8f0fa;font-size:11px;font-weight:700}.ish-badge.trader,.ish-badge.store{background:#ddf3e4;color:var(--ish-green)}.ish-badge.trash{background:#fce3e3;color:var(--ish-red)}.ish-badge.review{background:#ffe8c2;color:var(--ish-gold)}.ish-badge.excluded{background:#e5e7eb;color:#4b5563}.ish-empty,.ish-plan-card,.ish-settings-card{background:#fff;border:1px solid var(--ish-line);border-radius:11px;padding:12px;margin-top:10px}.ish-plan-card pre{white-space:pre-wrap;font:13px/1.45 Arial,sans-serif;background:#f4f7fb;border-radius:8px;padding:9px}.ish-field{display:grid;gap:5px;margin:10px 0}.ish-field label{font-weight:700}.ish-field input{width:100%}.ish-privacy{background:#fff4c7;border:1px solid #e4cb67;border-radius:9px;padding:10px}.ish-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2147483600;background:#111827;color:#fff;padding:10px 14px;border-radius:9px;box-shadow:0 8px 24px #0005;max-width:calc(100vw - 30px)}
+      #${APP.overlayId},#${APP.settingsId}{position:fixed;inset:0;z-index:2147483200;background:var(--ish-bg);color:var(--ish-ink);font:14px/1.4 Arial,sans-serif;overflow:auto}#${APP.overlayId} *,#${APP.settingsId} *{box-sizing:border-box}.ish-topbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:9px;padding:11px 12px;background:var(--ish-navy);color:#fff}.ish-topbar strong{flex:1;font-size:17px}.ish-topbar button{border:0;border-radius:8px;background:#ffffff20;color:#fff;padding:7px 10px;font-weight:700}.ish-content{max-width:1050px;margin:0 auto;padding:12px}.ish-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}.ish-summary-card{background:#ddf7f2;border:1px solid #90ddd3;border-radius:10px;padding:9px}.ish-summary-card strong{display:block;font-size:18px;color:var(--ish-green)}.ish-toolbar{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}.ish-toolbar input{flex:1;min-width:180px;border:1px solid var(--ish-line);border-radius:8px;padding:9px}.ish-tabs{display:flex;gap:5px;overflow:auto;padding-bottom:5px}.ish-tab{white-space:nowrap;border:1px solid var(--ish-line);border-radius:999px;background:#fff;color:var(--ish-ink);padding:7px 10px}.ish-tab.active{background:var(--ish-blue);color:#fff;border-color:var(--ish-blue)}.ish-list{display:grid;gap:8px;margin-top:10px}.ish-item{display:grid;grid-template-columns:minmax(160px,1fr) auto auto;gap:9px;align-items:center;background:#fff;border:1px solid var(--ish-line);border-radius:10px;padding:10px}.ish-item-name{font-weight:700}.ish-item-meta{color:var(--ish-muted);font-size:12px}.ish-item-value{text-align:right}.ish-price-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.ish-price-cell{background:#f4f7fb;border:1px solid #e0e6ef;border-radius:8px;padding:7px}.ish-price-cell span,.ish-price-cell small{display:block;color:var(--ish-muted);font-size:11px}.ish-price-cell strong{font-size:14px}.ish-item select,.ish-item input,.ish-field input{border:1px solid var(--ish-line);border-radius:7px;padding:7px;background:#fff;color:var(--ish-ink)}.ish-badge{display:inline-block;border-radius:999px;padding:3px 7px;background:#e8f0fa;font-size:11px;font-weight:700}.ish-badge.trader,.ish-badge.store{background:#ddf3e4;color:var(--ish-green)}.ish-badge.trash{background:#fce3e3;color:var(--ish-red)}.ish-badge.review{background:#ffe8c2;color:var(--ish-gold)}.ish-badge.excluded{background:#e5e7eb;color:#4b5563}.ish-empty,.ish-plan-card,.ish-settings-card{background:#fff;border:1px solid var(--ish-line);border-radius:11px;padding:12px;margin-top:10px}.ish-plan-card pre{white-space:pre-wrap;font:13px/1.45 Arial,sans-serif;background:#f4f7fb;border-radius:8px;padding:9px}.ish-field{display:grid;gap:5px;margin:10px 0}.ish-field label{font-weight:700}.ish-field input{width:100%}.ish-privacy{background:#fff4c7;border:1px solid #e4cb67;border-radius:9px;padding:10px}.ish-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2147483600;background:#111827;color:#fff;padding:10px 14px;border-radius:9px;box-shadow:0 8px 24px #0005;max-width:calc(100vw - 30px)}
       @media(max-width:680px){.ish-summary{grid-template-columns:repeat(2,1fr)}.ish-item{grid-template-columns:1fr}.ish-item-value{text-align:left}.ish-content{padding:9px}#${APP.panelId}{bottom:112px}}
     `;
     document.head.append(style);
@@ -732,18 +914,29 @@
     const search = normalizeWhitespace(state.settings.search).toLowerCase();
     return inventoryViews().filter((item) => {
       const tabMatch = state.settings.selectedTab === 'all' || item.action === state.settings.selectedTab;
-      const searchMatch = !search || `${item.name} ${item.category} ${item.destination}`.toLowerCase().includes(search);
+      const searchMatch = !search || `${item.name} ${item.category} ${item.destination} ${item.vendorName} ${item.vendorCountry}`.toLowerCase().includes(search);
       return tabMatch && searchMatch;
     });
   }
 
   function renderItem(item) {
     const disabled = item.action === 'excluded';
+    const catalogMeta = [
+      item.vendorName ? `Vendor ${item.vendorName}${item.vendorCountry ? ` (${item.vendorCountry})` : ''}` : '',
+      item.isTradable === null ? '' : item.isTradable ? 'Tradable' : 'Not tradable',
+      item.circulation === null ? '' : `${new Intl.NumberFormat().format(item.circulation)} circulating`,
+    ].filter(Boolean).join(' · ');
     return `
       <article class="ish-item" data-item-id="${item.itemId}">
         <div><div class="ish-item-name">${escapeHtml(item.name)}</div><div class="ish-item-meta">${escapeHtml(item.category)} · ID ${item.itemId} · owned ${item.amount}${item.keepQuantity ? ` · keep ${item.keepQuantity}` : ''}</div></div>
         <div><span class="ish-badge ${item.action}">${escapeHtml(ACTION_LABELS[item.action])}</span><div class="ish-item-meta">${escapeHtml(item.destination)}</div></div>
-        <div class="ish-item-value"><strong>${item.total ? formatMoney(item.total) : '—'}</strong><div class="ish-item-meta">${item.quantity ? `${item.quantity} × ${formatMoney(item.unitPrice)}` : 'no sale quantity'}</div></div>
+        <div class="ish-item-value"><strong>${item.total ? formatMoney(item.total) : '—'}</strong><div class="ish-item-meta">${item.quantity ? `${item.quantity} × ${formatMoney(item.unitPrice)} planned` : 'no sale quantity'}</div></div>
+        <div class="ish-price-grid">
+          <div class="ish-price-cell"><span>Market each</span><strong>${item.marketValue ? formatMoney(item.marketValue) : '—'}</strong><small>${item.marketValue ? `${formatMoney(item.marketTotal)} owned` : 'no catalog value'}</small></div>
+          <div class="ish-price-cell"><span>Shop pays you</span><strong>${item.citySellPrice ? formatMoney(item.citySellPrice) : '—'}</strong><small>per item</small></div>
+          <div class="ish-price-cell"><span>Shop charges</span><strong>${item.shopBuyPrice !== null ? formatMoney(item.shopBuyPrice) : '—'}</strong><small>per item</small></div>
+        </div>
+        ${catalogMeta ? `<div class="ish-item-meta" style="grid-column:1/-1">${escapeHtml(catalogMeta)}</div>` : ''}
         <div style="grid-column:1/-1;display:flex;gap:7px;flex-wrap:wrap">
           <select data-ish-action ${disabled ? 'disabled' : ''} aria-label="Classification for ${escapeHtml(item.name)}">
             ${ACTIONS.filter((action) => action !== 'excluded').map((action) => `<option value="${action}" ${action === item.action ? 'selected' : ''}>${escapeHtml(ACTION_LABELS[action])}</option>`).join('')}
@@ -764,7 +957,7 @@
       </section>
     `).join('');
     const storeTotal = groups.store.reduce((sum, item) => sum + item.total, 0);
-    const storeCard = groups.store.length ? `<section class="ish-plan-card"><strong>Sell to Torn store · ${formatMoney(storeTotal)}</strong><pre>${escapeHtml(groups.store.map((item) => `${item.quantity} × ${item.name} = ${formatMoney(item.total)}`).join('\n'))}</pre></section>` : '';
+    const storeCard = groups.store.length ? `<section class="ish-plan-card"><strong>Sell to Torn shops · ${formatMoney(storeTotal)}</strong><pre>${escapeHtml(groups.store.map((item) => `${item.quantity} × ${item.name} @ ${formatMoney(item.unitPrice)} = ${formatMoney(item.total)}${item.vendorName ? ` · ${item.vendorName}` : ''}`).join('\n'))}</pre></section>` : '';
     const trashCard = groups.trash.length ? `<section class="ish-plan-card"><strong>Trash review list</strong><div class="ish-privacy" style="margin-top:8px">No item is trashed automatically. Confirm every destructive action inside Torn.</div><pre>${escapeHtml(groups.trash.map((item) => `${item.amount} × ${item.name}`).join('\n'))}</pre></section>` : '';
     return traderCards || storeCard || trashCard
       ? traderCards + storeCard + trashCard
@@ -792,13 +985,15 @@
         <section class="ish-summary">
           <div class="ish-summary-card"><strong>${summary.stacks}</strong><span>item stacks</span></div>
           <div class="ish-summary-card"><strong>${summary.units}</strong><span>total units</span></div>
+          <div class="ish-summary-card"><strong>${formatMoney(summary.marketWorth)}</strong><span>Torn market worth</span></div>
           <div class="ish-summary-card"><strong>${formatMoney(summary.payout)}</strong><span>planned payout</span></div>
           <div class="ish-summary-card"><strong>${summary.review}</strong><span>need review</span></div>
         </section>
         <div class="ish-toolbar">
           <button class="ish-btn primary" type="button" data-ish="scan">${state.scanning ? `Scanning ${state.scanProgress}…` : 'Scan API'}</button>
           <button class="ish-btn light" type="button" data-ish="scan-visible">Scan visible page</button>
-          <button class="ish-btn light" type="button" data-ish="refresh-prices">Refresh prices</button>
+          <button class="ish-btn light" type="button" data-ish="refresh-catalog">Refresh Torn prices</button>
+          <button class="ish-btn light" type="button" data-ish="refresh-prices">Refresh trader prices</button>
           <input type="search" data-ish-search placeholder="Search items, categories, or traders" value="${escapeHtml(state.settings.search)}">
         </div>
         <div class="ish-tabs">${tabs.map((tab) => `<button type="button" class="ish-tab ${state.settings.selectedTab === tab ? 'active' : ''}" data-ish-tab="${tab}">${tab === 'all' ? 'All' : tab === 'plan' ? 'Sale Plan' : ACTION_LABELS[tab]}</button>`).join('')}</div>
@@ -811,6 +1006,7 @@
     overlay.querySelector('[data-ish="settings"]')?.addEventListener('click', openSettings);
     overlay.querySelector('[data-ish="scan"]')?.addEventListener('click', () => scanInventory().catch(reportError));
     overlay.querySelector('[data-ish="scan-visible"]')?.addEventListener('click', scanVisibleInventory);
+    overlay.querySelector('[data-ish="refresh-catalog"]')?.addEventListener('click', () => refreshTornCatalogOnly().catch(reportError));
     overlay.querySelector('[data-ish="refresh-prices"]')?.addEventListener('click', () => loadPriceConfigFromUrl().catch(reportError));
     overlay.querySelector('[data-ish-search]')?.addEventListener('input', (event) => {
       state.settings.search = event.currentTarget.value;
@@ -854,9 +1050,11 @@
           <h2 style="margin-top:0">Torn API connection</h2>
           <div class="ish-privacy"><strong>Privacy:</strong> inventory and API key stay on this device. The key is sent only to <code>api.torn.com</code>. No key is included in exports or price files. Required access: Limited.</div>
           <div class="ish-field"><label>Connection</label><div>${escapeHtml(apiKeySource())}</div></div>
+          <div class="ish-muted">Torn catalog: ${Object.keys(state.catalog.items).length} matched items · updated ${escapeHtml(formatDateTime(state.catalog.updatedAt))}</div>
           ${pdaApiKey() ? '<div class="ish-field"><div>TornPDA supplied its managed key. Nothing needs to be pasted here.</div></div>' : `<div class="ish-field"><label for="ish-api-key">Limited Access API key</label><input id="ish-api-key" type="password" autocomplete="off" placeholder="Stored only in this browser" value="${escapeHtml(storedApiKey())}"></div>`}
           <div style="display:flex;gap:7px;flex-wrap:wrap">
             ${pdaApiKey() ? '' : '<button class="ish-btn primary" type="button" data-ish="save-key">Save key</button><button class="ish-btn danger" type="button" data-ish="forget-key">Forget key</button>'}
+            <button class="ish-btn light" type="button" data-ish="refresh-catalog">Refresh Torn prices</button>
             <a class="ish-btn light" href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener">Open Torn API settings</a>
           </div>
         </section>
@@ -889,6 +1087,9 @@
       renderPanel();
       openSettings();
       toast('Local API key removed.');
+    });
+    modal.querySelector('[data-ish="refresh-catalog"]')?.addEventListener('click', () => {
+      refreshTornCatalogOnly().then(openSettings).catch(reportError);
     });
     modal.querySelector('[data-ish="save-url"]')?.addEventListener('click', () => {
       state.settings.priceConfigUrl = normalizeWhitespace(modal.querySelector('#ish-price-url')?.value);
@@ -929,10 +1130,14 @@
     globalThis.__TS_ISH_TEST_EXPORTS__ = {
       normalizeApiItem,
       inventoryRequestUrl,
+      catalogRequestUrl,
       INVENTORY_CATEGORIES,
       isEquipmentCategory,
       isEquipmentItem,
       aggregateInventory,
+      normalizeCatalogItem,
+      normalizeCatalog,
+      mergeItemPrices,
       normalizePriceConfig,
       isPriceConfig,
       extractInventoryItems,

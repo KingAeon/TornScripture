@@ -22,6 +22,28 @@ Torn's inventory endpoint returns one category per request. The HUD scans all
 This avoids Torn's `Incorrect category` response when the `cat` parameter is
 omitted and keeps the complete inventory scan below the normal API rate limit.
 
+## Torn catalog prices
+
+After inventory capture, the HUD batches the owned item IDs through Torn's
+public item-catalog endpoint. The result is joined locally by item ID and adds:
+
+- Torn's estimated market price
+- the vendor or shop name and country
+- the price the shop charges the player
+- the price the shop pays the player
+- whether the item is tradable
+- circulation
+
+Catalog results are cached locally and refreshed with every API inventory scan
+or through the separate **Refresh Torn prices** button. The organizer shows all
+three price concepts separately so a shop purchase price is never mistaken for
+a sale payout.
+
+Torn catalog values take priority for market and shop prices. The external
+trader-price file's `marketValue` and `citySellPrice` fields remain offline
+fallbacks when a catalog record or shop value is unavailable. Human trader
+offers remain independent in `traderPrices`.
+
 ## Trader-price file
 
 The HUD's shareable data boundary is `data/trader-prices.json`. Keeping prices
