@@ -33,6 +33,8 @@ public item-catalog endpoint. The result is joined locally by item ID and adds:
 - the price the shop pays the player
 - whether the item is tradable
 - circulation
+- the official item image
+- description, effect, and usage requirement text when supplied
 
 Catalog results are cached locally and refreshed with every API inventory scan
 or through the separate **Refresh Torn prices** button. The organizer shows all
@@ -57,6 +59,23 @@ Per-item manual choices still override this recommendation. Select
 choice and return it to current price-based classification. A keep quantity can
 be retained while the destination remains automatic. Equipment remains locked
 in **Excluded Equipment** and cannot be reset or sold by the planner.
+
+## Appearance and HUD position
+
+The compact Inventory Sales HUD can be dragged by its header on desktop or
+mobile. Its clamped screen position is saved only on the current device. The
+**Reset HUD position** button in Settings restores the default lower-right
+location.
+
+The color theme supports **Follow Torn / device**, **Dark**, and **Light**.
+Automatic mode uses the device color preference and Torn page appearance. The
+choice applies to the compact HUD, full organizer, and Settings screen.
+
+Item images load lazily from the HTTPS URL returned by Torn. Descriptions,
+effects, and requirements are stored with the existing local catalog cache and
+appear inside a collapsed **Item description & effects** section on each item
+card. Press **Refresh Torn prices** after updating the userscript to populate
+these newly cached fields without rescanning every inventory category.
 
 ## Trader-price file
 

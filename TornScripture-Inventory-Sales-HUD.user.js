@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Inventory Sales HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.1
+// @version      0.3.0
 // @description  Scans your Torn inventory on demand, excludes equipment, and builds local keep/trader/store/trash sale plans.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - INVENTORY SALES HUD v0.2.1
+   * TORNSCRIPTURE - INVENTORY SALES HUD v0.3.0
    *
    * SAFETY BOUNDARY
    * - Inventory API calls happen only after the user presses Scan.
@@ -31,7 +31,7 @@
   const APP = Object.freeze({
     name: 'Inventory Sales HUD',
     shortName: 'ISH',
-    version: '0.2.1',
+    version: '0.3.0',
     apiUrl: 'https://api.torn.com/v2/user/inventory',
     catalogApiBase: 'https://api.torn.com/v2/torn',
     apiKeyStorageKey: 'tornscripture-ish-api-key-v1',
@@ -94,6 +94,8 @@
   });
   const DEFAULT_SETTINGS = Object.freeze({
     collapsed: false,
+    hudPosition: null,
+    theme: 'auto',
     priceConfigUrl: APP.defaultPriceConfigUrl,
     selectedTab: 'all',
     search: '',
@@ -119,6 +121,7 @@
     scanning: false,
     scanProgress: '',
     initialized: false,
+    environmentListenersBound: false,
   };
 
   function loadJson(key, fallback) {
@@ -141,6 +144,19 @@
 
   function normalizeWhitespace(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  function normalizeImageUrl(value) {
+    const candidate = typeof value === 'string'
+      ? value
+      : value?.medium || value?.large || value?.small || '';
+    if (!candidate) return '';
+    try {
+      const url = new URL(String(candidate), 'https://www.torn.com');
+      return url.protocol === 'https:' ? url.href : '';
+    } catch {
+      return '';
+    }
   }
 
   function escapeHtml(value) {
@@ -297,6 +313,11 @@
       itemId: id,
       name: normalizeWhitespace(raw?.name),
       type: normalizeWhitespace(raw?.type),
+      subType: normalizeWhitespace(raw?.subType ?? raw?.sub_type),
+      description: normalizeWhitespace(raw?.description),
+      effect: normalizeWhitespace(raw?.effect),
+      requirement: normalizeWhitespace(raw?.requirement),
+      imageUrl: normalizeImageUrl(raw?.imageUrl ?? raw?.image),
       marketPrice: nullableNonNegativeNumber(raw?.marketPrice ?? value.market_price) ?? 0,
       shopBuyPrice: nullableNonNegativeNumber(raw?.shopBuyPrice ?? value.buy_price),
       shopSellPrice: nullableNonNegativeNumber(raw?.shopSellPrice ?? value.sell_price),
@@ -484,6 +505,11 @@
       shopBuyPrice: prices.shopBuyPrice,
       vendorName: prices.catalog?.vendorName || '',
       vendorCountry: prices.catalog?.vendorCountry || '',
+      subType: prices.catalog?.subType || '',
+      description: prices.catalog?.description || '',
+      effect: prices.catalog?.effect || '',
+      requirement: prices.catalog?.requirement || '',
+      imageUrl: prices.catalog?.imageUrl || '',
       isTradable: prices.catalog?.isTradable ?? null,
       circulation: prices.catalog?.circulation ?? null,
       marketTotal: item.amount * marketValue,
@@ -532,6 +558,7 @@
       .filter((id) => Number.isInteger(id) && id > 0);
     if (!ids.length) throw new Error('No valid item IDs were supplied for Torn price lookup.');
     const url = new URL(`${APP.catalogApiBase}/${ids.join(',')}/items`);
+    url.searchParams.set('striptags', 'true');
     url.searchParams.set('comment', 'TornScripture Inventory Sales HUD');
     return url;
   }
@@ -883,15 +910,199 @@
     return `Hey, I'm selling:\n${lines.join('\n')}\nTotal: ${formatMoney(group.total)}`;
   }
 
+  function resolveThemePreference(preference, prefersDark = false, pageIsDark = false) {
+    if (preference === 'dark' || preference === 'light') return preference;
+    return prefersDark || pageIsDark ? 'dark' : 'light';
+  }
+
+  function pageLooksDark() {
+    const markers = [
+      document.documentElement?.className,
+      document.documentElement?.dataset?.theme,
+      document.body?.className,
+      document.body?.dataset?.theme,
+    ].map(String).join(' ').toLowerCase();
+    if (markers.includes('dark') || markers.includes('night')) return true;
+    const color = globalThis.getComputedStyle?.(document.body)?.backgroundColor || '';
+    const channels = color.match(/[\d.]+/g)?.map(Number) || [];
+    if (channels.length < 3 || (channels.length > 3 && channels[3] === 0)) return false;
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 < 140;
+  }
+
+  function resolvedTheme() {
+    const prefersDark = globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches || false;
+    return resolveThemePreference(state.settings.theme, prefersDark, pageLooksDark());
+  }
+
+  function applyThemeToUi() {
+    const theme = resolvedTheme();
+    for (const id of [APP.panelId, APP.overlayId, APP.settingsId]) {
+      const element = document.getElementById(id);
+      if (element) element.dataset.ishTheme = theme;
+    }
+    return theme;
+  }
+
+  function clampHudPosition(panel, position) {
+    const margin = 8;
+    const rect = panel.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = Number(viewport?.offsetLeft || 0);
+    const viewportTop = Number(viewport?.offsetTop || 0);
+    const viewportWidth = Number(viewport?.width || document.documentElement.clientWidth || window.innerWidth);
+    const viewportHeight = Number(viewport?.height || document.documentElement.clientHeight || window.innerHeight);
+    const minX = viewportLeft + margin;
+    const minY = viewportTop + margin;
+    const maxX = Math.max(minX, viewportLeft + viewportWidth - rect.width - margin);
+    const maxY = Math.max(minY, viewportTop + viewportHeight - rect.height - margin);
+    const requestedX = Number(position?.x);
+    const requestedY = Number(position?.y);
+    return {
+      x: Math.min(maxX, Math.max(minX, Number.isFinite(requestedX) ? requestedX : rect.left)),
+      y: Math.min(maxY, Math.max(minY, Number.isFinite(requestedY) ? requestedY : rect.top)),
+      space: 'rendered-v1',
+    };
+  }
+
+  function applyHudPosition(panel, position = state.settings.hudPosition, { persist = false } = {}) {
+    if (position && position.space !== 'rendered-v1') {
+      state.settings.hudPosition = null;
+      saveJson(APP.settingsStorageKey, state.settings);
+      position = null;
+    }
+    if (!position || !Number.isFinite(Number(position.x)) || !Number.isFinite(Number(position.y))) {
+      panel.style.removeProperty('left');
+      panel.style.removeProperty('top');
+      panel.style.removeProperty('right');
+      panel.style.removeProperty('bottom');
+      panel.classList.remove('ish-positioned');
+      return null;
+    }
+
+    const clamped = clampHudPosition(panel, position);
+    if (!panel.classList.contains('ish-positioned')) {
+      const renderedStart = panel.getBoundingClientRect();
+      panel.style.left = '0px';
+      panel.style.top = '0px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      const renderedOrigin = panel.getBoundingClientRect();
+      const scaleX = renderedOrigin.width / Math.max(1, panel.offsetWidth);
+      const scaleY = renderedOrigin.height / Math.max(1, panel.offsetHeight);
+      panel.style.left = `${(renderedStart.left - renderedOrigin.left) / Math.max(0.01, scaleX)}px`;
+      panel.style.top = `${(renderedStart.top - renderedOrigin.top) / Math.max(0.01, scaleY)}px`;
+      panel.classList.add('ish-positioned');
+    }
+
+    for (let pass = 0; pass < 2; pass += 1) {
+      const rendered = panel.getBoundingClientRect();
+      const scaleX = rendered.width / Math.max(1, panel.offsetWidth);
+      const scaleY = rendered.height / Math.max(1, panel.offsetHeight);
+      const cssLeft = Number.parseFloat(panel.style.left) || 0;
+      const cssTop = Number.parseFloat(panel.style.top) || 0;
+      panel.style.left = `${cssLeft + (clamped.x - rendered.left) / Math.max(0.01, scaleX)}px`;
+      panel.style.top = `${cssTop + (clamped.y - rendered.top) / Math.max(0.01, scaleY)}px`;
+    }
+    if (persist) {
+      state.settings.hudPosition = clamped;
+      saveJson(APP.settingsStorageKey, state.settings);
+    }
+    return clamped;
+  }
+
+  function bindHudDragging(panel) {
+    const handle = panel.querySelector('[data-ish-drag-handle]');
+    if (!handle) return;
+    let drag = null;
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || event.target.closest('button, a, input, select')) return;
+      const rect = panel.getBoundingClientRect();
+      drag = {
+        pointerId: event.pointerId,
+        grabX: event.clientX - rect.left,
+        grabY: event.clientY - rect.top,
+        currentX: event.clientX,
+        currentY: event.clientY,
+      };
+      panel.classList.add('ish-dragging');
+      handle.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    handle.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      drag.currentX = event.clientX;
+      drag.currentY = event.clientY;
+      applyHudPosition(panel, {
+        x: event.clientX - drag.grabX,
+        y: event.clientY - drag.grabY,
+        space: 'rendered-v1',
+      });
+      event.preventDefault();
+    });
+    const finishDrag = (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const clientX = Number.isFinite(event.clientX) ? event.clientX : drag.currentX;
+      const clientY = Number.isFinite(event.clientY) ? event.clientY : drag.currentY;
+      const position = applyHudPosition(panel, {
+        x: clientX - drag.grabX,
+        y: clientY - drag.grabY,
+        space: 'rendered-v1',
+      });
+      drag = null;
+      panel.classList.remove('ish-dragging');
+      if (position) {
+        state.settings.hudPosition = position;
+        saveJson(APP.settingsStorageKey, state.settings);
+      }
+    };
+    handle.addEventListener('pointerup', finishDrag);
+    handle.addEventListener('pointercancel', finishDrag);
+  }
+
+  function bindEnvironmentListeners() {
+    if (state.environmentListenersBound) return;
+    state.environmentListenersBound = true;
+    const keepHudVisible = () => {
+      const panel = document.getElementById(APP.panelId);
+      if (panel && state.settings.hudPosition) applyHudPosition(panel, state.settings.hudPosition, { persist: true });
+    };
+    window.addEventListener('resize', keepHudVisible);
+    window.visualViewport?.addEventListener('resize', keepHudVisible);
+    globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.addEventListener?.('change', () => {
+      if (state.settings.theme === 'auto') applyThemeToUi();
+    });
+  }
+
   function injectStyles() {
     if (document.getElementById(APP.styleId)) return;
     const style = document.createElement('style');
     style.id = APP.styleId;
     style.textContent = `
-      :root{--ish-navy:#18243a;--ish-blue:#243b5a;--ish-teal:#10b7a5;--ish-bg:#f4f7fb;--ish-card:#fff;--ish-line:#c9d2df;--ish-ink:#18212f;--ish-muted:#5b677a;--ish-green:#177245;--ish-red:#b42318;--ish-gold:#9a5a00}
-      #${APP.panelId}{position:fixed;right:10px;bottom:132px;width:min(330px,calc(100vw - 20px));z-index:2147483000;background:var(--ish-card);color:var(--ish-ink);border:1px solid var(--ish-line);border-radius:13px;box-shadow:0 12px 32px #0004;font:13px/1.35 Arial,sans-serif;overflow:hidden}
-      #${APP.panelId} *{box-sizing:border-box} .ish-mini-head{display:flex;align-items:center;gap:8px;padding:10px 11px;background:var(--ish-navy);color:#fff}.ish-mini-head strong{flex:1}.ish-mini-head button,.ish-btn{border:0;border-radius:8px;padding:8px 10px;background:var(--ish-blue);color:#fff;font-weight:700;cursor:pointer}.ish-mini-head button{padding:3px 7px}.ish-mini-body{padding:10px}.ish-mini-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:9px}.ish-mini-stat{background:#e8f0fa;border-radius:8px;padding:7px;text-align:center}.ish-mini-stat strong{display:block;font-size:15px}.ish-mini-actions{display:flex;flex-wrap:wrap;gap:6px}.ish-btn.primary{background:var(--ish-teal);color:#082b28}.ish-btn.light{background:#e8f0fa;color:var(--ish-ink)}.ish-btn.danger{background:#fce3e3;color:var(--ish-red)}.ish-muted{color:var(--ish-muted);font-size:11px}
-      #${APP.overlayId},#${APP.settingsId}{position:fixed;inset:0;z-index:2147483200;background:var(--ish-bg);color:var(--ish-ink);font:14px/1.4 Arial,sans-serif;overflow:auto}#${APP.overlayId} *,#${APP.settingsId} *{box-sizing:border-box}.ish-topbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:9px;padding:11px 12px;background:var(--ish-navy);color:#fff}.ish-topbar strong{flex:1;font-size:17px}.ish-topbar button{border:0;border-radius:8px;background:#ffffff20;color:#fff;padding:7px 10px;font-weight:700}.ish-content{max-width:1050px;margin:0 auto;padding:12px}.ish-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}.ish-summary-card{background:#ddf7f2;border:1px solid #90ddd3;border-radius:10px;padding:9px}.ish-summary-card strong{display:block;font-size:18px;color:var(--ish-green)}.ish-toolbar{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}.ish-toolbar input{flex:1;min-width:180px;border:1px solid var(--ish-line);border-radius:8px;padding:9px}.ish-tabs{display:flex;gap:5px;overflow:auto;padding-bottom:5px}.ish-tab{white-space:nowrap;border:1px solid var(--ish-line);border-radius:999px;background:#fff;color:var(--ish-ink);padding:7px 10px}.ish-tab.active{background:var(--ish-blue);color:#fff;border-color:var(--ish-blue)}.ish-list{display:grid;gap:8px;margin-top:10px}.ish-item{display:grid;grid-template-columns:minmax(160px,1fr) auto auto;gap:9px;align-items:center;background:#fff;border:1px solid var(--ish-line);border-radius:10px;padding:10px}.ish-item-name{font-weight:700}.ish-item-meta{color:var(--ish-muted);font-size:12px}.ish-item-value{text-align:right}.ish-price-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.ish-price-cell{background:#f4f7fb;border:1px solid #e0e6ef;border-radius:8px;padding:7px}.ish-price-cell span,.ish-price-cell small{display:block;color:var(--ish-muted);font-size:11px}.ish-price-cell strong{font-size:14px}.ish-item select,.ish-item input,.ish-field input{border:1px solid var(--ish-line);border-radius:7px;padding:7px;background:#fff;color:var(--ish-ink)}.ish-badge{display:inline-block;border-radius:999px;padding:3px 7px;background:#e8f0fa;font-size:11px;font-weight:700}.ish-badge.trader,.ish-badge.store{background:#ddf3e4;color:var(--ish-green)}.ish-badge.trash{background:#fce3e3;color:var(--ish-red)}.ish-badge.review{background:#ffe8c2;color:var(--ish-gold)}.ish-badge.excluded{background:#e5e7eb;color:#4b5563}.ish-empty,.ish-plan-card,.ish-settings-card{background:#fff;border:1px solid var(--ish-line);border-radius:11px;padding:12px;margin-top:10px}.ish-plan-card pre{white-space:pre-wrap;font:13px/1.45 Arial,sans-serif;background:#f4f7fb;border-radius:8px;padding:9px}.ish-field{display:grid;gap:5px;margin:10px 0}.ish-field label{font-weight:700}.ish-field input{width:100%}.ish-privacy{background:#fff4c7;border:1px solid #e4cb67;border-radius:9px;padding:10px}.ish-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2147483600;background:#111827;color:#fff;padding:10px 14px;border-radius:9px;box-shadow:0 8px 24px #0005;max-width:calc(100vw - 30px)}
+      #${APP.panelId},#${APP.overlayId},#${APP.settingsId}{
+        --ish-navy:#18243a;--ish-blue:#243b5a;--ish-teal:#10b7a5;--ish-bg:#f4f7fb;
+        --ish-card:#fff;--ish-surface:#fff;--ish-surface-2:#f1f5fa;--ish-chip:#e8f0fa;
+        --ish-line:#c9d2df;--ish-ink:#18212f;--ish-muted:#5b677a;--ish-green:#177245;
+        --ish-red:#b42318;--ish-gold:#9a5a00;--ish-summary:#ddf7f2;--ish-summary-line:#90ddd3;
+        --ish-positive:#ddf3e4;--ish-danger:#fce3e3;--ish-review:#ffe8c2;
+        --ish-excluded:#e5e7eb;--ish-excluded-ink:#4b5563;--ish-privacy:#fff4c7;
+        --ish-privacy-line:#e4cb67;color-scheme:light
+      }
+      #${APP.panelId}[data-ish-theme="dark"],#${APP.overlayId}[data-ish-theme="dark"],#${APP.settingsId}[data-ish-theme="dark"]{
+        --ish-navy:#111827;--ish-blue:#2b4568;--ish-teal:#20c7b5;--ish-bg:#0d1117;
+        --ish-card:#171c24;--ish-surface:#171c24;--ish-surface-2:#222a35;--ish-chip:#263245;
+        --ish-line:#3b4655;--ish-ink:#eef2f7;--ish-muted:#a9b4c3;--ish-green:#6bd69d;
+        --ish-red:#ff918a;--ish-gold:#f5bd67;--ish-summary:#12332f;--ish-summary-line:#25695f;
+        --ish-positive:#183a29;--ish-danger:#442526;--ish-review:#47361d;
+        --ish-excluded:#303741;--ish-excluded-ink:#c8d0da;--ish-privacy:#342e18;
+        --ish-privacy-line:#705d22;color-scheme:dark
+      }
+      #${APP.panelId}{position:fixed;right:max(10px,env(safe-area-inset-right));bottom:132px;width:min(330px,calc(100vw - 20px));z-index:2147483000;background:var(--ish-card);color:var(--ish-ink);border:1px solid var(--ish-line);border-radius:13px;box-shadow:0 12px 32px #0007;font:13px/1.35 Arial,sans-serif;overflow:hidden}
+      #${APP.panelId} *,#${APP.overlayId} *,#${APP.settingsId} *{box-sizing:border-box}
+      .ish-mini-head{display:flex;align-items:center;gap:8px;padding:10px 11px;background:var(--ish-navy);color:#fff;cursor:grab;touch-action:none;user-select:none}
+      #${APP.panelId}.ish-dragging .ish-mini-head{cursor:grabbing}
+      .ish-mini-head strong{flex:1}.ish-mini-head button,.ish-btn{border:0;border-radius:8px;padding:8px 10px;background:var(--ish-blue);color:#fff;font-weight:700;cursor:pointer}.ish-mini-head button{padding:3px 7px}.ish-mini-body{padding:10px}.ish-mini-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:9px}.ish-mini-stat{background:var(--ish-chip);border-radius:8px;padding:7px;text-align:center}.ish-mini-stat strong{display:block;font-size:15px}.ish-mini-actions{display:flex;flex-wrap:wrap;gap:6px}.ish-btn.primary{background:var(--ish-teal);color:#062d29}.ish-btn.light{background:var(--ish-chip);color:var(--ish-ink)}.ish-btn.danger{background:var(--ish-danger);color:var(--ish-red)}.ish-muted{color:var(--ish-muted);font-size:11px}
+      #${APP.overlayId},#${APP.settingsId}{position:fixed;inset:0;z-index:2147483200;background:var(--ish-bg);color:var(--ish-ink);font:14px/1.4 Arial,sans-serif;overflow:auto}
+      .ish-topbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:9px;padding:11px 12px;background:var(--ish-navy);color:#fff}.ish-topbar strong{flex:1;font-size:17px}.ish-topbar button{border:0;border-radius:8px;background:#ffffff20;color:#fff;padding:7px 10px;font-weight:700}.ish-content{max-width:1050px;margin:0 auto;padding:12px}.ish-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}.ish-summary-card{background:var(--ish-summary);border:1px solid var(--ish-summary-line);border-radius:10px;padding:9px}.ish-summary-card strong{display:block;font-size:18px;color:var(--ish-green)}.ish-toolbar{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}.ish-toolbar input{flex:1;min-width:180px;border:1px solid var(--ish-line);border-radius:8px;padding:9px;background:var(--ish-surface);color:var(--ish-ink)}.ish-tabs{display:flex;gap:5px;overflow:auto;padding-bottom:5px}.ish-tab{white-space:nowrap;border:1px solid var(--ish-line);border-radius:999px;background:var(--ish-surface);color:var(--ish-ink);padding:7px 10px}.ish-tab.active{background:var(--ish-blue);color:#fff;border-color:var(--ish-blue)}.ish-list{display:grid;gap:8px;margin-top:10px}.ish-item{display:grid;grid-template-columns:minmax(190px,1fr) auto auto;gap:9px;align-items:center;background:var(--ish-surface);border:1px solid var(--ish-line);border-radius:10px;padding:10px}.ish-item-heading{display:flex;align-items:center;gap:9px;min-width:0}.ish-item-thumb{width:72px;height:58px;flex:0 0 72px;object-fit:contain;border:1px solid var(--ish-line);border-radius:8px;background:var(--ish-surface-2)}.ish-item-name{font-weight:700}.ish-item-meta{color:var(--ish-muted);font-size:12px}.ish-item-value{text-align:right}.ish-price-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.ish-price-cell{background:var(--ish-surface-2);border:1px solid var(--ish-line);border-radius:8px;padding:7px}.ish-price-cell span,.ish-price-cell small{display:block;color:var(--ish-muted);font-size:11px}.ish-price-cell strong{font-size:14px}.ish-item select,.ish-item input,.ish-field input,.ish-field select{border:1px solid var(--ish-line);border-radius:7px;padding:7px;background:var(--ish-surface);color:var(--ish-ink)}.ish-badge{display:inline-block;border-radius:999px;padding:3px 7px;background:var(--ish-chip);font-size:11px;font-weight:700}.ish-badge.trader,.ish-badge.store{background:var(--ish-positive);color:var(--ish-green)}.ish-badge.trash{background:var(--ish-danger);color:var(--ish-red)}.ish-badge.review{background:var(--ish-review);color:var(--ish-gold)}.ish-badge.excluded{background:var(--ish-excluded);color:var(--ish-excluded-ink)}.ish-item-details{grid-column:1/-1;border:1px solid var(--ish-line);border-radius:8px;background:var(--ish-surface-2);padding:7px 9px}.ish-item-details summary{cursor:pointer;font-weight:700}.ish-detail-copy{display:grid;gap:7px;margin-top:7px;color:var(--ish-muted);font-size:12px}.ish-detail-copy strong{color:var(--ish-ink)}.ish-empty,.ish-plan-card,.ish-settings-card{background:var(--ish-surface);border:1px solid var(--ish-line);border-radius:11px;padding:12px;margin-top:10px}.ish-plan-card pre{white-space:pre-wrap;font:13px/1.45 Arial,sans-serif;background:var(--ish-surface-2);color:var(--ish-ink);border-radius:8px;padding:9px}.ish-field{display:grid;gap:5px;margin:10px 0}.ish-field label{font-weight:700}.ish-field input,.ish-field select{width:100%}.ish-privacy{background:var(--ish-privacy);border:1px solid var(--ish-privacy-line);border-radius:9px;padding:10px}.ish-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:2147483600;background:#111827;color:#fff;padding:10px 14px;border-radius:9px;box-shadow:0 8px 24px #0005;max-width:calc(100vw - 30px)}
       @media(max-width:680px){.ish-summary{grid-template-columns:repeat(2,1fr)}.ish-item{grid-template-columns:1fr}.ish-item-value{text-align:left}.ish-content{padding:9px}#${APP.panelId}{bottom:112px}}
     `;
     document.head.append(style);
@@ -907,7 +1118,7 @@
     const views = inventoryViews();
     const summary = summaryFor(views);
     panel.innerHTML = `
-      <div class="ish-mini-head"><strong>${APP.shortName} · Inventory Sales</strong><button type="button" data-ish="collapse">${state.settings.collapsed ? '+' : '−'}</button></div>
+      <div class="ish-mini-head" data-ish-drag-handle title="Drag to move"><strong>${APP.shortName} · Inventory Sales <span class="ish-muted">v${APP.version}</span></strong><button type="button" data-ish="collapse">${state.settings.collapsed ? '+' : '−'}</button></div>
       ${state.settings.collapsed ? '' : `<div class="ish-mini-body">
         <div class="ish-mini-stats">
           <div class="ish-mini-stat"><strong>${summary.stacks}</strong><span>stacks</span></div>
@@ -922,6 +1133,9 @@
         <div class="ish-muted" style="margin-top:8px">${escapeHtml(apiKeySource())} · last scan ${escapeHtml(formatDateTime(state.settings.lastScanAt))}</div>
       </div>`}
     `;
+    applyThemeToUi();
+    applyHudPosition(panel);
+    bindHudDragging(panel);
     panel.querySelector('[data-ish="collapse"]')?.addEventListener('click', () => {
       state.settings.collapsed = !state.settings.collapsed;
       saveJson(APP.settingsStorageKey, state.settings);
@@ -936,7 +1150,7 @@
     const search = normalizeWhitespace(state.settings.search).toLowerCase();
     return inventoryViews().filter((item) => {
       const tabMatch = state.settings.selectedTab === 'all' || item.action === state.settings.selectedTab;
-      const searchMatch = !search || `${item.name} ${item.category} ${item.destination} ${item.vendorName} ${item.vendorCountry}`.toLowerCase().includes(search);
+      const searchMatch = !search || `${item.name} ${item.category} ${item.subType} ${item.description} ${item.effect} ${item.requirement} ${item.destination} ${item.vendorName} ${item.vendorCountry}`.toLowerCase().includes(search);
       return tabMatch && searchMatch;
     });
   }
@@ -954,9 +1168,17 @@
       item.isTradable === null ? '' : item.isTradable ? 'Tradable' : 'Not tradable',
       item.circulation === null ? '' : `${new Intl.NumberFormat().format(item.circulation)} circulating`,
     ].filter(Boolean).join(' · ');
+    const details = [
+      item.effect ? `<div><strong>Effect</strong><br>${escapeHtml(item.effect)}</div>` : '',
+      item.description ? `<div><strong>Description</strong><br>${escapeHtml(item.description)}</div>` : '',
+      item.requirement ? `<div><strong>Requirement</strong><br>${escapeHtml(item.requirement)}</div>` : '',
+    ].filter(Boolean).join('');
     return `
       <article class="ish-item" data-item-id="${item.itemId}">
-        <div><div class="ish-item-name">${escapeHtml(item.name)}</div><div class="ish-item-meta">${escapeHtml(item.category)} · ID ${item.itemId} · owned ${item.amount}${item.keepQuantity ? ` · keep ${item.keepQuantity}` : ''}</div></div>
+        <div class="ish-item-heading">
+          ${item.imageUrl ? `<img class="ish-item-thumb" data-ish-item-image src="${escapeHtml(item.imageUrl)}" alt="${escapeHtml(item.name)}" loading="lazy" decoding="async">` : ''}
+          <div><div class="ish-item-name">${escapeHtml(item.name)}</div><div class="ish-item-meta">${escapeHtml(item.category)}${item.subType ? ` · ${escapeHtml(item.subType)}` : ''} · ID ${item.itemId} · owned ${item.amount}${item.keepQuantity ? ` · keep ${item.keepQuantity}` : ''}</div></div>
+        </div>
         <div><span class="ish-badge ${item.action}">${escapeHtml(ACTION_LABELS[item.action])}</span><div class="ish-item-meta">${escapeHtml(item.destination)}</div></div>
         <div class="ish-item-value"><strong>${item.total ? formatMoney(item.total) : '—'}</strong><div class="ish-item-meta">${item.quantity ? `${item.quantity} × ${formatMoney(item.unitPrice)} planned` : 'no sale quantity'}</div></div>
         <div class="ish-price-grid">
@@ -965,6 +1187,7 @@
           <div class="ish-price-cell"><span>Shop charges</span><strong>${item.shopBuyPrice !== null ? formatMoney(item.shopBuyPrice) : '—'}</strong><small>per item</small></div>
         </div>
         ${catalogMeta ? `<div class="ish-item-meta" style="grid-column:1/-1">${escapeHtml(catalogMeta)}</div>` : ''}
+        ${details ? `<details class="ish-item-details"><summary>Item description &amp; effects</summary><div class="ish-detail-copy">${details}</div></details>` : ''}
         <div style="grid-column:1/-1;display:flex;gap:7px;flex-wrap:wrap">
           <select data-ish-action ${disabled ? 'disabled' : ''} aria-label="Classification for ${escapeHtml(item.name)}">
             ${actionOptions}
@@ -1030,12 +1253,16 @@
           : `<section class="ish-list">${visible.length ? visible.map(renderItem).join('') : '<div class="ish-empty">No items match this view.</div>'}</section>`}
       </div>
     `;
+    applyThemeToUi();
     overlay.querySelector('[data-ish="close"]')?.addEventListener('click', () => overlay.remove());
     overlay.querySelector('[data-ish="settings"]')?.addEventListener('click', openSettings);
     overlay.querySelector('[data-ish="scan"]')?.addEventListener('click', () => scanInventory().catch(reportError));
     overlay.querySelector('[data-ish="scan-visible"]')?.addEventListener('click', scanVisibleInventory);
     overlay.querySelector('[data-ish="refresh-catalog"]')?.addEventListener('click', () => refreshTornCatalogOnly().catch(reportError));
     overlay.querySelector('[data-ish="refresh-prices"]')?.addEventListener('click', () => loadPriceConfigFromUrl().catch(reportError));
+    for (const image of overlay.querySelectorAll('[data-ish-item-image]')) {
+      image.addEventListener('error', () => image.remove(), { once: true });
+    }
     overlay.querySelector('[data-ish-search]')?.addEventListener('input', (event) => {
       state.settings.search = event.currentTarget.value;
       saveJson(APP.settingsStorageKey, state.settings);
@@ -1093,12 +1320,23 @@
           <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><button class="ish-btn primary" type="button" data-ish="save-url">Save and refresh</button><button class="ish-btn light" type="button" data-ish="import-prices">Import JSON file</button><button class="ish-btn light" type="button" data-ish="export-rules">Export my rules</button></div>
         </section>
         <section class="ish-settings-card">
+          <h2 style="margin-top:0">Appearance</h2>
+          <div class="ish-field"><label for="ish-theme">Color theme</label><select id="ish-theme">
+            <option value="auto" ${state.settings.theme === 'auto' ? 'selected' : ''}>Follow Torn / device</option>
+            <option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Dark</option>
+            <option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Light</option>
+          </select></div>
+          <p class="ish-muted">Automatic mode follows the device color preference and Torn's current page appearance.</p>
+          <button class="ish-btn light" type="button" data-ish="reset-position">Reset HUD position</button>
+        </section>
+        <section class="ish-settings-card">
           <h2 style="margin-top:0">Equipment safety</h2>
           <p>Armor and every weapon category are always locked in Excluded Equipment. They never enter price totals, trader messages, store plans, or trash plans.</p>
         </section>
       </div>
     `;
     document.body.append(modal);
+    applyThemeToUi();
     modal.querySelector('[data-ish="close"]')?.addEventListener('click', () => modal.remove());
     modal.querySelector('[data-ish="save-key"]')?.addEventListener('click', () => {
       const key = normalizeWhitespace(modal.querySelector('#ish-api-key')?.value);
@@ -1126,6 +1364,18 @@
     });
     modal.querySelector('[data-ish="import-prices"]')?.addEventListener('click', importPriceConfig);
     modal.querySelector('[data-ish="export-rules"]')?.addEventListener('click', exportRules);
+    modal.querySelector('#ish-theme')?.addEventListener('change', (event) => {
+      state.settings.theme = event.currentTarget.value;
+      saveJson(APP.settingsStorageKey, state.settings);
+      applyThemeToUi();
+    });
+    modal.querySelector('[data-ish="reset-position"]')?.addEventListener('click', () => {
+      state.settings.hudPosition = null;
+      saveJson(APP.settingsStorageKey, state.settings);
+      const panel = document.getElementById(APP.panelId);
+      if (panel) applyHudPosition(panel, null);
+      toast('HUD position reset.');
+    });
   }
 
   function toast(message) {
@@ -1147,6 +1397,7 @@
     state.initialized = true;
     state.settings = { ...DEFAULT_SETTINGS, ...state.settings };
     injectStyles();
+    bindEnvironmentListeners();
     renderPanel();
     if (!localStorage.getItem(APP.priceStorageKey)) {
       loadPriceConfigFromUrl(false).catch((error) => console.warn(`[${APP.shortName}] Price config`, error));
@@ -1165,8 +1416,10 @@
       aggregateInventory,
       normalizeCatalogItem,
       normalizeCatalog,
+      normalizeImageUrl,
       mergeItemPrices,
       shouldRecommendStore,
+      resolveThemePreference,
       normalizePriceConfig,
       isPriceConfig,
       extractInventoryItems,
