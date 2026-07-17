@@ -1,0 +1,25 @@
+{
+  "schema": "tornscripture-trader-prices",
+  "schemaVersion": 1,
+  "updatedAt": "2026-07-17T00:00:00.000Z",
+  "traders": [
+    {
+      "id": "example-trader",
+      "name": "Example Trader",
+      "active": false,
+      "website": "https://example.com/prices",
+      "updatedAt": "2026-07-17T00:00:00.000Z"
+    }
+  ],
+  "items": {
+    "206": {
+      "name": "Example Item",
+      "marketValue": 100000,
+      "citySellPrice": 50000,
+      "classification": "review",
+      "traderPrices": {
+        "example-trader": 90000
+      }
+    }
+  }
+}
