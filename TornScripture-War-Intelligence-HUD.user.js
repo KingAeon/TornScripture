@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.6.1
+// @version      0.7.0
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.6.1
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.7.0
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -48,12 +48,13 @@
    * - Do NOT predict sleep windows yet.
    * - Resolve Torn's real faction ID on member pages that omit it from the URL.
    * - Continue rendered-page polling in hidden tabs while the WebView remains awake.
+   * - Summarize actionable observed events and ready windows in war reports.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.6.1',
+    version: '0.7.0',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -3402,7 +3403,26 @@
     let totalTransitions = 0;
     let totalPriorityTransitions = 0;
     const watchedChanges = [];
+    const arrivalsHome = [];
+    const hospitalExits = [];
+    const newlyActive = [];
+    const readyWindows = [];
     const observationsByPlayer = new Map();
+    const observedTier = (observation) => {
+      if (['hospital', 'jail', 'federal', 'fallen', 'traveling', 'returning', 'abroad'].includes(observation.lifeStatus)) return 'unavailable';
+      if (
+        observation.lifeStatus === 'okay' &&
+        (observation.activityStatus === 'online' || observation.activityStatus === 'idle')
+      ) return 'ready';
+      return 'watch';
+    };
+    const isTravelState = (lifeStatus) => ['traveling', 'returning', 'abroad'].includes(lifeStatus);
+    const factionLabel = (factionId) =>
+      normalizeWhitespace(state.settings.factionAliases?.[String(factionId)]) || `Faction ${factionId}`;
+    const playerLabel = (playerId, observations) =>
+      playerNames.get(playerId) ||
+      cleanStoredName(observations.find((observation) => observation.name)?.name, playerId) ||
+      `Player ${playerId}`;
     for (const observation of sessionObservations) {
       const playerId = String(observation.playerId);
       if (!observationsByPlayer.has(playerId)) observationsByPlayer.set(playerId, []);
@@ -3410,32 +3430,80 @@
     }
     for (const [playerId, observations] of observationsByPlayer) {
       observations.sort((a, b) => Number(a.capturedAt) - Number(b.capturedAt));
+      const name = playerLabel(playerId, observations);
+      const factionId = String(observations.at(-1)?.factionId || 'unknown');
       for (let index = 1; index < observations.length; index += 1) {
         const previous = observations[index - 1];
         const current = observations[index];
-        const observedTier = (observation) => {
-          if (['hospital', 'jail', 'federal', 'fallen', 'traveling', 'returning', 'abroad'].includes(observation.lifeStatus)) return 'unavailable';
-          if (
-            observation.lifeStatus === 'okay' &&
-            (observation.activityStatus === 'online' || observation.activityStatus === 'idle')
-          ) return 'ready';
-          return 'watch';
-        };
         if (observedTier(previous) !== observedTier(current)) totalPriorityTransitions += 1;
         if (
           previous.activityStatus === current.activityStatus &&
           previous.lifeStatus === current.lifeStatus
         ) continue;
         totalTransitions += 1;
+        const eventBase = {
+          playerId,
+          name,
+          factionId: String(current.factionId || factionId),
+          at: Number(current.capturedAt),
+        };
+        if (isTravelState(previous.lifeStatus) && current.lifeStatus === 'okay') {
+          arrivalsHome.push({ ...eventBase, from: previous.lifeStatus, to: current.lifeStatus });
+        }
+        if (previous.lifeStatus === 'hospital' && current.lifeStatus !== 'hospital') {
+          hospitalExits.push({ ...eventBase, from: previous.lifeStatus, to: current.lifeStatus });
+        }
+        if (
+          previous.activityStatus === 'offline' &&
+          (current.activityStatus === 'online' || current.activityStatus === 'idle')
+        ) {
+          newlyActive.push({ ...eventBase, from: previous.activityStatus, to: current.activityStatus });
+        }
         if (watchedIds.has(playerId)) {
           watchedChanges.push({
-            name: playerNames.get(playerId) || `Player ${playerId}`,
+            name,
             at: current.capturedAt,
             from: `${previous.activityStatus}/${previous.lifeStatus}`,
             to: `${current.activityStatus}/${current.lifeStatus}`,
           });
         }
       }
+
+      let activeWindow = null;
+      const finishReadyWindow = () => {
+        if (activeWindow && activeWindow.samples >= 2 && activeWindow.lastAt > activeWindow.startedAt) {
+          readyWindows.push({
+            ...activeWindow,
+            durationMs: activeWindow.lastAt - activeWindow.startedAt,
+          });
+        }
+        activeWindow = null;
+      };
+      for (const observation of observations) {
+        const capturedAt = Number(observation.capturedAt);
+        if (observedTier(observation) !== 'ready') {
+          finishReadyWindow();
+          continue;
+        }
+        if (
+          activeWindow &&
+          capturedAt - activeWindow.lastAt <= APP.coverageGapThresholdMs
+        ) {
+          activeWindow.lastAt = capturedAt;
+          activeWindow.samples += 1;
+          continue;
+        }
+        finishReadyWindow();
+        activeWindow = {
+          playerId,
+          name,
+          factionId: String(observation.factionId || factionId),
+          startedAt: capturedAt,
+          lastAt: capturedAt,
+          samples: 1,
+        };
+      }
+      finishReadyWindow();
     }
 
     const lines = [
@@ -3479,10 +3547,55 @@
         `**${factionName}** \`${factionId}\``,
         `• Collector coverage: **${health.coveragePercent}%** • scans: ${scans.length} • saved: ${saved}`,
         `• Gaps: ${health.gapCount} • longest: ${formatDuration(health.longestGapMs)} • observed players: ${uniquePlayers}`,
-        `• Final observed snapshot: ${active} active • ${okay} Okay`,
+        `• Final observed snapshot: activity ${active} active • life ${okay} Okay`,
         ''
       );
     }
+
+    const appendEventSection = (title, events, emptyText) => {
+      lines.push(`**${title} (${events.length})**`);
+      if (!events.length) {
+        lines.push(`• ${emptyText}`, '');
+        return;
+      }
+      const displayed = [...events]
+        .sort((a, b) => Number(b.at) - Number(a.at))
+        .slice(0, 8);
+      displayed.forEach((event) => {
+        lines.push(
+          `• **${event.name}** (${factionLabel(event.factionId)}): ${event.from} → ${event.to} • ${formatDateTime(event.at)}`
+        );
+      });
+      if (events.length > displayed.length) lines.push(`• …and ${events.length - displayed.length} more`);
+      lines.push('');
+    };
+
+    lines.push(
+      '**Actionable observed intelligence**',
+      `• Arrivals home: **${arrivalsHome.length}** • hospital exits: **${hospitalExits.length}** • newly active: **${newlyActive.length}**`,
+      ''
+    );
+    appendEventSection('Arrivals home', arrivalsHome, 'No travel/abroad → Okay arrivals were observed.');
+    appendEventSection('Hospital exits', hospitalExits, 'No hospital exits were observed.');
+    appendEventSection('Newly active targets', newlyActive, 'No offline → Online/Idle changes were observed.');
+
+    lines.push('**Longest observed ready windows**');
+    const displayedReadyWindows = [...readyWindows]
+      .sort((a, b) => b.durationMs - a.durationMs || b.samples - a.samples)
+      .slice(0, 10);
+    if (displayedReadyWindows.length) {
+      displayedReadyWindows.forEach((window) => {
+        lines.push(
+          `• **${window.name}** (${factionLabel(window.factionId)}): **${formatDuration(window.durationMs)}** ready • ${window.samples} saved observations • ${formatDateTime(window.startedAt)} → ${formatDateTime(window.lastAt)}`
+        );
+      });
+      if (readyWindows.length > displayedReadyWindows.length) {
+        lines.push(`• …and ${readyWindows.length - displayedReadyWindows.length} more observed ready windows`);
+      }
+    } else {
+      lines.push('• No repeated Online/Idle + Okay observations formed a ready window.');
+    }
+    lines.push('• Windows split on status changes or observation gaps over 15 minutes.', '');
 
     lines.push('**Watched-target changes**');
     if (watchedChanges.length) {
@@ -3494,7 +3607,11 @@
         });
       if (watchedChanges.length > 30) lines.push(`• …and ${watchedChanges.length - 30} more watched changes`);
     } else lines.push('• No watched-target status changes were observed.');
-    lines.push('', '_Observed data only; coverage gaps are not treated as offline time._');
+    lines.push(
+      '',
+      '_Observed data only; coverage gaps are not treated as offline time._',
+      '_Transition times are the first confirming observations, not exact event times._'
+    );
     const title = `WIH War Report: ${session.name}`.slice(0, 80);
     return { chunks: splitDiscordReport(lines.join('\n'), title), sessionObservations, totalTransitions, totalPriorityTransitions };
   }
