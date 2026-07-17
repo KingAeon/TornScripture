@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.7.0
+// @version      0.7.1
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.7.0
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.7.1
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -49,12 +49,13 @@
    * - Resolve Torn's real faction ID on member pages that omit it from the URL.
    * - Continue rendered-page polling in hidden tabs while the WebView remains awake.
    * - Summarize actionable observed events and ready windows in war reports.
+   * - Contain Intelligence columns to the visible Torn PDA viewport.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.7.0',
+    version: '0.7.1',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -1249,8 +1250,11 @@
         --wih-accent: #ff7a59;
         position: fixed;
         inset: 0;
+        width: 100%;
+        max-width: 100vw;
         z-index: 2147483646;
-        overflow: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
         padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         background: var(--wih-bg);
         color: var(--wih-text);
@@ -1545,7 +1549,7 @@
         color: var(--wih-text);
         font: 13px/1.4 Arial, sans-serif;
       }
-      #wih-intel-viewer * { box-sizing: border-box; }
+      #wih-intel-viewer * { box-sizing: border-box; max-width: 100%; }
       #wih-intel-viewer button,
       #wih-intel-viewer input,
       #wih-intel-viewer select { font: inherit; }
@@ -1554,6 +1558,7 @@
         top: 0;
         z-index: 4;
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 10px;
         min-height: 56px;
@@ -1584,8 +1589,12 @@
         gap: 7px;
         margin-top: 7px;
       }
-      #wih-intel-viewer .wih-intel-content { display: grid; gap: 11px; max-width: 1260px; margin: 0 auto; padding: 12px; }
+      #wih-intel-viewer .wih-intel-content { display: grid; width: 100%; min-width: 0; gap: 11px; max-width: 1260px; margin: 0 auto; padding: 12px; }
+      #wih-intel-viewer .wih-intel-content > *,
+      #wih-intel-viewer .wih-intel-columns > * { min-width: 0; }
       #wih-intel-viewer .wih-intel-card {
+        width: 100%;
+        min-width: 0;
         padding: 11px;
         border: 1px solid var(--wih-border);
         border-radius: 11px;
@@ -1594,6 +1603,9 @@
       #wih-intel-viewer .wih-intel-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; }
       #wih-intel-viewer .wih-intel-stat { padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
       #wih-intel-viewer .wih-intel-stat strong { display: block; font-size: 17px; }
+      #wih-intel-viewer .wih-intel-stat,
+      #wih-intel-viewer .wih-target-metric,
+      #wih-intel-viewer .wih-muted { overflow-wrap: anywhere; }
       #wih-intel-viewer .wih-intel-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
       #wih-intel-viewer .wih-intel-controls .wih-intel-search { grid-column: 1 / -1; }
       #wih-intel-viewer .wih-intel-controls input,
@@ -1606,18 +1618,20 @@
         background: var(--wih-surface-2);
         color: var(--wih-text);
       }
-      #wih-intel-viewer .wih-intel-columns { display: grid; gap: 11px; }
+      #wih-intel-viewer .wih-intel-columns { display: grid; min-width: 0; gap: 11px; }
       #wih-intel-viewer .wih-intel-list,
       #wih-intel-viewer .wih-intel-changes { display: grid; gap: 8px; margin-top: 9px; }
       #wih-intel-viewer .wih-target {
+        width: 100%;
+        min-width: 0;
         padding: 10px;
         border: 1px solid var(--wih-border);
         border-radius: 10px;
         background: var(--wih-surface-2);
       }
-      #wih-intel-viewer .wih-target-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 9px; }
+      #wih-intel-viewer .wih-target-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 9px; }
       #wih-intel-viewer .wih-target-name { min-width: 0; font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      #wih-intel-viewer .wih-intel-pills { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+      #wih-intel-viewer .wih-intel-pills { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
       #wih-intel-viewer .wih-intel-pill { padding: 3px 7px; border-radius: 99px; background: rgba(255,255,255,.08); text-transform: capitalize; font-size: 11px; font-weight: 700; }
       #wih-intel-viewer .wih-intel-pill.status-online { background: rgba(51,199,116,.2); color: #8ef0b7; }
       #wih-intel-viewer .wih-intel-pill.status-idle { background: rgba(242,185,73,.2); color: #ffd782; }
@@ -1639,29 +1653,33 @@
       #wih-intel-viewer .wih-confidence-low { color: #c3c7ce; }
       #wih-intel-viewer .wih-target-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
       #wih-intel-viewer .wih-watchlist-grid { display: grid; gap: 7px; margin-top: 9px; }
-      #wih-intel-viewer .wih-watch-target { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 9px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-intel-viewer .wih-watch-target { display: grid; min-width: 0; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 9px; border-radius: 8px; background: var(--wih-surface-2); }
       #wih-intel-viewer .wih-changed-marker { color: #ffd782; font-size: 11px; font-weight: 700; }
-      #wih-intel-viewer .wih-war-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(245px, 310px); gap: 8px; overflow-x: auto; margin-top: 9px; padding-bottom: 4px; scroll-snap-type: x proximity; }
-      #wih-intel-viewer .wih-faction-card { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--wih-border); border-radius: 10px; background: var(--wih-surface-2); scroll-snap-align: start; }
+      #wih-intel-viewer .wih-war-board { display: grid; width: 100%; min-width: 0; grid-auto-flow: column; grid-auto-columns: min(310px, calc(100% - 8px)); gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; margin-top: 9px; padding-bottom: 4px; scroll-snap-type: x proximity; }
+      #wih-intel-viewer .wih-faction-card { display: grid; min-width: 0; gap: 8px; padding: 10px; border: 1px solid var(--wih-border); border-radius: 10px; background: var(--wih-surface-2); scroll-snap-align: start; }
       #wih-intel-viewer .wih-faction-card.is-selected { border-color: var(--wih-accent); box-shadow: inset 0 0 0 1px rgba(255,122,89,.28); }
-      #wih-intel-viewer .wih-faction-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 7px; }
+      #wih-intel-viewer .wih-faction-card-head { display: flex; min-width: 0; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 7px; }
       #wih-intel-viewer .wih-faction-card-name { min-width: 0; overflow: hidden; font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
       #wih-intel-viewer .wih-faction-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
       #wih-intel-viewer .wih-monitor-live { background: rgba(51,199,116,.24); color: #9bf4bf; }
       #wih-intel-viewer .wih-monitor-stale { background: rgba(242,185,73,.2); color: #ffd782; }
       #wih-intel-viewer .wih-monitor-unmonitored { background: rgba(255,255,255,.08); color: #c3c7ce; }
       #wih-intel-viewer .wih-monitor-warning { padding: 7px; border: 1px solid rgba(242,185,73,.35); border-radius: 7px; background: rgba(242,185,73,.1); color: #ffd782; font-size: 11px; }
-      #wih-intel-viewer .wih-transition { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
+      #wih-intel-viewer .wih-transition { display: grid; min-width: 0; grid-template-columns: minmax(0,1fr) auto; gap: 7px; padding: 8px; border-radius: 8px; background: var(--wih-surface-2); }
       #wih-intel-viewer .wih-transition strong { display: block; }
       #wih-intel-viewer .wih-intel-empty { padding: 20px 8px; color: var(--wih-muted); text-align: center; }
-      @media (min-width: 760px) {
-        #wih-intel-viewer .wih-intel-stats { grid-template-columns: repeat(6,minmax(0,1fr)); }
-        #wih-intel-viewer .wih-intel-controls { grid-template-columns: minmax(220px,1.4fr) repeat(5,minmax(120px,.7fr)); }
-        #wih-intel-viewer .wih-intel-controls .wih-intel-search { grid-column: auto; }
-        #wih-intel-viewer .wih-intel-columns { grid-template-columns: minmax(0,1.7fr) minmax(300px,.8fr); align-items: start; }
-        #wih-intel-viewer .wih-intel-changes-card { position: sticky; top: 68px; }
-        #wih-intel-viewer .wih-target-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); }
-      }
+      #wih-intel-viewer.wih-intel-wide .wih-intel-stats { grid-template-columns: repeat(6,minmax(0,1fr)); }
+      #wih-intel-viewer.wih-intel-wide .wih-intel-controls { grid-template-columns: minmax(180px,1.4fr) repeat(5,minmax(0,1fr)); }
+      #wih-intel-viewer.wih-intel-wide .wih-intel-controls .wih-intel-search { grid-column: auto; }
+      #wih-intel-viewer.wih-intel-wide .wih-intel-columns { grid-template-columns: minmax(0,1.7fr) minmax(260px,.8fr); align-items: start; }
+      #wih-intel-viewer.wih-intel-wide .wih-intel-changes-card { position: sticky; top: 68px; }
+      #wih-intel-viewer.wih-intel-wide .wih-target-metrics { grid-template-columns: repeat(4,minmax(0,1fr)); }
+      #wih-intel-viewer:not(.wih-intel-wide) .wih-intel-header { gap: 6px; padding-inline: 9px; }
+      #wih-intel-viewer:not(.wih-intel-wide) .wih-intel-header .wih-intel-action,
+      #wih-intel-viewer:not(.wih-intel-wide) .wih-intel-header .wih-intel-close { min-height: 34px; padding: 6px 8px; }
+      #wih-intel-viewer:not(.wih-intel-wide) .wih-intel-pills { justify-content: flex-start; }
+      #wih-intel-viewer:not(.wih-intel-wide) .wih-watch-target { grid-template-columns: minmax(0,1fr); }
+      #wih-intel-viewer:not(.wih-intel-wide) .wih-watch-target .wih-target-actions { justify-content: flex-start !important; }
       #wih-session-viewer { --wih-surface:#1b1e25; --wih-surface-2:#232731; --wih-border:rgba(255,255,255,.13); --wih-text:#f3f4f6; --wih-muted:#a7adb7; --wih-accent:#ff7a59; position:fixed; inset:0; z-index:2147483646; overflow:auto; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background:#111318; color:var(--wih-text); font:13px/1.4 Arial,sans-serif; }
       #wih-session-viewer * { box-sizing:border-box; }
       #wih-session-viewer button, #wih-session-viewer input { font:inherit; }
@@ -2761,6 +2779,22 @@
       <main class="wih-intel-content"></main>
     `;
     document.body.append(viewer);
+    const syncIntelligenceWidthMode = () => {
+      const reportedWidths = [
+        Number(window.innerWidth),
+        Number(window.visualViewport?.width),
+        Number(window.screen?.width),
+      ].filter((width) => Number.isFinite(width) && width > 0);
+      const narrowestReportedWidth = Math.min(...reportedWidths);
+      const mobileWebView = /android|mobile|tornpda/i.test(navigator.userAgent);
+      viewer.classList.toggle(
+        'wih-intel-wide',
+        !mobileWebView && narrowestReportedWidth >= 760
+      );
+    };
+    syncIntelligenceWidthMode();
+    window.addEventListener('resize', syncIntelligenceWidthMode);
+    window.visualViewport?.addEventListener('resize', syncIntelligenceWidthMode);
     const content = viewer.querySelector('.wih-intel-content');
     const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -3118,7 +3152,7 @@
           </section>
 
           <section class="wih-intel-card wih-intel-changes-card">
-            <strong>Priority changes this session</strong>
+            <strong>Priority changes while open</strong>
             <div class="wih-muted">Detected while this Intelligence window is open</div>
             <div class="wih-intel-changes">
               ${visiblePriorityChanges.length ? visiblePriorityChanges.map((change) => `
@@ -3290,6 +3324,8 @@
 
     const closeViewer = () => {
       if (refreshTimer) clearInterval(refreshTimer);
+      window.removeEventListener('resize', syncIntelligenceWidthMode);
+      window.visualViewport?.removeEventListener('resize', syncIntelligenceWidthMode);
       document.body.style.overflow = previousBodyOverflow;
       viewer.remove();
     };
