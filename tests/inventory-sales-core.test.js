@@ -72,6 +72,50 @@ assert.equal(inventoryUrl.searchParams.get('cat'), 'Energy Drink');
 assert.equal(inventoryUrl.searchParams.get('offset'), '100');
 assert.equal(inventoryUrl.searchParams.get('limit'), '100');
 
+const catalogUrl = core.catalogRequestUrl([206, 207, 206, 'bad']);
+assert.equal(catalogUrl.pathname, '/v2/torn/206,207/items');
+const catalogItem = core.normalizeCatalogItem({
+  id: 206,
+  name: 'Test Plushie',
+  type: 'Plushie',
+  is_tradable: true,
+  circulation: 123456,
+  value: {
+    vendor: { name: 'Bits n Bobs', country: 'Mexico' },
+    buy_price: 800,
+    sell_price: 400,
+    market_price: 950,
+  },
+});
+assert.deepEqual(catalogItem, {
+  itemId: 206,
+  name: 'Test Plushie',
+  type: 'Plushie',
+  marketPrice: 950,
+  shopBuyPrice: 800,
+  shopSellPrice: 400,
+  vendorName: 'Bits n Bobs',
+  vendorCountry: 'Mexico',
+  isTradable: true,
+  circulation: 123456,
+});
+const cachedCatalog = core.normalizeCatalog({
+  updatedAt: '2026-07-17T00:00:00.000Z',
+  items: { 206: catalogItem },
+});
+assert.equal(cachedCatalog.items['206'].marketPrice, 950);
+assert.equal(cachedCatalog.items['206'].shopSellPrice, 400);
+const mergedPrices = core.mergeItemPrices(
+  { marketValue: 100, citySellPrice: 50 },
+  catalogItem
+);
+assert.equal(mergedPrices.marketPrice, 950);
+assert.equal(mergedPrices.shopSellPrice, 400);
+assert.equal(mergedPrices.shopBuyPrice, 800);
+const fallbackPrices = core.mergeItemPrices({ marketValue: 100, citySellPrice: 50 }, null);
+assert.equal(fallbackPrices.marketPrice, 100);
+assert.equal(fallbackPrices.shopSellPrice, 50);
+
 const config = core.normalizePriceConfig({
   schema: 'tornscripture-trader-prices',
   schemaVersion: 1,

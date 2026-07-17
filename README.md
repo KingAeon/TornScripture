@@ -28,7 +28,7 @@ Current features include:
 
 ### 📦 Inventory Sales HUD
 
-Version: 0.1.1
+Version: 0.2.0
 
 The Inventory Sales HUD scans the key owner's inventory only after a manual
 button press, then organizes items into Keep, Sell to Trader, Sell to Store,
@@ -37,12 +37,15 @@ Trash, Needs Review, and Excluded Equipment.
 Current features include:
 
 - Torn API v2 category-by-category inventory scan using a Limited Access key
+- Torn item-catalog join for market, shop buy, shop sell, vendor, tradability,
+  and circulation data
 - TornPDA managed-key placeholder support
 - Browser-local API key, inventory, and classification storage
 - Mobile-first organizer and sale-plan interface
 - JSON trader-price configuration import and refresh
 - Per-item remembered classifications and keep quantities
 - Copyable per-trader sale messages
+- Automatic manual shop-sale plans using Torn's current shop sell prices
 - Locked exclusion of armor and weapon categories
 - Visible-page scan fallback
 - No automated selling, sending, listing, or trashing
