@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Inventory Sales HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.0
+// @version      0.1.1
 // @description  Scans your Torn inventory on demand, excludes equipment, and builds local keep/trader/store/trash sale plans.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - INVENTORY SALES HUD v0.1.0
+   * TORNSCRIPTURE - INVENTORY SALES HUD v0.1.1
    *
    * SAFETY BOUNDARY
    * - Inventory API calls happen only after the user presses Scan.
@@ -31,7 +31,7 @@
   const APP = Object.freeze({
     name: 'Inventory Sales HUD',
     shortName: 'ISH',
-    version: '0.1.0',
+    version: '0.1.1',
     apiUrl: 'https://api.torn.com/v2/user/inventory',
     apiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     settingsStorageKey: 'tornscripture-ish-settings-v1',
@@ -43,10 +43,40 @@
     settingsId: 'tornscripture-ish-settings',
     styleId: 'tornscripture-ish-style',
     pageSize: 100,
-    maxPages: 30,
+    maxPagesPerCategory: 10,
     defaultPriceConfigUrl:
       'https://raw.githubusercontent.com/KingAeon/TornScripture/refs/heads/main/data/trader-prices.json',
   });
+
+  // Canonical values from Torn's /user/inventory `cat` enum. The endpoint
+  // returns one category at a time; omitting `cat` produces "Incorrect category".
+  const INVENTORY_CATEGORIES = Object.freeze([
+    'Collectible',
+    'Clothing',
+    'Other',
+    'Tool',
+    'Melee',
+    'Defensive',
+    'Material',
+    'Car',
+    'Primary',
+    'Secondary',
+    'Book',
+    'Special',
+    'Supply Pack',
+    'Temporary',
+    'Enhancer',
+    'Artifact',
+    'Flower',
+    'Booster',
+    'Medical',
+    'Candy',
+    'Jewelry',
+    'Alcohol',
+    'Plushie',
+    'Drug',
+    'Energy Drink',
+  ]);
 
   // TornPDA replaces this placeholder with the key stored in the app.
   const PDA_API_KEY = '###PDA-APIKEY###';
@@ -79,6 +109,7 @@
     inventory: loadJson(APP.inventoryStorageKey, []),
     priceConfig: normalizePriceConfig(loadJson(APP.priceStorageKey, EMPTY_PRICE_CONFIG)),
     scanning: false,
+    scanProgress: '',
     initialized: false,
   };
 
@@ -371,10 +402,17 @@
     return aggregateInventory(state.inventory).map(itemView);
   }
 
-  async function fetchInventoryPage(key, offset) {
+  function inventoryRequestUrl(category, offset) {
     const url = new URL(APP.apiUrl);
+    url.searchParams.set('cat', category);
     url.searchParams.set('offset', String(offset));
     url.searchParams.set('limit', String(APP.pageSize));
+    url.searchParams.set('comment', 'TornScripture Inventory Sales HUD');
+    return url;
+  }
+
+  async function fetchInventoryPage(key, category, offset) {
+    const url = inventoryRequestUrl(category, offset);
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -399,23 +437,41 @@
     const key = currentApiKey();
     if (!key) {
       openSettings();
-      toast('Connect a Minimal Access API key before scanning.');
+      toast('Connect a Limited Access API key before scanning.');
       return;
     }
     state.scanning = true;
+    state.scanProgress = '';
     renderPanel();
     try {
       const rawItems = [];
-      let offset = 0;
-      for (let page = 0; page < APP.maxPages; page += 1) {
-        const payload = await fetchInventoryPage(key, offset);
-        const items = extractInventoryItems(payload);
-        rawItems.push(...items);
-        const total = extractInventoryTotal(payload);
-        if (!items.length || items.length < APP.pageSize || (total !== null && rawItems.length >= total)) break;
-        offset += items.length;
+      for (let categoryIndex = 0; categoryIndex < INVENTORY_CATEGORIES.length; categoryIndex += 1) {
+        const category = INVENTORY_CATEGORIES[categoryIndex];
+        state.scanProgress = `${categoryIndex + 1}/${INVENTORY_CATEGORIES.length}`;
+        renderPanel();
+        renderOverlay();
+        let offset = 0;
+        let categoryItemCount = 0;
+        for (let page = 0; page < APP.maxPagesPerCategory; page += 1) {
+          let payload;
+          try {
+            payload = await fetchInventoryPage(key, category, offset);
+          } catch (error) {
+            throw new Error(`${category} inventory: ${error?.message || String(error)}`);
+          }
+          const items = extractInventoryItems(payload);
+          rawItems.push(...items.map((item) => normalizeApiItem(item, category)));
+          categoryItemCount += items.length;
+          const total = extractInventoryTotal(payload);
+          if (
+            !items.length ||
+            items.length < APP.pageSize ||
+            (total !== null && categoryItemCount >= total)
+          ) break;
+          offset += items.length;
+        }
       }
-      state.inventory = rawItems.map((item) => normalizeApiItem(item));
+      state.inventory = rawItems;
       saveJson(APP.inventoryStorageKey, state.inventory);
       state.settings.lastScanAt = new Date().toISOString();
       saveJson(APP.settingsStorageKey, state.settings);
@@ -424,7 +480,9 @@
       toast(`Scanned ${inventoryViews().length} inventory stacks.`);
     } finally {
       state.scanning = false;
+      state.scanProgress = '';
       renderPanel();
+      renderOverlay();
     }
   }
 
@@ -653,7 +711,7 @@
           <div class="ish-mini-stat"><strong>${formatMoney(summary.payout)}</strong><span>planned</span></div>
         </div>
         <div class="ish-mini-actions">
-          <button class="ish-btn primary" type="button" data-ish="scan">${state.scanning ? 'Scanning…' : 'Scan API'}</button>
+          <button class="ish-btn primary" type="button" data-ish="scan">${state.scanning ? `Scanning ${state.scanProgress}…` : 'Scan API'}</button>
           <button class="ish-btn" type="button" data-ish="open">Open organizer</button>
           <button class="ish-btn light" type="button" data-ish="settings">Settings</button>
         </div>
@@ -738,7 +796,7 @@
           <div class="ish-summary-card"><strong>${summary.review}</strong><span>need review</span></div>
         </section>
         <div class="ish-toolbar">
-          <button class="ish-btn primary" type="button" data-ish="scan">${state.scanning ? 'Scanning…' : 'Scan API'}</button>
+          <button class="ish-btn primary" type="button" data-ish="scan">${state.scanning ? `Scanning ${state.scanProgress}…` : 'Scan API'}</button>
           <button class="ish-btn light" type="button" data-ish="scan-visible">Scan visible page</button>
           <button class="ish-btn light" type="button" data-ish="refresh-prices">Refresh prices</button>
           <input type="search" data-ish-search placeholder="Search items, categories, or traders" value="${escapeHtml(state.settings.search)}">
@@ -794,9 +852,9 @@
       <div class="ish-content" style="max-width:720px">
         <section class="ish-settings-card">
           <h2 style="margin-top:0">Torn API connection</h2>
-          <div class="ish-privacy"><strong>Privacy:</strong> inventory and API key stay on this device. The key is sent only to <code>api.torn.com</code>. No key is included in exports or price files. Required access: Minimal.</div>
+          <div class="ish-privacy"><strong>Privacy:</strong> inventory and API key stay on this device. The key is sent only to <code>api.torn.com</code>. No key is included in exports or price files. Required access: Limited.</div>
           <div class="ish-field"><label>Connection</label><div>${escapeHtml(apiKeySource())}</div></div>
-          ${pdaApiKey() ? '<div class="ish-field"><div>TornPDA supplied its managed key. Nothing needs to be pasted here.</div></div>' : `<div class="ish-field"><label for="ish-api-key">Minimal Access API key</label><input id="ish-api-key" type="password" autocomplete="off" placeholder="Stored only in this browser" value="${escapeHtml(storedApiKey())}"></div>`}
+          ${pdaApiKey() ? '<div class="ish-field"><div>TornPDA supplied its managed key. Nothing needs to be pasted here.</div></div>' : `<div class="ish-field"><label for="ish-api-key">Limited Access API key</label><input id="ish-api-key" type="password" autocomplete="off" placeholder="Stored only in this browser" value="${escapeHtml(storedApiKey())}"></div>`}
           <div style="display:flex;gap:7px;flex-wrap:wrap">
             ${pdaApiKey() ? '' : '<button class="ish-btn primary" type="button" data-ish="save-key">Save key</button><button class="ish-btn danger" type="button" data-ish="forget-key">Forget key</button>'}
             <a class="ish-btn light" href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener">Open Torn API settings</a>
@@ -870,6 +928,8 @@
   if (globalThis.__TS_ISH_TEST_MODE__) {
     globalThis.__TS_ISH_TEST_EXPORTS__ = {
       normalizeApiItem,
+      inventoryRequestUrl,
+      INVENTORY_CATEGORIES,
       isEquipmentCategory,
       isEquipmentItem,
       aggregateInventory,

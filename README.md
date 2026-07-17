@@ -28,7 +28,7 @@ Current features include:
 
 ### 📦 Inventory Sales HUD
 
-Version: 0.1.0
+Version: 0.1.1
 
 The Inventory Sales HUD scans the key owner's inventory only after a manual
 button press, then organizes items into Keep, Sell to Trader, Sell to Store,
@@ -36,7 +36,7 @@ Trash, Needs Review, and Excluded Equipment.
 
 Current features include:
 
-- Torn API v2 inventory scan using a Minimal Access key
+- Torn API v2 category-by-category inventory scan using a Limited Access key
 - TornPDA managed-key placeholder support
 - Browser-local API key, inventory, and classification storage
 - Mobile-first organizer and sale-plan interface
@@ -58,7 +58,7 @@ Current features include:
 
 TornPDA can inject its managed key into the Inventory Sales HUD through the
 `###PDA-APIKEY###` placeholder. Other browsers prompt the user to save their
-own Minimal Access key locally. API keys are never included in exports or
+own Limited Access key locally. API keys are never included in exports or
 price configuration files.
 
 The shareable price configuration lives at `data/trader-prices.json`. See

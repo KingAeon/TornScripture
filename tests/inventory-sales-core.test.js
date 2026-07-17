@@ -62,6 +62,16 @@ assert.equal(aggregated.filter((item) => item.itemId === 2).length, 2);
 assert.equal(core.extractInventoryItems({ inventory: { items: [{ id: 1 }] } }).length, 1);
 assert.equal(core.extractInventoryTotal({ inventory: { total: 245 } }), 245);
 
+assert.equal(core.INVENTORY_CATEGORIES.length, 25);
+assert.equal(new Set(core.INVENTORY_CATEGORIES).size, 25);
+assert.ok(core.INVENTORY_CATEGORIES.includes('Flower'));
+assert.ok(core.INVENTORY_CATEGORIES.includes('Defensive'));
+const inventoryUrl = core.inventoryRequestUrl('Energy Drink', 100);
+assert.equal(inventoryUrl.pathname, '/v2/user/inventory');
+assert.equal(inventoryUrl.searchParams.get('cat'), 'Energy Drink');
+assert.equal(inventoryUrl.searchParams.get('offset'), '100');
+assert.equal(inventoryUrl.searchParams.get('limit'), '100');
+
 const config = core.normalizePriceConfig({
   schema: 'tornscripture-trader-prices',
   schemaVersion: 1,
