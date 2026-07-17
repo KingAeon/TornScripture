@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - War Intelligence HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.6.0
+// @version      0.6.1
 // @description  Locally records visible Torn faction activity with a compact HUD and full-screen player history timeline.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.3.0
+   * TORNSCRIPTURE - WAR INTELLIGENCE HUD v0.6.1
    *
    * SAFETY BOUNDARY
    * - Reads only information already rendered on a page the user opened.
@@ -46,12 +46,14 @@
    * - Attribute health records to persistent tabs and individual script runs.
    * - Provide a faction-level intelligence dashboard with honest coverage.
    * - Do NOT predict sleep windows yet.
+   * - Resolve Torn's real faction ID on member pages that omit it from the URL.
+   * - Continue rendered-page polling in hidden tabs while the WebView remains awake.
    */
 
   const APP = Object.freeze({
     name: 'War Intelligence HUD',
     shortName: 'WIH',
-    version: '0.6.0',
+    version: '0.6.1',
     // Keep the v0.1.0 storage identifiers so upgrading does not erase history.
     dbName: 'script-kitty-war-intel',
     dbVersion: 1,
@@ -125,6 +127,7 @@
     lastPageFingerprint: null,
     collectorTabId: COLLECTOR_TAB_ID,
     collectorRunId: COLLECTOR_RUN_ID,
+    resolvedFactionIds: new Map(),
     currentRows: [],
     lastDiscoveryStats: {
       uniqueProfileIds: 0,
@@ -410,39 +413,95 @@
     return '';
   }
 
+  function extractFactionId(value) {
+    if (!value) return null;
+    try {
+      const url = new URL(value, location.origin);
+      const queryId = url.searchParams.get('ID') || url.searchParams.get('id');
+      const pathId = url.pathname.match(/\/factions\/(\d+)/i)?.[1];
+      const id = queryId || pathId;
+      return id && /^\d+$/.test(id) ? id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function factionPageCacheKey() {
+    try {
+      const url = new URL(location.href);
+      // Referral parameters can change without changing the faction context.
+      url.searchParams.delete('referredFrom');
+      return `${url.pathname}${url.search}${url.hash.split('/')[0]}`;
+    } catch {
+      return `${location.pathname}${location.search}`;
+    }
+  }
+
   function inferFactionId() {
     try {
       const currentUrl = new URL(location.href);
-      const currentId = currentUrl.searchParams.get('ID');
-      if (currentId && /^\d+$/.test(currentId)) return currentId;
+      const currentId = extractFactionId(currentUrl.href);
+      if (currentId) {
+        state.resolvedFactionIds.set(factionPageCacheKey(), currentId);
+        return currentId;
+      }
     } catch {
       // Fall through to page-link detection.
     }
 
-    const candidates = [
-      ...document.querySelectorAll('a[href*="factions.php"][href*="ID="], a[href*="/factions/"]'),
-    ];
+    const cacheKey = factionPageCacheKey();
+    const scoredIds = new Map();
+    const addCandidate = (id, score) => {
+      if (!id || !/^\d+$/.test(id)) return;
+      scoredIds.set(id, Math.max(scoredIds.get(id) || 0, score));
+    };
 
-    for (const link of candidates) {
-      try {
-        const url = new URL(link.href, location.origin);
-        const id = url.searchParams.get('ID') || url.pathname.match(/\/factions\/(\d+)/i)?.[1];
-        if (id && /^\d+$/.test(id)) return id;
-      } catch {
-        // Ignore malformed links.
-      }
+    for (const element of document.querySelectorAll('[data-faction-id], [data-factionid]')) {
+      const id = element.getAttribute('data-faction-id') || element.getAttribute('data-factionid');
+      const nearFactionIdentity = Boolean(
+        element.closest('h1, h2, [class*="faction" i][class*="title" i], [class*="faction" i][class*="info" i]')
+      );
+      addCandidate(id, nearFactionIdentity ? 140 : 100);
     }
-    return null;
+
+    const links = document.querySelectorAll(
+      'a[href*="factions.php"][href*="ID="], a[href*="/factions/"]'
+    );
+    for (const link of links) {
+      const id = extractFactionId(link.getAttribute('href') || link.href);
+      if (!id) continue;
+
+      let score = 40;
+      const href = String(link.getAttribute('href') || '');
+      const label = normalizeWhitespace(
+        `${link.textContent || ''} ${link.getAttribute('aria-label') || ''} ${link.getAttribute('title') || ''}`
+      ).toLowerCase();
+      if (/step=profile/i.test(href)) score += 25;
+      if (/\bfaction\b|view faction|faction profile/.test(label)) score += 20;
+      if (link.closest('h1, h2, [class*="title" i], [class*="header" i]')) score += 35;
+      if (link.closest('[class*="faction" i][class*="info" i], [class*="faction" i][class*="name" i]')) score += 45;
+      if (link.closest('nav, [class*="menu" i], [class*="sidebar" i], footer')) score -= 20;
+      addCandidate(id, score);
+    }
+
+    const ranked = [...scoredIds.entries()].sort((a, b) => b[1] - a[1]);
+    const cachedId = state.resolvedFactionIds.get(cacheKey);
+    if (cachedId && scoredIds.has(cachedId)) return cachedId;
+
+    // A lone real faction ID is unambiguous. With several links, require the
+    // page-identity candidate to clearly outrank navigation/opponent links.
+    const resolvedId = ranked.length === 1 || (ranked[0] && ranked[0][1] >= (ranked[1]?.[1] || 0) + 20)
+      ? ranked[0]?.[0] || null
+      : null;
+    if (resolvedId) state.resolvedFactionIds.set(cacheKey, resolvedId);
+    return resolvedId || cachedId || null;
   }
 
   function inferCollectorFactionId() {
     try {
       const currentUrl = new URL(location.href);
-      const factionId = currentUrl.searchParams.get('ID');
-      const isFactionProfile =
-        /\/factions\.php$/i.test(currentUrl.pathname) &&
-        currentUrl.searchParams.get('step') === 'profile';
-      return isFactionProfile && factionId && /^\d+$/.test(factionId) ? factionId : null;
+      const isFactionPage = /\/factions\.php$/i.test(currentUrl.pathname);
+      return isFactionPage ? inferFactionId() : null;
     } catch {
       return null;
     }
@@ -900,7 +959,6 @@
       recordCollectorHealth('tick', { source: 'poll' }).catch(reportError);
       if (
         !state.settings.autoCaptureVisiblePage ||
-        document.hidden ||
         !pageLooksRelevant()
       ) {
         return;
@@ -4162,6 +4220,9 @@
       url: location.href,
       title: document.title,
       relevantPageGuess: pageLooksRelevant(),
+      documentHidden: document.hidden,
+      resolvedFactionId: inferFactionId(),
+      collectorFactionId: inferCollectorFactionId(),
       profileAnchorCount: document.querySelectorAll(
         'a[href*="profiles.php?XID="], a[href*="/profile/"], a[href*="/profiles/"]'
       ).length,
