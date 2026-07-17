@@ -74,10 +74,16 @@ assert.equal(inventoryUrl.searchParams.get('limit'), '100');
 
 const catalogUrl = core.catalogRequestUrl([206, 207, 206, 'bad']);
 assert.equal(catalogUrl.pathname, '/v2/torn/206,207/items');
+assert.equal(catalogUrl.searchParams.get('striptags'), 'true');
 const catalogItem = core.normalizeCatalogItem({
   id: 206,
   name: 'Test Plushie',
   type: 'Plushie',
+  sub_type: 'Collectible plushie',
+  description: 'A very testable plushie.',
+  effect: 'Increases confidence by 5%.',
+  requirement: 'Must enjoy tests.',
+  image: 'https://www.torn.com/images/items/206/large.png',
   is_tradable: true,
   circulation: 123456,
   value: {
@@ -91,6 +97,11 @@ assert.deepEqual(catalogItem, {
   itemId: 206,
   name: 'Test Plushie',
   type: 'Plushie',
+  subType: 'Collectible plushie',
+  description: 'A very testable plushie.',
+  effect: 'Increases confidence by 5%.',
+  requirement: 'Must enjoy tests.',
+  imageUrl: 'https://www.torn.com/images/items/206/large.png',
   marketPrice: 950,
   shopBuyPrice: 800,
   shopSellPrice: 400,
@@ -115,6 +126,18 @@ assert.equal(mergedPrices.shopBuyPrice, 800);
 const fallbackPrices = core.mergeItemPrices({ marketValue: 100, citySellPrice: 50 }, null);
 assert.equal(fallbackPrices.marketPrice, 100);
 assert.equal(fallbackPrices.shopSellPrice, 50);
+
+assert.equal(
+  core.normalizeImageUrl({ small: 'https://www.torn.com/small.png', medium: 'https://www.torn.com/medium.png' }),
+  'https://www.torn.com/medium.png'
+);
+assert.equal(core.normalizeImageUrl('javascript:alert(1)'), '');
+
+assert.equal(core.resolveThemePreference('dark', false, false), 'dark');
+assert.equal(core.resolveThemePreference('light', true, true), 'light');
+assert.equal(core.resolveThemePreference('auto', true, false), 'dark');
+assert.equal(core.resolveThemePreference('auto', false, true), 'dark');
+assert.equal(core.resolveThemePreference('auto', false, false), 'light');
 
 assert.equal(core.shouldRecommendStore({ marketPrice: 2924, shopSellPrice: 3100 }), true);
 assert.equal(core.shouldRecommendStore({ marketPrice: 0, shopSellPrice: 5 }), true);
