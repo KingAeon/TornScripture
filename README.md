@@ -28,7 +28,7 @@ Current features include:
 
 ### 📦 Inventory Sales HUD
 
-Version: 0.2.0
+Version: 0.2.1
 
 The Inventory Sales HUD scans the key owner's inventory only after a manual
 button press, then organizes items into Keep, Sell to Trader, Sell to Store,
@@ -45,7 +45,10 @@ Current features include:
 - JSON trader-price configuration import and refresh
 - Per-item remembered classifications and keep quantities
 - Copyable per-trader sale messages
-- Automatic manual shop-sale plans using Torn's current shop sell prices
+- Automatic shop-sale recommendations only when the shop pays more than the
+  market estimate, or when no market estimate exists
+- Automatic reset option for returning remembered manual choices to live
+  price-based recommendations
 - Locked exclusion of armor and weapon categories
 - Visible-page scan fallback
 - No automated selling, sending, listing, or trashing

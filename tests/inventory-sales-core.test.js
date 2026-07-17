@@ -116,6 +116,13 @@ const fallbackPrices = core.mergeItemPrices({ marketValue: 100, citySellPrice: 5
 assert.equal(fallbackPrices.marketPrice, 100);
 assert.equal(fallbackPrices.shopSellPrice, 50);
 
+assert.equal(core.shouldRecommendStore({ marketPrice: 2924, shopSellPrice: 3100 }), true);
+assert.equal(core.shouldRecommendStore({ marketPrice: 0, shopSellPrice: 5 }), true);
+assert.equal(core.shouldRecommendStore({ marketPrice: null, shopSellPrice: 5 }), true);
+assert.equal(core.shouldRecommendStore({ marketPrice: 938, shopSellPrice: 5 }), false);
+assert.equal(core.shouldRecommendStore({ marketPrice: 3100, shopSellPrice: 3100 }), false);
+assert.equal(core.shouldRecommendStore({ marketPrice: 0, shopSellPrice: 0 }), false);
+
 const config = core.normalizePriceConfig({
   schema: 'tornscripture-trader-prices',
   schemaVersion: 1,
