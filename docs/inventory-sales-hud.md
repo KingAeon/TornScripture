@@ -10,10 +10,17 @@ The published userscript contains TornPDA's `###PDA-APIKEY###` placeholder.
 TornPDA replaces that placeholder with the key managed by each user's app, so
 friends can install the same script without sharing a key.
 
-Tampermonkey and Violentmonkey users enter their own Minimal Access key in the
+Tampermonkey and Violentmonkey users enter their own Limited Access key in the
 HUD settings. That key is stored in the browser's local storage and sent only
 to `api.torn.com`. It is never included in rule exports, inventory-price data,
 or the Git repository.
+
+## Inventory scan
+
+Torn's inventory endpoint returns one category per request. The HUD scans all
+25 accepted category values sequentially and paginates within each category.
+This avoids Torn's `Incorrect category` response when the `cat` parameter is
+omitted and keeps the complete inventory scan below the normal API rate limit.
 
 ## Trader-price file
 
