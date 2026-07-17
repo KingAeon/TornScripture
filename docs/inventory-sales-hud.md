@@ -44,6 +44,20 @@ trader-price file's `marketValue` and `citySellPrice` fields remain offline
 fallbacks when a catalog record or shop value is unavailable. Human trader
 offers remain independent in `traderPrices`.
 
+## Automatic store recommendations
+
+An item is automatically assigned to **Sell to Store** only when the shop pays
+strictly more than Torn's market estimate, or when no market estimate exists
+and the shop pays a positive amount. An equal or better market estimate leaves
+the item in **Needs Review** unless a trader price or another explicit default
+classification applies.
+
+Per-item manual choices still override this recommendation. Select
+**Automatic** in an item's classification menu to remove a remembered manual
+choice and return it to current price-based classification. A keep quantity can
+be retained while the destination remains automatic. Equipment remains locked
+in **Excluded Equipment** and cannot be reset or sold by the planner.
+
 ## Trader-price file
 
 The HUD's shareable data boundary is `data/trader-prices.json`. Keeping prices

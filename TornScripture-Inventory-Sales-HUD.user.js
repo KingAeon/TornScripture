@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Inventory Sales HUD
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.0
+// @version      0.2.1
 // @description  Scans your Torn inventory on demand, excludes equipment, and builds local keep/trader/store/trash sale plans.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - INVENTORY SALES HUD v0.2.0
+   * TORNSCRIPTURE - INVENTORY SALES HUD v0.2.1
    *
    * SAFETY BOUNDARY
    * - Inventory API calls happen only after the user presses Scan.
@@ -31,7 +31,7 @@
   const APP = Object.freeze({
     name: 'Inventory Sales HUD',
     shortName: 'ISH',
-    version: '0.2.0',
+    version: '0.2.1',
     apiUrl: 'https://api.torn.com/v2/user/inventory',
     catalogApiBase: 'https://api.torn.com/v2/torn',
     apiKeyStorageKey: 'tornscripture-ish-api-key-v1',
@@ -389,6 +389,12 @@
     return mergeItemPrices(itemPriceRecord(itemId), catalogRecord(itemId));
   }
 
+  function shouldRecommendStore(prices = {}) {
+    const marketPrice = nullableNonNegativeNumber(prices.marketPrice) ?? 0;
+    const shopSellPrice = nullableNonNegativeNumber(prices.shopSellPrice) ?? 0;
+    return shopSellPrice > 0 && (marketPrice === 0 || shopSellPrice > marketPrice);
+  }
+
   function activeTraders() {
     return state.priceConfig.traders.filter((trader) => trader.active !== false);
   }
@@ -421,12 +427,15 @@
     }
     const record = itemPriceRecord(item.itemId);
     if (ACTIONS.includes(record.classification) && record.classification !== 'excluded') {
-      return record.classification;
+      if (record.classification !== 'store' || shouldRecommendStore(effectivePrices(item.itemId))) {
+        return record.classification;
+      }
     }
     const best = bestTraderFor(item.itemId);
-    const storePrice = effectivePrices(item.itemId).shopSellPrice;
+    const prices = effectivePrices(item.itemId);
+    const storePrice = prices.shopSellPrice;
     if (best?.unitPrice > 0 && best.unitPrice >= storePrice) return 'trader';
-    if (storePrice > 0) return 'store';
+    if (shouldRecommendStore(prices)) return 'store';
     return 'review';
   }
 
@@ -443,6 +452,10 @@
 
   function itemView(item) {
     const action = classificationFor(item);
+    const rememberedAction = rememberedRule(item.itemId)?.action;
+    const ruleAction = rememberedAction === 'auto' || (ACTIONS.includes(rememberedAction) && rememberedAction !== 'excluded')
+      ? rememberedAction
+      : 'auto';
     const quantity = saleQuantityFor(item);
     const bestTrader = bestTraderFor(item.itemId);
     const prices = effectivePrices(item.itemId);
@@ -462,6 +475,7 @@
     return {
       ...item,
       action,
+      ruleAction,
       quantity,
       keepQuantity: keepQuantityFor(item),
       bestTrader,
@@ -774,10 +788,18 @@
   }
 
   function setItemRule(itemId, action, keepQuantity = 0) {
-    if (!ACTIONS.includes(action) || action === 'excluded') return;
+    if ((!ACTIONS.includes(action) && action !== 'auto') || action === 'excluded') return;
+    const normalizedKeepQuantity = Math.max(0, Number(keepQuantity) || 0);
+    if (action === 'auto' && normalizedKeepQuantity === 0) {
+      delete state.rules[String(itemId)];
+      saveJson(APP.rulesStorageKey, state.rules);
+      renderPanel();
+      renderOverlay();
+      return;
+    }
     state.rules[String(itemId)] = {
       action,
-      keepQuantity: Math.max(0, Number(keepQuantity) || 0),
+      keepQuantity: normalizedKeepQuantity,
       updatedAt: new Date().toISOString(),
     };
     saveJson(APP.rulesStorageKey, state.rules);
@@ -921,6 +943,12 @@
 
   function renderItem(item) {
     const disabled = item.action === 'excluded';
+    const actionOptions = disabled
+      ? `<option value="excluded" selected>${escapeHtml(ACTION_LABELS.excluded)}</option>`
+      : [
+          `<option value="auto" ${item.ruleAction === 'auto' ? 'selected' : ''}>Automatic (${escapeHtml(ACTION_LABELS[item.action])})</option>`,
+          ...ACTIONS.filter((action) => action !== 'excluded').map((action) => `<option value="${action}" ${action === item.ruleAction ? 'selected' : ''}>${escapeHtml(ACTION_LABELS[action])}</option>`),
+        ].join('');
     const catalogMeta = [
       item.vendorName ? `Vendor ${item.vendorName}${item.vendorCountry ? ` (${item.vendorCountry})` : ''}` : '',
       item.isTradable === null ? '' : item.isTradable ? 'Tradable' : 'Not tradable',
@@ -939,7 +967,7 @@
         ${catalogMeta ? `<div class="ish-item-meta" style="grid-column:1/-1">${escapeHtml(catalogMeta)}</div>` : ''}
         <div style="grid-column:1/-1;display:flex;gap:7px;flex-wrap:wrap">
           <select data-ish-action ${disabled ? 'disabled' : ''} aria-label="Classification for ${escapeHtml(item.name)}">
-            ${ACTIONS.filter((action) => action !== 'excluded').map((action) => `<option value="${action}" ${action === item.action ? 'selected' : ''}>${escapeHtml(ACTION_LABELS[action])}</option>`).join('')}
+            ${actionOptions}
           </select>
           <label class="ish-item-meta">Keep quantity <input data-ish-keep type="number" min="0" max="${item.amount}" value="${item.keepQuantity}" ${disabled ? 'disabled' : ''} style="width:84px"></label>
         </div>
@@ -1138,6 +1166,7 @@
       normalizeCatalogItem,
       normalizeCatalog,
       mergeItemPrices,
+      shouldRecommendStore,
       normalizePriceConfig,
       isPriceConfig,
       extractInventoryItems,
