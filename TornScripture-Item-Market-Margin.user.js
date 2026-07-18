@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.0
+// @version      0.1.1
 // @description  Highlights item-market listings that can be resold to 99% market-value traders for a profit.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.1.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.1.1
    *
    * PHASE-ONE SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, and visible listing rows.
@@ -28,7 +28,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.1.0',
+    version: '0.1.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -45,10 +45,10 @@
   });
 
   const PDA_API_KEY = '###PDA-APIKEY###';
+  const TRADER_PERCENT = 99;
 
   const DEFAULT_SETTINGS = Object.freeze({
     collapsed: false,
-    traderPercent: 99,
     minimumProfitEach: 100,
     minimumRoiPercent: 0.25,
     showLossesDuringTesting: true,
@@ -133,10 +133,12 @@
       categoryMatched: 0,
       categoryGood: 0,
       categoryMinor: 0,
+      categoryLoss: 0,
       listingCandidates: 0,
       listingMatched: 0,
       listingGood: 0,
       listingMinor: 0,
+      listingLoss: 0,
       visibleMarketValue: null,
       notes: [],
     };
@@ -295,7 +297,9 @@
   }
 
   function traderPayout(marketValue) {
-    return Math.floor((Number(marketValue) || 0) * (Number(state.settings.traderPercent) || 99) / 100);
+    // Traders are modeled as paying exactly 99% of Torn's displayed market value.
+    // Torn deals in whole dollars, so fractional cents are rounded down.
+    return Math.floor((Number(marketValue) || 0) * TRADER_PERCENT / 100);
   }
 
   function marginFor(listingPrice, marketValue, quantity = 1) {
@@ -314,7 +318,18 @@
         ? 'good'
         : 'minor';
     }
-    return { price, value, payout, qty, profitEach, totalProfit, investment, roiPercent, tier };
+    return {
+      price,
+      value,
+      payout,
+      traderPercent: TRADER_PERCENT,
+      qty,
+      profitEach,
+      totalProfit,
+      investment,
+      roiPercent,
+      tier,
+    };
   }
 
   function ownText(element) {
@@ -506,17 +521,20 @@
 
   function badgeHtml(margin, mode) {
     const sign = margin.profitEach > 0 ? '+' : '';
+    const auditLine = `MV ${formatMoney(margin.value)} → 99% ${formatMoney(margin.payout)}`;
     if (mode === 'category') {
-      return `<strong>${sign}${escapeHtml(formatMoney(margin.profitEach))}</strong>`
-        + `<span>@ ${escapeHtml(String(state.settings.traderPercent))}% · ${escapeHtml(formatPercent(margin.roiPercent))}</span>`;
+      return `<strong>${sign}${escapeHtml(formatMoney(margin.profitEach))} ea</strong>`
+        + `<span>${escapeHtml(auditLine)}</span>`
+        + `<span>${escapeHtml(formatPercent(margin.roiPercent))} ROI</span>`;
     }
     const totalSign = margin.totalProfit > 0 ? '+' : '';
     return `<strong>${sign}${escapeHtml(formatMoney(margin.profitEach))} ea</strong>`
-      + `<span>${totalSign}${escapeHtml(formatMoney(margin.totalProfit))} lot · ${escapeHtml(formatPercent(margin.roiPercent))}</span>`;
+      + `<span>${totalSign}${escapeHtml(formatMoney(margin.totalProfit))} lot · ${escapeHtml(formatPercent(margin.roiPercent))}</span>`
+      + `<span>${escapeHtml(auditLine)}</span>`;
   }
 
   function addBadge(target, margin, mode, highlightTarget = target) {
-    if (margin.tier === 'loss' && (mode === 'category' || !state.settings.showLossesDuringTesting)) return;
+    if (margin.tier === 'loss' && !state.settings.showLossesDuringTesting) return;
     const badge = document.createElement('span');
     badge.className = `${APP.badgeClass} tsimm-badge-${mode} tsimm-tier-${margin.tier}`;
     badge.dataset.tsimmGenerated = 'true';
@@ -543,6 +561,7 @@
       stats.categoryMatched += 1;
       if (margin.tier === 'good') stats.categoryGood += 1;
       if (margin.tier === 'minor') stats.categoryMinor += 1;
+      if (margin.tier === 'loss') stats.categoryLoss += 1;
     }
   }
 
@@ -558,6 +577,7 @@
       stats.listingMatched += 1;
       if (margin.tier === 'good') stats.listingGood += 1;
       if (margin.tier === 'minor') stats.listingMinor += 1;
+      if (margin.tier === 'loss') stats.listingLoss += 1;
     }
   }
 
@@ -632,6 +652,11 @@
       cachedCatalogItems: catalogCount(),
       catalogUpdatedAt: state.catalog.updatedAt,
       settings: state.settings,
+      calculationPolicy: {
+        traderPercent: TRADER_PERCENT,
+        payoutFormula: 'floor(marketValue * 0.99)',
+        profitFormula: 'traderPayout - listingPrice',
+      },
       lastScan: state.lastScan,
       categorySample,
       listingSample,
@@ -674,17 +699,17 @@
       .tsimm-head{display:flex;align-items:center;gap:7px;padding:8px 9px;background:#292530;border-bottom:1px solid #4e475b}
       .tsimm-head strong{flex:1;font-size:13px}.tsimm-head small{color:#aaa1b7}.tsimm-head button,.tsimm-btn{border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:6px 8px;font-weight:700;cursor:pointer}
       .tsimm-head button{padding:2px 7px}.tsimm-body{padding:9px}.tsimm-collapsed .tsimm-body,.tsimm-collapsed .tsimm-head small{display:none}
-      .tsimm-status{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
+      .tsimm-status{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
       .tsimm-actions{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}.tsimm-btn{flex:1;min-width:78px}.tsimm-btn-primary{background:#5b2b82;border-color:#8e55b9}.tsimm-btn:disabled{opacity:.55;cursor:wait}
       .tsimm-controls{display:grid;grid-template-columns:1fr 72px;gap:5px;align-items:center;margin-top:6px}.tsimm-controls input{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}.tsimm-check{display:flex;align-items:center;gap:6px;margin-top:7px;color:#c9c2d0}
-      .tsimm-note{margin-top:6px;color:#d0c8d8}.tsimm-muted{color:#aaa1b7}.tsimm-good-text{color:#63df9f}.tsimm-minor-text{color:#c77dff}
+      .tsimm-note{margin-top:6px;color:#d0c8d8}.tsimm-muted{color:#aaa1b7}.tsimm-good-text{color:#63df9f}.tsimm-minor-text{color:#c77dff}.tsimm-loss-text{color:#ff6b76}
       .${APP.badgeClass}{display:flex;flex-direction:column;justify-content:center;gap:1px;border:1px solid currentColor;border-radius:7px;padding:3px 5px;font:700 10px/1.15 Arial,sans-serif;white-space:nowrap;box-shadow:0 2px 8px #0007;background:#19171dcc;pointer-events:none}
-      .${APP.badgeClass} span{font-size:8px;font-weight:600;opacity:.9}.tsimm-tier-good{--tsimm-tier:#44d88b}.tsimm-tier-minor{--tsimm-tier:#bd6cff}.tsimm-tier-loss{--tsimm-tier:#a39aa9}
-      .${APP.badgeClass}.tsimm-tier-good{color:#44d88b}.${APP.badgeClass}.tsimm-tier-minor{color:#bd6cff}.${APP.badgeClass}.tsimm-tier-loss{color:#a39aa9}
+      .${APP.badgeClass} span{font-size:8px;font-weight:600;opacity:.9}.tsimm-tier-good{--tsimm-tier:#44d88b}.tsimm-tier-minor{--tsimm-tier:#bd6cff}.tsimm-tier-loss{--tsimm-tier:#ff626d}
+      .${APP.badgeClass}.tsimm-tier-good{color:#44d88b}.${APP.badgeClass}.tsimm-tier-minor{color:#bd6cff}.${APP.badgeClass}.tsimm-tier-loss{color:#ff626d}
       .tsimm-badge-category{position:absolute;right:4px;top:4px;z-index:5;max-width:calc(100% - 8px)}
       .tsimm-badge-listing{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
-      .${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}
-      .${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}
+      .${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
+      .${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       #tsimm-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:2147483647;padding:8px 11px;border-radius:8px;background:#17151b;color:#fff;border:1px solid #655d70;box-shadow:0 6px 20px #0009;font:12px Arial,sans-serif}
     `;
     document.head.appendChild(style);
@@ -702,6 +727,7 @@
     const stats = state.lastScan;
     const goodCount = stats.categoryGood + stats.listingGood;
     const minorCount = stats.categoryMinor + stats.listingMinor;
+    const lossCount = stats.categoryLoss + stats.listingLoss;
     const matchedCount = stats.categoryMatched + stats.listingMatched;
     const notes = stats.notes.length
       ? stats.notes.map((note) => `<div class="tsimm-note">${escapeHtml(note)}</div>`).join('')
@@ -716,9 +742,11 @@
         <div class="tsimm-status">
           <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
           <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
+          <div class="tsimm-stat"><strong class="tsimm-loss-text">${lossCount}</strong><span>red</span></div>
           <div class="tsimm-stat"><strong>${matchedCount}</strong><span>matched</span></div>
         </div>
         <div class="tsimm-muted">Catalog: ${formatInteger(catalogCount())} values${catalogIsFresh() ? ' · fresh' : ''}</div>
+        <div class="tsimm-note">Profit base: floor(Market Value × 99%)</div>
         <div class="tsimm-actions">
           <button class="tsimm-btn tsimm-btn-primary" type="button" data-tsimm-action="sync" ${state.syncing ? 'disabled' : ''}>${state.syncing ? 'Syncing…' : 'Sync values'}</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="scan">Scan page</button>
@@ -726,7 +754,7 @@
         </div>
         <div class="tsimm-controls"><label>Green profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.minimumProfitEach)}" data-tsimm-setting="minimumProfitEach"></div>
         <div class="tsimm-controls"><label>Green minimum ROI %</label><input type="number" min="0" step="0.01" value="${escapeHtml(state.settings.minimumRoiPercent)}" data-tsimm-setting="minimumRoiPercent"></div>
-        <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showLossesDuringTesting" ${state.settings.showLossesDuringTesting ? 'checked' : ''}> Show losing rows during testing</label>
+        <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showLossesDuringTesting" ${state.settings.showLossesDuringTesting ? 'checked' : ''}> Show red non-profitable items</label>
         ${notes}
       </div>
     `;
