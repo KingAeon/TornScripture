@@ -1,6 +1,6 @@
 import json, pathlib
 from playwright.sync_api import sync_playwright
-root=pathlib.Path('/mnt/data/tornscripture-item-market-margin-v0.2.0')
+root=pathlib.Path('/mnt/data/tornscripture-item-market-margin-v0.2.1')
 html=(root/'mock-market.html').read_text()
 catalog={
   'updatedAt':'2026-07-17T00:00:00.000Z',

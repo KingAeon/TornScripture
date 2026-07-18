@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.0
+// @version      0.2.1
 // @description  Audits item-market margins and verifies 99% trader payouts against live trade manifests.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.2.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.2.1
    *
    * PHASE-ONE SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, and visible listing rows.
@@ -28,7 +28,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.2.0',
+    version: '0.2.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -147,6 +147,10 @@
       listingMinor: 0,
       listingLoss: 0,
       visibleMarketValue: null,
+      listingMarketValue: null,
+      listingMarketValueSource: null,
+      listingItemId: null,
+      listingItemName: null,
       tradeSideCandidates: 0,
       tradeMySide: null,
       tradeSideSource: null,
@@ -853,6 +857,77 @@
     return fallback ? parseNumber(fallback[1]) : null;
   }
 
+  function itemIdFromLocation() {
+    const href = String(location.href || '');
+    const match = href.match(/[?&#]item(?:id)?=(\d{1,6})(?:\D|$)/i)
+      || href.match(/\bitem(?:id)?[=/](\d{1,6})(?:\D|$)/i);
+    const id = match ? Number(match[1]) : null;
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }
+
+  function listingItemNameFromPage() {
+    const candidates = document.querySelectorAll(
+      'h1,h2,h3,[role="heading"],[class*="title"],[class*="name"]'
+    );
+    for (const element of candidates) {
+      if (!visibleElement(element)) continue;
+      const text = normalizeWhitespace(element.textContent);
+      if (!text || text.length > 100) continue;
+      const item = state.catalog.itemsByName?.[normalizeName(text)];
+      if (item) return item.name;
+    }
+    return '';
+  }
+
+  function resolveListingMarketValue() {
+    const visibleValue = findVisibleMarketValue();
+    if (Number.isFinite(visibleValue) && visibleValue > 0) {
+      const itemId = itemIdFromLocation();
+      const item = itemId ? state.catalog.itemsById?.[String(itemId)] : null;
+      return {
+        value: visibleValue,
+        visibleValue,
+        source: 'visible-value',
+        itemId,
+        itemName: item?.name || listingItemNameFromPage() || null,
+      };
+    }
+
+    const itemId = itemIdFromLocation();
+    if (itemId) {
+      const item = state.catalog.itemsById?.[String(itemId)];
+      if (item?.marketPrice > 0) {
+        return {
+          value: item.marketPrice,
+          visibleValue: null,
+          source: 'catalog-item-id',
+          itemId,
+          itemName: item.name,
+        };
+      }
+    }
+
+    const itemName = listingItemNameFromPage();
+    const item = itemName ? state.catalog.itemsByName?.[normalizeName(itemName)] : null;
+    if (item?.marketPrice > 0) {
+      return {
+        value: item.marketPrice,
+        visibleValue: null,
+        source: 'catalog-item-name',
+        itemId: item.id || null,
+        itemName: item.name,
+      };
+    }
+
+    return {
+      value: null,
+      visibleValue: null,
+      source: null,
+      itemId: itemId || null,
+      itemName: itemName || null,
+    };
+  }
+
   function findListingRow(priceElement) {
     let node = priceElement;
     let best = null;
@@ -968,13 +1043,19 @@
   }
 
   function scanListings(stats) {
-    const marketValue = findVisibleMarketValue();
-    stats.visibleMarketValue = marketValue;
-    if (!marketValue) return;
     const candidates = listingCandidates();
     stats.listingCandidates = candidates.length;
+
+    const resolution = resolveListingMarketValue();
+    stats.visibleMarketValue = resolution.visibleValue;
+    stats.listingMarketValue = resolution.value;
+    stats.listingMarketValueSource = resolution.source;
+    stats.listingItemId = resolution.itemId;
+    stats.listingItemName = resolution.itemName;
+    if (!resolution.value) return;
+
     for (const candidate of candidates) {
-      const margin = marginFor(candidate.price, marketValue, candidate.quantity);
+      const margin = marginFor(candidate.price, resolution.value, candidate.quantity);
       addBadge(candidate.priceElement, margin, 'listing', candidate.row);
       stats.listingMatched += 1;
       if (margin.tier === 'good') stats.listingGood += 1;
@@ -985,7 +1066,7 @@
 
   function detectPageType(stats) {
     if (stats.tradeSideCandidates) return 'trade';
-    if (stats.visibleMarketValue && stats.listingCandidates) return 'item listings';
+    if (stats.listingCandidates) return stats.listingMarketValue ? 'item listings' : 'item listings (value unresolved)';
     if (stats.categoryCandidates) return 'category';
     return 'unknown';
   }
@@ -1013,8 +1094,14 @@
     if (stats.categoryCandidates && !stats.categoryMatched) {
       stats.notes.push('Category tiles were found, but their names did not match the cached catalog.');
     }
-    if (stats.visibleMarketValue && !stats.listingCandidates) {
-      stats.notes.push('The item value was found, but listing rows were not recognized.');
+    if (stats.listingMarketValue && !stats.listingCandidates) {
+      stats.notes.push('The item value was resolved, but listing rows were not recognized.');
+    }
+    if (stats.listingCandidates && !stats.listingMarketValue) {
+      stats.notes.push('Listing rows were found, but no market value could be resolved from the page or cached item ID.');
+    }
+    if (stats.listingMarketValueSource === 'catalog-item-id') {
+      stats.notes.push('The compact listing page hid Value; IMM used the cached catalog value for the itemID in the URL.');
     }
     state.lastScan = stats;
     renderPanel();
@@ -1351,6 +1438,8 @@
       marginFor,
       traderPayout,
       manifestTotals,
+      itemIdFromLocation,
+      resolveListingMarketValue,
     };
   }
 })();

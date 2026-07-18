@@ -1,6 +1,6 @@
 import json, pathlib
 from playwright.sync_api import sync_playwright
-root=pathlib.Path('/mnt/data/tornscripture-item-market-margin-v0.2.0')
+root=pathlib.Path('/mnt/data/tornscripture-item-market-margin-v0.2.1')
 html=(root/'mock-trade.html').read_text()
 catalog={
   'updatedAt':'2026-07-18T00:00:00.000Z',
@@ -31,7 +31,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(1400)
     panel=page.locator('#tornscripture-imm-panel').inner_text()
     print(panel)
-    assert 'v0.2.0 · trade' in panel
+    assert 'v0.2.1 · trade' in panel
     assert 'Required 99% payout' in panel
     assert '$18,106,434' in panel
     assert '99% PROTECTED' in panel
