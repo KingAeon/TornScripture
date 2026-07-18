@@ -1,4 +1,21 @@
-// ==UserScript==
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{background:#111;color:#ddd;font-family:Arial} .trade-cont{width:500px;margin:20px;padding:10px;background:#333} .title-black{padding:8px;background:#555;margin-top:6px} li{display:block;padding:8px;border-bottom:1px solid #555} .name{padding:7px;border-bottom:1px solid #444}
+</style><script>localStorage.setItem('tornscripture-imm-catalog-v1',JSON.stringify({updatedAt:new Date().toISOString(),items:{'1':{id:1,name:'Puffer Vest',marketPrice:302},'2':{id:2,name:'Psycho Clown Mask',marketPrice:100000},'3':{id:3,name:'Denim Jeans',marketPrice:5000},'4':{id:4,name:'Bottle of Wicked Witch',marketPrice:200000},'5':{id:5,name:'Monkey Plushie',marketPrice:70000},'6':{id:6,name:'Lion Plushie',marketPrice:80000},'7':{id:7,name:'Chamois Plushie',marketPrice:60000},'8':{id:8,name:'Single Red Rose',marketPrice:400},'9':{id:9,name:'Peony',marketPrice:50000},'10':{id:10,name:'African Violet',marketPrice:56390}}}));</script></head><body>
+<a class="menu-value">NamelessSaint</a>
+<div class="trade-cont">
+<div class="title-black">Trade between NamelessSaint & Clouds</div>
+<div class="user left"><div class="title-black">NamelessSaint's items traded</div><div>No money in trade</div><ul><li class="color2 last"><div class="name">Puffer Vest x4</div>
+<div class="name">Psycho Clown Mask x2</div>
+<div class="name">Denim Jeans x1</div>
+<div class="name">Bottle of Wicked Witch x7</div>
+<div class="name">Monkey Plushie x11</div>
+<div class="name">Lion Plushie x15</div>
+<div class="name">Chamois Plushie x1</div>
+<div class="name">Single Red Rose x4</div>
+<div class="name">Peony x4</div>
+<div class="name">African Violet x16</div></li></ul></div>
+<div class="user right"><div class="title-black">Clouds' items traded</div><div>$5,396,832 in trade</div><div>No items in trade</div></div>
+</div><script>// ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
 // @version      0.2.3
@@ -1595,7 +1612,6 @@
     state.initialized = true;
     injectStyles();
     bindPanelEvents();
-    bindObserver();
     scheduleScan(250);
   }
 
@@ -1619,3 +1635,4 @@
     };
   }
 })();
+</script></body></html>
