@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.4.0
-// @description  Audits item-market margins, verifies 99% trade payouts, tracks purchase lots and sales, and keeps a local trader directory.
+// @version      0.4.1
+// @description  Audits item-market margins, verifies 99% trade payouts, tracks purchase lots and sales, and captures trader profiles into a local directory.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.4.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.4.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
@@ -29,7 +29,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.4.0',
+    version: '0.4.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -123,10 +123,11 @@
     const userId = Math.max(0, Math.floor(Number(rawUserId) || 0)) || null;
     const rating = Math.max(0, Math.min(5, Math.floor(Number(candidate.rating) || 0)));
     const targetPercent = Math.max(0, Math.min(100, Number(candidate.targetPercent ?? candidate.preferredPercent) || TRADER_PERCENT));
-    const profileUrl = normalizeWhitespace(candidate.profileUrl)
+    const profileUrl = normalizeHttpUrl(candidate.profileUrl)
       || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : '');
-    const tradeUrl = normalizeWhitespace(candidate.tradeUrl)
+    const tradeUrl = normalizeHttpUrl(candidate.tradeUrl)
       || (userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : '');
+    const bannerUrl = normalizeHttpUrl(candidate.bannerUrl ?? candidate.bannerImageUrl ?? candidate.userbarUrl);
     return {
       id: normalizeWhitespace(candidate.recordId)
         || normalizeWhitespace(candidate.uuid)
@@ -139,6 +140,8 @@
       targetPercent,
       profileUrl,
       tradeUrl,
+      bannerUrl,
+      captureSource: normalizeWhitespace(candidate.captureSource) || (bannerUrl ? 'profile-page' : 'manual'),
       notes: normalizeWhitespace(candidate.notes),
       createdAt: candidate.createdAt || new Date().toISOString(),
       updatedAt: candidate.updatedAt || new Date().toISOString(),
@@ -203,9 +206,11 @@
       schemaVersion: 1,
       fingerprint: normalizeWhitespace(candidate?.fingerprint),
       tradeId: normalizeWhitespace(candidate?.tradeId),
-      counterparty: normalizeWhitespace(candidate?.counterparty),
+      counterparty: cleanTradeParticipantName(candidate?.counterparty),
+      counterpartyId: Math.max(0, Math.floor(Number(candidate?.counterpartyId ?? candidate?.traderId) || 0)) || null,
+      counterpartyProfileUrl: normalizeHttpUrl(candidate?.counterpartyProfileUrl ?? candidate?.traderProfileUrl),
       soldAt: candidate?.soldAt || candidate?.capturedAt || new Date().toISOString(),
-      saleUrl: normalizeWhitespace(candidate?.saleUrl),
+      saleUrl: normalizeHttpUrl(candidate?.saleUrl),
       captureMethod: normalizeWhitespace(candidate?.captureMethod) || 'import',
       completionSource: normalizeWhitespace(candidate?.completionSource),
       cashReceived,
@@ -425,6 +430,25 @@
       .trim();
   }
 
+  function normalizeHttpUrl(value) {
+    const candidate = normalizeWhitespace(value);
+    if (!candidate) return '';
+    try {
+      const url = new URL(candidate, 'https://www.torn.com');
+      return /^https?:$/.test(url.protocol) ? url.href : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function cleanTradeParticipantName(value) {
+    return normalizeWhitespace(value)
+      .replace(/(?:[’']s?)?\s+items\s+traded\s*$/i, '')
+      .replace(/(?:[’']s?)?\s+(?:items|offer)\s*$/i, '')
+      .replace(/^trade\s+(?:with|between)\s+/i, '')
+      .trim();
+  }
+
   function escapeRegExp(value) {
     return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
@@ -498,6 +522,14 @@
       tradeStatus: 'not-scanned',
       tradeId: null,
       tradeCounterparty: null,
+      tradeCounterpartyId: null,
+      tradeCounterpartyProfileUrl: '',
+      tradeCounterpartyBannerUrl: '',
+      profileName: null,
+      profileUserId: null,
+      profileUrl: '',
+      profileBannerUrl: '',
+      profileCaptureReady: false,
       tradeCompleted: false,
       tradeCompletionSource: null,
       tradeLedgerCostBasis: 0,
@@ -712,6 +744,104 @@
   }
 
 
+
+  function pageLooksLikeProfile() {
+    const href = String(location.href || '').toLowerCase();
+    if (href.includes('profiles.php') && userIdFromUrl(location.href)) return true;
+    const title = normalizeWhitespace(document.title || '');
+    if (/(?:[’']s?)\s+profile\b/i.test(title)) return true;
+    return false;
+  }
+
+  function profileNameFromPage() {
+    const patterns = [
+      /^(.+?)(?:[’']s?)\s+Profile$/i,
+      /^Profile\s*:\s*(.+)$/i,
+    ];
+    const selectors = [
+      'h1,h2,h3,h4,h5',
+      '[role="heading"]',
+      '.title-black',
+      '[class*="title___"]',
+      '[class*="header___"]',
+    ];
+    const candidates = [];
+    for (const selector of selectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (!visibleElement(element) || element.closest(`#${APP.panelId},#${APP.traderOverlayId},#${APP.ledgerOverlayId}`)) continue;
+        const text = normalizeWhitespace(element.innerText || element.textContent);
+        if (text && text.length <= 120) candidates.push(text);
+      }
+    }
+    candidates.push(normalizeWhitespace(document.title || '').replace(/\s*[|\-].*$/, ''));
+    for (const candidate of candidates) {
+      for (const pattern of patterns) {
+        const match = candidate.match(pattern);
+        const name = cleanTradeParticipantName(match?.[1]);
+        if (name && !/^your$/i.test(name)) return name;
+      }
+    }
+    const urlId = userIdFromUrl(location.href);
+    const profileAnchor = [...document.querySelectorAll('a[href*="profiles.php?XID=" i]')]
+      .find((anchor) => userIdFromUrl(anchor.href) === urlId && normalizeWhitespace(anchor.innerText));
+    return cleanTradeParticipantName(profileAnchor?.innerText || profileAnchor?.textContent || '');
+  }
+
+  function profileBannerUrlFromPage(profileName = '') {
+    const nameKey = normalizeName(profileName);
+    const images = [...document.querySelectorAll('img[src]')].filter((image) => {
+      if (!visibleElement(image) || image.closest(`#${APP.panelId},#${APP.traderOverlayId},#${APP.ledgerOverlayId}`)) return false;
+      const src = normalizeHttpUrl(image.currentSrc || image.src);
+      if (!src || /\/items\//i.test(src)) return false;
+      return true;
+    });
+    const scored = images.map((image) => {
+      const rect = image.getBoundingClientRect();
+      const src = normalizeHttpUrl(image.currentSrc || image.src);
+      const alt = normalizeWhitespace(image.alt || image.title);
+      let score = 0;
+      if (/userbar|banner|signature|nameplate/i.test(src)) score += 10;
+      if (nameKey && normalizeName(alt).includes(nameKey)) score += 6;
+      if (rect.width >= 180 && rect.width / Math.max(1, rect.height) >= 3) score += 6;
+      if (rect.width >= 240) score += 2;
+      if (rect.height <= 120) score += 1;
+      if (/avatar|honor|award|icon|logo/i.test(src)) score -= 4;
+      return { src, score, width: rect.width };
+    }).filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || b.width - a.width);
+    return scored[0]?.src || '';
+  }
+
+  function currentProfileIdentity() {
+    const userId = userIdFromUrl(location.href);
+    const name = profileNameFromPage();
+    const profileUrl = userId
+      ? `https://www.torn.com/profiles.php?XID=${userId}`
+      : normalizeHttpUrl(location.href);
+    return {
+      name,
+      userId,
+      profileUrl,
+      tradeUrl: userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : '',
+      bannerUrl: profileBannerUrlFromPage(name),
+      captureSource: 'profile-page',
+    };
+  }
+
+  function scanProfile(stats) {
+    const identity = currentProfileIdentity();
+    stats.profileName = identity.name || null;
+    stats.profileUserId = identity.userId || null;
+    stats.profileUrl = identity.profileUrl || '';
+    stats.profileBannerUrl = identity.bannerUrl || '';
+    stats.profileCaptureReady = Boolean(identity.name && identity.userId);
+    if (!stats.profileCaptureReady) {
+      stats.notes.push('Profile detected, but IMM could not resolve both the player name and Torn ID.');
+    } else if (!identity.bannerUrl) {
+      stats.notes.push('Profile identity is ready. No usable horizontal banner was detected, so the trader card will use the name button.');
+    }
+  }
+
   function tradeIdFromLocation() {
     const href = String(location.href || '');
     const direct = href.match(/[?&#]ID=(\d+)/i);
@@ -918,6 +1048,8 @@
       fingerprint: saleFingerprintForStats(stats),
       tradeId: stats.tradeId || tradeIdFromLocation(),
       counterparty: stats.tradeCounterparty,
+      counterpartyId: stats.tradeCounterpartyId,
+      counterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
       soldAt: new Date().toISOString(),
       saleUrl: location.href,
       captureMethod,
@@ -1427,6 +1559,36 @@
     annotationRow.appendChild(badge);
   }
 
+
+  function tradeSideIdentity(side) {
+    const name = cleanTradeParticipantName(side?.heading);
+    const nameKey = normalizeName(name);
+    const roots = [side?.element, document].filter(Boolean);
+    let userId = null;
+    let profileUrl = '';
+    let bannerUrl = '';
+    for (const root of roots) {
+      const anchors = [...root.querySelectorAll?.('a[href*="profiles.php" i],a[href*="trade.php" i]') || []];
+      for (const anchor of anchors) {
+        const anchorText = normalizeName(anchor.innerText || anchor.textContent || '');
+        if (nameKey && anchorText && !anchorText.includes(nameKey)) continue;
+        const candidateId = userIdFromUrl(anchor.href);
+        if (!candidateId) continue;
+        userId = candidateId;
+        if (/profiles\.php/i.test(anchor.href)) profileUrl = normalizeHttpUrl(anchor.href);
+        break;
+      }
+      if (userId) break;
+    }
+    const saved = state.traders.find((trader) =>
+      (userId && trader.userId === userId) || trader.normalizedName === nameKey
+    );
+    if (!userId) userId = saved?.userId || null;
+    if (!profileUrl) profileUrl = saved?.profileUrl || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : '');
+    bannerUrl = saved?.bannerUrl || '';
+    return { name, userId, profileUrl, bannerUrl };
+  }
+
   function scanTrade(stats) {
     const sides = tradeSideCandidates();
     stats.tradeSideCandidates = sides.length;
@@ -1442,7 +1604,11 @@
     stats.tradeMySide = mySide?.side || null;
     stats.tradeSideSource = myResolution.source;
     stats.tradeId = tradeIdFromLocation() || null;
-    stats.tradeCounterparty = normalizeWhitespace(otherSide?.heading) || null;
+    const counterpartyIdentity = tradeSideIdentity(otherSide);
+    stats.tradeCounterparty = counterpartyIdentity.name || null;
+    stats.tradeCounterpartyId = counterpartyIdentity.userId || null;
+    stats.tradeCounterpartyProfileUrl = counterpartyIdentity.profileUrl || '';
+    stats.tradeCounterpartyBannerUrl = counterpartyIdentity.bannerUrl || '';
     const completion = tradeCompletionState();
     stats.tradeCompleted = completion.completed;
     stats.tradeCompletionSource = completion.source || null;
@@ -1862,13 +2028,14 @@
   }
 
   function scanPage() {
+    const isProfile = pageLooksLikeProfile();
     const isItemMarket = pageLooksLikeItemMarket();
-    const isTrade = pageLooksLikeTrade();
-    if (!isItemMarket && !isTrade) {
+    const isTrade = !isProfile && pageLooksLikeTrade();
+    if (!isItemMarket && !isTrade && !isProfile) {
       clearAnnotations();
       document.getElementById(APP.panelId)?.remove();
       state.lastScan = emptyScanStats();
-      state.lastScan.notes.push('Waiting for the Item Market or Trade page.');
+      state.lastScan.notes.push('Waiting for the Item Market, Trade, or player Profile page.');
       return;
     }
     clearAnnotations();
@@ -1878,7 +2045,8 @@
       scanListings(stats);
     }
     if (isTrade) scanTrade(stats);
-    stats.pageType = isTrade ? 'trade' : detectPageType(stats);
+    if (isProfile) scanProfile(stats);
+    stats.pageType = isProfile ? 'profile' : (isTrade ? 'trade' : detectPageType(stats));
     stats.scannedAt = new Date().toISOString();
     if (!catalogCount()) stats.notes.push('No catalog values cached. Press Sync values.');
     if (stats.categoryCandidates && !stats.categoryMatched) {
@@ -2467,9 +2635,9 @@
   }
 
   function currentCounterpartyIdentity() {
-    const name = normalizeWhitespace(state.lastScan?.tradeCounterparty);
-    let userId = null;
-    let profileUrl = '';
+    const name = cleanTradeParticipantName(state.lastScan?.tradeCounterparty);
+    let userId = Math.max(0, Math.floor(Number(state.lastScan?.tradeCounterpartyId) || 0)) || null;
+    let profileUrl = normalizeHttpUrl(state.lastScan?.tradeCounterpartyProfileUrl);
     const anchors = [...document.querySelectorAll('a[href*="profiles.php" i],a[href*="trade.php" i]')];
     const nameKey = normalizeName(name);
     for (const anchor of anchors) {
@@ -2481,17 +2649,25 @@
       if (/profiles\.php/i.test(anchor.href)) profileUrl = anchor.href;
       break;
     }
+    const saved = state.traders.find((trader) =>
+      (userId && trader.userId === userId) || trader.normalizedName === normalizeName(name)
+    );
     return {
       name,
-      userId,
-      profileUrl: profileUrl || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : ''),
-      tradeUrl: userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : '',
+      userId: userId || saved?.userId || null,
+      profileUrl: profileUrl || saved?.profileUrl || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : ''),
+      tradeUrl: userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : (saved?.tradeUrl || ''),
+      bannerUrl: normalizeHttpUrl(state.lastScan?.tradeCounterpartyBannerUrl) || saved?.bannerUrl || '',
+      captureSource: 'trade-page',
     };
   }
 
   function traderSalesFor(trader) {
     const key = normalizeName(trader?.name);
-    return (state.ledger.sales || []).filter((sale) => normalizeName(sale.counterparty) === key);
+    return (state.ledger.sales || []).filter((sale) => {
+      if (trader?.userId && sale?.counterpartyId) return Number(trader.userId) === Number(sale.counterpartyId);
+      return normalizeName(cleanTradeParticipantName(sale?.counterparty)) === key;
+    });
   }
 
   function traderStats(trader) {
@@ -2524,6 +2700,10 @@
       recordId: existing?.id,
       name,
       userId,
+      profileUrl: defaults.profileUrl || existing?.profileUrl,
+      tradeUrl: defaults.tradeUrl || existing?.tradeUrl,
+      bannerUrl: defaults.bannerUrl || existing?.bannerUrl,
+      captureSource: defaults.captureSource || existing?.captureSource,
       rating,
       targetPercent,
       notes,
@@ -2532,19 +2712,43 @@
     });
   }
 
+  function linkRecordedSalesToTrader(trader) {
+    if (!trader) return 0;
+    const nameKey = normalizeName(trader.name);
+    let linked = 0;
+    for (const sale of state.ledger.sales || []) {
+      const idMatch = Boolean(trader.userId && sale.counterpartyId && Number(trader.userId) === Number(sale.counterpartyId));
+      const nameMatch = normalizeName(cleanTradeParticipantName(sale.counterparty)) === nameKey;
+      if (!idMatch && !nameMatch) continue;
+      sale.counterparty = trader.name;
+      if (trader.userId) sale.counterpartyId = trader.userId;
+      if (trader.profileUrl) sale.counterpartyProfileUrl = trader.profileUrl;
+      linked += 1;
+    }
+    if (linked) saveLedger();
+    return linked;
+  }
+
   function upsertTrader(trader) {
     if (!trader) return null;
     const index = state.traders.findIndex((candidate) =>
       (trader.userId && candidate.userId === trader.userId)
-      || (!trader.userId && candidate.normalizedName === trader.normalizedName)
+      || candidate.normalizedName === trader.normalizedName
       || candidate.id === trader.id
     );
     if (index >= 0) state.traders[index] = { ...state.traders[index], ...trader, id: state.traders[index].id };
     else state.traders.push(trader);
     saveTraders();
+    const savedTrader = state.traders.find((candidate) =>
+      candidate.id === trader.id
+      || (trader.userId && candidate.userId === trader.userId)
+      || candidate.normalizedName === trader.normalizedName
+    ) || trader;
+    linkRecordedSalesToTrader(savedTrader);
     renderTraders();
+    renderLedger();
     renderPanel();
-    return trader;
+    return savedTrader;
   }
 
   function saveCurrentTrader() {
@@ -2561,9 +2765,48 @@
       ? `Observed ${formatPercent(stats.tradeEffectivePercent)} payout on ${new Date().toLocaleDateString()}${Number(stats.tradeDifference) < 0 ? `, ${formatMoney(Math.abs(stats.tradeDifference))} below the 99% target` : ', at or above the 99% target'}.`
       : '';
     const trader = promptTrader(existing, { ...identity, notes: observation });
+    if (trader && identity.bannerUrl && !trader.bannerUrl) trader.bannerUrl = identity.bannerUrl;
     if (!trader) return;
-    upsertTrader(trader);
-    toast(`Saved trader ${trader.name}.`);
+    const saved = upsertTrader(trader);
+    const linked = traderSalesFor(saved).length;
+    toast(`Saved trader ${saved.name}${linked ? ` · ${linked} recorded sale${linked === 1 ? '' : 's'} linked` : ''}.`);
+  }
+
+
+  function promptCapturedTrader(existing, identity) {
+    const ratingRaw = prompt(`Personal rating for ${identity.name} from 0 to 5:`, existing?.rating ?? 0);
+    if (ratingRaw === null) return null;
+    const rating = Math.max(0, Math.min(5, Math.floor(Number(ratingRaw) || 0)));
+    const targetRaw = prompt('Your expected payout percentage for this trader:', existing?.targetPercent ?? TRADER_PERCENT);
+    if (targetRaw === null) return null;
+    const targetPercent = Math.max(0, Math.min(100, Number(targetRaw) || TRADER_PERCENT));
+    const notes = normalizeWhitespace(prompt('Notes:', existing?.notes || '') || '');
+    return normalizeTrader({
+      ...existing,
+      ...identity,
+      recordId: existing?.id,
+      rating,
+      targetPercent,
+      notes,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  function saveCurrentProfileTrader() {
+    const identity = currentProfileIdentity();
+    if (!identity.name || !identity.userId) {
+      toast('IMM could not resolve this profile name and Torn ID.');
+      return;
+    }
+    const existing = state.traders.find((trader) =>
+      trader.userId === identity.userId || trader.normalizedName === normalizeName(identity.name)
+    ) || null;
+    const trader = promptCapturedTrader(existing, identity);
+    if (!trader) return;
+    const saved = upsertTrader(trader);
+    const linked = traderSalesFor(saved).length;
+    toast(`Captured ${saved.name}'s profile${saved.bannerUrl ? ' and banner' : ''}${linked ? ` · linked ${linked} recorded sale${linked === 1 ? '' : 's'}` : ''}.`);
   }
 
   function editTrader(id) {
@@ -2620,7 +2863,9 @@
     return `
       <article class="tsimm-trader-card">
         <div class="tsimm-trader-card-head">
-          <div><strong>${escapeHtml(trader.name)}</strong><span>${escapeHtml(stars)}</span></div>
+          ${trader.profileUrl
+            ? `<a class="tsimm-trader-profile-button${trader.bannerUrl ? ' has-banner' : ''}" href="${escapeHtml(trader.profileUrl)}" title="Open ${escapeHtml(trader.name)}'s profile">${trader.bannerUrl ? `<img src="${escapeHtml(trader.bannerUrl)}" alt="${escapeHtml(trader.name)}">` : `<strong>${escapeHtml(trader.name)}</strong>`}<span>${escapeHtml(stars)}</span></a>`
+            : `<div class="tsimm-trader-profile-button"><strong>${escapeHtml(trader.name)}</strong><span>${escapeHtml(stars)}</span></div>`}
           <b>${escapeHtml(formatPercent(trader.targetPercent))} target</b>
         </div>
         <div class="tsimm-trader-grid">
@@ -2656,6 +2901,7 @@
         </div>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="trader-add">Add trader</button>
+          ${state.lastScan.pageType === 'profile' && state.lastScan.profileCaptureReady ? '<button type="button" data-tsimm-action="trader-capture-profile">Capture this profile</button>' : ''}
           ${state.lastScan.pageType === 'trade' && state.lastScan.tradeCounterparty ? '<button type="button" data-tsimm-action="trader-save-current">Save current trade</button>' : ''}
           <button type="button" data-tsimm-action="traders-copy">Copy JSON</button>
           <button type="button" data-tsimm-action="traders-import">Import JSON</button>
@@ -2842,7 +3088,7 @@
       #${APP.traderOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
       .tsimm-trader-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #7a6740;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-trader-top{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;color:#d8caa5}.tsimm-trader-top span{color:#aaa1b7;font-size:10px}
-      .tsimm-trader-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-card-head>div{display:grid;flex:1}.tsimm-trader-card-head strong{font-size:13px}.tsimm-trader-card-head span{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px}.tsimm-trader-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:7px}.tsimm-trader-grid span{color:#b6ad99}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}
+      .tsimm-trader-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-profile-button{display:grid;flex:1;gap:2px;min-width:0;color:#fff;text-decoration:none}.tsimm-trader-profile-button strong{font-size:13px}.tsimm-trader-profile-button span{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-profile-button.has-banner{border:1px solid #5d5137;border-radius:6px;overflow:hidden;background:#17140f}.tsimm-trader-profile-button.has-banner img{display:block;width:100%;max-height:62px;object-fit:cover}.tsimm-trader-profile-button.has-banner span{padding:2px 6px}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px;white-space:nowrap}.tsimm-trader-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:7px}.tsimm-trader-grid span{color:#b6ad99}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}.tsimm-profile-capture-card{display:flex;align-items:center;gap:8px;margin:7px 0;padding:7px;border:1px solid #6f5220;border-radius:8px;background:#2b2417}.tsimm-profile-capture-card img{width:112px;max-height:44px;object-fit:cover;border-radius:5px}.tsimm-profile-capture-card div{display:grid;min-width:0}.tsimm-profile-capture-card strong{color:#f6d16f}.tsimm-profile-capture-card span{color:#bdb4c8;font-size:10px}.tsimm-btn-gold{background:#775715!important;border-color:#b98c2c!important;color:#fff5cc!important}
       #tsimm-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:2147483647;padding:8px 11px;border-radius:8px;background:#17151b;color:#fff;border:1px solid #655d70;box-shadow:0 6px 20px #0009;font:12px Arial,sans-serif}
     `;
     document.head.appendChild(style);
@@ -2929,6 +3175,7 @@
     panel.classList.toggle('tsimm-collapsed', Boolean(state.settings.collapsed));
     const stats = state.lastScan;
     const isTrade = stats.pageType === 'trade';
+    const isProfile = stats.pageType === 'profile';
     const goldCount = stats.categoryGold + stats.listingGold;
     const goodCount = stats.categoryGood + stats.listingGood;
     const minorCount = stats.categoryMinor + stats.listingMinor;
@@ -2945,14 +3192,21 @@
           <div class="tsimm-stat"><strong>${formatInteger(stats.tradeSideCandidates)}</strong><span>sides</span></div>
           <div class="tsimm-stat"><strong>${escapeHtml(stats.tradeMySide || '?')}</strong><span>your side</span></div>
         </div>`
-      : `<div class="tsimm-status">
-          <div class="tsimm-stat"><strong class="tsimm-gold-text">${goldCount}</strong><span>gold</span></div>
-          <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
-          <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
-          <div class="tsimm-stat"><strong class="tsimm-loss-text">${lossCount}</strong><span>red</span></div>
-          <div class="tsimm-stat"><strong>${matchedCount}</strong><span>matched</span></div>
-        </div>`;
-    const marketControls = !isTrade
+      : isProfile
+        ? `<div class="tsimm-status tsimm-profile-status">
+            <div class="tsimm-stat"><strong class="${stats.profileCaptureReady ? 'tsimm-good-text' : 'tsimm-loss-text'}">${stats.profileCaptureReady ? '✓' : '?'}</strong><span>profile</span></div>
+            <div class="tsimm-stat"><strong>${escapeHtml(stats.profileUserId || '?')}</strong><span>Torn ID</span></div>
+            <div class="tsimm-stat"><strong>${stats.profileBannerUrl ? '✓' : '—'}</strong><span>banner</span></div>
+            <div class="tsimm-stat"><strong>${formatInteger(state.traders.length)}</strong><span>saved</span></div>
+          </div>`
+        : `<div class="tsimm-status">
+            <div class="tsimm-stat"><strong class="tsimm-gold-text">${goldCount}</strong><span>gold</span></div>
+            <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
+            <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
+            <div class="tsimm-stat"><strong class="tsimm-loss-text">${lossCount}</strong><span>red</span></div>
+            <div class="tsimm-stat"><strong>${matchedCount}</strong><span>matched</span></div>
+          </div>`;
+    const marketControls = !isTrade && !isProfile
       ? `<div class="tsimm-controls"><label>Gold profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.goldMinimumProfitEach)}" data-tsimm-setting="goldMinimumProfitEach"></div>
         <div class="tsimm-controls"><label>Green profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.minimumProfitEach)}" data-tsimm-setting="minimumProfitEach"></div>
         <div class="tsimm-controls"><label>Green minimum ROI %</label><input type="number" min="0" step="0.01" value="${escapeHtml(state.settings.minimumRoiPercent)}" data-tsimm-setting="minimumRoiPercent"></div>
@@ -2980,12 +3234,14 @@
         <div class="tsimm-note">Profit base: Ⓣ = floor(Ⓜ × 99%) per item</div>
         ${pendingPurchaseHtml()}
         ${tradeSummaryHtml(stats)}
+        ${isProfile && stats.profileName ? `<div class="tsimm-profile-capture-card">${stats.profileBannerUrl ? `<img src="${escapeHtml(stats.profileBannerUrl)}" alt="${escapeHtml(stats.profileName)}">` : ''}<div><strong>${escapeHtml(stats.profileName)}</strong><span>Torn ID ${escapeHtml(stats.profileUserId || 'unresolved')}</span></div></div>` : ''}
         <div class="tsimm-actions">
           <button class="tsimm-btn tsimm-btn-primary" type="button" data-tsimm-action="sync" ${state.syncing ? 'disabled' : ''}>${state.syncing ? 'Syncing…' : 'Sync values'}</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="scan">Scan page</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="diagnostics">Copy diagnostics</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="ledger-open">Ledger (${formatInteger(ledger.lots)})</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="traders-open">Traders (${formatInteger(state.traders.length)})</button>
+          ${isProfile && stats.profileCaptureReady ? '<button class="tsimm-btn tsimm-btn-gold" type="button" data-tsimm-action="trader-capture-profile">Capture profile</button>' : ''}
           ${isTrade && stats.tradeCounterparty ? '<button class="tsimm-btn" type="button" data-tsimm-action="trader-save-current">Save trader</button>' : ''}
         </div>
         ${tradeControls}
@@ -3039,6 +3295,8 @@
         closeTraders();
       } else if (action === 'trader-save-current') {
         saveCurrentTrader();
+      } else if (action === 'trader-capture-profile') {
+        saveCurrentProfileTrader();
       } else if (action === 'trader-add') {
         const trader = promptTrader();
         if (trader) { upsertTrader(trader); toast(`Saved trader ${trader.name}.`); }
@@ -3161,6 +3419,8 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       normalizeName,
+      cleanTradeParticipantName,
+      normalizeHttpUrl,
       parseNumber,
       normalizeCatalogItem,
       normalizeCatalog,
@@ -3175,6 +3435,8 @@
       normalizeSaleRecord,
       normalizeTrader,
       normalizeTraders,
+      traderSalesFor,
+      linkRecordedSalesToTrader,
       optionalFiniteNumber,
       buildLedgerLot,
       ledgerSummary,
