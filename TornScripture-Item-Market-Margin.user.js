@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.3.0
+// @version      0.3.1
 // @description  Audits item-market margins, verifies 99% trade payouts, and records purchase lots in a local ledger.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.3.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.3.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
@@ -29,7 +29,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.3.0',
+    version: '0.3.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -45,10 +45,12 @@
     settingsStorageKey: 'tornscripture-imm-settings-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
+    recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
     catalogUrl: 'https://api.torn.com/v2/torn/items',
     scanDelayMs: 450,
     catalogMaxAgeMs: 24 * 60 * 60 * 1000,
     pendingPurchaseMaxAgeMs: 30 * 60 * 1000,
+    duplicatePurchaseWindowMs: 2 * 60 * 1000,
   });
 
   const PDA_API_KEY = '###PDA-APIKEY###';
@@ -69,6 +71,7 @@
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
     purchaseSignals: [],
+    recentPurchaseFingerprints: loadJson(APP.recentPurchaseFingerprintsStorageKey, []),
     lastScan: emptyScanStats(),
     syncing: false,
     scanTimer: null,
@@ -1549,6 +1552,100 @@
     state.purchaseSignals = state.purchaseSignals.slice(0, 20);
   }
 
+  function parsePurchaseSuccessText(value) {
+    const text = normalizeWhitespace(value);
+    const match = text.match(/\bYou\s+bought\s+([\d,]+)\s*x\s+(.+?)\s+from\s+(.+?)\s+for\s+(?:a\s+total\s+of\s+)?\$([\d,]+)\b/i);
+    if (!match) return null;
+    const quantity = Math.max(0, Math.floor(parseNumber(match[1]) || 0));
+    const itemName = normalizeWhitespace(match[2]);
+    const sellerName = normalizeWhitespace(match[3]);
+    const totalCost = Math.max(0, parseNumber(match[4]) || 0);
+    if (!itemName || quantity <= 0 || totalCost <= 0) return null;
+    return {
+      itemName,
+      sellerName,
+      quantity,
+      totalCost,
+      unitCost: totalCost / quantity,
+      successText: match[0],
+    };
+  }
+
+  function purchaseFingerprint(parsed) {
+    return [
+      normalizeName(parsed?.itemName),
+      Math.floor(Number(parsed?.quantity) || 0),
+      Math.round(Number(parsed?.totalCost) || 0),
+      normalizeName(parsed?.sellerName),
+      Number(itemIdFromLocation()) || 0,
+    ].join('|');
+  }
+
+  function pruneRecentPurchaseFingerprints() {
+    const cutoff = Date.now() - APP.duplicatePurchaseWindowMs;
+    state.recentPurchaseFingerprints = (Array.isArray(state.recentPurchaseFingerprints)
+      ? state.recentPurchaseFingerprints
+      : [])
+      .filter((entry) => Number(entry?.at) >= cutoff)
+      .slice(0, 30);
+  }
+
+  function hasRecentPurchaseFingerprint(fingerprint) {
+    pruneRecentPurchaseFingerprints();
+    return state.recentPurchaseFingerprints.some((entry) => entry?.fingerprint === fingerprint);
+  }
+
+  function rememberPurchaseFingerprint(fingerprint) {
+    pruneRecentPurchaseFingerprints();
+    state.recentPurchaseFingerprints.unshift({ fingerprint, at: Date.now() });
+    state.recentPurchaseFingerprints = state.recentPurchaseFingerprints.slice(0, 30);
+    saveJson(APP.recentPurchaseFingerprintsStorageKey, state.recentPurchaseFingerprints);
+  }
+
+  function capturePurchaseDirectlyFromSuccessText(value, source = 'dom-success-fallback', url = '') {
+    if (!pageLooksLikeItemMarket()) return null;
+    const parsed = parsePurchaseSuccessText(value);
+    if (!parsed) return null;
+    const fingerprint = purchaseFingerprint(parsed);
+    if (hasRecentPurchaseFingerprint(fingerprint)) return null;
+
+    if (state.pendingPurchase) {
+      const pendingMatches = normalizeName(state.pendingPurchase.itemName) === normalizeName(parsed.itemName)
+        && Number(state.pendingPurchase.quantity) === Number(parsed.quantity)
+        && Math.round(Number(state.pendingPurchase.totalCost)) === Math.round(Number(parsed.totalCost));
+      if (pendingMatches) {
+        rememberPurchaseFingerprint(fingerprint);
+        recordPurchaseSignal('success', source, parsed.successText, url);
+        return commitPendingPurchase(source, parsed.successText);
+      }
+    }
+
+    const itemId = itemIdFromLocation();
+    const catalog = catalogItemFor(parsed.itemName, itemId);
+    const marketValueAtPurchase = Number(catalog?.marketPrice || resolveListingMarketValue().value || 0);
+    const lot = buildLedgerLot({
+      source: 'item-market',
+      venue: 'item-market',
+      itemId: catalog?.id || itemId || null,
+      itemName: catalog?.name || parsed.itemName,
+      quantity: parsed.quantity,
+      unitCost: parsed.unitCost,
+      marketValueAtPurchase,
+      traderValueAtPurchase: traderPayout(marketValueAtPurchase),
+      capturedAt: new Date().toISOString(),
+      purchaseUrl: url || location.href,
+      notes: parsed.sellerName
+        ? `Seller: ${parsed.sellerName}. Captured from Torn success message.`
+        : 'Captured from Torn success message.',
+    }, source);
+
+    rememberPurchaseFingerprint(fingerprint);
+    recordPurchaseSignal('success', source, parsed.successText, url);
+    addLedgerLot(lot);
+    toast(`Ledger auto-recorded ${formatInteger(lot.quantity)}× ${lot.itemName}.`);
+    return lot;
+  }
+
   function purchaseFailurePattern(value) {
     return /\b(?:purchase|buy|bought|item)\b.{0,80}\b(?:failed|failure|error|unable|cannot|could not|not enough|insufficient|unavailable|no longer available|already sold|someone else)\b/i.test(value)
       || /\b(?:not enough money|insufficient funds|item is unavailable|listing is unavailable)\b/i.test(value);
@@ -1559,9 +1656,10 @@
   }
 
   function inspectPurchaseSignal(value, source = 'dom', url = '') {
-    if (!state.pendingPurchase) return;
     const text = normalizeWhitespace(value);
     if (!text) return;
+    const directCapture = capturePurchaseDirectlyFromSuccessText(text, source === 'dom' ? 'dom-success-fallback' : source, url);
+    if (directCapture || !state.pendingPurchase) return;
     if (purchaseFailurePattern(text)) {
       recordPurchaseSignal('failure', source, text, url);
       discardPendingPurchase('Purchase was not recorded because Torn reported a failure.');
@@ -2204,23 +2302,19 @@
   function bindObserver() {
     if (state.observer) return;
     state.observer = new MutationObserver((mutations) => {
-      if (state.pendingPurchase) {
-        for (const mutation of mutations) {
-          if (mutation.type === 'characterData') {
-            const parent = mutation.target.parentElement;
-            if (parent && !parent.closest(`#${APP.panelId},#${APP.ledgerOverlayId},[data-tsimm-generated]`)) {
-              inspectPurchaseSignal(parent.textContent, 'dom');
-            }
+      for (const mutation of mutations) {
+        if (mutation.type === 'characterData') {
+          const parent = mutation.target.parentElement;
+          if (parent && !parent.closest(`#${APP.panelId},#${APP.ledgerOverlayId},[data-tsimm-generated]`)) {
+            inspectPurchaseSignal(parent.textContent, 'dom');
           }
-          for (const node of mutation.addedNodes || []) {
-            if (node.nodeType === Node.TEXT_NODE) {
-              inspectPurchaseSignal(node.textContent, 'dom');
-            } else if (node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId}`)) {
-              inspectPurchaseSignal(node.textContent, 'dom');
-            }
-            if (!state.pendingPurchase) break;
+        }
+        for (const node of mutation.addedNodes || []) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            inspectPurchaseSignal(node.textContent, 'dom');
+          } else if (node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId}`)) {
+            inspectPurchaseSignal(node.textContent, 'dom');
           }
-          if (!state.pendingPurchase) break;
         }
       }
       const meaningful = mutations.some((mutation) => {
@@ -2270,6 +2364,7 @@
       itemIdFromLocation,
       resolveListingMarketValue,
       parsePurchaseConfirmationText,
+      parsePurchaseSuccessText,
       normalizeLedger,
       buildLedgerLot,
       ledgerSummary,
