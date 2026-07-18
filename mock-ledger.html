@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="utf-8"><title>IMM ledger mock</title></head><body style="background:#111;color:#eee;font-family:Arial">
+<h1>Item Market</h1><h2>African Violet</h2><div>Value: $56,390</div>
+<ul><li class="row"><div class="owner">Seller</div><div class="price">$55,800</div><div class="qty">324</div><div class="confirm">Buy 324x African Violet for $18,079,200? <button id="yes">Yes</button> <button>No</button></div></li></ul>
+<script>
+localStorage.setItem('tornscripture-imm-catalog-v1', JSON.stringify({updatedAt:new Date().toISOString(),itemsByName:{'african violet':{id:260,name:'African Violet',normalizedName:'african violet',marketPrice:56390}},itemsById:{'260':{id:260,name:'African Violet',normalizedName:'african violet',marketPrice:56390}}}));
+</script>
+<script src="TornScripture-Item-Market-Margin.user.js"></script>
+<script>
+document.getElementById('yes').addEventListener('click',()=>setTimeout(()=>{const d=document.createElement('div');d.id='success';d.textContent='You successfully bought 324x African Violet.';document.body.appendChild(d);},50));
+</script>
+</body></html>
