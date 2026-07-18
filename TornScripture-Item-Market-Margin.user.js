@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.3.2
-// @description  Audits item-market margins, verifies 99% trade payouts, and tracks purchase lots plus realized trade-sale profit.
+// @version      0.4.0
+// @description  Audits item-market margins, verifies 99% trade payouts, tracks purchase lots and sales, and keeps a local trader directory.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.3.2
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.4.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
@@ -29,7 +29,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.3.2',
+    version: '0.4.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -38,12 +38,14 @@
     tradeItemMark: 'tsimm-trade-item-mark',
     tradeBadgeClass: 'tsimm-trade-item-badge',
     ledgerOverlayId: 'tornscripture-imm-ledger',
+    traderOverlayId: 'tornscripture-imm-traders',
     apiKeyStorageKey: 'tornscripture-imm-api-key-v1',
     sharedApiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
     sharedCatalogStorageKey: 'tornscripture-ish-torn-catalog-v1',
     settingsStorageKey: 'tornscripture-imm-settings-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
+    tradersStorageKey: 'tornscripture-imm-traders-v1',
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
     recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
     catalogUrl: 'https://api.torn.com/v2/torn/items',
@@ -59,6 +61,7 @@
   const DEFAULT_SETTINGS = Object.freeze({
     collapsed: false,
     minimumProfitEach: 100,
+    goldMinimumProfitEach: 1000,
     minimumRoiPercent: 0.25,
     showLossesDuringTesting: true,
     tradeSidePreference: 'auto',
@@ -70,6 +73,7 @@
     settings: { ...structuredCloneSafe(DEFAULT_SETTINGS), ...loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS) },
     catalog: mergeCatalogCaches(),
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
+    traders: normalizeTraders(loadJson(APP.tradersStorageKey, [])),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
     purchaseSignals: [],
     recentPurchaseFingerprints: loadJson(APP.recentPurchaseFingerprintsStorageKey, []),
@@ -105,6 +109,61 @@
     return `${prefix}_${Date.now()}_${random}`;
   }
 
+  function optionalFiniteNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function normalizeTrader(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const name = normalizeWhitespace(candidate.name ?? candidate.username);
+    if (!name) return null;
+    const rawUserId = candidate.userId ?? candidate.tornId ?? (typeof candidate.id === 'number' ? candidate.id : null);
+    const userId = Math.max(0, Math.floor(Number(rawUserId) || 0)) || null;
+    const rating = Math.max(0, Math.min(5, Math.floor(Number(candidate.rating) || 0)));
+    const targetPercent = Math.max(0, Math.min(100, Number(candidate.targetPercent ?? candidate.preferredPercent) || TRADER_PERCENT));
+    const profileUrl = normalizeWhitespace(candidate.profileUrl)
+      || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : '');
+    const tradeUrl = normalizeWhitespace(candidate.tradeUrl)
+      || (userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : '');
+    return {
+      id: normalizeWhitespace(candidate.recordId)
+        || normalizeWhitespace(candidate.uuid)
+        || (typeof candidate.id === 'string' ? normalizeWhitespace(candidate.id) : '')
+        || createId('trader'),
+      name,
+      normalizedName: normalizeName(name),
+      userId,
+      rating,
+      targetPercent,
+      profileUrl,
+      tradeUrl,
+      notes: normalizeWhitespace(candidate.notes),
+      createdAt: candidate.createdAt || new Date().toISOString(),
+      updatedAt: candidate.updatedAt || new Date().toISOString(),
+    };
+  }
+
+  function normalizeTraders(raw) {
+    const source = Array.isArray(raw) ? raw : Array.isArray(raw?.traders) ? raw.traders : [];
+    const unique = new Map();
+    for (const candidate of source) {
+      const trader = normalizeTrader(candidate);
+      if (!trader) continue;
+      const key = trader.userId ? `id:${trader.userId}` : `name:${trader.normalizedName}`;
+      unique.set(key, trader);
+    }
+    return [...unique.values()].sort((a, b) =>
+      Number(b.rating || 0) - Number(a.rating || 0) || a.name.localeCompare(b.name)
+    );
+  }
+
+  function saveTraders() {
+    state.traders = normalizeTraders(state.traders);
+    saveJson(APP.tradersStorageKey, state.traders);
+  }
+
   function normalizeSaleRecord(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
     const items = Array.isArray(candidate.items)
@@ -119,7 +178,7 @@
           targetTotal: Math.max(0, Number(item?.targetTotal) || 0),
           costBasis: Math.max(0, Number(item?.costBasis) || 0),
           proceeds: Math.max(0, Number(item?.proceeds) || 0),
-          realizedProfit: Number.isFinite(Number(item?.realizedProfit)) ? Number(item.realizedProfit) : null,
+          realizedProfit: optionalFiniteNumber(item?.realizedProfit),
           allocations: Array.isArray(item?.allocations)
             ? item.allocations.map((allocation) => ({
                 lotId: normalizeWhitespace(allocation?.lotId),
@@ -127,21 +186,18 @@
                 unitCost: Math.max(0, Number(allocation?.unitCost) || 0),
                 costBasis: Math.max(0, Number(allocation?.costBasis) || 0),
                 proceeds: Math.max(0, Number(allocation?.proceeds) || 0),
-                realizedProfit: Number.isFinite(Number(allocation?.realizedProfit))
-                  ? Number(allocation.realizedProfit)
-                  : null,
+                realizedProfit: optionalFiniteNumber(allocation?.realizedProfit),
               })).filter((allocation) => allocation.lotId && allocation.quantity > 0)
             : [],
         })).filter((item) => item.itemName && item.quantity > 0)
       : [];
     const cashReceived = Math.max(0, Number(candidate?.cashReceived ?? candidate?.netCash) || 0);
     const trackedCostBasis = Math.max(0, Number(candidate?.trackedCostBasis ?? candidate?.totalCost) || 0);
-    const trackedProfit = Number.isFinite(Number(candidate?.trackedProfit))
-      ? Number(candidate.trackedProfit)
-      : null;
-    const realizedProfit = Number.isFinite(Number(candidate?.realizedProfit))
-      ? Number(candidate.realizedProfit)
-      : null;
+    const fullCoverage = Boolean(candidate?.fullCoverage);
+    const trackedProfit = optionalFiniteNumber(candidate?.trackedProfit);
+    // Partial-coverage sales do not have a complete actual-profit figure.
+    // Older v0.3.2 records accidentally normalized null to $0; this repairs them on load.
+    const realizedProfit = fullCoverage ? optionalFiniteNumber(candidate?.realizedProfit) : null;
     return {
       id: normalizeWhitespace(candidate?.id) || createId('sale'),
       schemaVersion: 1,
@@ -162,7 +218,7 @@
       requestedQuantity: Math.max(0, Math.floor(Number(candidate?.requestedQuantity) || 0)),
       trackedQuantity: Math.max(0, Math.floor(Number(candidate?.trackedQuantity) || 0)),
       untrackedQuantity: Math.max(0, Math.floor(Number(candidate?.untrackedQuantity) || 0)),
-      fullCoverage: Boolean(candidate?.fullCoverage),
+      fullCoverage,
       items,
       notes: normalizeWhitespace(candidate?.notes),
     };
@@ -264,9 +320,8 @@
     const sales = state.ledger.sales || [];
     const openLots = lots.filter((lot) => Number(lot.remainingQuantity || 0) > 0);
     const realizedProfits = sales
-      .map((sale) => Number.isFinite(Number(sale.realizedProfit))
-        ? Number(sale.realizedProfit)
-        : (Number.isFinite(Number(sale.trackedProfit)) ? Number(sale.trackedProfit) : null))
+      .map((sale) => optionalFiniteNumber(sale.realizedProfit)
+        ?? optionalFiniteNumber(sale.trackedProfit))
       .filter((value) => value !== null);
     return {
       lots: openLots.length,
@@ -412,11 +467,13 @@
       pageType: 'unknown',
       categoryCandidates: 0,
       categoryMatched: 0,
+      categoryGold: 0,
       categoryGood: 0,
       categoryMinor: 0,
       categoryLoss: 0,
       listingCandidates: 0,
       listingMatched: 0,
+      listingGold: 0,
       listingGood: 0,
       listingMinor: 0,
       listingLoss: 0,
@@ -626,10 +683,10 @@
     const roiPercent = investment > 0 ? totalProfit / investment * 100 : 0;
     let tier = 'loss';
     if (profitEach > 0) {
-      tier = profitEach >= Number(state.settings.minimumProfitEach)
-        && roiPercent >= Number(state.settings.minimumRoiPercent)
-        ? 'good'
-        : 'minor';
+      const clearsRoi = roiPercent >= Number(state.settings.minimumRoiPercent);
+      if (clearsRoi && profitEach >= Number(state.settings.goldMinimumProfitEach)) tier = 'gold';
+      else if (clearsRoi && profitEach >= Number(state.settings.minimumProfitEach)) tier = 'good';
+      else tier = 'minor';
     }
     return {
       price,
@@ -810,9 +867,8 @@
     const recorded = recordedSaleForStats(stats);
     stats.tradeSaleRecorded = Boolean(recorded);
     stats.tradeSaleRecordId = recorded?.id || null;
-    stats.tradeSaleProfit = Number.isFinite(Number(recorded?.realizedProfit))
-      ? Number(recorded.realizedProfit)
-      : (Number.isFinite(Number(recorded?.trackedProfit)) ? Number(recorded.trackedProfit) : null);
+    stats.tradeSaleProfit = optionalFiniteNumber(recorded?.realizedProfit)
+      ?? optionalFiniteNumber(recorded?.trackedProfit);
     stats.tradeLedgerCostBasis = Number(recorded?.trackedCostBasis) || 0;
     stats.tradeLedgerTrackedQuantity = Number(recorded?.trackedQuantity) || 0;
     stats.tradeLedgerRequestedQuantity = Number(recorded?.requestedQuantity) || 0;
@@ -840,7 +896,7 @@
     if (stats.tradeUnmatchedItems) {
       throw new Error('Unmatched trade items must be resolved before the ledger can consume lots.');
     }
-    if (!Number.isFinite(Number(stats.tradeNetCash))) {
+    if (optionalFiniteNumber(stats.tradeNetCash) === null) {
       throw new Error('Trader cash was not detected.');
     }
 
@@ -907,7 +963,7 @@
     stats.tradeCompleted = completion.completed;
     stats.tradeCompletionSource = completion.source;
     if (!completion.completed || recordedSaleForStats(stats)) return null;
-    if (stats.tradeUnmatchedItems || !Number.isFinite(Number(stats.tradeNetCash))) return null;
+    if (stats.tradeUnmatchedItems || optionalFiniteNumber(stats.tradeNetCash) === null) return null;
     const plan = ledgerSalePlan(stats);
     if (!plan.fullCoverage) {
       if (plan.trackedQuantity > 0) {
@@ -1721,10 +1777,10 @@
     clearTradeAnnotations();
     document.querySelectorAll(`.${APP.badgeClass}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${APP.categoryMark}`).forEach((element) => {
-      element.classList.remove(APP.categoryMark, 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss');
+      element.classList.remove(APP.categoryMark, 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss');
     });
     document.querySelectorAll(`.${APP.listingMark}`).forEach((element) => {
-      element.classList.remove(APP.listingMark, 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss');
+      element.classList.remove(APP.listingMark, 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss');
     });
   }
 
@@ -1768,6 +1824,7 @@
       const margin = marginFor(candidate.lowestPrice, catalog.marketPrice, 1);
       addBadge(candidate.card, margin, 'category');
       stats.categoryMatched += 1;
+      if (margin.tier === 'gold') stats.categoryGold += 1;
       if (margin.tier === 'good') stats.categoryGood += 1;
       if (margin.tier === 'minor') stats.categoryMinor += 1;
       if (margin.tier === 'loss') stats.categoryLoss += 1;
@@ -1790,6 +1847,7 @@
       const margin = marginFor(candidate.price, resolution.value, candidate.quantity);
       addBadge(candidate.priceElement, margin, 'listing', candidate.row);
       stats.listingMatched += 1;
+      if (margin.tier === 'gold') stats.listingGold += 1;
       if (margin.tier === 'good') stats.listingGood += 1;
       if (margin.tier === 'minor') stats.listingMinor += 1;
       if (margin.tier === 'loss') stats.listingLoss += 1;
@@ -2144,7 +2202,7 @@
   }
 
   function capturePurchaseIntentFromClick(event) {
-    if (!pageLooksLikeItemMarket() || event.target.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId}`)) return;
+    if (!pageLooksLikeItemMarket() || event.target.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId}`)) return;
     const parsed = purchaseConfirmationFromClick(event.target);
     if (!parsed) return;
     beginPendingPurchase(parsed);
@@ -2275,7 +2333,7 @@
     const allocations = saleAllocationsForLot(lot.id);
     const soldQuantity = Math.max(0, Number(lot.quantity || 0) - Number(lot.remainingQuantity || 0));
     const realizedProfit = allocations.reduce((sum, allocation) =>
-      sum + (Number.isFinite(Number(allocation.realizedProfit)) ? Number(allocation.realizedProfit) : 0), 0);
+      sum + (optionalFiniteNumber(allocation.realizedProfit) ?? 0), 0);
     const remainingExpectedProfit = Number(lot.expectedProfitEach || 0) * Number(lot.remainingQuantity || 0);
     const expectedClass = remainingExpectedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
     const realizedClass = realizedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
@@ -2318,9 +2376,8 @@
   }
 
   function ledgerSaleHtml(sale) {
-    const profit = Number.isFinite(Number(sale.realizedProfit))
-      ? Number(sale.realizedProfit)
-      : (Number.isFinite(Number(sale.trackedProfit)) ? Number(sale.trackedProfit) : null);
+    const profit = optionalFiniteNumber(sale.realizedProfit)
+      ?? optionalFiniteNumber(sale.trackedProfit);
     const profitClass = Number(profit) >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
     const when = (() => {
       const date = new Date(sale.soldAt);
@@ -2339,7 +2396,7 @@
           <span>Cash received</span><strong>${formatMoney(sale.cashReceived)}</strong>
           <span>Ledger cost basis</span><strong>${formatMoney(sale.trackedCostBasis)}</strong>
           <span>Ⓣ target</span><strong>${formatMoney(sale.targetTotal)}</strong>
-          <span>Realized sale profit</span><strong class="${profitClass}">${profit === null ? 'Incomplete' : `${profit >= 0 ? '+' : ''}${formatMoney(profit)}`}</strong>
+          <span>${sale.fullCoverage ? 'Actual sale profit' : 'Tracked sale profit'}</span><strong class="${profitClass}">${profit === null ? 'Incomplete' : `${profit >= 0 ? '+' : ''}${formatMoney(profit)}`}</strong>
         </div>
         <div class="tsimm-ledger-sale-foot">${escapeHtml(when)} · ${escapeHtml(sale.captureMethod)}</div>
       </article>
@@ -2401,6 +2458,229 @@
 
   function closeLedger() {
     document.getElementById(APP.ledgerOverlayId)?.remove();
+  }
+
+  function userIdFromUrl(value) {
+    const text = String(value || '');
+    const match = text.match(/[?&#](?:XID|userID)=(\d+)/i) || text.match(/\/profiles\.php\/(\d+)/i);
+    return match ? Number(match[1]) : null;
+  }
+
+  function currentCounterpartyIdentity() {
+    const name = normalizeWhitespace(state.lastScan?.tradeCounterparty);
+    let userId = null;
+    let profileUrl = '';
+    const anchors = [...document.querySelectorAll('a[href*="profiles.php" i],a[href*="trade.php" i]')];
+    const nameKey = normalizeName(name);
+    for (const anchor of anchors) {
+      const anchorName = normalizeName(anchor.innerText || anchor.textContent || '');
+      if (nameKey && anchorName && anchorName !== nameKey) continue;
+      const candidateId = userIdFromUrl(anchor.href);
+      if (!candidateId) continue;
+      userId = candidateId;
+      if (/profiles\.php/i.test(anchor.href)) profileUrl = anchor.href;
+      break;
+    }
+    return {
+      name,
+      userId,
+      profileUrl: profileUrl || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : ''),
+      tradeUrl: userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : '',
+    };
+  }
+
+  function traderSalesFor(trader) {
+    const key = normalizeName(trader?.name);
+    return (state.ledger.sales || []).filter((sale) => normalizeName(sale.counterparty) === key);
+  }
+
+  function traderStats(trader) {
+    const sales = traderSalesFor(trader);
+    const profits = sales.map((sale) => optionalFiniteNumber(sale.realizedProfit) ?? optionalFiniteNumber(sale.trackedProfit)).filter((value) => value !== null);
+    const cash = sales.reduce((sum, sale) => sum + Number(sale.cashReceived || 0), 0);
+    const market = sales.reduce((sum, sale) => sum + Number(sale.marketTotal || 0), 0);
+    return {
+      trades: sales.length,
+      cash,
+      profit: profits.reduce((sum, value) => sum + value, 0),
+      profitCount: profits.length,
+      effectivePercent: market > 0 ? cash / market * 100 : null,
+      lastTradeAt: sales[0]?.soldAt || null,
+    };
+  }
+
+  function promptTrader(existing = null, defaults = {}) {
+    const name = normalizeWhitespace(prompt('Trader name:', existing?.name || defaults.name || ''));
+    if (!name) return null;
+    const idRaw = prompt('Torn user ID (recommended for Profile and Start trade buttons):', existing?.userId || defaults.userId || '');
+    const userId = Math.max(0, Math.floor(Number(idRaw) || 0)) || null;
+    const ratingRaw = prompt('Personal rating from 0 to 5:', existing?.rating ?? 0);
+    const rating = Math.max(0, Math.min(5, Math.floor(Number(ratingRaw) || 0)));
+    const targetRaw = prompt('Your expected payout percentage for this trader:', existing?.targetPercent ?? TRADER_PERCENT);
+    const targetPercent = Math.max(0, Math.min(100, Number(targetRaw) || TRADER_PERCENT));
+    const notes = normalizeWhitespace(prompt('Notes:', existing?.notes || defaults.notes || '') || '');
+    return normalizeTrader({
+      ...existing,
+      recordId: existing?.id,
+      name,
+      userId,
+      rating,
+      targetPercent,
+      notes,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  function upsertTrader(trader) {
+    if (!trader) return null;
+    const index = state.traders.findIndex((candidate) =>
+      (trader.userId && candidate.userId === trader.userId)
+      || (!trader.userId && candidate.normalizedName === trader.normalizedName)
+      || candidate.id === trader.id
+    );
+    if (index >= 0) state.traders[index] = { ...state.traders[index], ...trader, id: state.traders[index].id };
+    else state.traders.push(trader);
+    saveTraders();
+    renderTraders();
+    renderPanel();
+    return trader;
+  }
+
+  function saveCurrentTrader() {
+    const identity = currentCounterpartyIdentity();
+    if (!identity.name) {
+      toast('No trade counterparty was detected.');
+      return;
+    }
+    const existing = state.traders.find((trader) =>
+      (identity.userId && trader.userId === identity.userId) || trader.normalizedName === normalizeName(identity.name)
+    ) || null;
+    const stats = state.lastScan;
+    const observation = Number.isFinite(stats.tradeEffectivePercent)
+      ? `Observed ${formatPercent(stats.tradeEffectivePercent)} payout on ${new Date().toLocaleDateString()}${Number(stats.tradeDifference) < 0 ? `, ${formatMoney(Math.abs(stats.tradeDifference))} below the 99% target` : ', at or above the 99% target'}.`
+      : '';
+    const trader = promptTrader(existing, { ...identity, notes: observation });
+    if (!trader) return;
+    upsertTrader(trader);
+    toast(`Saved trader ${trader.name}.`);
+  }
+
+  function editTrader(id) {
+    const existing = state.traders.find((trader) => trader.id === id);
+    if (!existing) return;
+    const trader = promptTrader(existing);
+    if (trader) upsertTrader(trader);
+  }
+
+  function deleteTrader(id) {
+    const trader = state.traders.find((entry) => entry.id === id);
+    if (!trader || !confirm(`Remove ${trader.name} from your trader book?`)) return;
+    state.traders = state.traders.filter((entry) => entry.id !== id);
+    saveTraders();
+    renderTraders();
+    renderPanel();
+  }
+
+  async function copyTradersJson() {
+    const text = JSON.stringify({ schema: 'tornscripture-imm-traders', schemaVersion: 1, traders: state.traders }, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Trader book JSON copied.');
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand('copy');
+      area.remove();
+      toast('Trader book JSON copied.');
+    }
+  }
+
+  function importTradersJson() {
+    const raw = prompt('Paste an IMM trader-book JSON export.');
+    if (!raw) return;
+    try {
+      const imported = normalizeTraders(JSON.parse(raw));
+      if (!imported.length) throw new Error('No valid traders were found.');
+      for (const trader of imported) upsertTrader(trader);
+      toast(`Imported ${formatInteger(imported.length)} traders.`);
+    } catch (error) {
+      toast(error?.message || 'Trader import failed.');
+    }
+  }
+
+  function traderCardHtml(trader) {
+    const stats = traderStats(trader);
+    const stars = trader.rating ? `${'★'.repeat(trader.rating)}${'☆'.repeat(5 - trader.rating)}` : 'Not rated';
+    const lastTrade = stats.lastTradeAt ? new Date(stats.lastTradeAt).toLocaleDateString() : 'None recorded';
+    return `
+      <article class="tsimm-trader-card">
+        <div class="tsimm-trader-card-head">
+          <div><strong>${escapeHtml(trader.name)}</strong><span>${escapeHtml(stars)}</span></div>
+          <b>${escapeHtml(formatPercent(trader.targetPercent))} target</b>
+        </div>
+        <div class="tsimm-trader-grid">
+          <span>Recorded trades</span><strong>${formatInteger(stats.trades)}</strong>
+          <span>Cash received</span><strong>${formatMoney(stats.cash)}</strong>
+          <span>Tracked profit</span><strong class="${stats.profit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${stats.profit >= 0 ? '+' : ''}${formatMoney(stats.profit)}</strong>
+          <span>Observed payout</span><strong>${stats.effectivePercent === null ? 'No history' : formatPercent(stats.effectivePercent)}</strong>
+          <span>Last recorded trade</span><strong>${escapeHtml(lastTrade)}</strong>
+        </div>
+        ${trader.notes ? `<div class="tsimm-trader-notes">${escapeHtml(trader.notes)}</div>` : ''}
+        <div class="tsimm-trader-actions">
+          ${trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : ''}
+          ${trader.profileUrl ? `<a href="${escapeHtml(trader.profileUrl)}">Profile</a>` : ''}
+          <button type="button" data-tsimm-action="trader-edit" data-tsimm-trader-id="${escapeHtml(trader.id)}">Edit</button>
+          <button type="button" data-tsimm-action="trader-delete" data-tsimm-trader-id="${escapeHtml(trader.id)}">Delete</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderTraders() {
+    const overlay = document.getElementById(APP.traderOverlayId);
+    if (!overlay) return;
+    overlay.innerHTML = `
+      <div class="tsimm-trader-shell">
+        <div class="tsimm-ledger-head">
+          <div><strong>🤝 IMM Trader Book</strong><small>Fast links, ratings, notes, and local sale history</small></div>
+          <button type="button" data-tsimm-action="traders-close">×</button>
+        </div>
+        <div class="tsimm-trader-top">
+          <strong>${formatInteger(state.traders.length)} saved traders</strong>
+          <span>Stored only in this browser unless exported.</span>
+        </div>
+        <div class="tsimm-ledger-actions">
+          <button type="button" data-tsimm-action="trader-add">Add trader</button>
+          ${state.lastScan.pageType === 'trade' && state.lastScan.tradeCounterparty ? '<button type="button" data-tsimm-action="trader-save-current">Save current trade</button>' : ''}
+          <button type="button" data-tsimm-action="traders-copy">Copy JSON</button>
+          <button type="button" data-tsimm-action="traders-import">Import JSON</button>
+        </div>
+        <div class="tsimm-trader-list">
+          ${state.traders.length ? state.traders.map(traderCardHtml).join('') : '<div class="tsimm-ledger-empty">No traders saved yet. Add one manually or save the counterparty from a trade page.</div>'}
+        </div>
+      </div>
+    `;
+  }
+
+  function openTraders() {
+    injectStyles();
+    let overlay = document.getElementById(APP.traderOverlayId);
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = APP.traderOverlayId;
+      overlay.dataset.tsimmGenerated = 'true';
+      document.body.appendChild(overlay);
+    }
+    renderTraders();
+  }
+
+  function closeTraders() {
+    document.getElementById(APP.traderOverlayId)?.remove();
   }
 
   function pendingPurchaseHtml() {
@@ -2476,6 +2756,7 @@
         tradeDifferenceFormula: 'otherSideCash - mySideCash - manifestTarget',
       },
       lastScan: state.lastScan,
+      traders: state.traders.map((trader) => ({ ...trader, stats: traderStats(trader) })),
       ledger: {
         summary: ledgerSummary(),
         updatedAt: state.ledger.updatedAt,
@@ -2514,6 +2795,7 @@
     scheduleScan(25);
     renderPanel();
     renderLedger();
+    renderTraders();
   }
 
   function injectStyles() {
@@ -2527,17 +2809,17 @@
       .tsimm-head{display:flex;align-items:center;gap:7px;padding:8px 9px;background:#292530;border-bottom:1px solid #4e475b}
       .tsimm-head strong{flex:1;font-size:13px}.tsimm-head small{color:#aaa1b7}.tsimm-head button,.tsimm-btn{border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:6px 8px;font-weight:700;cursor:pointer}
       .tsimm-head button{padding:2px 7px}.tsimm-body{padding:9px}.tsimm-collapsed .tsimm-body,.tsimm-collapsed .tsimm-head small{display:none}
-      .tsimm-status{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
+      .tsimm-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
       .tsimm-actions{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}.tsimm-btn{flex:1;min-width:78px}.tsimm-btn-primary{background:#5b2b82;border-color:#8e55b9}.tsimm-btn:disabled{opacity:.55;cursor:wait}
       .tsimm-controls{display:grid;grid-template-columns:1fr 72px;gap:5px;align-items:center;margin-top:6px}.tsimm-controls input{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}.tsimm-check{display:flex;align-items:center;gap:6px;margin-top:7px;color:#c9c2d0}
       .tsimm-note{margin-top:6px;color:#d0c8d8}.tsimm-muted{color:#aaa1b7}.tsimm-good-text{color:#63df9f}.tsimm-minor-text{color:#c77dff}.tsimm-loss-text{color:#ff6b76}
       .${APP.badgeClass}{display:flex;flex-direction:column;justify-content:center;gap:1px;border:1px solid currentColor;border-radius:7px;padding:3px 5px;font:700 10px/1.15 Arial,sans-serif;white-space:nowrap;box-shadow:0 2px 8px #0007;background:#19171dcc;pointer-events:none}
-      .${APP.badgeClass} span{font-size:8px;font-weight:600;opacity:.9}.tsimm-tier-good{--tsimm-tier:#44d88b}.tsimm-tier-minor{--tsimm-tier:#bd6cff}.tsimm-tier-loss{--tsimm-tier:#ff626d}
-      .${APP.badgeClass}.tsimm-tier-good{color:#44d88b}.${APP.badgeClass}.tsimm-tier-minor{color:#bd6cff}.${APP.badgeClass}.tsimm-tier-loss{color:#ff626d}
+      .${APP.badgeClass} span{font-size:8px;font-weight:600;opacity:.9}.tsimm-tier-gold{--tsimm-tier:#f4c95d}.tsimm-tier-good{--tsimm-tier:#44d88b}.tsimm-tier-minor{--tsimm-tier:#bd6cff}.tsimm-tier-loss{--tsimm-tier:#ff626d}
+      .${APP.badgeClass}.tsimm-tier-gold{color:#f4c95d}.${APP.badgeClass}.tsimm-tier-good{color:#44d88b}.${APP.badgeClass}.tsimm-tier-minor{color:#bd6cff}.${APP.badgeClass}.tsimm-tier-loss{color:#ff626d}
       .tsimm-badge-category{position:absolute;right:4px;top:4px;z-index:5;max-width:calc(100% - 8px)}
       .tsimm-badge-listing{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
-      .${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
-      .${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
+      .${APP.categoryMark}.tsimm-tier-gold{outline:2px solid #f4c95d99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
+      .${APP.listingMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       .${APP.tradeItemMark}{position:relative;min-height:38px}      .${APP.tradeBadgeClass}{display:inline-flex;flex-direction:column;gap:1px;margin:3px 0 3px 6px;padding:3px 5px;border:1px solid #bd6cff;border-radius:7px;background:#19171dcc;color:#d9a6ff;font:700 10px/1.15 Arial,sans-serif;vertical-align:middle;white-space:nowrap;pointer-events:none}
       .${APP.tradeBadgeClass} span{font-size:8px;font-weight:600;color:#c9c2d0}
       .tsimm-trade-card{margin:8px 0;padding:8px;border:1px solid #50485c;border-radius:9px;background:#242129}.tsimm-trade-card.tsimm-trade-good{border-color:#44d88b;color:#eafff2}.tsimm-trade-card.tsimm-trade-loss{border-color:#ff626d;color:#fff0f1}.tsimm-trade-card.tsimm-trade-pending,.tsimm-trade-card.tsimm-trade-incomplete{border-color:#bd6cff;color:#f4e8ff}
@@ -2556,6 +2838,11 @@
       .tsimm-ledger-lot{border:1px solid #4d4656;border-radius:9px;background:#24212a;padding:8px}.tsimm-ledger-lot-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-lot-head strong{flex:1;font-size:13px}.tsimm-ledger-lot-head span{font-size:9px;text-transform:uppercase;color:#c9a2e4;border:1px solid #66497a;border-radius:999px;padding:2px 5px}
       .tsimm-ledger-lot-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-ledger-lot-grid span{color:#aaa1b7}.tsimm-ledger-lot-grid strong{text-align:right}.tsimm-ledger-profit{color:#63df9f}.tsimm-ledger-loss{color:#ff7c85}
       .tsimm-ledger-lot-foot{display:flex;gap:8px;align-items:center;margin-top:7px;padding-top:6px;border-top:1px solid #423c49}.tsimm-ledger-lot-foot small{flex:1;color:#8f8798}.tsimm-ledger-lot-foot button{border:1px solid #5a5266;border-radius:6px;background:#332e3a;color:#fff;padding:4px 7px;margin-left:4px}.tsimm-ledger-notes{margin-top:5px;color:#c1b8ca;font-size:10px}
+      .tsimm-gold-text{color:#f4c95d}
+      #${APP.traderOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
+      .tsimm-trader-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #7a6740;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
+      .tsimm-trader-top{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;color:#d8caa5}.tsimm-trader-top span{color:#aaa1b7;font-size:10px}
+      .tsimm-trader-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-card-head>div{display:grid;flex:1}.tsimm-trader-card-head strong{font-size:13px}.tsimm-trader-card-head span{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px}.tsimm-trader-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:7px}.tsimm-trader-grid span{color:#b6ad99}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}
       #tsimm-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:2147483647;padding:8px 11px;border-radius:8px;background:#17151b;color:#fff;border:1px solid #655d70;box-shadow:0 6px 20px #0009;font:12px Arial,sans-serif}
     `;
     document.head.appendChild(style);
@@ -2586,12 +2873,14 @@
     const coverageText = stats.tradeLedgerRequestedQuantity
       ? `${formatInteger(stats.tradeLedgerTrackedQuantity)}/${formatInteger(stats.tradeLedgerRequestedQuantity)}`
       : 'No ledger match';
-    const saleProfitText = Number.isFinite(Number(stats.tradeSaleProfit))
-      ? `${Number(stats.tradeSaleProfit) >= 0 ? '+' : ''}${formatMoney(stats.tradeSaleProfit)}`
-      : 'Incomplete';
-    const saleProfitClass = Number(stats.tradeSaleProfit) >= 0
-      ? 'tsimm-trade-diff-good'
-      : 'tsimm-trade-diff-loss';
+    const saleProfitValue = optionalFiniteNumber(stats.tradeSaleProfit);
+    const saleProfitText = saleProfitValue === null
+      ? 'Incomplete'
+      : `${saleProfitValue >= 0 ? '+' : ''}${formatMoney(saleProfitValue)}`;
+    const saleProfitClass = saleProfitValue === null
+      ? 'tsimm-trade-diff-pending'
+      : (saleProfitValue >= 0 ? 'tsimm-trade-diff-good' : 'tsimm-trade-diff-loss');
+    const saleProfitLabel = stats.tradeLedgerFullCoverage ? 'Actual sale profit' : 'Tracked sale profit';
     const saleStateText = stats.tradeSaleRecorded
       ? 'Recorded'
       : (stats.tradeCompleted ? 'Completed, not recorded' : 'Preview');
@@ -2604,7 +2893,7 @@
     const canRecord = !stats.tradeSaleRecorded
       && stats.tradeMatchedItems > 0
       && !stats.tradeUnmatchedItems
-      && Number.isFinite(Number(stats.tradeNetCash))
+      && optionalFiniteNumber(stats.tradeNetCash) !== null
       && stats.tradeLedgerTrackedQuantity > 0;
     return `
       <div class="tsimm-trade-card tsimm-trade-${escapeHtml(status)}">
@@ -2618,7 +2907,7 @@
           <span>Effective payout</span><strong>${escapeHtml(effectiveText)}</strong>
           <span>Ledger cost basis</span><strong>${formatMoney(stats.tradeLedgerCostBasis)}</strong>
           <span>Ledger coverage</span><strong>${escapeHtml(coverageText)}</strong>
-          <span>Actual sale profit</span><strong class="${saleProfitClass}">${escapeHtml(saleProfitText)}</strong>
+          <span>${escapeHtml(saleProfitLabel)}</span><strong class="${saleProfitClass}">${escapeHtml(saleProfitText)}</strong>
           <span>Ledger sale state</span><strong>${escapeHtml(saleStateText)}</strong>
         </div>
         ${itemLines ? `<div class="tsimm-trade-items">${itemLines}</div>` : ''}
@@ -2640,6 +2929,7 @@
     panel.classList.toggle('tsimm-collapsed', Boolean(state.settings.collapsed));
     const stats = state.lastScan;
     const isTrade = stats.pageType === 'trade';
+    const goldCount = stats.categoryGold + stats.listingGold;
     const goodCount = stats.categoryGood + stats.listingGood;
     const minorCount = stats.categoryMinor + stats.listingMinor;
     const lossCount = stats.categoryLoss + stats.listingLoss;
@@ -2656,13 +2946,15 @@
           <div class="tsimm-stat"><strong>${escapeHtml(stats.tradeMySide || '?')}</strong><span>your side</span></div>
         </div>`
       : `<div class="tsimm-status">
+          <div class="tsimm-stat"><strong class="tsimm-gold-text">${goldCount}</strong><span>gold</span></div>
           <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
           <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
           <div class="tsimm-stat"><strong class="tsimm-loss-text">${lossCount}</strong><span>red</span></div>
           <div class="tsimm-stat"><strong>${matchedCount}</strong><span>matched</span></div>
         </div>`;
     const marketControls = !isTrade
-      ? `<div class="tsimm-controls"><label>Green profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.minimumProfitEach)}" data-tsimm-setting="minimumProfitEach"></div>
+      ? `<div class="tsimm-controls"><label>Gold profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.goldMinimumProfitEach)}" data-tsimm-setting="goldMinimumProfitEach"></div>
+        <div class="tsimm-controls"><label>Green profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.minimumProfitEach)}" data-tsimm-setting="minimumProfitEach"></div>
         <div class="tsimm-controls"><label>Green minimum ROI %</label><input type="number" min="0" step="0.01" value="${escapeHtml(state.settings.minimumRoiPercent)}" data-tsimm-setting="minimumRoiPercent"></div>
         <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showLossesDuringTesting" ${state.settings.showLossesDuringTesting ? 'checked' : ''}> Show red non-profitable items</label>`
       : '';
@@ -2693,6 +2985,8 @@
           <button class="tsimm-btn" type="button" data-tsimm-action="scan">Scan page</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="diagnostics">Copy diagnostics</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="ledger-open">Ledger (${formatInteger(ledger.lots)})</button>
+          <button class="tsimm-btn" type="button" data-tsimm-action="traders-open">Traders (${formatInteger(state.traders.length)})</button>
+          ${isTrade && stats.tradeCounterparty ? '<button class="tsimm-btn" type="button" data-tsimm-action="trader-save-current">Save trader</button>' : ''}
         </div>
         ${tradeControls}
         ${marketControls}
@@ -2739,6 +3033,23 @@
         }
       } else if (action === 'ledger-open') {
         openLedger();
+      } else if (action === 'traders-open') {
+        openTraders();
+      } else if (action === 'traders-close') {
+        closeTraders();
+      } else if (action === 'trader-save-current') {
+        saveCurrentTrader();
+      } else if (action === 'trader-add') {
+        const trader = promptTrader();
+        if (trader) { upsertTrader(trader); toast(`Saved trader ${trader.name}.`); }
+      } else if (action === 'trader-edit') {
+        editTrader(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-delete') {
+        deleteTrader(button.dataset.tsimmTraderId);
+      } else if (action === 'traders-copy') {
+        copyTradersJson();
+      } else if (action === 'traders-import') {
+        importTradersJson();
       } else if (action === 'ledger-close') {
         closeLedger();
       } else if (action === 'ledger-copy') {
@@ -2800,14 +3111,14 @@
       for (const mutation of mutations) {
         if (mutation.type === 'characterData') {
           const parent = mutation.target.parentElement;
-          if (parent && !parent.closest(`#${APP.panelId},#${APP.ledgerOverlayId},[data-tsimm-generated]`)) {
+          if (parent && !parent.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.traderOverlayId},[data-tsimm-generated]`)) {
             inspectPurchaseSignal(parent.textContent, 'dom');
           }
         }
         for (const node of mutation.addedNodes || []) {
           if (node.nodeType === Node.TEXT_NODE) {
             inspectPurchaseSignal(node.textContent, 'dom');
-          } else if (node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId}`)) {
+          } else if (node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId}`)) {
             inspectPurchaseSignal(node.textContent, 'dom');
           }
         }
@@ -2862,6 +3173,9 @@
       parsePurchaseSuccessText,
       normalizeLedger,
       normalizeSaleRecord,
+      normalizeTrader,
+      normalizeTraders,
+      optionalFiniteNumber,
       buildLedgerLot,
       ledgerSummary,
       ledgerSalePlan,
