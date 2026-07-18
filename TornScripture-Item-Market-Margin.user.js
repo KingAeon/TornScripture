@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.1
+// @version      0.2.2
 // @description  Audits item-market margins and verifies 99% trader payouts against live trade manifests.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.2.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.2.2
    *
    * PHASE-ONE SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, and visible listing rows.
@@ -28,7 +28,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.2.1',
+    version: '0.2.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -389,6 +389,8 @@
   }
 
   function tradeItemRowElements(container) {
+    if (Array.isArray(container?.rows)) return container.rows.filter(visibleElement);
+    if (container?.element instanceof Element) container = container.element;
     if (!(container instanceof Element)) return [];
     const selectors = [
       'li.color2',
@@ -407,6 +409,97 @@
       return Boolean(row.querySelector('img')) || /\bx\s*[\d,]+\b/i.test(text) || /×\s*[\d,]+/.test(text);
     });
     return [...new Set(filtered)].filter((row) => !filtered.some((other) => other !== row && row.contains(other)));
+  }
+
+  function elementComesBefore(first, second) {
+    if (!(first instanceof Node) || !(second instanceof Node) || first === second) return false;
+    return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  function tradeParticipantNames() {
+    const selectors = '.title-black,[role="heading"],h1,h2,h3,h4,h5,div,span';
+    const matches = [...document.querySelectorAll(selectors)]
+      .filter((element) => visibleElement(element) && !element.closest(`#${APP.panelId}`))
+      .map((element) => ({ element, text: normalizeWhitespace(element.innerText) }))
+      .filter(({ text }) => /^Trade between\s+.+?\s+&\s+.+$/i.test(text) && text.length <= 180)
+      .sort((a, b) => a.text.length - b.text.length);
+    const match = matches[0]?.text.match(/^Trade between\s+(.+?)\s+&\s+(.+)$/i);
+    return match ? [normalizeWhitespace(match[1]), normalizeWhitespace(match[2])] : [];
+  }
+
+  function exactParticipantHeading(name) {
+    const normalized = normalizeName(name);
+    if (!normalized) return null;
+    const selectors = '.title-black,[role="heading"],h1,h2,h3,h4,h5,[class*="title___"],[class*="header___"],div,span';
+    const candidates = [...document.querySelectorAll(selectors)].filter((element) => {
+      if (!visibleElement(element) || element.closest(`#${APP.panelId}`)) return false;
+      return normalizeName(element.innerText) === normalized;
+    });
+    return candidates.sort((a, b) => {
+      const aPreferred = Number(a.matches('.title-black,[role="heading"],h1,h2,h3,h4,h5,[class*="title___"],[class*="header___"]'));
+      const bPreferred = Number(b.matches('.title-black,[role="heading"],h1,h2,h3,h4,h5,[class*="title___"],[class*="header___"]'));
+      return bPreferred - aPreferred || a.children.length - b.children.length;
+    })[0] || null;
+  }
+
+  function exclusiveTradeSection(header, previousHeader, nextHeader, rows) {
+    let node = header?.parentElement || null;
+    let best = header;
+    while (node && node !== document.body) {
+      if ((previousHeader && node.contains(previousHeader)) || (nextHeader && node.contains(nextHeader))) break;
+      if (!rows.length || rows.some((row) => node.contains(row))) best = node;
+      node = node.parentElement;
+    }
+    return best instanceof Element ? best : header;
+  }
+
+  function cashValueBetweenHeaders(header, nextHeader) {
+    const candidates = [...document.querySelectorAll('li,div,span,p,strong,b')].filter((element) => {
+      if (!visibleElement(element) || element.closest(`#${APP.panelId}`)) return false;
+      if (!elementComesBefore(header, element)) return false;
+      if (nextHeader && !elementComesBefore(element, nextHeader)) return false;
+      const text = normalizeWhitespace(element.innerText);
+      if (!/no money in trade/i.test(text) && !/\$\s*[\d,]+\s+in trade/i.test(text)) return false;
+      return ![...element.children].some((child) => {
+        const childText = normalizeWhitespace(child.innerText);
+        return /no money in trade/i.test(childText) || /\$\s*[\d,]+\s+in trade/i.test(childText);
+      });
+    });
+    for (const element of candidates) {
+      const text = normalizeWhitespace(element.innerText);
+      if (/no money in trade/i.test(text)) return 0;
+      const match = text.match(/\$\s*([\d,]+)\s+in trade/i);
+      const value = match ? parseNumber(match[1]) : null;
+      if (Number.isFinite(value)) return value;
+    }
+    return null;
+  }
+
+  function stackedTradeSideCandidates() {
+    const names = tradeParticipantNames();
+    if (names.length !== 2) return [];
+    const headers = names.map(exactParticipantHeading);
+    if (headers.some((header) => !header) || headers[0] === headers[1]) return [];
+    const ordered = names.map((name, index) => ({ name, header: headers[index] }))
+      .sort((a, b) => elementComesBefore(a.header, b.header) ? -1 : 1);
+    const allRows = tradeItemRowElements(document.body);
+    return ordered.map((participant, index) => {
+      const previousHeader = ordered[index - 1]?.header || null;
+      const nextHeader = ordered[index + 1]?.header || null;
+      const rows = allRows.filter((row) => elementComesBefore(participant.header, row)
+        && (!nextHeader || elementComesBefore(row, nextHeader)));
+      const element = exclusiveTradeSection(participant.header, previousHeader, nextHeader, rows);
+      return {
+        element,
+        rows,
+        side: index === 0 ? 'left' : 'right',
+        rect: participant.header.getBoundingClientRect(),
+        heading: participant.name,
+        rowCount: rows.length,
+        cashValue: cashValueBetweenHeaders(participant.header, nextHeader),
+        source: 'stacked participant headings',
+      };
+    });
   }
 
   function tradeSideCandidates() {
@@ -428,10 +521,14 @@
       if (!text || text.length > 16000) return false;
       return tradeItemRowElements(element).length > 0
         || /no items in trade/i.test(text)
+        || /no money in trade/i.test(text)
+        || /\$\s*[\d,]+\s+in trade/i.test(text)
         || /\b(?:money|cash)\b[^\n]{0,30}\$[\d,]+/i.test(text);
     });
 
     if (candidates.length < 2) {
+      const stacked = stackedTradeSideCandidates();
+      if (stacked.length === 2) return stacked;
       const itemRows = [...document.querySelectorAll('li.color2,[data-group="child"],[class*="item___"],li[data-item]')]
         .filter(visibleElement);
       for (const row of itemRows) {
@@ -461,6 +558,7 @@
         rect,
         heading: tradeSideHeading(element),
         rowCount: tradeItemRowElements(element).length,
+        source: 'explicit side container',
       };
     });
 
@@ -480,7 +578,7 @@
     }
 
     return withMeta
-      .sort((a, b) => a.rect.left - b.rect.left)
+      .sort((a, b) => a.rect.left - b.rect.left || a.rect.top - b.rect.top)
       .map((candidate, index) => ({ ...candidate, side: candidate.side || (index === 0 ? 'left' : 'right') }));
   }
 
@@ -534,11 +632,20 @@
     const usernameMatch = sides.find((side) => usernames.some((username) => normalizeName(side.heading).includes(username)));
     if (usernameMatch) return { side: usernameMatch, source: 'username heading match' };
 
-    const editable = sides.map((side) => ({
-      side,
-      controls: side.element.querySelectorAll('input,button,select').length,
-      addText: /\b(?:add|remove) items?\b/i.test(side.element.innerText || ''),
-    })).sort((a, b) => Number(b.addText) - Number(a.addText) || b.controls - a.controls);
+    const editable = sides.map((side) => {
+      const rows = tradeItemRowElements(side);
+      const sideText = normalizeWhitespace([
+        side.element?.innerText || '',
+        ...rows.map((row) => row.innerText || ''),
+      ].join(' '));
+      const rowControls = rows.reduce((sum, row) => sum
+        + row.querySelectorAll('input,button,select,[class*="delete"],[class*="remove"],[class*="trash"]').length, 0);
+      return {
+        side,
+        controls: (side.element?.querySelectorAll?.('input,button,select,[class*="delete"],[class*="remove"],[class*="trash"]')?.length || 0) + rowControls,
+        addText: /\b(?:add|remove) items?\b/i.test(sideText),
+      };
+    }).sort((a, b) => Number(b.addText) - Number(a.addText) || b.controls - a.controls);
     if (editable[0] && (editable[0].addText || editable[0].controls > (editable[1]?.controls || 0))) {
       return { side: editable[0].side, source: 'editable side' };
     }
@@ -605,7 +712,15 @@
   }
 
   function cashFromTradeSide(side) {
+    if (Number.isFinite(side?.cashValue)) return side.cashValue;
     if (!side?.element) return null;
+    const sideText = normalizeWhitespace(side.element.innerText || '');
+    if (/no money in trade/i.test(sideText)) return 0;
+    const inTradeMatch = sideText.match(/\$\s*([\d,]+)\s+in trade/i);
+    if (inTradeMatch) {
+      const inTradeValue = parseNumber(inTradeMatch[1]);
+      if (Number.isFinite(inTradeValue)) return inTradeValue;
+    }
     const inputSelectors = [
       'input[name*="money" i]',
       'input[id*="money" i]',
@@ -644,8 +759,8 @@
     badge.dataset.tsimmGenerated = 'true';
     const marketTotal = item.catalog.marketPrice * item.quantity;
     const targetTotal = traderPayout(item.catalog.marketPrice) * item.quantity;
-    badge.innerHTML = `<strong>99% ${escapeHtml(formatMoney(targetTotal))}</strong>`
-      + `<span>MV ${escapeHtml(formatMoney(marketTotal))} · ${escapeHtml(formatInteger(item.quantity))} qty</span>`;
+    badge.innerHTML = `<strong>Ⓣ ${escapeHtml(formatMoney(targetTotal))}</strong>`
+      + `<span>Ⓜ ${escapeHtml(formatMoney(marketTotal))} · ${escapeHtml(formatInteger(item.quantity))} qty</span>`;
     item.row.classList.add(APP.tradeItemMark);
     item.row.appendChild(badge);
   }
@@ -670,7 +785,7 @@
       return;
     }
 
-    const parsed = tradeItemRowElements(mySide.element).map(parseTradeItemRow).filter(Boolean);
+    const parsed = tradeItemRowElements(mySide).map(parseTradeItemRow).filter(Boolean);
     stats.tradeItemRows = parsed.length;
     const matched = [];
     const unmatched = [];
@@ -998,7 +1113,7 @@
 
   function badgeHtml(margin, mode) {
     const sign = margin.profitEach > 0 ? '+' : '';
-    const auditLine = `MV ${formatMoney(margin.value)} → 99% ${formatMoney(margin.payout)}`;
+    const auditLine = `Ⓜ ${formatMoney(margin.value)} · Ⓣ ${formatMoney(margin.payout)}`;
     if (mode === 'category') {
       return `<strong>${sign}${escapeHtml(formatMoney(margin.profitEach))} ea</strong>`
         + `<span>${escapeHtml(auditLine)}</span>`
@@ -1144,11 +1259,13 @@
     const tradeSample = tradeSides.map((side) => ({
       side: side.side,
       heading: side.heading,
-      rowCount: tradeItemRowElements(side.element).length,
+      rowCount: tradeItemRowElements(side).length,
       cash: cashFromTradeSide(side),
       tag: side.element.tagName,
       className: side.element.className,
-      itemRows: tradeItemRowElements(side.element).slice(0, 8).map((row) => {
+      detectionSource: side.source || null,
+      presetCashValue: Number.isFinite(side.cashValue) ? side.cashValue : null,
+      itemRows: tradeItemRowElements(side).slice(0, 8).map((row) => {
         const parsed = parseTradeItemRow(row);
         return parsed ? {
           name: parsed.name,
@@ -1265,7 +1382,7 @@
       : 'Pending';
     const itemLines = state.settings.showTradeItemBreakdown
       ? [
-          ...stats.tradeItems.map((item) => `<div class="tsimm-trade-item-line"><span>${escapeHtml(item.name)} × ${escapeHtml(formatInteger(item.quantity))}</span><strong>${escapeHtml(formatMoney(item.targetTotal))}</strong></div>`),
+          ...stats.tradeItems.map((item) => `<div class="tsimm-trade-item-line"><span>${escapeHtml(item.name)} × ${escapeHtml(formatInteger(item.quantity))}</span><strong>Ⓣ ${escapeHtml(formatMoney(item.targetTotal))}</strong></div>`),
           ...stats.tradeUnmatched.map((item) => `<div class="tsimm-trade-item-line tsimm-trade-unmatched"><span>Unmatched: ${escapeHtml(item.name)} × ${escapeHtml(formatInteger(item.quantity))}</span><strong>?</strong></div>`),
         ].join('')
       : '';
@@ -1274,8 +1391,8 @@
         <div class="tsimm-trade-title"><strong>🤝 Trade manifest</strong><span>${escapeHtml(statusLabel)}</span></div>
         <div class="tsimm-trade-grid">
           <span>Your item types</span><strong>${formatInteger(stats.tradeMatchedItems)}${stats.tradeUnmatchedItems ? ` + ${formatInteger(stats.tradeUnmatchedItems)} unmatched` : ''}</strong>
-          <span>Full market value</span><strong>${formatMoney(stats.tradeMarketTotal)}</strong>
-          <span>Required 99% payout</span><strong>${formatMoney(stats.tradeTargetTotal)}</strong>
+          <span>Ⓜ Full market value</span><strong>${formatMoney(stats.tradeMarketTotal)}</strong>
+          <span>Ⓣ Required trader payout</span><strong>${formatMoney(stats.tradeTargetTotal)}</strong>
           <span>Trader cash minus your cash</span><strong>${escapeHtml(netCashText)}</strong>
           <span>Difference from target</span><strong class="${diffClass}">${escapeHtml(differenceText)}</strong>
           <span>Effective payout</span><strong>${escapeHtml(effectiveText)}</strong>
@@ -1339,7 +1456,7 @@
       <div class="tsimm-body">
         ${statusHtml}
         <div class="tsimm-muted">Catalog: ${formatInteger(catalogCount())} values${catalogIsFresh() ? ' · fresh' : ''}</div>
-        <div class="tsimm-note">Profit base: floor(Market Value × 99%) per item</div>
+        <div class="tsimm-note">Profit base: Ⓣ = floor(Ⓜ × 99%) per item</div>
         ${tradeSummaryHtml(stats)}
         <div class="tsimm-actions">
           <button class="tsimm-btn tsimm-btn-primary" type="button" data-tsimm-action="sync" ${state.syncing ? 'disabled' : ''}>${state.syncing ? 'Syncing…' : 'Sync values'}</button>
