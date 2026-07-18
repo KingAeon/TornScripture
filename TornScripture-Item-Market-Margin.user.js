@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.3.1
-// @description  Audits item-market margins, verifies 99% trade payouts, and records purchase lots in a local ledger.
+// @version      0.3.2
+// @description  Audits item-market margins, verifies 99% trade payouts, and tracks purchase lots plus realized trade-sale profit.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,21 +15,21 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.3.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.3.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
    * - Torn catalog values are requested only when the user presses Sync values.
-   * - The API key, catalog cache, pending purchase, and purchase ledger remain in this browser's local storage.
+   * - The API key, catalog cache, pending purchase, purchase lots, and sale history remain in this browser's local storage.
    * - The key is sent only to Torn's official API.
    * - Purchase capture begins only after the user presses Torn's normal confirmation button.
-   * - The script never clicks Buy, submits purchases, lists items, or sells items.
+   * - Completed trade sales only update local lot quantities; the script never clicks Buy, submits purchases, lists items, or sells items.
    */
 
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.3.1',
+    version: '0.3.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -63,6 +63,7 @@
     showLossesDuringTesting: true,
     tradeSidePreference: 'auto',
     showTradeItemBreakdown: true,
+    showClosedLedgerLots: true,
   });
 
   const state = {
@@ -104,8 +105,72 @@
     return `${prefix}_${Date.now()}_${random}`;
   }
 
+  function normalizeSaleRecord(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const items = Array.isArray(candidate.items)
+      ? candidate.items.map((item) => ({
+          itemId: Number(item?.itemId) > 0 ? Number(item.itemId) : null,
+          itemName: normalizeWhitespace(item?.itemName ?? item?.name),
+          normalizedName: normalizeName(item?.itemName ?? item?.name),
+          quantity: Math.max(0, Math.floor(Number(item?.quantity) || 0)),
+          trackedQuantity: Math.max(0, Math.floor(Number(item?.trackedQuantity) || 0)),
+          untrackedQuantity: Math.max(0, Math.floor(Number(item?.untrackedQuantity) || 0)),
+          marketTotal: Math.max(0, Number(item?.marketTotal) || 0),
+          targetTotal: Math.max(0, Number(item?.targetTotal) || 0),
+          costBasis: Math.max(0, Number(item?.costBasis) || 0),
+          proceeds: Math.max(0, Number(item?.proceeds) || 0),
+          realizedProfit: Number.isFinite(Number(item?.realizedProfit)) ? Number(item.realizedProfit) : null,
+          allocations: Array.isArray(item?.allocations)
+            ? item.allocations.map((allocation) => ({
+                lotId: normalizeWhitespace(allocation?.lotId),
+                quantity: Math.max(0, Math.floor(Number(allocation?.quantity) || 0)),
+                unitCost: Math.max(0, Number(allocation?.unitCost) || 0),
+                costBasis: Math.max(0, Number(allocation?.costBasis) || 0),
+                proceeds: Math.max(0, Number(allocation?.proceeds) || 0),
+                realizedProfit: Number.isFinite(Number(allocation?.realizedProfit))
+                  ? Number(allocation.realizedProfit)
+                  : null,
+              })).filter((allocation) => allocation.lotId && allocation.quantity > 0)
+            : [],
+        })).filter((item) => item.itemName && item.quantity > 0)
+      : [];
+    const cashReceived = Math.max(0, Number(candidate?.cashReceived ?? candidate?.netCash) || 0);
+    const trackedCostBasis = Math.max(0, Number(candidate?.trackedCostBasis ?? candidate?.totalCost) || 0);
+    const trackedProfit = Number.isFinite(Number(candidate?.trackedProfit))
+      ? Number(candidate.trackedProfit)
+      : null;
+    const realizedProfit = Number.isFinite(Number(candidate?.realizedProfit))
+      ? Number(candidate.realizedProfit)
+      : null;
+    return {
+      id: normalizeWhitespace(candidate?.id) || createId('sale'),
+      schemaVersion: 1,
+      fingerprint: normalizeWhitespace(candidate?.fingerprint),
+      tradeId: normalizeWhitespace(candidate?.tradeId),
+      counterparty: normalizeWhitespace(candidate?.counterparty),
+      soldAt: candidate?.soldAt || candidate?.capturedAt || new Date().toISOString(),
+      saleUrl: normalizeWhitespace(candidate?.saleUrl),
+      captureMethod: normalizeWhitespace(candidate?.captureMethod) || 'import',
+      completionSource: normalizeWhitespace(candidate?.completionSource),
+      cashReceived,
+      myCash: Math.max(0, Number(candidate?.myCash) || 0),
+      marketTotal: Math.max(0, Number(candidate?.marketTotal) || 0),
+      targetTotal: Math.max(0, Number(candidate?.targetTotal) || 0),
+      trackedCostBasis,
+      realizedProfit,
+      trackedProfit,
+      requestedQuantity: Math.max(0, Math.floor(Number(candidate?.requestedQuantity) || 0)),
+      trackedQuantity: Math.max(0, Math.floor(Number(candidate?.trackedQuantity) || 0)),
+      untrackedQuantity: Math.max(0, Math.floor(Number(candidate?.untrackedQuantity) || 0)),
+      fullCoverage: Boolean(candidate?.fullCoverage),
+      items,
+      notes: normalizeWhitespace(candidate?.notes),
+    };
+  }
+
   function normalizeLedger(raw) {
     const sourceLots = Array.isArray(raw?.lots) ? raw.lots : Array.isArray(raw) ? raw : [];
+    const sourceSales = Array.isArray(raw?.sales) ? raw.sales : [];
     const lots = [];
     for (const candidate of sourceLots) {
       const itemName = normalizeWhitespace(candidate?.itemName ?? candidate?.name);
@@ -117,9 +182,10 @@
         0,
         Number(candidate?.traderValueAtPurchase) || traderPayout(marketValueAtPurchase)
       );
+      const candidateRemaining = Number(candidate?.remainingQuantity);
       const remainingQuantity = Math.max(
         0,
-        Math.min(quantity, Math.floor(Number(candidate?.remainingQuantity) || quantity))
+        Math.min(quantity, Number.isFinite(candidateRemaining) ? Math.floor(candidateRemaining) : quantity)
       );
       lots.push({
         id: normalizeWhitespace(candidate?.id) || createId('lot'),
@@ -142,16 +208,19 @@
         capturedAt: candidate?.capturedAt || candidate?.purchasedAt || new Date().toISOString(),
         purchaseUrl: normalizeWhitespace(candidate?.purchaseUrl),
         captureMethod: normalizeWhitespace(candidate?.captureMethod) || 'import',
-        status: normalizeWhitespace(candidate?.status) || (remainingQuantity > 0 ? 'open' : 'closed'),
+        status: remainingQuantity > 0 ? 'open' : 'closed',
         notes: normalizeWhitespace(candidate?.notes),
       });
     }
+    const sales = sourceSales.map(normalizeSaleRecord).filter(Boolean);
     lots.sort((a, b) => Date.parse(b.capturedAt || '') - Date.parse(a.capturedAt || ''));
+    sales.sort((a, b) => Date.parse(b.soldAt || '') - Date.parse(a.soldAt || ''));
     return {
       schema: 'tornscripture-imm-ledger',
-      schemaVersion: 1,
+      schemaVersion: 2,
       updatedAt: raw?.updatedAt || null,
       lots,
+      sales,
     };
   }
 
@@ -192,13 +261,27 @@
 
   function ledgerSummary() {
     const lots = state.ledger.lots || [];
+    const sales = state.ledger.sales || [];
+    const openLots = lots.filter((lot) => Number(lot.remainingQuantity || 0) > 0);
+    const realizedProfits = sales
+      .map((sale) => Number.isFinite(Number(sale.realizedProfit))
+        ? Number(sale.realizedProfit)
+        : (Number.isFinite(Number(sale.trackedProfit)) ? Number(sale.trackedProfit) : null))
+      .filter((value) => value !== null);
     return {
-      lots: lots.length,
-      itemTypes: new Set(lots.map((lot) => lot.normalizedName || normalizeName(lot.itemName))).size,
+      lots: openLots.length,
+      allLots: lots.length,
+      closedLots: lots.length - openLots.length,
+      sales: sales.length,
+      itemTypes: new Set(openLots.map((lot) => lot.normalizedName || normalizeName(lot.itemName))).size,
       quantity: lots.reduce((sum, lot) => sum + Number(lot.quantity || 0), 0),
-      remainingQuantity: lots.reduce((sum, lot) => sum + Number(lot.remainingQuantity || 0), 0),
-      invested: lots.reduce((sum, lot) => sum + Number(lot.totalCost || 0), 0),
-      expectedProfit: lots.reduce((sum, lot) => sum + Number(lot.expectedProfitTotal || 0), 0),
+      remainingQuantity: openLots.reduce((sum, lot) => sum + Number(lot.remainingQuantity || 0), 0),
+      invested: openLots.reduce((sum, lot) =>
+        sum + Number(lot.unitCost || 0) * Number(lot.remainingQuantity || 0), 0),
+      expectedProfit: openLots.reduce((sum, lot) =>
+        sum + Number(lot.expectedProfitEach || 0) * Number(lot.remainingQuantity || 0), 0),
+      realizedProfit: realizedProfits.reduce((sum, value) => sum + value, 0),
+      realizedSalesWithProfit: realizedProfits.length,
     };
   }
 
@@ -356,6 +439,18 @@
       tradeDifference: null,
       tradeEffectivePercent: null,
       tradeStatus: 'not-scanned',
+      tradeId: null,
+      tradeCounterparty: null,
+      tradeCompleted: false,
+      tradeCompletionSource: null,
+      tradeLedgerCostBasis: 0,
+      tradeLedgerTrackedQuantity: 0,
+      tradeLedgerRequestedQuantity: 0,
+      tradeLedgerUntrackedQuantity: 0,
+      tradeLedgerFullCoverage: false,
+      tradeSaleProfit: null,
+      tradeSaleRecorded: false,
+      tradeSaleRecordId: null,
       tradeItems: [],
       tradeUnmatched: [],
       notes: [],
@@ -557,6 +652,272 @@
     const targetTotal = rows.reduce((sum, item) => sum + traderPayout(item.marketPrice) * Number(item.quantity), 0);
     const totalQuantity = rows.reduce((sum, item) => sum + Number(item.quantity), 0);
     return { marketTotal, targetTotal, totalQuantity, itemTypes: rows.length };
+  }
+
+
+  function tradeIdFromLocation() {
+    const href = String(location.href || '');
+    const direct = href.match(/[?&#]ID=(\d+)/i);
+    if (direct) return direct[1];
+    try {
+      const url = new URL(href);
+      const hashParams = new URLSearchParams(String(url.hash || '').replace(/^#/, ''));
+      return hashParams.get('ID') || hashParams.get('id') || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function tradeCompletionState() {
+    const hash = String(location.hash || '');
+    if (/(?:^|[&#])step=logview(?:&|$)/i.test(hash)) {
+      return { completed: true, source: 'trade log page' };
+    }
+    const text = normalizeWhitespace(document.body?.innerText || '');
+    const patterns = [
+      /\bthe trade (?:has been|was) successfully completed\b/i,
+      /\bthe trade (?:has been|was) completed\b/i,
+      /\bthe trade was accepted by both parties\b/i,
+      /\btrade completed successfully\b/i,
+    ];
+    const match = patterns.find((pattern) => pattern.test(text));
+    return match
+      ? { completed: true, source: 'completed trade message' }
+      : { completed: false, source: '' };
+  }
+
+  function stableStringHash(value) {
+    let hash = 2166136261;
+    for (const character of String(value || '')) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function saleFingerprintForStats(stats) {
+    const tradeId = normalizeWhitespace(stats?.tradeId);
+    if (tradeId) return `trade:${tradeId}`;
+    const manifest = (stats?.tradeItems || [])
+      .map((item) => `${normalizeName(item.name)}:${Number(item.quantity) || 0}`)
+      .sort()
+      .join('|');
+    return `trade-fallback:${stableStringHash(`${manifest}|${Number(stats?.tradeNetCash) || 0}`)}`;
+  }
+
+  function recordedSaleForStats(stats) {
+    const fingerprint = saleFingerprintForStats(stats);
+    return (state.ledger.sales || []).find((sale) => sale.fingerprint === fingerprint) || null;
+  }
+
+  function lotMatchesTradeItem(lot, item) {
+    if (!lot || !item || Number(lot.remainingQuantity || 0) <= 0) return false;
+    if (Number(item.itemId) > 0 && Number(lot.itemId) > 0) {
+      return Number(item.itemId) === Number(lot.itemId);
+    }
+    return (lot.normalizedName || normalizeName(lot.itemName)) === normalizeName(item.name);
+  }
+
+  function ledgerSalePlan(stats) {
+    const items = Array.isArray(stats?.tradeItems) ? stats.tradeItems : [];
+    const requestedQuantity = items.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+    const available = new Map((state.ledger.lots || []).map((lot) => [lot.id, Number(lot.remainingQuantity || 0)]));
+    const planItems = [];
+    const allocations = [];
+    let trackedQuantity = 0;
+    let trackedCostBasis = 0;
+
+    for (const item of items) {
+      let remaining = Math.max(0, Math.floor(Number(item.quantity) || 0));
+      const matchingLots = (state.ledger.lots || [])
+        .filter((lot) => lotMatchesTradeItem(lot, item) && Number(available.get(lot.id) || 0) > 0)
+        .sort((a, b) => Date.parse(a.capturedAt || '') - Date.parse(b.capturedAt || ''));
+      const itemAllocations = [];
+      let itemCostBasis = 0;
+      for (const lot of matchingLots) {
+        if (remaining <= 0) break;
+        const quantity = Math.min(remaining, Math.max(0, Math.floor(Number(available.get(lot.id)) || 0)));
+        if (quantity <= 0) continue;
+        const costBasis = quantity * Number(lot.unitCost || 0);
+        itemAllocations.push({
+          lotId: lot.id,
+          quantity,
+          unitCost: Number(lot.unitCost || 0),
+          costBasis,
+          targetValue: quantity * Number(item.targetEach || 0),
+        });
+        allocations.push(itemAllocations[itemAllocations.length - 1]);
+        available.set(lot.id, Number(available.get(lot.id) || 0) - quantity);
+        remaining -= quantity;
+        trackedQuantity += quantity;
+        trackedCostBasis += costBasis;
+        itemCostBasis += costBasis;
+      }
+      planItems.push({
+        ...item,
+        trackedQuantity: Number(item.quantity || 0) - remaining,
+        untrackedQuantity: remaining,
+        costBasis: itemCostBasis,
+        allocations: itemAllocations,
+      });
+    }
+
+    const targetTotal = Math.max(0, Number(stats?.tradeTargetTotal) || 0);
+    const netCash = Number(stats?.tradeNetCash);
+    for (const item of planItems) {
+      const itemProceeds = Number.isFinite(netCash) && targetTotal > 0
+        ? netCash * Number(item.targetTotal || 0) / targetTotal
+        : 0;
+      item.proceeds = itemProceeds;
+      item.realizedProfit = item.untrackedQuantity === 0
+        ? itemProceeds - item.costBasis
+        : null;
+      for (const allocation of item.allocations) {
+        const fraction = Number(item.quantity || 0) > 0
+          ? Number(allocation.quantity || 0) / Number(item.quantity || 0)
+          : 0;
+        allocation.proceeds = itemProceeds * fraction;
+        allocation.realizedProfit = allocation.proceeds - allocation.costBasis;
+      }
+    }
+
+    const untrackedQuantity = Math.max(0, requestedQuantity - trackedQuantity);
+    const fullCoverage = requestedQuantity > 0 && untrackedQuantity === 0;
+    const trackedProceeds = planItems.reduce((sum, item) => {
+      if (!(Number(item.quantity) > 0)) return sum;
+      return sum + Number(item.proceeds || 0) * Number(item.trackedQuantity || 0) / Number(item.quantity);
+    }, 0);
+    const trackedProfit = Number.isFinite(netCash) ? trackedProceeds - trackedCostBasis : null;
+    const realizedProfit = fullCoverage && Number.isFinite(netCash)
+      ? netCash - trackedCostBasis
+      : null;
+
+    return {
+      requestedQuantity,
+      trackedQuantity,
+      untrackedQuantity,
+      fullCoverage,
+      trackedCostBasis,
+      trackedProceeds,
+      trackedProfit,
+      realizedProfit,
+      items: planItems,
+      allocations,
+    };
+  }
+
+  function applyLedgerSalePreview(stats) {
+    const recorded = recordedSaleForStats(stats);
+    stats.tradeSaleRecorded = Boolean(recorded);
+    stats.tradeSaleRecordId = recorded?.id || null;
+    stats.tradeSaleProfit = Number.isFinite(Number(recorded?.realizedProfit))
+      ? Number(recorded.realizedProfit)
+      : (Number.isFinite(Number(recorded?.trackedProfit)) ? Number(recorded.trackedProfit) : null);
+    stats.tradeLedgerCostBasis = Number(recorded?.trackedCostBasis) || 0;
+    stats.tradeLedgerTrackedQuantity = Number(recorded?.trackedQuantity) || 0;
+    stats.tradeLedgerRequestedQuantity = Number(recorded?.requestedQuantity) || 0;
+    stats.tradeLedgerUntrackedQuantity = Number(recorded?.untrackedQuantity) || 0;
+    stats.tradeLedgerFullCoverage = Boolean(recorded?.fullCoverage);
+    if (recorded) return recorded;
+
+    const plan = ledgerSalePlan(stats);
+    stats.tradeLedgerCostBasis = plan.trackedCostBasis;
+    stats.tradeLedgerTrackedQuantity = plan.trackedQuantity;
+    stats.tradeLedgerRequestedQuantity = plan.requestedQuantity;
+    stats.tradeLedgerUntrackedQuantity = plan.untrackedQuantity;
+    stats.tradeLedgerFullCoverage = plan.fullCoverage;
+    stats.tradeSaleProfit = Number.isFinite(plan.realizedProfit) ? plan.realizedProfit : plan.trackedProfit;
+    return plan;
+  }
+
+  function recordTradeSale(stats, captureMethod = 'manual-completed-trade') {
+    if (!stats || stats.pageType !== 'trade') throw new Error('Open a recognized trade before recording a sale.');
+    const existing = recordedSaleForStats(stats);
+    if (existing) return existing;
+    if (!Array.isArray(stats.tradeItems) || !stats.tradeItems.length) {
+      throw new Error('No trade items were available to record.');
+    }
+    if (stats.tradeUnmatchedItems) {
+      throw new Error('Unmatched trade items must be resolved before the ledger can consume lots.');
+    }
+    if (!Number.isFinite(Number(stats.tradeNetCash))) {
+      throw new Error('Trader cash was not detected.');
+    }
+
+    const plan = ledgerSalePlan(stats);
+    if (!plan.trackedQuantity) {
+      throw new Error('None of the sold quantities matched open ledger lots.');
+    }
+
+    for (const allocation of plan.allocations) {
+      const lot = state.ledger.lots.find((candidate) => candidate.id === allocation.lotId);
+      if (!lot) continue;
+      lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity || 0) - Number(allocation.quantity || 0));
+      lot.status = lot.remainingQuantity > 0 ? 'open' : 'closed';
+    }
+
+    const completion = tradeCompletionState();
+    const sale = normalizeSaleRecord({
+      id: createId('sale'),
+      fingerprint: saleFingerprintForStats(stats),
+      tradeId: stats.tradeId || tradeIdFromLocation(),
+      counterparty: stats.tradeCounterparty,
+      soldAt: new Date().toISOString(),
+      saleUrl: location.href,
+      captureMethod,
+      completionSource: completion.source,
+      cashReceived: Number(stats.tradeNetCash),
+      myCash: Number(stats.tradeMyCash) || 0,
+      marketTotal: Number(stats.tradeMarketTotal) || 0,
+      targetTotal: Number(stats.tradeTargetTotal) || 0,
+      trackedCostBasis: plan.trackedCostBasis,
+      realizedProfit: plan.realizedProfit,
+      trackedProfit: plan.trackedProfit,
+      requestedQuantity: plan.requestedQuantity,
+      trackedQuantity: plan.trackedQuantity,
+      untrackedQuantity: plan.untrackedQuantity,
+      fullCoverage: plan.fullCoverage,
+      items: plan.items.map((item) => ({
+        itemId: item.itemId || null,
+        itemName: item.name,
+        quantity: item.quantity,
+        trackedQuantity: item.trackedQuantity,
+        untrackedQuantity: item.untrackedQuantity,
+        marketTotal: item.marketTotal,
+        targetTotal: item.targetTotal,
+        costBasis: item.costBasis,
+        proceeds: item.proceeds,
+        realizedProfit: item.realizedProfit,
+        allocations: item.allocations,
+      })),
+      notes: plan.fullCoverage
+        ? 'FIFO purchase-lot allocation.'
+        : `FIFO allocation with ${plan.untrackedQuantity} untracked item${plan.untrackedQuantity === 1 ? '' : 's'}.`,
+    });
+    state.ledger.sales.unshift(sale);
+    saveLedger();
+    applyLedgerSalePreview(stats);
+    renderLedger();
+    renderPanel();
+    return sale;
+  }
+
+  function maybeAutoRecordCompletedTrade(stats) {
+    const completion = tradeCompletionState();
+    stats.tradeCompleted = completion.completed;
+    stats.tradeCompletionSource = completion.source;
+    if (!completion.completed || recordedSaleForStats(stats)) return null;
+    if (stats.tradeUnmatchedItems || !Number.isFinite(Number(stats.tradeNetCash))) return null;
+    const plan = ledgerSalePlan(stats);
+    if (!plan.fullCoverage) {
+      if (plan.trackedQuantity > 0) {
+        stats.notes.push(`Completed trade detected, but ${plan.untrackedQuantity} sold item${plan.untrackedQuantity === 1 ? '' : 's'} are not covered by the ledger. Record manually after review.`);
+      }
+      return null;
+    }
+    const sale = recordTradeSale(stats, 'auto-completed-trade');
+    toast(`Sale recorded. Profit ${sale.realizedProfit >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit)}.`);
+    return sale;
   }
 
   function pageLooksLikeTrade() {
@@ -1024,6 +1385,11 @@
     const otherSide = sides.find((side) => side !== mySide) || null;
     stats.tradeMySide = mySide?.side || null;
     stats.tradeSideSource = myResolution.source;
+    stats.tradeId = tradeIdFromLocation() || null;
+    stats.tradeCounterparty = normalizeWhitespace(otherSide?.heading) || null;
+    const completion = tradeCompletionState();
+    stats.tradeCompleted = completion.completed;
+    stats.tradeCompletionSource = completion.source || null;
     if (!mySide || !otherSide) {
       stats.tradeStatus = 'incomplete';
       stats.notes.push('Could not determine both sides of the trade.');
@@ -1071,6 +1437,7 @@
     stats.tradeDifference = difference;
     stats.tradeEffectivePercent = effectivePercent;
     stats.tradeItems = matched.map((item) => ({
+      itemId: item.catalog.id || item.itemId || null,
       name: item.catalog.name,
       quantity: item.quantity,
       marketPrice: item.catalog.marketPrice,
@@ -1094,6 +1461,8 @@
     } else {
       stats.tradeStatus = 'loss';
     }
+
+    applyLedgerSalePreview(stats);
 
     if (/assumed left/i.test(myResolution.source)) {
       stats.notes.push('IMM assumed your items are on the left. Use the Trade side selector to verify or override it.');
@@ -1467,6 +1836,7 @@
       stats.notes.push('The compact listing page hid Value; IMM used the cached catalog value for the itemID in the URL.');
     }
     state.lastScan = stats;
+    if (isTrade) maybeAutoRecordCompletedTrade(stats);
     renderPanel();
   }
 
@@ -1864,41 +2234,79 @@
     if (!raw) return;
     try {
       const imported = normalizeLedger(JSON.parse(raw));
-      if (!imported.lots.length) throw new Error('No valid purchase lots were found.');
-      const merged = new Map(state.ledger.lots.map((lot) => [lot.id, lot]));
-      for (const lot of imported.lots) merged.set(lot.id, lot);
-      state.ledger = normalizeLedger({ lots: [...merged.values()] });
+      if (!imported.lots.length && !imported.sales.length) {
+        throw new Error('No valid purchase lots or sale records were found.');
+      }
+      const mergedLots = new Map(state.ledger.lots.map((lot) => [lot.id, lot]));
+      for (const lot of imported.lots) mergedLots.set(lot.id, lot);
+      const mergedSales = new Map((state.ledger.sales || []).map((sale) => [sale.id, sale]));
+      for (const sale of imported.sales) mergedSales.set(sale.id, sale);
+      state.ledger = normalizeLedger({
+        lots: [...mergedLots.values()],
+        sales: [...mergedSales.values()],
+      });
       saveLedger();
       renderLedger();
       renderPanel();
-      toast(`Imported ${formatInteger(imported.lots.length)} purchase lots.`);
+      toast(`Imported ${formatInteger(imported.lots.length)} lots and ${formatInteger(imported.sales.length)} sales.`);
     } catch (error) {
       toast(error?.message || 'Ledger import failed.');
     }
   }
 
+  function saleAllocationsForLot(lotId) {
+    const entries = [];
+    for (const sale of state.ledger.sales || []) {
+      for (const item of sale.items || []) {
+        for (const allocation of item.allocations || []) {
+          if (allocation.lotId !== lotId) continue;
+          entries.push({
+            sale,
+            item,
+            ...allocation,
+          });
+        }
+      }
+    }
+    return entries;
+  }
+
   function ledgerLotHtml(lot) {
-    const profitClass = lot.expectedProfitTotal >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
+    const allocations = saleAllocationsForLot(lot.id);
+    const soldQuantity = Math.max(0, Number(lot.quantity || 0) - Number(lot.remainingQuantity || 0));
+    const realizedProfit = allocations.reduce((sum, allocation) =>
+      sum + (Number.isFinite(Number(allocation.realizedProfit)) ? Number(allocation.realizedProfit) : 0), 0);
+    const remainingExpectedProfit = Number(lot.expectedProfitEach || 0) * Number(lot.remainingQuantity || 0);
+    const expectedClass = remainingExpectedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
+    const realizedClass = realizedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
     const when = (() => {
       const date = new Date(lot.capturedAt);
       return Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Unknown date';
     })();
     const source = lot.country ? `${lot.source} · ${lot.country}` : lot.source;
+    const status = Number(lot.remainingQuantity || 0) > 0
+      ? (soldQuantity > 0 ? 'partial' : 'open')
+      : 'sold';
     return `
       <article class="tsimm-ledger-lot" data-tsimm-lot-id="${escapeHtml(lot.id)}">
         <div class="tsimm-ledger-lot-head">
-          <strong>${escapeHtml(lot.itemName)} × ${formatInteger(lot.quantity)}</strong>
-          <span>${escapeHtml(source)}</span>
+          <strong>${escapeHtml(lot.itemName)} × ${formatInteger(lot.remainingQuantity)} remaining</strong>
+          <span>${escapeHtml(status)}</span>
         </div>
         <div class="tsimm-ledger-lot-grid">
+          <span>Purchased quantity</span><strong>${formatInteger(lot.quantity)}</strong>
+          <span>Sold quantity</span><strong>${formatInteger(soldQuantity)}</strong>
           <span>Paid each</span><strong>${formatMoney(lot.unitCost)}</strong>
-          <span>Total cost</span><strong>${formatMoney(lot.totalCost)}</strong>
+          <span>Open cost basis</span><strong>${formatMoney(Number(lot.unitCost || 0) * Number(lot.remainingQuantity || 0))}</strong>
           <span>Ⓜ at purchase</span><strong>${formatMoney(lot.marketValueAtPurchase)}</strong>
           <span>Ⓣ at purchase</span><strong>${formatMoney(lot.traderValueAtPurchase)}</strong>
-          <span>Expected profit</span><strong class="${profitClass}">${lot.expectedProfitTotal >= 0 ? '+' : ''}${formatMoney(lot.expectedProfitTotal)}</strong>
+          <span>Expected profit remaining</span><strong class="${expectedClass}">${remainingExpectedProfit >= 0 ? '+' : ''}${formatMoney(remainingExpectedProfit)}</strong>
+          ${soldQuantity > 0
+            ? `<span>Realized sale profit</span><strong class="${realizedClass}">${realizedProfit >= 0 ? '+' : ''}${formatMoney(realizedProfit)}</strong>`
+            : ''}
         </div>
         <div class="tsimm-ledger-lot-foot">
-          <small>${escapeHtml(when)} · ${escapeHtml(lot.captureMethod)}</small>
+          <small>${escapeHtml(when)} · ${escapeHtml(source)} · ${escapeHtml(lot.captureMethod)}</small>
           <div>
             <button type="button" data-tsimm-action="ledger-edit" data-tsimm-lot-id="${escapeHtml(lot.id)}">Edit</button>
             <button type="button" data-tsimm-action="ledger-delete" data-tsimm-lot-id="${escapeHtml(lot.id)}">Delete</button>
@@ -1909,22 +2317,56 @@
     `;
   }
 
+  function ledgerSaleHtml(sale) {
+    const profit = Number.isFinite(Number(sale.realizedProfit))
+      ? Number(sale.realizedProfit)
+      : (Number.isFinite(Number(sale.trackedProfit)) ? Number(sale.trackedProfit) : null);
+    const profitClass = Number(profit) >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
+    const when = (() => {
+      const date = new Date(sale.soldAt);
+      return Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Unknown date';
+    })();
+    const coverage = sale.fullCoverage
+      ? 'complete'
+      : `${formatInteger(sale.trackedQuantity)}/${formatInteger(sale.requestedQuantity)} tracked`;
+    return `
+      <article class="tsimm-ledger-sale">
+        <div class="tsimm-ledger-sale-head">
+          <strong>Trade sale${sale.counterparty ? ` · ${escapeHtml(sale.counterparty)}` : ''}</strong>
+          <span>${escapeHtml(coverage)}</span>
+        </div>
+        <div class="tsimm-ledger-lot-grid">
+          <span>Cash received</span><strong>${formatMoney(sale.cashReceived)}</strong>
+          <span>Ledger cost basis</span><strong>${formatMoney(sale.trackedCostBasis)}</strong>
+          <span>Ⓣ target</span><strong>${formatMoney(sale.targetTotal)}</strong>
+          <span>Realized sale profit</span><strong class="${profitClass}">${profit === null ? 'Incomplete' : `${profit >= 0 ? '+' : ''}${formatMoney(profit)}`}</strong>
+        </div>
+        <div class="tsimm-ledger-sale-foot">${escapeHtml(when)} · ${escapeHtml(sale.captureMethod)}</div>
+      </article>
+    `;
+  }
+
   function renderLedger() {
     const overlay = document.getElementById(APP.ledgerOverlayId);
     if (!overlay) return;
     const summary = ledgerSummary();
-    const lots = state.ledger.lots || [];
+    const allLots = state.ledger.lots || [];
+    const lots = state.settings.showClosedLedgerLots
+      ? allLots
+      : allLots.filter((lot) => Number(lot.remainingQuantity || 0) > 0);
+    const sales = state.ledger.sales || [];
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
-          <div><strong>📒 IMM Purchase Ledger</strong><small>Local purchase lots · schema v1</small></div>
+          <div><strong>📒 IMM Purchase Ledger</strong><small>Purchase lots + realized sales · schema v2</small></div>
           <button type="button" data-tsimm-action="ledger-close">×</button>
         </div>
         <div class="tsimm-ledger-summary">
-          <div><strong>${formatInteger(summary.lots)}</strong><span>lots</span></div>
-          <div><strong>${formatInteger(summary.itemTypes)}</strong><span>items</span></div>
+          <div><strong>${formatInteger(summary.lots)}</strong><span>open lots</span></div>
+          <div><strong>${formatInteger(summary.remainingQuantity)}</strong><span>on hand</span></div>
           <div><strong>${formatMoney(summary.invested)}</strong><span>invested</span></div>
           <div><strong class="${summary.expectedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${summary.expectedProfit >= 0 ? '+' : ''}${formatMoney(summary.expectedProfit)}</strong><span>expected</span></div>
+          <div><strong class="${summary.realizedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${summary.realizedProfit >= 0 ? '+' : ''}${formatMoney(summary.realizedProfit)}</strong><span>realized</span></div>
         </div>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="ledger-add">Add manual lot</button>
@@ -1932,9 +2374,14 @@
           <button type="button" data-tsimm-action="ledger-import">Import JSON</button>
           <button type="button" data-tsimm-action="ledger-clear">Clear all</button>
         </div>
-        <div class="tsimm-ledger-future">Source fields already support overseas lots. Automatic overseas capture comes later.</div>
+        <label class="tsimm-ledger-toggle"><input type="checkbox" data-tsimm-setting="showClosedLedgerLots" ${state.settings.showClosedLedgerLots ? 'checked' : ''}> Show sold and closed lots</label>
+        <div class="tsimm-ledger-future">Trade sales consume the oldest matching purchase lots first. Automatic overseas capture still comes later.</div>
+        ${sales.length
+          ? `<div class="tsimm-ledger-section-title">Sale history</div><div class="tsimm-ledger-sales">${sales.map(ledgerSaleHtml).join('')}</div>`
+          : ''}
+        <div class="tsimm-ledger-section-title">Purchase lots</div>
         <div class="tsimm-ledger-list">
-          ${lots.length ? lots.map(ledgerLotHtml).join('') : '<div class="tsimm-ledger-empty">No purchase lots recorded yet. Complete an Item Market purchase or add one manually.</div>'}
+          ${lots.length ? lots.map(ledgerLotHtml).join('') : '<div class="tsimm-ledger-empty">No matching purchase lots to show.</div>'}
         </div>
       </div>
     `;
@@ -2033,6 +2480,7 @@
         summary: ledgerSummary(),
         updatedAt: state.ledger.updatedAt,
         recentLots: state.ledger.lots.slice(0, 8),
+        recentSales: (state.ledger.sales || []).slice(0, 5),
       },
       pendingPurchase: state.pendingPurchase,
       recentPurchaseSignals: state.purchaseSignals.slice(0, 12),
@@ -2065,6 +2513,7 @@
     saveJson(APP.settingsStorageKey, state.settings);
     scheduleScan(25);
     renderPanel();
+    renderLedger();
   }
 
   function injectStyles() {
@@ -2094,15 +2543,15 @@
       .tsimm-trade-card{margin:8px 0;padding:8px;border:1px solid #50485c;border-radius:9px;background:#242129}.tsimm-trade-card.tsimm-trade-good{border-color:#44d88b;color:#eafff2}.tsimm-trade-card.tsimm-trade-loss{border-color:#ff626d;color:#fff0f1}.tsimm-trade-card.tsimm-trade-pending,.tsimm-trade-card.tsimm-trade-incomplete{border-color:#bd6cff;color:#f4e8ff}
       .tsimm-trade-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}.tsimm-trade-title strong{font-size:13px}.tsimm-trade-title span{font-size:10px;text-transform:uppercase;letter-spacing:.04em}
       .tsimm-trade-grid{display:grid;grid-template-columns:1fr auto;gap:4px 8px;align-items:center}.tsimm-trade-grid span{color:#bfb7c8}.tsimm-trade-grid strong{text-align:right}.tsimm-trade-diff-good{color:#63df9f}.tsimm-trade-diff-loss{color:#ff7c85}.tsimm-trade-diff-pending{color:#d6a0ff}
-      .tsimm-trade-items{margin-top:7px;padding-top:6px;border-top:1px solid #47404f;max-height:118px;overflow:auto}.tsimm-trade-item-line{display:grid;grid-template-columns:1fr auto;gap:6px;padding:2px 0;font-size:10px}.tsimm-trade-item-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-unmatched{color:#ff9ba2}
+      .tsimm-trade-items{margin-top:7px;padding-top:6px;border-top:1px solid #47404f;max-height:118px;overflow:auto}.tsimm-trade-item-line{display:grid;grid-template-columns:1fr auto;gap:6px;padding:2px 0;font-size:10px}.tsimm-trade-item-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-unmatched{color:#ff9ba2}.tsimm-trade-record{width:100%;margin-top:7px;border:1px solid #4b9d70;border-radius:7px;background:#215b3b;color:#eafff2;padding:7px;font-weight:800}
       .tsimm-controls select{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}
       .tsimm-pending-card{margin:7px 0;padding:8px;border:1px solid #c48b35;border-radius:8px;background:#2b2418;display:grid;gap:3px}.tsimm-pending-card>strong{color:#ffd184}.tsimm-pending-card>span{color:#f2e8d5}.tsimm-pending-card>small{color:#c9baa0}.tsimm-pending-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-pending-card button{flex:1;border:1px solid #725f3d;border-radius:6px;background:#3b3020;color:#fff;padding:5px;font-weight:700}
       #${APP.ledgerOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
       .tsimm-ledger-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #655d70;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-ledger-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#282330;border-bottom:1px solid #4f4759}.tsimm-ledger-head>div{display:grid;gap:1px;flex:1}.tsimm-ledger-head strong{font-size:14px}.tsimm-ledger-head small{color:#aaa1b7}.tsimm-ledger-head>button{border:1px solid #655d70;border-radius:7px;background:#393341;color:#fff;width:30px;height:30px;font-size:19px}
-      .tsimm-ledger-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:8px}.tsimm-ledger-summary>div{display:grid;text-align:center;padding:7px 3px;border:1px solid #494250;border-radius:8px;background:#24212a}.tsimm-ledger-summary strong{font-size:12px}.tsimm-ledger-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}
+      .tsimm-ledger-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:5px;padding:8px}.tsimm-ledger-summary>div{display:grid;text-align:center;padding:7px 3px;border:1px solid #494250;border-radius:8px;background:#24212a}.tsimm-ledger-summary strong{font-size:12px}.tsimm-ledger-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}
       .tsimm-ledger-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.tsimm-ledger-actions button{flex:1;min-width:105px;border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:7px;font-weight:700}.tsimm-ledger-actions button:first-child{background:#5b2b82;border-color:#8e55b9}
-      .tsimm-ledger-future{margin:0 8px 8px;padding:6px 8px;border:1px solid #51425e;border-radius:7px;background:#241d2a;color:#cdbbdd}
+      .tsimm-ledger-toggle{display:flex;align-items:center;gap:6px;margin:0 8px 8px;color:#c9c2d0}.tsimm-ledger-future{margin:0 8px 8px;padding:6px 8px;border:1px solid #51425e;border-radius:7px;background:#241d2a;color:#cdbbdd}.tsimm-ledger-section-title{padding:3px 10px 6px;color:#cdbbdd;font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.05em}.tsimm-ledger-sales{padding:0 8px 8px;display:grid;gap:7px}.tsimm-ledger-sale{border:1px solid #4b6657;border-radius:9px;background:#202a25;padding:8px}.tsimm-ledger-sale-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-sale-head strong{flex:1;font-size:12px}.tsimm-ledger-sale-head span{font-size:9px;text-transform:uppercase;color:#9ee2bb;border:1px solid #37634b;border-radius:999px;padding:2px 5px}.tsimm-ledger-sale-foot{margin-top:6px;padding-top:5px;border-top:1px solid #385044;color:#94aa9d;font-size:10px}
       .tsimm-ledger-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-ledger-empty{padding:18px 10px;text-align:center;color:#aaa1b7;border:1px dashed #514a59;border-radius:8px}
       .tsimm-ledger-lot{border:1px solid #4d4656;border-radius:9px;background:#24212a;padding:8px}.tsimm-ledger-lot-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-lot-head strong{flex:1;font-size:13px}.tsimm-ledger-lot-head span{font-size:9px;text-transform:uppercase;color:#c9a2e4;border:1px solid #66497a;border-radius:999px;padding:2px 5px}
       .tsimm-ledger-lot-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-ledger-lot-grid span{color:#aaa1b7}.tsimm-ledger-lot-grid strong{text-align:right}.tsimm-ledger-profit{color:#63df9f}.tsimm-ledger-loss{color:#ff7c85}
@@ -2134,12 +2583,29 @@
     const effectiveText = Number.isFinite(stats.tradeEffectivePercent)
       ? formatPercent(stats.tradeEffectivePercent)
       : 'Pending';
+    const coverageText = stats.tradeLedgerRequestedQuantity
+      ? `${formatInteger(stats.tradeLedgerTrackedQuantity)}/${formatInteger(stats.tradeLedgerRequestedQuantity)}`
+      : 'No ledger match';
+    const saleProfitText = Number.isFinite(Number(stats.tradeSaleProfit))
+      ? `${Number(stats.tradeSaleProfit) >= 0 ? '+' : ''}${formatMoney(stats.tradeSaleProfit)}`
+      : 'Incomplete';
+    const saleProfitClass = Number(stats.tradeSaleProfit) >= 0
+      ? 'tsimm-trade-diff-good'
+      : 'tsimm-trade-diff-loss';
+    const saleStateText = stats.tradeSaleRecorded
+      ? 'Recorded'
+      : (stats.tradeCompleted ? 'Completed, not recorded' : 'Preview');
     const itemLines = state.settings.showTradeItemBreakdown
       ? [
           ...stats.tradeItems.map((item) => `<div class="tsimm-trade-item-line"><span>${escapeHtml(item.name)} × ${escapeHtml(formatInteger(item.quantity))}</span><strong>Ⓣ ${escapeHtml(formatMoney(item.targetTotal))}</strong></div>`),
           ...stats.tradeUnmatched.map((item) => `<div class="tsimm-trade-item-line tsimm-trade-unmatched"><span>Unmatched: ${escapeHtml(item.name)} × ${escapeHtml(formatInteger(item.quantity))}</span><strong>?</strong></div>`),
         ].join('')
       : '';
+    const canRecord = !stats.tradeSaleRecorded
+      && stats.tradeMatchedItems > 0
+      && !stats.tradeUnmatchedItems
+      && Number.isFinite(Number(stats.tradeNetCash))
+      && stats.tradeLedgerTrackedQuantity > 0;
     return `
       <div class="tsimm-trade-card tsimm-trade-${escapeHtml(status)}">
         <div class="tsimm-trade-title"><strong>🤝 Trade manifest</strong><span>${escapeHtml(statusLabel)}</span></div>
@@ -2150,8 +2616,15 @@
           <span>Trader cash minus your cash</span><strong>${escapeHtml(netCashText)}</strong>
           <span>Difference from target</span><strong class="${diffClass}">${escapeHtml(differenceText)}</strong>
           <span>Effective payout</span><strong>${escapeHtml(effectiveText)}</strong>
+          <span>Ledger cost basis</span><strong>${formatMoney(stats.tradeLedgerCostBasis)}</strong>
+          <span>Ledger coverage</span><strong>${escapeHtml(coverageText)}</strong>
+          <span>Actual sale profit</span><strong class="${saleProfitClass}">${escapeHtml(saleProfitText)}</strong>
+          <span>Ledger sale state</span><strong>${escapeHtml(saleStateText)}</strong>
         </div>
         ${itemLines ? `<div class="tsimm-trade-items">${itemLines}</div>` : ''}
+        ${canRecord
+          ? `<button class="tsimm-trade-record" type="button" data-tsimm-action="trade-record-sale">Record completed sale</button>`
+          : ''}
       </div>
     `;
   }
@@ -2211,7 +2684,7 @@
       <div class="tsimm-body">
         ${statusHtml}
         <div class="tsimm-muted">Catalog: ${formatInteger(catalogCount())} values${catalogIsFresh() ? ' · fresh' : ''}</div>
-        <div class="tsimm-muted">Ledger: ${formatInteger(ledger.lots)} lots · ${formatMoney(ledger.invested)} invested · ${ledger.expectedProfit >= 0 ? '+' : ''}${formatMoney(ledger.expectedProfit)} expected</div>
+        <div class="tsimm-muted">Ledger: ${formatInteger(ledger.lots)} open lots · ${formatMoney(ledger.invested)} invested · ${ledger.expectedProfit >= 0 ? '+' : ''}${formatMoney(ledger.expectedProfit)} expected · ${ledger.realizedProfit >= 0 ? '+' : ''}${formatMoney(ledger.realizedProfit)} realized</div>
         <div class="tsimm-note">Profit base: Ⓣ = floor(Ⓜ × 99%) per item</div>
         ${pendingPurchaseHtml()}
         ${tradeSummaryHtml(stats)}
@@ -2242,6 +2715,28 @@
         scanPage();
       } else if (action === 'diagnostics') {
         copyDiagnostics();
+      } else if (action === 'trade-record-sale') {
+        const stats = state.lastScan;
+        const plan = ledgerSalePlan(stats);
+        if (!plan.trackedQuantity) {
+          toast('No open ledger lots matched this trade.');
+          return;
+        }
+        const profitText = Number.isFinite(plan.realizedProfit)
+          ? `${plan.realizedProfit >= 0 ? '+' : ''}${formatMoney(plan.realizedProfit)}`
+          : `${plan.trackedProfit >= 0 ? '+' : ''}${formatMoney(plan.trackedProfit)} tracked profit`;
+        const coverageWarning = plan.fullCoverage
+          ? ''
+          : `\n\nWarning: ${plan.untrackedQuantity} sold item${plan.untrackedQuantity === 1 ? '' : 's'} are not covered by the ledger.`;
+        if (confirm(`Record this completed trade sale?\n\nLedger cost basis: ${formatMoney(plan.trackedCostBasis)}\nSale profit: ${profitText}${coverageWarning}`)) {
+          try {
+            const sale = recordTradeSale(stats, plan.fullCoverage ? 'manual-completed-trade' : 'manual-partial-trade');
+            toast(`Sale recorded. ${sale.fullCoverage ? 'Profit' : 'Tracked profit'} ${Number(sale.realizedProfit ?? sale.trackedProfit) >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit ?? sale.trackedProfit)}.`);
+            scanPage();
+          } catch (error) {
+            toast(error?.message || 'Sale recording failed.');
+          }
+        }
       } else if (action === 'ledger-open') {
         openLedger();
       } else if (action === 'ledger-close') {
@@ -2366,8 +2861,12 @@
       parsePurchaseConfirmationText,
       parsePurchaseSuccessText,
       normalizeLedger,
+      normalizeSaleRecord,
       buildLedgerLot,
       ledgerSummary,
+      ledgerSalePlan,
+      recordTradeSale,
+      _state: state,
     };
   }
 })();
