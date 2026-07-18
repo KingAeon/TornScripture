@@ -1,66 +1,51 @@
-TornScripture - Item Market Margin v0.1.1
-PHASE-ONE AUDIT BUILD
+TornScripture - Item Market Margin v0.2.0
+==========================================
 
-WHAT CHANGED
-- Trader payout is now hard-locked to:
-    floor(Torn Market Value × 0.99)
-- Profit is always:
-    99% trader payout − visible listing price
-- Every badge now shows the source Market Value and calculated 99% payout.
-- Red badges and red outlines now identify non-profitable category tiles and seller rows.
-- Purple remains a positive minor margin.
-- Green remains a positive margin meeting both configured green thresholds.
+NEW: TRADE MANIFEST AUDIT
 
-DEFAULT COLOR LOGIC
-- Green:
-    Profit is positive
-    Profit each is at least $100
-    ROI is at least 0.25%
-- Purple:
-    Profit is positive, but misses one or both green thresholds
-- Red:
-    Listing price is equal to or above the 99% trader payout
+On Torn trade pages, IMM now attempts to:
 
-EXAMPLE
-African Violet Market Value: $56,390
-99% trader payout: floor($56,390 × 0.99) = $55,826
+1. Identify your side of the trade.
+2. Read each manifested item and quantity on your side.
+3. Match each item to the cached Torn market value.
+4. Calculate the trader target as:
 
-A listing at $55,800:
-$55,826 − $55,800 = +$26 each
-This is purple under the default thresholds.
+   sum(floor(item market value x 0.99) x quantity)
 
-A listing at $55,994:
-$55,826 − $55,994 = -$168 each
-This is red.
+5. Read cash on the other side and subtract any cash on your side.
+6. Compare the net cash you receive with the required 99% payout.
 
-INSTALL
-1. Replace v0.1.0 with TornScripture-Item-Market-Margin.user.js from this folder.
-2. Save and enable it in TornPDA.
-3. Open Torn's Item Market.
-4. Press Scan page if TornPDA does not refresh the page immediately.
+TRADE STATUS
 
-WHAT TO CHECK
-A. Category page
-- All recognized item tiles should now show a badge while red display is enabled.
-- Each badge should show:
-    profit or loss per item
-    Torn Market Value
-    calculated 99% payout
-    ROI
-- Confirm the tile's visible lowest price produces the shown margin.
+Green  = net cash meets or exceeds the complete 99% manifest target.
+Red    = detected cash is below the complete 99% manifest target.
+Purple = cash is pending, an item is unmatched, or the page could not be fully read.
 
-B. Individual item page
-- Every recognized seller row should show the same Market Value and 99% payout.
-- The row's visible listing price and quantity should produce the displayed unit and lot result.
+The panel shows:
+- Full market value of your manifested items
+- Required 99% payout
+- Trader cash minus any cash you are contributing
+- Difference from the required target
+- Effective payout percentage
+- Optional per-item 99% totals
 
-HUD CHECKBOX
-- "Show red non-profitable items" can hide red badges after testing.
-- Keep it enabled for this audit pass.
+FIRST LIVE TEST
 
-IF SOMETHING IS WRONG
-- Press Scan page once.
-- Press Copy diagnostics.
-- Send the copied text with a screenshot.
+1. Replace v0.1.1 with the v0.2.0 userscript.
+2. Open an active trade containing your items.
+3. Confirm IMM selected the correct side.
+4. If needed, change "Your trade side" from Auto detect to Left or Right.
+5. Compare the item quantities, 99% target, and detected trader cash.
+6. Add or change the trade cash and confirm IMM updates automatically.
 
-SAFETY
-The script never clicks Buy and never submits a market action. All purchases remain manual.
+IMPORTANT TESTING GUARDRAILS
+
+- If any item is unmatched, IMM labels the manifest incomplete and does not call
+  the trade protected, even if the known subtotal looks correct.
+- This version validates the trader's 99% payout. It does not yet store the exact
+  purchase cost of items you actually bought, so it verifies the intended exit
+  price rather than maintaining a historical realized-profit ledger.
+- IMM never accepts, cancels, edits, or submits a trade.
+
+If the live trade layout is not recognized, press "Copy diagnostics" and provide
+that output with a screenshot of the trade page.

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.1
-// @description  Highlights item-market listings that can be resold to 99% market-value traders for a profit.
+// @version      0.2.0
+// @description  Audits item-market margins and verifies 99% trader payouts against live trade manifests.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.1.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.2.0
    *
    * PHASE-ONE SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, and visible listing rows.
@@ -28,12 +28,14 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.1.1',
+    version: '0.2.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
     categoryMark: 'tsimm-category-mark',
     listingMark: 'tsimm-listing-mark',
+    tradeItemMark: 'tsimm-trade-item-mark',
+    tradeBadgeClass: 'tsimm-trade-item-badge',
     apiKeyStorageKey: 'tornscripture-imm-api-key-v1',
     sharedApiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
@@ -52,10 +54,12 @@
     minimumProfitEach: 100,
     minimumRoiPercent: 0.25,
     showLossesDuringTesting: true,
+    tradeSidePreference: 'auto',
+    showTradeItemBreakdown: true,
   });
 
   const state = {
-    settings: loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS),
+    settings: { ...structuredCloneSafe(DEFAULT_SETTINGS), ...loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS) },
     catalog: mergeCatalogCaches(),
     lastScan: emptyScanStats(),
     syncing: false,
@@ -97,7 +101,10 @@
   }
 
   function parseNumber(value) {
-    const cleaned = String(value ?? '').replace(/[^\d.-]/g, '');
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const cleaned = raw.replace(/[^\d.-]/g, '');
+    if (!cleaned || cleaned === '-' || cleaned === '.' || cleaned === '-.') return null;
     const number = Number(cleaned);
     return Number.isFinite(number) ? number : null;
   }
@@ -140,6 +147,22 @@
       listingMinor: 0,
       listingLoss: 0,
       visibleMarketValue: null,
+      tradeSideCandidates: 0,
+      tradeMySide: null,
+      tradeSideSource: null,
+      tradeItemRows: 0,
+      tradeMatchedItems: 0,
+      tradeUnmatchedItems: 0,
+      tradeMarketTotal: 0,
+      tradeTargetTotal: 0,
+      tradeTraderCash: null,
+      tradeMyCash: null,
+      tradeNetCash: null,
+      tradeDifference: null,
+      tradeEffectivePercent: null,
+      tradeStatus: 'not-scanned',
+      tradeItems: [],
+      tradeUnmatched: [],
       notes: [],
     };
   }
@@ -332,6 +355,384 @@
     };
   }
 
+  function manifestTotals(items = []) {
+    const rows = items.filter((item) => Number(item?.quantity) > 0 && Number(item?.marketPrice) > 0);
+    const marketTotal = rows.reduce((sum, item) => sum + Number(item.marketPrice) * Number(item.quantity), 0);
+    // Match the trader's per-item policy exactly: floor each unit to 99%, then multiply by quantity.
+    const targetTotal = rows.reduce((sum, item) => sum + traderPayout(item.marketPrice) * Number(item.quantity), 0);
+    const totalQuantity = rows.reduce((sum, item) => sum + Number(item.quantity), 0);
+    return { marketTotal, targetTotal, totalQuantity, itemTypes: rows.length };
+  }
+
+  function pageLooksLikeTrade() {
+    const href = location.href.toLowerCase();
+    if (href.includes('/trade.php') || href.includes('trade.php')) return true;
+    const bodyText = document.body?.innerText || '';
+    return /\b(?:active\s+)?trade\b/i.test(bodyText)
+      && /\b(?:no items in trade|add items|cancel trade|accept trade|trade with)\b/i.test(bodyText);
+  }
+
+  function visibleElement(element) {
+    if (!(element instanceof Element)) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+  }
+
+  function dedupeNestedElements(elements) {
+    const unique = [...new Set(elements)].filter(visibleElement);
+    return unique.filter((element) => !unique.some((other) => other !== element && element.contains(other)));
+  }
+
+  function tradeItemRowElements(container) {
+    if (!(container instanceof Element)) return [];
+    const selectors = [
+      'li.color2',
+      '[data-group="child"]',
+      '[class*="item___"]',
+      '[data-item-id]',
+      'li[data-item]',
+    ];
+    const rows = selectors.flatMap((selector) => [...container.querySelectorAll(selector)]);
+    const filtered = rows.filter((row) => {
+      if (!visibleElement(row)) return false;
+      if (row.closest(`#${APP.panelId}`)) return false;
+      const text = normalizeWhitespace(row.innerText);
+      if (!text || /no items in trade/i.test(text)) return false;
+      if (/^(?:money|cash|points|property|company|faction)\b/i.test(text)) return false;
+      return Boolean(row.querySelector('img')) || /\bx\s*[\d,]+\b/i.test(text) || /×\s*[\d,]+/.test(text);
+    });
+    return [...new Set(filtered)].filter((row) => !filtered.some((other) => other !== row && row.contains(other)));
+  }
+
+  function tradeSideCandidates() {
+    const explicitSelectors = [
+      '.trade-cont .user.left',
+      '.trade-cont .user.right',
+      '.trade-cont .left.user',
+      '.trade-cont .right.user',
+      '.trade-cont > .user',
+      '.trade-cont [class*="user___"]',
+      '.trade-cont [class*="user_"]',
+      'div.user.left',
+      'div.user.right',
+    ];
+    let candidates = explicitSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]);
+    candidates = [...new Set(candidates)].filter((element) => {
+      if (!visibleElement(element)) return false;
+      const text = normalizeWhitespace(element.innerText);
+      if (!text || text.length > 16000) return false;
+      return tradeItemRowElements(element).length > 0
+        || /no items in trade/i.test(text)
+        || /\b(?:money|cash)\b[^\n]{0,30}\$[\d,]+/i.test(text);
+    });
+
+    if (candidates.length < 2) {
+      const itemRows = [...document.querySelectorAll('li.color2,[data-group="child"],[class*="item___"],li[data-item]')]
+        .filter(visibleElement);
+      for (const row of itemRows) {
+        let node = row.parentElement;
+        for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+          const classText = String(node.className || '').toLowerCase();
+          const text = normalizeWhitespace(node.innerText);
+          if (text.length > 16000) continue;
+          if (/\b(left|right)\b/.test(classText) || /(?:left|right)___/.test(classText)) {
+            candidates.push(node);
+            break;
+          }
+        }
+      }
+    }
+
+    candidates = dedupeNestedElements(candidates);
+    const withMeta = candidates.map((element) => {
+      const rect = element.getBoundingClientRect();
+      const classText = String(element.className || '').toLowerCase();
+      let side = null;
+      if (/\bleft\b|left___|left_/.test(classText)) side = 'left';
+      if (/\bright\b|right___|right_/.test(classText)) side = 'right';
+      return {
+        element,
+        side,
+        rect,
+        heading: tradeSideHeading(element),
+        rowCount: tradeItemRowElements(element).length,
+      };
+    });
+
+    if (withMeta.length > 2) {
+      const explicit = withMeta.filter((candidate) => candidate.side);
+      if (explicit.some((candidate) => candidate.side === 'left') && explicit.some((candidate) => candidate.side === 'right')) {
+        return [
+          explicit.find((candidate) => candidate.side === 'left'),
+          explicit.find((candidate) => candidate.side === 'right'),
+        ];
+      }
+      return withMeta
+        .sort((a, b) => b.rowCount - a.rowCount || a.rect.left - b.rect.left)
+        .slice(0, 2)
+        .sort((a, b) => a.rect.left - b.rect.left)
+        .map((candidate, index) => ({ ...candidate, side: candidate.side || (index === 0 ? 'left' : 'right') }));
+    }
+
+    return withMeta
+      .sort((a, b) => a.rect.left - b.rect.left)
+      .map((candidate, index) => ({ ...candidate, side: candidate.side || (index === 0 ? 'left' : 'right') }));
+  }
+
+  function tradeSideHeading(container) {
+    const selectors = [
+      '.title-black',
+      '[role="heading"]',
+      'h2,h3,h4,h5',
+      '[class*="title___"]',
+      '[class*="header___"]',
+    ];
+    for (const selector of selectors) {
+      const element = container.querySelector(selector);
+      const text = normalizeWhitespace(element?.innerText);
+      if (text && text.length <= 120) return text;
+    }
+    const lines = String(container.innerText || '').split(/\n+/).map(normalizeWhitespace).filter(Boolean);
+    return lines.find((line) => line.length <= 80 && !/^\$[\d,]+$/.test(line)) || '';
+  }
+
+  function currentUsernameCandidates() {
+    const selectors = [
+      'a[class*="menu-value"]',
+      '[class*="menuValue"]',
+      '[class*="userName"] a',
+      '[class*="username"] a',
+      'a[href*="profiles.php?XID="]',
+    ];
+    const names = new Set();
+    for (const selector of selectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (element.closest('.trade-cont') || element.closest(`#${APP.panelId}`)) continue;
+        const text = normalizeWhitespace(element.innerText || element.textContent);
+        if (text && text.length <= 60 && !/^\d+$/.test(text)) names.add(normalizeName(text));
+      }
+    }
+    return [...names].filter(Boolean);
+  }
+
+  function determineMyTradeSide(sides) {
+    const preference = state.settings.tradeSidePreference;
+    if (preference === 'left' || preference === 'right') {
+      const preferred = sides.find((side) => side.side === preference);
+      if (preferred) return { side: preferred, source: `manual ${preference}` };
+    }
+
+    const directYou = sides.find((side) => /\b(?:you|your items|your offer)\b/i.test(side.heading));
+    if (directYou) return { side: directYou, source: 'heading says you' };
+
+    const usernames = currentUsernameCandidates();
+    const usernameMatch = sides.find((side) => usernames.some((username) => normalizeName(side.heading).includes(username)));
+    if (usernameMatch) return { side: usernameMatch, source: 'username heading match' };
+
+    const editable = sides.map((side) => ({
+      side,
+      controls: side.element.querySelectorAll('input,button,select').length,
+      addText: /\b(?:add|remove) items?\b/i.test(side.element.innerText || ''),
+    })).sort((a, b) => Number(b.addText) - Number(a.addText) || b.controls - a.controls);
+    if (editable[0] && (editable[0].addText || editable[0].controls > (editable[1]?.controls || 0))) {
+      return { side: editable[0].side, source: 'editable side' };
+    }
+
+    const left = sides.find((side) => side.side === 'left') || sides[0] || null;
+    return left ? { side: left, source: 'assumed left; verify selector' } : { side: null, source: 'not found' };
+  }
+
+  function itemIdFromTradeRow(row) {
+    const elements = [row, ...row.querySelectorAll('[data-item-id],[data-itemid],[data-item],a[href],img[src]')];
+    for (const element of elements) {
+      for (const value of [
+        element.getAttribute?.('data-item-id'),
+        element.getAttribute?.('data-itemid'),
+        element.getAttribute?.('data-item'),
+        element.getAttribute?.('href'),
+        element.getAttribute?.('src'),
+      ]) {
+        const text = String(value || '');
+        if (/^\d{1,6}$/.test(text)) return Number(text);
+        const match = text.match(/(?:items?\/|item(?:id|ID)?[=/])(\d{1,6})(?:\D|$)/);
+        if (match) return Number(match[1]);
+      }
+    }
+    return null;
+  }
+
+  function parseTradeItemRow(row) {
+    const text = normalizeWhitespace(row.innerText);
+    if (!text || /no items in trade/i.test(text)) return null;
+    const quantityMatch = text.match(/(?:\bx|×)\s*([\d,]+)\b/i);
+    const dataQuantity = parseNumber(
+      row.getAttribute('data-quantity')
+      || row.getAttribute('data-qty')
+      || row.querySelector('[data-quantity],[data-qty]')?.getAttribute('data-quantity')
+      || row.querySelector('[data-quantity],[data-qty]')?.getAttribute('data-qty')
+    );
+    const quantity = Math.max(1, Math.floor(quantityMatch ? parseNumber(quantityMatch[1]) : (dataQuantity || 1)));
+    const selectors = [
+      'div.name',
+      '.name-wrap .t-overflow',
+      '[class*="desc___"] b',
+      '[class*="name___"]',
+      'img[alt]',
+    ];
+    let name = '';
+    for (const selector of selectors) {
+      const element = row.querySelector(selector);
+      const candidate = selector === 'img[alt]'
+        ? normalizeWhitespace(element?.getAttribute('alt'))
+        : normalizeWhitespace(element?.innerText || element?.textContent);
+      if (candidate && !/^(?:money|cash|points)$/i.test(candidate)) {
+        name = candidate;
+        break;
+      }
+    }
+    if (!name) name = text;
+    name = normalizeWhitespace(name
+      .replace(/(?:\bx|×)\s*[\d,]+\b.*$/i, '')
+      .replace(/\$[\d,.]+.*$/i, '')
+      .replace(/\b(?:remove|details?)\b.*$/i, ''));
+    if (!name || /^(?:money|cash|points|property|company|faction)$/i.test(name)) return null;
+    return { row, name, quantity, itemId: itemIdFromTradeRow(row) };
+  }
+
+  function cashFromTradeSide(side) {
+    if (!side?.element) return null;
+    const inputSelectors = [
+      'input[name*="money" i]',
+      'input[id*="money" i]',
+      'input[class*="money" i]',
+      'input[name*="cash" i]',
+    ];
+    for (const selector of inputSelectors) {
+      const input = side.element.querySelector(selector);
+      const value = parseNumber(input?.value);
+      if (Number.isFinite(value)) return value;
+    }
+
+    const leafElements = [...side.element.querySelectorAll('span,div,p,strong,b,li')].filter((element) => {
+      if ([...element.children].some((child) => /\$[\d,]+/.test(child.innerText || ''))) return false;
+      return true;
+    });
+    for (const element of leafElements) {
+      const text = normalizeWhitespace(element.innerText);
+      if (!/\b(?:money|cash)\b/i.test(text)) continue;
+      const match = text.match(/\$\s*([\d,]+)/) || text.match(/\b(?:money|cash)\b\s*:?-?\s*([\d,]+)/i);
+      const value = match ? parseNumber(match[1]) : null;
+      if (Number.isFinite(value)) return value;
+    }
+    return null;
+  }
+
+  function clearTradeAnnotations() {
+    document.querySelectorAll(`.${APP.tradeBadgeClass}`).forEach((element) => element.remove());
+    document.querySelectorAll(`.${APP.tradeItemMark}`).forEach((element) => element.classList.remove(APP.tradeItemMark));
+  }
+
+  function addTradeItemBadge(item) {
+    if (!state.settings.showTradeItemBreakdown || !item?.row || !item.catalog) return;
+    const badge = document.createElement('span');
+    badge.className = APP.tradeBadgeClass;
+    badge.dataset.tsimmGenerated = 'true';
+    const marketTotal = item.catalog.marketPrice * item.quantity;
+    const targetTotal = traderPayout(item.catalog.marketPrice) * item.quantity;
+    badge.innerHTML = `<strong>99% ${escapeHtml(formatMoney(targetTotal))}</strong>`
+      + `<span>MV ${escapeHtml(formatMoney(marketTotal))} · ${escapeHtml(formatInteger(item.quantity))} qty</span>`;
+    item.row.classList.add(APP.tradeItemMark);
+    item.row.appendChild(badge);
+  }
+
+  function scanTrade(stats) {
+    const sides = tradeSideCandidates();
+    stats.tradeSideCandidates = sides.length;
+    if (sides.length < 2) {
+      stats.tradeStatus = 'incomplete';
+      stats.notes.push('Trade sides were not recognized. Copy diagnostics from the live trade page.');
+      return;
+    }
+
+    const myResolution = determineMyTradeSide(sides);
+    const mySide = myResolution.side;
+    const otherSide = sides.find((side) => side !== mySide) || null;
+    stats.tradeMySide = mySide?.side || null;
+    stats.tradeSideSource = myResolution.source;
+    if (!mySide || !otherSide) {
+      stats.tradeStatus = 'incomplete';
+      stats.notes.push('Could not determine both sides of the trade.');
+      return;
+    }
+
+    const parsed = tradeItemRowElements(mySide.element).map(parseTradeItemRow).filter(Boolean);
+    stats.tradeItemRows = parsed.length;
+    const matched = [];
+    const unmatched = [];
+    for (const item of parsed) {
+      const catalog = catalogItemFor(item.name, item.itemId);
+      if (catalog) {
+        const enriched = { ...item, catalog };
+        matched.push(enriched);
+        addTradeItemBadge(enriched);
+      } else {
+        unmatched.push({ name: item.name, quantity: item.quantity, itemId: item.itemId });
+      }
+    }
+    const totals = manifestTotals(matched.map((item) => ({
+      quantity: item.quantity,
+      marketPrice: item.catalog.marketPrice,
+    })));
+    const traderCash = cashFromTradeSide(otherSide);
+    const myCash = cashFromTradeSide(mySide);
+    const netCash = Number.isFinite(traderCash)
+      ? traderCash - (Number.isFinite(myCash) ? myCash : 0)
+      : null;
+    const difference = Number.isFinite(netCash) ? netCash - totals.targetTotal : null;
+    const effectivePercent = Number.isFinite(netCash) && totals.marketTotal > 0
+      ? netCash / totals.marketTotal * 100
+      : null;
+
+    stats.tradeMatchedItems = matched.length;
+    stats.tradeUnmatchedItems = unmatched.length;
+    stats.tradeMarketTotal = totals.marketTotal;
+    stats.tradeTargetTotal = totals.targetTotal;
+    stats.tradeTraderCash = traderCash;
+    stats.tradeMyCash = myCash;
+    stats.tradeNetCash = netCash;
+    stats.tradeDifference = difference;
+    stats.tradeEffectivePercent = effectivePercent;
+    stats.tradeItems = matched.map((item) => ({
+      name: item.catalog.name,
+      quantity: item.quantity,
+      marketPrice: item.catalog.marketPrice,
+      marketTotal: item.catalog.marketPrice * item.quantity,
+      targetEach: traderPayout(item.catalog.marketPrice),
+      targetTotal: traderPayout(item.catalog.marketPrice) * item.quantity,
+    }));
+    stats.tradeUnmatched = unmatched;
+
+    if (!parsed.length) {
+      stats.tradeStatus = 'empty';
+      stats.notes.push('No manifested items were found on your selected side.');
+    } else if (unmatched.length) {
+      stats.tradeStatus = 'incomplete';
+      stats.notes.push(`${unmatched.length} trade item${unmatched.length === 1 ? '' : 's'} could not be priced, so the total is incomplete.`);
+    } else if (!Number.isFinite(traderCash)) {
+      stats.tradeStatus = 'pending';
+      stats.notes.push('Your 99% target is ready; no cash offer was detected on the trader side yet.');
+    } else if (difference >= 0) {
+      stats.tradeStatus = 'good';
+    } else {
+      stats.tradeStatus = 'loss';
+    }
+
+    if (/assumed left/i.test(myResolution.source)) {
+      stats.notes.push('IMM assumed your items are on the left. Use the Trade side selector to verify or override it.');
+    }
+  }
+
   function ownText(element) {
     if (!(element instanceof Element)) return '';
     return normalizeWhitespace([...element.childNodes]
@@ -510,6 +911,7 @@
   }
 
   function clearAnnotations() {
+    clearTradeAnnotations();
     document.querySelectorAll(`.${APP.badgeClass}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${APP.categoryMark}`).forEach((element) => {
       element.classList.remove(APP.categoryMark, 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss');
@@ -582,24 +984,30 @@
   }
 
   function detectPageType(stats) {
+    if (stats.tradeSideCandidates) return 'trade';
     if (stats.visibleMarketValue && stats.listingCandidates) return 'item listings';
     if (stats.categoryCandidates) return 'category';
     return 'unknown';
   }
 
   function scanPage() {
-    if (!pageLooksLikeItemMarket()) {
+    const isItemMarket = pageLooksLikeItemMarket();
+    const isTrade = pageLooksLikeTrade();
+    if (!isItemMarket && !isTrade) {
       clearAnnotations();
       document.getElementById(APP.panelId)?.remove();
       state.lastScan = emptyScanStats();
-      state.lastScan.notes.push('Waiting for the Item Market page.');
+      state.lastScan.notes.push('Waiting for the Item Market or Trade page.');
       return;
     }
     clearAnnotations();
     const stats = emptyScanStats();
-    scanCategory(stats);
-    scanListings(stats);
-    stats.pageType = detectPageType(stats);
+    if (isItemMarket) {
+      scanCategory(stats);
+      scanListings(stats);
+    }
+    if (isTrade) scanTrade(stats);
+    stats.pageType = isTrade ? 'trade' : detectPageType(stats);
     stats.scannedAt = new Date().toISOString();
     if (!catalogCount()) stats.notes.push('No catalog values cached. Press Sync values.');
     if (stats.categoryCandidates && !stats.categoryMatched) {
@@ -645,6 +1053,27 @@
       priceTag: item.priceElement.tagName,
       priceClass: item.priceElement.className,
     }));
+    const tradeSides = pageLooksLikeTrade() ? tradeSideCandidates() : [];
+    const tradeSample = tradeSides.map((side) => ({
+      side: side.side,
+      heading: side.heading,
+      rowCount: tradeItemRowElements(side.element).length,
+      cash: cashFromTradeSide(side),
+      tag: side.element.tagName,
+      className: side.element.className,
+      itemRows: tradeItemRowElements(side.element).slice(0, 8).map((row) => {
+        const parsed = parseTradeItemRow(row);
+        return parsed ? {
+          name: parsed.name,
+          quantity: parsed.quantity,
+          itemId: parsed.itemId,
+          catalogMatch: Boolean(catalogItemFor(parsed.name, parsed.itemId)),
+          tag: row.tagName,
+          className: row.className,
+          text: normalizeWhitespace(row.innerText).slice(0, 180),
+        } : null;
+      }).filter(Boolean),
+    }));
     return {
       app: `${APP.name} v${APP.version}`,
       url: location.href,
@@ -656,10 +1085,13 @@
         traderPercent: TRADER_PERCENT,
         payoutFormula: 'floor(marketValue * 0.99)',
         profitFormula: 'traderPayout - listingPrice',
+        manifestFormula: 'sum(floor(itemMarketValue * 0.99) * quantity)',
+        tradeDifferenceFormula: 'otherSideCash - mySideCash - manifestTarget',
       },
       lastScan: state.lastScan,
       categorySample,
       listingSample,
+      tradeSample,
     };
   }
 
@@ -710,9 +1142,60 @@
       .tsimm-badge-listing{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
       .${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
       .${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
+      .${APP.tradeItemMark}{position:relative;min-height:38px}      .${APP.tradeBadgeClass}{display:inline-flex;flex-direction:column;gap:1px;margin:3px 0 3px 6px;padding:3px 5px;border:1px solid #bd6cff;border-radius:7px;background:#19171dcc;color:#d9a6ff;font:700 10px/1.15 Arial,sans-serif;vertical-align:middle;white-space:nowrap;pointer-events:none}
+      .${APP.tradeBadgeClass} span{font-size:8px;font-weight:600;color:#c9c2d0}
+      .tsimm-trade-card{margin:8px 0;padding:8px;border:1px solid #50485c;border-radius:9px;background:#242129}.tsimm-trade-card.tsimm-trade-good{border-color:#44d88b;color:#eafff2}.tsimm-trade-card.tsimm-trade-loss{border-color:#ff626d;color:#fff0f1}.tsimm-trade-card.tsimm-trade-pending,.tsimm-trade-card.tsimm-trade-incomplete{border-color:#bd6cff;color:#f4e8ff}
+      .tsimm-trade-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}.tsimm-trade-title strong{font-size:13px}.tsimm-trade-title span{font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+      .tsimm-trade-grid{display:grid;grid-template-columns:1fr auto;gap:4px 8px;align-items:center}.tsimm-trade-grid span{color:#bfb7c8}.tsimm-trade-grid strong{text-align:right}.tsimm-trade-diff-good{color:#63df9f}.tsimm-trade-diff-loss{color:#ff7c85}.tsimm-trade-diff-pending{color:#d6a0ff}
+      .tsimm-trade-items{margin-top:7px;padding-top:6px;border-top:1px solid #47404f;max-height:118px;overflow:auto}.tsimm-trade-item-line{display:grid;grid-template-columns:1fr auto;gap:6px;padding:2px 0;font-size:10px}.tsimm-trade-item-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-unmatched{color:#ff9ba2}
+      .tsimm-controls select{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}
       #tsimm-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:2147483647;padding:8px 11px;border-radius:8px;background:#17151b;color:#fff;border:1px solid #655d70;box-shadow:0 6px 20px #0009;font:12px Arial,sans-serif}
     `;
     document.head.appendChild(style);
+  }
+
+  function tradeSummaryHtml(stats) {
+    if (stats.pageType !== 'trade') return '';
+    const status = stats.tradeStatus || 'incomplete';
+    const statusLabel = {
+      good: '99% protected',
+      loss: 'under target',
+      pending: 'awaiting cash',
+      incomplete: 'incomplete',
+      empty: 'no items',
+    }[status] || status;
+    const netCashText = Number.isFinite(stats.tradeNetCash) ? formatMoney(stats.tradeNetCash) : 'Not detected';
+    const diffClass = status === 'good'
+      ? 'tsimm-trade-diff-good'
+      : status === 'loss'
+        ? 'tsimm-trade-diff-loss'
+        : 'tsimm-trade-diff-pending';
+    const differenceText = Number.isFinite(stats.tradeDifference)
+      ? `${stats.tradeDifference >= 0 ? '+' : ''}${formatMoney(stats.tradeDifference)}`
+      : 'Pending';
+    const effectiveText = Number.isFinite(stats.tradeEffectivePercent)
+      ? formatPercent(stats.tradeEffectivePercent)
+      : 'Pending';
+    const itemLines = state.settings.showTradeItemBreakdown
+      ? [
+          ...stats.tradeItems.map((item) => `<div class="tsimm-trade-item-line"><span>${escapeHtml(item.name)} × ${escapeHtml(formatInteger(item.quantity))}</span><strong>${escapeHtml(formatMoney(item.targetTotal))}</strong></div>`),
+          ...stats.tradeUnmatched.map((item) => `<div class="tsimm-trade-item-line tsimm-trade-unmatched"><span>Unmatched: ${escapeHtml(item.name)} × ${escapeHtml(formatInteger(item.quantity))}</span><strong>?</strong></div>`),
+        ].join('')
+      : '';
+    return `
+      <div class="tsimm-trade-card tsimm-trade-${escapeHtml(status)}">
+        <div class="tsimm-trade-title"><strong>🤝 Trade manifest</strong><span>${escapeHtml(statusLabel)}</span></div>
+        <div class="tsimm-trade-grid">
+          <span>Your item types</span><strong>${formatInteger(stats.tradeMatchedItems)}${stats.tradeUnmatchedItems ? ` + ${formatInteger(stats.tradeUnmatchedItems)} unmatched` : ''}</strong>
+          <span>Full market value</span><strong>${formatMoney(stats.tradeMarketTotal)}</strong>
+          <span>Required 99% payout</span><strong>${formatMoney(stats.tradeTargetTotal)}</strong>
+          <span>Trader cash minus your cash</span><strong>${escapeHtml(netCashText)}</strong>
+          <span>Difference from target</span><strong class="${diffClass}">${escapeHtml(differenceText)}</strong>
+          <span>Effective payout</span><strong>${escapeHtml(effectiveText)}</strong>
+        </div>
+        ${itemLines ? `<div class="tsimm-trade-items">${itemLines}</div>` : ''}
+      </div>
+    `;
   }
 
   function renderPanel() {
@@ -725,12 +1208,40 @@
     }
     panel.classList.toggle('tsimm-collapsed', Boolean(state.settings.collapsed));
     const stats = state.lastScan;
+    const isTrade = stats.pageType === 'trade';
     const goodCount = stats.categoryGood + stats.listingGood;
     const minorCount = stats.categoryMinor + stats.listingMinor;
     const lossCount = stats.categoryLoss + stats.listingLoss;
     const matchedCount = stats.categoryMatched + stats.listingMatched;
     const notes = stats.notes.length
       ? stats.notes.map((note) => `<div class="tsimm-note">${escapeHtml(note)}</div>`).join('')
+      : '';
+    const statusHtml = isTrade
+      ? `<div class="tsimm-status">
+          <div class="tsimm-stat"><strong>${formatInteger(stats.tradeMatchedItems)}</strong><span>priced</span></div>
+          <div class="tsimm-stat"><strong class="${stats.tradeUnmatchedItems ? 'tsimm-loss-text' : ''}">${formatInteger(stats.tradeUnmatchedItems)}</strong><span>unmatched</span></div>
+          <div class="tsimm-stat"><strong>${formatInteger(stats.tradeSideCandidates)}</strong><span>sides</span></div>
+          <div class="tsimm-stat"><strong>${escapeHtml(stats.tradeMySide || '?')}</strong><span>your side</span></div>
+        </div>`
+      : `<div class="tsimm-status">
+          <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
+          <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
+          <div class="tsimm-stat"><strong class="tsimm-loss-text">${lossCount}</strong><span>red</span></div>
+          <div class="tsimm-stat"><strong>${matchedCount}</strong><span>matched</span></div>
+        </div>`;
+    const marketControls = !isTrade
+      ? `<div class="tsimm-controls"><label>Green profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.minimumProfitEach)}" data-tsimm-setting="minimumProfitEach"></div>
+        <div class="tsimm-controls"><label>Green minimum ROI %</label><input type="number" min="0" step="0.01" value="${escapeHtml(state.settings.minimumRoiPercent)}" data-tsimm-setting="minimumRoiPercent"></div>
+        <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showLossesDuringTesting" ${state.settings.showLossesDuringTesting ? 'checked' : ''}> Show red non-profitable items</label>`
+      : '';
+    const tradeControls = isTrade
+      ? `<div class="tsimm-controls"><label>Your trade side</label><select data-tsimm-setting="tradeSidePreference">
+          <option value="auto" ${state.settings.tradeSidePreference === 'auto' ? 'selected' : ''}>Auto detect</option>
+          <option value="left" ${state.settings.tradeSidePreference === 'left' ? 'selected' : ''}>Left</option>
+          <option value="right" ${state.settings.tradeSidePreference === 'right' ? 'selected' : ''}>Right</option>
+        </select></div>
+        <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showTradeItemBreakdown" ${state.settings.showTradeItemBreakdown ? 'checked' : ''}> Show per-item 99% totals</label>
+        <div class="tsimm-muted">Side detection: ${escapeHtml(stats.tradeSideSource || 'not resolved')}</div>`
       : '';
     panel.innerHTML = `
       <div class="tsimm-head">
@@ -739,22 +1250,17 @@
         <button type="button" data-tsimm-action="toggle">${state.settings.collapsed ? '+' : '−'}</button>
       </div>
       <div class="tsimm-body">
-        <div class="tsimm-status">
-          <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
-          <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
-          <div class="tsimm-stat"><strong class="tsimm-loss-text">${lossCount}</strong><span>red</span></div>
-          <div class="tsimm-stat"><strong>${matchedCount}</strong><span>matched</span></div>
-        </div>
+        ${statusHtml}
         <div class="tsimm-muted">Catalog: ${formatInteger(catalogCount())} values${catalogIsFresh() ? ' · fresh' : ''}</div>
-        <div class="tsimm-note">Profit base: floor(Market Value × 99%)</div>
+        <div class="tsimm-note">Profit base: floor(Market Value × 99%) per item</div>
+        ${tradeSummaryHtml(stats)}
         <div class="tsimm-actions">
           <button class="tsimm-btn tsimm-btn-primary" type="button" data-tsimm-action="sync" ${state.syncing ? 'disabled' : ''}>${state.syncing ? 'Syncing…' : 'Sync values'}</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="scan">Scan page</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="diagnostics">Copy diagnostics</button>
         </div>
-        <div class="tsimm-controls"><label>Green profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.minimumProfitEach)}" data-tsimm-setting="minimumProfitEach"></div>
-        <div class="tsimm-controls"><label>Green minimum ROI %</label><input type="number" min="0" step="0.01" value="${escapeHtml(state.settings.minimumRoiPercent)}" data-tsimm-setting="minimumRoiPercent"></div>
-        <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showLossesDuringTesting" ${state.settings.showLossesDuringTesting ? 'checked' : ''}> Show red non-profitable items</label>
+        ${tradeControls}
+        ${marketControls}
         ${notes}
       </div>
     `;
@@ -779,9 +1285,16 @@
       const input = event.target.closest('[data-tsimm-setting]');
       if (!input) return;
       const key = input.dataset.tsimmSetting;
-      const value = input.type === 'checkbox' ? input.checked : Math.max(0, Number(input.value) || 0);
+      let value;
+      if (input.type === 'checkbox') value = input.checked;
+      else if (key === 'tradeSidePreference') value = ['auto', 'left', 'right'].includes(input.value) ? input.value : 'auto';
+      else value = Math.max(0, Number(input.value) || 0);
       updateSetting(key, value);
     });
+    document.addEventListener('input', (event) => {
+      if (event.target.closest(`#${APP.panelId}`)) return;
+      if (pageLooksLikeTrade()) scheduleScan(180);
+    }, true);
   }
 
   function toast(message) {
@@ -796,16 +1309,22 @@
   function bindObserver() {
     if (state.observer) return;
     state.observer = new MutationObserver((mutations) => {
-      const meaningful = mutations.some((mutation) =>
-        [...mutation.addedNodes].some((node) =>
-          node.nodeType === Node.ELEMENT_NODE
-          && !node.matches?.(`#${APP.panelId}, .${APP.badgeClass}, [data-tsimm-generated]`)
-          && !node.closest?.(`#${APP.panelId}`)
-        )
-      );
+      const meaningful = mutations.some((mutation) => {
+        if (mutation.type === 'characterData') {
+          const parent = mutation.target.parentElement;
+          return parent && !parent.closest(`#${APP.panelId}, [data-tsimm-generated]`);
+        }
+        if (mutation.target instanceof Element && mutation.target.closest(`#${APP.panelId}, [data-tsimm-generated]`)) return false;
+        return [...mutation.addedNodes].some((node) => {
+          if (node.nodeType === Node.TEXT_NODE) return Boolean(normalizeWhitespace(node.textContent));
+          return node.nodeType === Node.ELEMENT_NODE
+            && !node.matches?.(`#${APP.panelId}, .${APP.badgeClass}, .${APP.tradeBadgeClass}, [data-tsimm-generated]`)
+            && !node.closest?.(`#${APP.panelId}`);
+        });
+      });
       if (meaningful) scheduleScan();
     });
-    state.observer.observe(document.body, { childList: true, subtree: true });
+    state.observer.observe(document.body, { childList: true, characterData: true, subtree: true });
   }
 
   function initialize() {
@@ -831,6 +1350,7 @@
       normalizeCatalog,
       marginFor,
       traderPayout,
+      manifestTotals,
     };
   }
 })();
