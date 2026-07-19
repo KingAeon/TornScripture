@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.6.0
+// @version      0.6.1
 // @description  Item-market and overseas profit overlays, load planning, 99% trade verification, purchase lots, trader profiles, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.6.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.6.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
@@ -30,7 +30,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.6.0',
+    version: '0.6.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -896,18 +896,33 @@
     const href = String(location.href || '').toLowerCase();
     if (href.includes('itemmarket') || href.includes('item-market') || href.includes('imarket')) return false;
     const bodyText = normalizeWhitespace(document.body?.innerText || '');
-    const routeMatch = href.includes('foreignshop')
+    const routeMatch = href.includes('shops.php')
+      || href.includes('foreignshop')
       || href.includes('travelshop')
       || href.includes('abroad');
-    const shopInputs = Boolean(document.querySelector(
-      'input[name="amount"],input[name*="buyAmount"],input[id^="item"],button[data-item],[data-item] input'
+    const purchaseControls = Boolean(document.querySelector(
+      'input[name="amount"],input[name*="buyAmount"],input[id^="item"],button[data-item],[data-item] input,'
+      + 'a[href*="buy"],button[class*="buy"],[class*="buy"] button,[class*="cart"],[data-action*="buy"],'
+      + '[aria-label*="buy" i],[title*="buy" i]'
     ));
     const foreignMarkers = /\b(?:items?\s+carried|travel\s+capacity|luggage|overseas|abroad|foreign\s+shop)\b/i.test(bodyText);
-    const countryMarker = /\b(?:Mexico|Cayman Islands|Canada|Hawaii|United Kingdom|Argentina|Switzerland|Japan|China|United Arab Emirates|South Africa)\b/i.test(
-      `${document.title || ''} ${[...document.querySelectorAll('h1,h2,h3,h4,h5,[class*=title]')].map((element) => element.textContent || '').join(' ')}`
+    const countryMarker = /\b(?:Mexico|Cayman Islands|Canada|Hawaii|United Kingdom|Argentina|Switzerland|Japan|China|United Arab Emirates|South Africa|MEX|CAY|CAN|HAW|UNI|ARG|SWI|JAP|CHI|UAE|SAF)\b/i.test(
+      `${document.title || ''} ${[...document.querySelectorAll('h1,h2,h3,h4,h5,[class*=title],[class*=country],[class*=travel]')].map((element) => element.textContent || '').join(' ')}`
     );
+    const shopTableMarkers = /\bGeneral Store\b/i.test(bodyText)
+      && /\bStock\b/i.test(bodyText)
+      && /\bCost\b/i.test(bodyText)
+      && /\bBuy\b/i.test(bodyText);
+    const dealerMarkers = /\b(?:Arms Dealer|Black Market|Pharmacy|Flower Shop|Souvenir Shop)\b/i.test(bodyText);
+    const visibleShopRow = [...document.querySelectorAll('tr,[class*="shop"],[class*="item"]')].some((row) => {
+      if (!(row instanceof Element) || row.closest(`#${APP.panelId}`)) return false;
+      const text = normalizeWhitespace(row.innerText || row.textContent);
+      return /\$[\d,.]+/.test(text) && Boolean(row.querySelector('img'));
+    });
     const visiblePrices = /\$[\d,.]+/.test(bodyText);
-    return visiblePrices && shopInputs && (routeMatch || foreignMarkers || countryMarker);
+    return visiblePrices
+      && (purchaseControls || shopTableMarkers || visibleShopRow)
+      && (routeMatch || foreignMarkers || countryMarker || (shopTableMarkers && dealerMarkers));
   }
 
   function overseasCountryFromPage() {
@@ -915,6 +930,8 @@
       'h1,h2,h3,h4,h5',
       '[class*="title"]',
       '[class*="header"]',
+      '[class*="country"]',
+      '[class*="travel"]',
       '[data-country]',
     ];
     const known = [
@@ -926,11 +943,30 @@
       .map((element) => normalizeWhitespace(element.getAttribute?.('data-country') || element.textContent))
       .filter(Boolean);
     chunks.push(normalizeWhitespace(document.title || ''));
+    chunks.push(normalizeWhitespace(document.body?.innerText || '').slice(0, 6000));
     for (const chunk of chunks) {
       const match = known.find((country) => new RegExp(`\\b${escapeRegExp(country)}\\b`, 'i').test(chunk));
       if (match) return match;
     }
-    const generic = chunks.join(' ').match(/(?:shop|market|items?)\s+(?:in|at)\s+([A-Z][A-Za-z .'-]{2,40})/i);
+    const countryCodes = {
+      MEX: 'Mexico',
+      CAY: 'Cayman Islands',
+      CAN: 'Canada',
+      HAW: 'Hawaii',
+      UNI: 'United Kingdom',
+      UK: 'United Kingdom',
+      ARG: 'Argentina',
+      SWI: 'Switzerland',
+      JAP: 'Japan',
+      CHI: 'China',
+      UAE: 'United Arab Emirates',
+      SAF: 'South Africa',
+    };
+    const joined = chunks.join(' ');
+    for (const [code, country] of Object.entries(countryCodes)) {
+      if (new RegExp(`(?:^|[^A-Za-z])${escapeRegExp(code)}(?:$|[^A-Za-z])`, 'i').test(joined)) return country;
+    }
+    const generic = joined.match(/(?:shop|market|items?)\s+(?:in|at)\s+([A-Z][A-Za-z .'-]{2,40})/i);
     return normalizeWhitespace(generic?.[1] || '');
   }
 
@@ -961,7 +997,7 @@
       const prices = countMatches(text, /\$[\d,.]+/g);
       const hasImage = Boolean(node.querySelector('img'));
       const hasPurchaseControl = Boolean(node.querySelector(
-        'input[name="amount"],input[name*="buyAmount"],input[id^="item"],button,[role="button"]'
+        'input[name="amount"],input[name*="buyAmount"],input[id^="item"],button,[role="button"],a[href*="buy"],[class*="buy"],[class*="cart"],[data-action*="buy"]'
       ));
       if (prices < 1 || prices > 3 || (!hasImage && !hasPurchaseControl)) continue;
       best = node;
