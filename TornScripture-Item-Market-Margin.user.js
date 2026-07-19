@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.5.1
-// @description  Fast item-market margin overlays, 99% trade verification, purchase lots, trader profiles, and receipt audits.
+// @version      0.5.2
+// @description  Fast and resilient item-market overlays, 99% trade verification, purchase lots, trader profiles, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.5.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.5.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
@@ -30,7 +30,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.5.1',
+    version: '0.5.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -1785,14 +1785,22 @@
   }
 
   function exactTextElements(regex, selector = 'span,div,p,strong,b') {
+    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},.${APP.badgeClass},[data-tsimm-generated]`;
     return [...document.querySelectorAll(selector)].filter((element) => {
-      if (element.closest(`#${APP.panelId}`) || element.closest(`.${APP.badgeClass}`)) return false;
-      const text = normalizeWhitespace(ownText(element) || element.innerText);
+      if (element.closest(ignored)) return false;
+      const text = normalizeWhitespace(ownText(element) || element.innerText || element.textContent);
       if (!regex.test(text)) return false;
       return ![...element.children]
         .filter((child) => !child.matches?.(`.${APP.badgeClass},[data-tsimm-generated]`))
-        .some((child) => regex.test(normalizeWhitespace(ownText(child) || child.innerText)));
+        .some((child) => regex.test(normalizeWhitespace(ownText(child) || child.innerText || child.textContent)));
     });
+  }
+
+  function marketTextElements(regex, selector = 'span,div,p,strong,b') {
+    const direct = directTextElements(selector).filter((element) =>
+      regex.test(normalizeWhitespace(ownText(element)))
+    );
+    return direct.length ? direct : exactTextElements(regex, selector);
   }
 
   function countMatches(text, regex) {
@@ -1861,11 +1869,9 @@
     const candidates = [];
     const seen = new Set();
     const categoryPriceRegex = /^\$[\d,.]+\s*\([\d,]+\)$/;
-    const priceElements = directTextElements().filter((element) =>
-      categoryPriceRegex.test(normalizeWhitespace(ownText(element)))
-    );
+    const priceElements = marketTextElements(categoryPriceRegex);
     for (const priceElement of priceElements) {
-      const priceText = normalizeWhitespace(ownText(priceElement));
+      const priceText = normalizeWhitespace(ownText(priceElement) || priceElement.innerText || priceElement.textContent);
       const match = priceText.match(/^\$([\d,.]+)\s*\(([\d,]+)\)$/);
       if (!match) continue;
       const card = priceElement.closest(`.${APP.categoryMark}`) || findCategoryCard(priceElement);
@@ -1885,11 +1891,9 @@
   }
 
   function findVisibleMarketValue() {
-    const elements = directTextElements().filter((element) =>
-      /^Value:\s*\$[\d,.]+$/i.test(normalizeWhitespace(ownText(element)))
-    );
+    const elements = marketTextElements(/^Value:\s*\$[\d,.]+$/i);
     for (const element of elements) {
-      const text = normalizeWhitespace(ownText(element));
+      const text = normalizeWhitespace(ownText(element) || element.innerText || element.textContent);
       const match = text.match(/^Value:\s*\$([\d,.]+)$/i);
       if (match) return parseNumber(match[1]);
     }
@@ -2027,13 +2031,11 @@
   function listingCandidates() {
     const candidates = [];
     const seen = new Set();
-    const priceElements = directTextElements().filter((element) =>
-      /^\$[\d,.]+$/.test(normalizeWhitespace(ownText(element)))
-    );
+    const priceElements = marketTextElements(/^\$[\d,.]+$/);
     for (const priceElement of priceElements) {
       const row = priceElement.closest(`.${APP.listingMark}`) || findListingRow(priceElement);
       if (!row || seen.has(row)) continue;
-      const price = parseNumber(normalizeWhitespace(ownText(priceElement)));
+      const price = parseNumber(normalizeWhitespace(ownText(priceElement) || priceElement.innerText || priceElement.textContent));
       const quantity = extractListingQuantity(row, priceElement);
       if (!Number.isFinite(price) || !Number.isFinite(quantity) || quantity <= 0) continue;
       seen.add(row);
@@ -2171,6 +2173,7 @@
   function scanListings(stats, scanToken) {
     const candidates = listingCandidates();
     stats.listingCandidates = candidates.length;
+    if (!candidates.length) return;
 
     const resolution = resolveListingMarketValue();
     stats.visibleMarketValue = resolution.visibleValue;

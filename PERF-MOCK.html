@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Item Market</title></head>
+<body>
+  <h2>Item Market</h2>
+  <h3>Peony</h3>
+  <div class="marketRows" id="rows"></div>
+  <div id="noise">quiet</div>
+  <pre id="test-result">pending</pre>
+  <script>
+    localStorage.setItem('tornscripture-imm-catalog-v1', JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      items: { '123': { id: 123, name: 'Peony', marketPrice: 51946 } }
+    }));
+    const rows = document.getElementById('rows');
+    function addRow(i, price = 50000 + i) {
+      const row = document.createElement('li');
+      row.className = 'rowWrapper___e7d3R';
+      row.innerHTML = `<div class="owner">Trader${i}</div><div class="price___rdqzz">$${price.toLocaleString()}</div><div class="qty">${i + 1}</div><div class="buy">cart</div>`;
+      rows.appendChild(row);
+    }
+    for (let i = 0; i < 26; i++) addRow(i);
+    window.__testStart = performance.now();
+  </script>
+  <script src="TornScripture-Item-Market-Margin.user.js"></script>
+  <script>
+    let firstBadgeMs = null;
+    const poll = setInterval(() => {
+      const count = document.querySelectorAll('.tsimm-margin-badge.tsimm-badge-listing').length;
+      if (count && firstBadgeMs === null) firstBadgeMs = Math.round(performance.now() - window.__testStart);
+    }, 5);
+
+    let noiseTick = 0;
+    const noiseTimer = setInterval(() => {
+      document.getElementById('noise').firstChild.textContent = `background noise ${++noiseTick}`;
+      if (noiseTick >= 20) clearInterval(noiseTimer);
+    }, 20);
+
+    setTimeout(() => addRow(26, 49000), 220);
+    setTimeout(() => {
+      clearInterval(poll);
+      const badges = [...document.querySelectorAll('.tsimm-margin-badge.tsimm-badge-listing')];
+      const rowsMarked = document.querySelectorAll('.tsimm-listing-mark').length;
+      const result = {
+        firstBadgeMs,
+        badges: badges.length,
+        uniqueBadgeParents: new Set(badges.map(b => b.parentElement)).size,
+        rowsMarked,
+        panelVersion: document.querySelector('#tornscripture-imm-panel small')?.textContent || '',
+        pageType: document.querySelector('#tornscripture-imm-panel .tsimm-head small')?.textContent || ''
+      };
+      document.getElementById('test-result').textContent = JSON.stringify(result);
+    }, 1100);
+  </script>
+</body>
+</html>
