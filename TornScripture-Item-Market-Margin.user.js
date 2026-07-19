@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.4.1
-// @description  Audits item-market margins, verifies 99% trade payouts, tracks purchase lots and sales, and captures trader profiles into a local directory.
+// @version      0.5.0
+// @description  Audits item-market margins, verifies 99% trade payouts, tracks purchase lots and sales, captures trader profiles, and audits receipts.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,21 +15,22 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.4.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.5.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
    * - Torn catalog values are requested only when the user presses Sync values.
-   * - The API key, catalog cache, pending purchase, purchase lots, and sale history remain in this browser's local storage.
+   * - The API key, catalog cache, pending purchase, purchase lots, sale history, trader book, and receipt audits remain in this browser's local storage.
    * - The key is sent only to Torn's official API.
    * - Purchase capture begins only after the user presses Torn's normal confirmation button.
-   * - Completed trade sales only update local lot quantities; the script never clicks Buy, submits purchases, lists items, or sells items.
+   * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
+   * - The script never clicks Buy, submits purchases, lists items, or sells items.
    */
 
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.4.1',
+    version: '0.5.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -39,6 +40,7 @@
     tradeBadgeClass: 'tsimm-trade-item-badge',
     ledgerOverlayId: 'tornscripture-imm-ledger',
     traderOverlayId: 'tornscripture-imm-traders',
+    receiptAuditOverlayId: 'tornscripture-imm-receipt-audit',
     apiKeyStorageKey: 'tornscripture-imm-api-key-v1',
     sharedApiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
@@ -83,6 +85,7 @@
     observer: null,
     initialized: false,
     networkObserversBound: false,
+    receiptAuditDraft: null,
   };
 
   function structuredCloneSafe(value) {
@@ -167,6 +170,74 @@
     saveJson(APP.tradersStorageKey, state.traders);
   }
 
+  function normalizeReceiptAuditItem(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const itemName = normalizeWhitespace(candidate.itemName ?? candidate.name);
+    const quantity = Math.max(0, Math.floor(Number(candidate.quantity ?? candidate.qty) || 0));
+    if (!itemName || quantity <= 0) return null;
+    const unitPrice = Math.max(0, Number(candidate.unitPrice ?? candidate.price ?? candidate.priceUsed) || 0);
+    const totalValue = Math.max(0, Number(candidate.totalValue ?? candidate.total ?? candidate.totalPrice) || (unitPrice * quantity));
+    const status = ['gold', 'green', 'purple', 'red', 'gray'].includes(candidate.status)
+      ? candidate.status
+      : 'gray';
+    return {
+      itemId: Number(candidate.itemId) > 0 ? Number(candidate.itemId) : null,
+      itemName,
+      normalizedName: normalizeName(itemName),
+      quantity,
+      unitPrice: unitPrice || (quantity > 0 ? totalValue / quantity : 0),
+      totalValue,
+      matchedSaleItemName: normalizeWhitespace(candidate.matchedSaleItemName),
+      saleQuantity: Math.max(0, Math.floor(Number(candidate.saleQuantity) || 0)),
+      expectedTarget: Math.max(0, Number(candidate.expectedTarget) || 0),
+      costBasis: Math.max(0, Number(candidate.costBasis) || 0),
+      profit: optionalFiniteNumber(candidate.profit),
+      quantityDifference: Number(candidate.quantityDifference) || 0,
+      targetDifference: optionalFiniteNumber(candidate.targetDifference),
+      status,
+      note: normalizeWhitespace(candidate.note),
+    };
+  }
+
+  function normalizeReceiptAudit(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const items = Array.isArray(candidate.items)
+      ? candidate.items.map(normalizeReceiptAuditItem).filter(Boolean)
+      : [];
+    const unmatchedReceiptItems = Array.isArray(candidate.unmatchedReceiptItems)
+      ? candidate.unmatchedReceiptItems.map(normalizeReceiptAuditItem).filter(Boolean)
+      : [];
+    const missingSaleItems = Array.isArray(candidate.missingSaleItems)
+      ? candidate.missingSaleItems.map((item) => ({
+          itemName: normalizeWhitespace(item?.itemName ?? item?.name),
+          quantity: Math.max(0, Math.floor(Number(item?.quantity) || 0)),
+        })).filter((item) => item.itemName && item.quantity > 0)
+      : [];
+    const status = ['gold', 'green', 'purple', 'red', 'gray', 'link-only'].includes(candidate.status)
+      ? candidate.status
+      : (items.length ? 'gray' : 'link-only');
+    return {
+      id: normalizeWhitespace(candidate.id) || createId('audit'),
+      schemaVersion: 1,
+      provider: normalizeWhitespace(candidate.provider) || 'unknown',
+      receiptUrl: normalizeHttpUrl(candidate.receiptUrl ?? candidate.url),
+      rawText: String(candidate.rawText ?? candidate.receiptText ?? '').trim(),
+      sourceFormat: normalizeWhitespace(candidate.sourceFormat) || 'text',
+      auditedAt: candidate.auditedAt || new Date().toISOString(),
+      totalValue: Math.max(0, Number(candidate.totalValue) || 0),
+      saleCash: Math.max(0, Number(candidate.saleCash) || 0),
+      cashDifference: optionalFiniteNumber(candidate.cashDifference),
+      targetDifference: optionalFiniteNumber(candidate.targetDifference),
+      auditedProfit: optionalFiniteNumber(candidate.auditedProfit),
+      status,
+      summary: normalizeWhitespace(candidate.summary),
+      items,
+      unmatchedReceiptItems,
+      missingSaleItems,
+      notes: normalizeWhitespace(candidate.notes),
+    };
+  }
+
   function normalizeSaleRecord(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
     const items = Array.isArray(candidate.items)
@@ -225,6 +296,7 @@
       untrackedQuantity: Math.max(0, Math.floor(Number(candidate?.untrackedQuantity) || 0)),
       fullCoverage,
       items,
+      receiptAudit: normalizeReceiptAudit(candidate?.receiptAudit ?? candidate?.audit),
       notes: normalizeWhitespace(candidate?.notes),
     };
   }
@@ -278,7 +350,7 @@
     sales.sort((a, b) => Date.parse(b.soldAt || '') - Date.parse(a.soldAt || ''));
     return {
       schema: 'tornscripture-imm-ledger',
-      schemaVersion: 2,
+      schemaVersion: 3,
       updatedAt: raw?.updatedAt || null,
       lots,
       sales,
@@ -2370,7 +2442,7 @@
   }
 
   function capturePurchaseIntentFromClick(event) {
-    if (!pageLooksLikeItemMarket() || event.target.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId}`)) return;
+    if (!pageLooksLikeItemMarket() || event.target.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) return;
     const parsed = purchaseConfirmationFromClick(event.target);
     if (!parsed) return;
     beginPendingPurchase(parsed);
@@ -2543,6 +2615,499 @@
     `;
   }
 
+  function receiptProviderFromUrl(value) {
+    const url = normalizeHttpUrl(value);
+    if (!url) return 'unknown';
+    try {
+      const host = new URL(url).hostname.toLowerCase();
+      if (host === 'weav3r.dev' || host.endsWith('.weav3r.dev')) return 'TornW3B';
+      if (host === 'tornexchange.com' || host.endsWith('.tornexchange.com')) return 'TornExchange';
+      return 'linked receipt';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  function extractReceiptUrl(value) {
+    const text = String(value || '');
+    const match = text.match(/https?:\/\/[^\s<>"']+/i);
+    if (!match) return '';
+    return normalizeHttpUrl(match[0].replace(/[),.;!?]+$/, ''));
+  }
+
+  function findReceiptItemsArray(root) {
+    const queue = [{ value: root, depth: 0 }];
+    const visited = new Set();
+    while (queue.length) {
+      const { value, depth } = queue.shift();
+      if (!value || typeof value !== 'object' || visited.has(value) || depth > 7) continue;
+      visited.add(value);
+      if (Array.isArray(value)) {
+        const qualifying = value.filter((item) => item && typeof item === 'object' && (
+          item.name || item.itemName || item.item_name || item.item || item.itemId || item.itemID
+        ) && (item.quantity || item.qty || item.amount));
+        if (qualifying.length) return qualifying;
+        for (const entry of value) queue.push({ value: entry, depth: depth + 1 });
+      } else {
+        for (const child of Object.values(value)) queue.push({ value: child, depth: depth + 1 });
+      }
+    }
+    return [];
+  }
+
+  function deepReceiptNumber(root, keys) {
+    const wanted = new Set(keys.map((key) => String(key).toLowerCase()));
+    const queue = [{ value: root, depth: 0 }];
+    const visited = new Set();
+    while (queue.length) {
+      const { value, depth } = queue.shift();
+      if (!value || typeof value !== 'object' || visited.has(value) || depth > 6) continue;
+      visited.add(value);
+      if (!Array.isArray(value)) {
+        const itemLike = Boolean(
+          (value.name || value.itemName || value.item_name || value.itemId || value.itemID)
+          && (value.quantity || value.qty || value.amount)
+        );
+        if (itemLike) continue;
+        for (const [key, child] of Object.entries(value)) {
+          if (wanted.has(String(key).toLowerCase())) {
+            const number = parseNumber(child);
+            if (Number.isFinite(number) && number >= 0) return number;
+          }
+          if (child && typeof child === 'object') queue.push({ value: child, depth: depth + 1 });
+        }
+      } else {
+        for (const child of value) queue.push({ value: child, depth: depth + 1 });
+      }
+    }
+    return null;
+  }
+
+  function receiptItemFromObject(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const itemId = Number(candidate.itemId ?? candidate.itemID ?? candidate.id) > 0
+      ? Number(candidate.itemId ?? candidate.itemID ?? candidate.id)
+      : null;
+    const catalog = itemId ? state.catalog.itemsById?.[String(itemId)] : null;
+    const itemName = normalizeWhitespace(
+      candidate.itemName ?? candidate.item_name ?? candidate.name ?? candidate.item?.name ?? catalog?.name
+    );
+    const quantity = Math.max(0, Math.floor(Number(
+      candidate.quantity ?? candidate.qty ?? candidate.amount ?? candidate.item?.quantity
+    ) || 0));
+    if (!itemName || quantity <= 0) return null;
+    const unitPrice = Math.max(0, Number(
+      candidate.unitPrice ?? candidate.unit_price ?? candidate.priceUsed ?? candidate.price_each
+      ?? candidate.price ?? candidate.cost_each ?? candidate.item?.price
+    ) || 0);
+    const totalValue = Math.max(0, Number(
+      candidate.totalValue ?? candidate.total_value ?? candidate.totalPrice ?? candidate.total_price
+      ?? candidate.value ?? candidate.proceeds
+    ) || (unitPrice * quantity));
+    return {
+      itemId,
+      itemName,
+      normalizedName: normalizeName(itemName),
+      quantity,
+      unitPrice: unitPrice || (totalValue > 0 ? totalValue / quantity : 0),
+      totalValue,
+    };
+  }
+
+  function parseReceiptJson(root) {
+    const rawItems = findReceiptItemsArray(root);
+    const items = rawItems.map(receiptItemFromObject).filter(Boolean);
+    const totalValue = deepReceiptNumber(root, [
+      'totalValue', 'total_value', 'grandTotal', 'grand_total', 'receiptTotal', 'receipt_total',
+      'cashReceived', 'cash_received', 'amountPaid', 'amount_paid', 'total',
+    ]);
+    const receiptUrl = normalizeHttpUrl(
+      root?.receiptURL ?? root?.receiptUrl ?? root?.receipt_url ?? root?.url ?? root?.data?.receiptURL
+    );
+    return {
+      sourceFormat: 'json',
+      provider: receiptProviderFromUrl(receiptUrl),
+      receiptUrl,
+      totalValue: Number.isFinite(totalValue) ? totalValue : items.reduce((sum, item) => sum + item.totalValue, 0),
+      items,
+    };
+  }
+
+  function catalogNameInReceiptLine(line) {
+    const normalizedLine = normalizeName(line);
+    if (!normalizedLine) return null;
+    let best = null;
+    for (const item of Object.values(state.catalog.itemsByName || {})) {
+      const key = item.normalizedName;
+      if (!key || !normalizedLine.includes(key)) continue;
+      if (!best || key.length > best.normalizedName.length) best = item;
+    }
+    return best;
+  }
+
+  function parseReceiptTextLine(line) {
+    const text = normalizeWhitespace(line);
+    if (!text || /^(?:total|grand total|cash|receipt|thanks|trade|seller|buyer)\b/i.test(text)) return null;
+    const catalog = catalogNameInReceiptLine(text);
+    let itemName = catalog?.name || '';
+    let quantity = null;
+    if (catalog) {
+      const escaped = escapeRegExp(catalog.name);
+      const after = text.match(new RegExp(`${escaped}\\s*(?:x|×)\\s*([\\d,]+)`, 'i'));
+      const before = text.match(new RegExp(`([\\d,]+)\\s*(?:x|×)\\s*${escaped}`, 'i'));
+      quantity = parseNumber(after?.[1] ?? before?.[1]);
+    }
+    if (!itemName) {
+      let match = text.match(/^(.+?)\s*(?:x|×)\s*([\d,]+)\b/i);
+      if (match) {
+        itemName = normalizeWhitespace(match[1].replace(/^[-•*\s]+/, ''));
+        quantity = parseNumber(match[2]);
+      } else {
+        match = text.match(/^([\d,]+)\s*(?:x|×)\s*(.+?)(?=\s+(?:@|\$|=|\||-)|$)/i);
+        if (match) {
+          quantity = parseNumber(match[1]);
+          itemName = normalizeWhitespace(match[2]);
+        }
+      }
+    }
+    if (!itemName || !(quantity > 0)) return null;
+    const moneyTokens = [...text.matchAll(/\$\s*([\d,.]+)/g)]
+      .map((match) => parseNumber(match[1]))
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    let unitPrice = 0;
+    let totalValue = 0;
+    if (moneyTokens.length >= 2) {
+      unitPrice = moneyTokens[0];
+      totalValue = moneyTokens[moneyTokens.length - 1];
+    } else if (moneyTokens.length === 1) {
+      totalValue = moneyTokens[0];
+      unitPrice = quantity > 0 ? totalValue / quantity : 0;
+    }
+    return {
+      itemId: catalog?.id || null,
+      itemName,
+      normalizedName: normalizeName(itemName),
+      quantity: Math.floor(quantity),
+      unitPrice,
+      totalValue,
+    };
+  }
+
+  function parseReceiptInput(value) {
+    const rawText = String(value || '').trim();
+    const receiptUrl = extractReceiptUrl(rawText);
+    const provider = receiptProviderFromUrl(receiptUrl);
+    if (!rawText) return {
+      sourceFormat: 'empty', provider: 'unknown', receiptUrl: '', totalValue: 0, items: [], rawText,
+    };
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = parseReceiptJson(JSON.parse(trimmed));
+        return {
+          ...parsed,
+          provider: parsed.provider === 'unknown' ? provider : parsed.provider,
+          receiptUrl: parsed.receiptUrl || receiptUrl,
+          rawText,
+        };
+      } catch {
+        // Continue into the text parser so copied messages with malformed JSON still remain useful.
+      }
+    }
+    const items = [];
+    const seen = new Set();
+    for (const line of rawText.split(/\r?\n/)) {
+      const item = parseReceiptTextLine(line);
+      if (!item) continue;
+      const key = `${item.normalizedName}:${item.quantity}:${Math.round(item.totalValue)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(item);
+    }
+    const explicitTotalMatch = rawText.match(/(?:grand\s+total|receipt\s+total|total\s+(?:value|paid|payout)|cash\s+(?:paid|received)|total)\s*[:=-]?\s*\$\s*([\d,.]+)/i);
+    const explicitTotal = parseNumber(explicitTotalMatch?.[1]);
+    const itemTotal = items.reduce((sum, item) => sum + Number(item.totalValue || 0), 0);
+    return {
+      sourceFormat: items.length ? 'text' : (receiptUrl ? 'link' : 'unparsed'),
+      provider,
+      receiptUrl,
+      totalValue: Number.isFinite(explicitTotal) ? explicitTotal : itemTotal,
+      items,
+      rawText,
+    };
+  }
+
+  function receiptAuditStatusRank(status) {
+    return ({ red: 5, purple: 4, gray: 3, green: 2, gold: 1, 'link-only': 0 })[status] ?? 3;
+  }
+
+  function buildReceiptAudit(sale, parsed) {
+    const receiptItems = (parsed?.items || []).map((item) => ({ ...item }));
+    const saleItems = Array.isArray(sale?.items) ? sale.items : [];
+    if (parsed?.receiptUrl && !receiptItems.length) {
+      return normalizeReceiptAudit({
+        provider: parsed.provider,
+        receiptUrl: parsed.receiptUrl,
+        rawText: parsed.rawText,
+        sourceFormat: parsed.sourceFormat,
+        auditedAt: new Date().toISOString(),
+        totalValue: 0,
+        saleCash: Math.max(0, Number(sale?.cashReceived) || 0),
+        cashDifference: null,
+        targetDifference: null,
+        auditedProfit: null,
+        status: 'link-only',
+        summary: 'Receipt link saved. Paste copied receipt details to complete the audit.',
+        items: [],
+        unmatchedReceiptItems: [],
+        missingSaleItems: [],
+      });
+    }
+    const used = new Set();
+    const items = [];
+    const missingSaleItems = [];
+    for (const saleItem of saleItems) {
+      const saleKey = normalizeName(saleItem.itemName);
+      let index = receiptItems.findIndex((item, candidateIndex) => !used.has(candidateIndex)
+        && ((saleItem.itemId && item.itemId && Number(saleItem.itemId) === Number(item.itemId))
+          || item.normalizedName === saleKey));
+      if (index < 0) {
+        missingSaleItems.push({ itemName: saleItem.itemName, quantity: saleItem.quantity });
+        continue;
+      }
+      used.add(index);
+      const receiptItem = receiptItems[index];
+      const quantityDifference = Number(receiptItem.quantity || 0) - Number(saleItem.quantity || 0);
+      const expectedTarget = Math.max(0, Number(saleItem.targetTotal) || 0);
+      const costBasis = Math.max(0, Number(saleItem.costBasis) || 0);
+      const receiptTotal = Math.max(0, Number(receiptItem.totalValue) || 0);
+      const targetDifference = receiptTotal - expectedTarget;
+      const itemFullCoverage = Number((saleItem.trackedQuantity ?? saleItem.quantity) || 0) >= Number(saleItem.quantity || 0);
+      let status = 'gray';
+      let note = 'Receipt did not include a usable item total.';
+      if (quantityDifference !== 0) {
+        status = 'red';
+        note = `Quantity differs by ${quantityDifference > 0 ? '+' : ''}${quantityDifference}.`;
+      } else if (receiptTotal > 0) {
+        if (targetDifference > 1) {
+          status = 'gold';
+          note = `${formatMoney(targetDifference)} above the 99% target.`;
+        } else if (targetDifference >= -1) {
+          status = 'green';
+          note = 'Matches the 99% target within $1 rounding.';
+        } else {
+          status = 'purple';
+          note = `${formatMoney(Math.abs(targetDifference))} below the 99% target.`;
+        }
+      }
+      items.push({
+        ...receiptItem,
+        matchedSaleItemName: saleItem.itemName,
+        saleQuantity: saleItem.quantity,
+        expectedTarget,
+        costBasis,
+        profit: receiptTotal > 0 && itemFullCoverage ? receiptTotal - costBasis : null,
+        quantityDifference,
+        targetDifference,
+        status,
+        note,
+      });
+    }
+    const unmatchedReceiptItems = receiptItems.filter((item, index) => !used.has(index));
+    const totalValue = Math.max(0, Number(parsed?.totalValue) || items.reduce((sum, item) => sum + Number(item.totalValue || 0), 0));
+    const saleCash = Math.max(0, Number(sale?.cashReceived) || 0);
+    const cashDifference = totalValue > 0 ? totalValue - saleCash : null;
+    const targetDifference = totalValue > 0 ? totalValue - Number(sale?.targetTotal || 0) : null;
+    const auditedProfit = totalValue > 0 && sale?.fullCoverage && Number(sale?.trackedCostBasis) > 0
+      ? totalValue - Number(sale.trackedCostBasis)
+      : null;
+    let status = parsed?.receiptUrl && !receiptItems.length ? 'link-only' : 'gray';
+    if (missingSaleItems.length || unmatchedReceiptItems.length || items.some((item) => item.status === 'red')) {
+      status = 'red';
+    } else if (items.length) {
+      status = items.reduce((worst, item) =>
+        receiptAuditStatusRank(item.status) > receiptAuditStatusRank(worst) ? item.status : worst, 'gold');
+      if (cashDifference !== null && Math.abs(cashDifference) > 1) status = 'red';
+    }
+    const summary = status === 'gold'
+      ? 'Receipt is above the expected 99% target.'
+      : status === 'green'
+        ? 'Receipt matches the expected sale and 99% target.'
+        : status === 'purple'
+          ? 'Receipt matches the manifest but pays below the 99% target.'
+          : status === 'red'
+            ? 'Receipt differs from the recorded sale or manifest.'
+            : status === 'link-only'
+              ? 'Receipt link saved. Paste copied receipt details to complete the audit.'
+              : 'Receipt details were saved but could not be fully priced.';
+    return normalizeReceiptAudit({
+      provider: parsed?.provider,
+      receiptUrl: parsed?.receiptUrl,
+      rawText: parsed?.rawText,
+      sourceFormat: parsed?.sourceFormat,
+      auditedAt: new Date().toISOString(),
+      totalValue,
+      saleCash,
+      cashDifference,
+      targetDifference,
+      auditedProfit,
+      status,
+      summary,
+      items,
+      unmatchedReceiptItems,
+      missingSaleItems,
+    });
+  }
+
+  function receiptAuditBadge(status) {
+    return ({
+      gold: 'Gold verified',
+      green: 'Verified',
+      purple: 'Below target',
+      red: 'Mismatch',
+      gray: 'Needs review',
+      'link-only': 'Link saved',
+    })[status] || 'Not audited';
+  }
+
+  function receiptAuditItemHtml(item) {
+    const profitText = item.profit === null
+      ? 'Unknown'
+      : `${item.profit >= 0 ? '+' : ''}${formatMoney(item.profit)}`;
+    return `
+      <div class="tsimm-audit-item tsimm-audit-${escapeHtml(item.status)}">
+        <div><strong>${escapeHtml(item.matchedSaleItemName || item.itemName)} × ${formatInteger(item.quantity)}</strong><span>${escapeHtml(receiptAuditBadge(item.status))}</span></div>
+        <div class="tsimm-ledger-lot-grid">
+          <span>Receipt value</span><strong>${item.totalValue > 0 ? formatMoney(item.totalValue) : 'Not supplied'}</strong>
+          <span>Ⓣ expected</span><strong>${formatMoney(item.expectedTarget)}</strong>
+          <span>Ledger cost</span><strong>${formatMoney(item.costBasis)}</strong>
+          <span>Audited profit</span><strong class="${item.profit === null ? '' : (item.profit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss')}">${profitText}</strong>
+        </div>
+        <small>${escapeHtml(item.note)}</small>
+      </div>
+    `;
+  }
+
+  function renderReceiptAudit() {
+    const overlay = document.getElementById(APP.receiptAuditOverlayId);
+    if (!overlay) return;
+    const draft = state.receiptAuditDraft;
+    const sale = (state.ledger.sales || []).find((entry) => entry.id === draft?.saleId);
+    if (!sale) {
+      overlay.remove();
+      state.receiptAuditDraft = null;
+      return;
+    }
+    const audit = draft.audit || sale.receiptAudit || null;
+    const rawText = draft.rawText ?? sale.receiptAudit?.rawText ?? sale.receiptAudit?.receiptUrl ?? '';
+    const auditItems = audit?.items || [];
+    overlay.innerHTML = `
+      <div class="tsimm-audit-shell">
+        <div class="tsimm-ledger-head">
+          <div><strong>🧾 Audit sale receipt</strong><small>${escapeHtml(sale.counterparty || 'Unknown trader')} · ${escapeHtml(new Date(sale.soldAt).toLocaleString())}</small></div>
+          <button type="button" data-tsimm-action="receipt-audit-close">×</button>
+        </div>
+        <div class="tsimm-audit-summary">
+          <div><span>Recorded cash</span><strong>${formatMoney(sale.cashReceived)}</strong></div>
+          <div><span>Ⓣ sale target</span><strong>${formatMoney(sale.targetTotal)}</strong></div>
+          <div><span>Ledger cost</span><strong>${formatMoney(sale.trackedCostBasis)}</strong></div>
+          <div><span>Saved audit</span><strong class="tsimm-audit-status-${escapeHtml(audit?.status || 'gray')}">${escapeHtml(audit ? receiptAuditBadge(audit.status) : 'None')}</strong></div>
+        </div>
+        <div class="tsimm-audit-input">
+          <label>Paste receipt text, JSON, or the TornPDA receipt message/link</label>
+          <textarea data-tsimm-receipt-input placeholder="Paste the receipt here…">${escapeHtml(rawText)}</textarea>
+          <small>Receipt auditing is read-only. Saving an audit never changes purchase lots, sold quantities, or the original sale record.</small>
+        </div>
+        ${audit ? `
+          <div class="tsimm-audit-result tsimm-audit-${escapeHtml(audit.status)}">
+            <div class="tsimm-audit-result-head"><strong>${escapeHtml(receiptAuditBadge(audit.status))}</strong><span>${escapeHtml(audit.provider)}</span></div>
+            <p>${escapeHtml(audit.summary)}</p>
+            <div class="tsimm-ledger-lot-grid">
+              <span>Receipt total</span><strong>${audit.totalValue > 0 ? formatMoney(audit.totalValue) : 'Not parsed'}</strong>
+              <span>Cash difference</span><strong>${audit.cashDifference === null ? 'Unknown' : `${audit.cashDifference >= 0 ? '+' : ''}${formatMoney(audit.cashDifference)}`}</strong>
+              <span>Difference from Ⓣ</span><strong>${audit.targetDifference === null ? 'Unknown' : `${audit.targetDifference >= 0 ? '+' : ''}${formatMoney(audit.targetDifference)}`}</strong>
+              <span>Audited profit</span><strong>${audit.auditedProfit === null ? 'Incomplete' : `${audit.auditedProfit >= 0 ? '+' : ''}${formatMoney(audit.auditedProfit)}`}</strong>
+            </div>
+            ${audit.receiptUrl ? `<a class="tsimm-audit-link" href="${escapeHtml(audit.receiptUrl)}">Open receipt</a>` : ''}
+          </div>
+          ${auditItems.length ? `<div class="tsimm-audit-items">${auditItems.map(receiptAuditItemHtml).join('')}</div>` : ''}
+          ${audit.missingSaleItems.length ? `<div class="tsimm-audit-warning">Missing from receipt: ${audit.missingSaleItems.map((item) => `${escapeHtml(item.itemName)} × ${formatInteger(item.quantity)}`).join(', ')}</div>` : ''}
+          ${audit.unmatchedReceiptItems.length ? `<div class="tsimm-audit-warning">Extra receipt items: ${audit.unmatchedReceiptItems.map((item) => `${escapeHtml(item.itemName)} × ${formatInteger(item.quantity)}`).join(', ')}</div>` : ''}
+        ` : ''}
+        <div class="tsimm-audit-actions">
+          <button type="button" data-tsimm-action="receipt-audit-preview">Parse preview</button>
+          <button type="button" data-tsimm-action="receipt-audit-save" ${audit ? '' : 'disabled'}>Save audit</button>
+          ${sale.receiptAudit ? '<button type="button" data-tsimm-action="receipt-audit-clear">Clear saved audit</button>' : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function openReceiptAudit(saleId) {
+    const sale = (state.ledger.sales || []).find((entry) => entry.id === saleId);
+    if (!sale) return;
+    injectStyles();
+    let overlay = document.getElementById(APP.receiptAuditOverlayId);
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = APP.receiptAuditOverlayId;
+      overlay.dataset.tsimmGenerated = 'true';
+      document.body.appendChild(overlay);
+    }
+    state.receiptAuditDraft = {
+      saleId,
+      rawText: sale.receiptAudit?.rawText || sale.receiptAudit?.receiptUrl || '',
+      audit: sale.receiptAudit || null,
+    };
+    renderReceiptAudit();
+  }
+
+  function closeReceiptAudit() {
+    document.getElementById(APP.receiptAuditOverlayId)?.remove();
+    state.receiptAuditDraft = null;
+  }
+
+  function previewReceiptAudit() {
+    const draft = state.receiptAuditDraft;
+    const sale = (state.ledger.sales || []).find((entry) => entry.id === draft?.saleId);
+    const input = document.querySelector(`#${APP.receiptAuditOverlayId} [data-tsimm-receipt-input]`);
+    if (!sale || !input) return;
+    const rawText = String(input.value || '').trim();
+    const parsed = parseReceiptInput(rawText);
+    draft.rawText = rawText;
+    draft.audit = buildReceiptAudit(sale, parsed);
+    renderReceiptAudit();
+  }
+
+  function saveReceiptAudit() {
+    const draft = state.receiptAuditDraft;
+    const sale = (state.ledger.sales || []).find((entry) => entry.id === draft?.saleId);
+    if (!sale) return;
+    if (!draft.audit) previewReceiptAudit();
+    if (!draft.audit) return;
+    sale.receiptAudit = normalizeReceiptAudit(draft.audit);
+    saveLedger();
+    renderLedger();
+    renderTraders();
+    renderReceiptAudit();
+    toast(`Receipt audit saved: ${receiptAuditBadge(sale.receiptAudit.status)}.`);
+  }
+
+  function clearReceiptAudit() {
+    const draft = state.receiptAuditDraft;
+    const sale = (state.ledger.sales || []).find((entry) => entry.id === draft?.saleId);
+    if (!sale || !sale.receiptAudit || !confirm('Clear the saved receipt audit for this sale?')) return;
+    sale.receiptAudit = null;
+    draft.audit = null;
+    draft.rawText = '';
+    saveLedger();
+    renderLedger();
+    renderTraders();
+    renderReceiptAudit();
+    toast('Receipt audit cleared.');
+  }
+
+
   function ledgerSaleHtml(sale) {
     const profit = optionalFiniteNumber(sale.realizedProfit)
       ?? optionalFiniteNumber(sale.trackedProfit);
@@ -2554,6 +3119,7 @@
     const coverage = sale.fullCoverage
       ? 'complete'
       : `${formatInteger(sale.trackedQuantity)}/${formatInteger(sale.requestedQuantity)} tracked`;
+    const audit = sale.receiptAudit;
     return `
       <article class="tsimm-ledger-sale">
         <div class="tsimm-ledger-sale-head">
@@ -2565,8 +3131,12 @@
           <span>Ledger cost basis</span><strong>${formatMoney(sale.trackedCostBasis)}</strong>
           <span>Ⓣ target</span><strong>${formatMoney(sale.targetTotal)}</strong>
           <span>${sale.fullCoverage ? 'Actual sale profit' : 'Tracked sale profit'}</span><strong class="${profitClass}">${profit === null ? 'Incomplete' : `${profit >= 0 ? '+' : ''}${formatMoney(profit)}`}</strong>
+          <span>Receipt audit</span><strong class="tsimm-audit-status-${escapeHtml(audit?.status || 'gray')}">${escapeHtml(audit ? receiptAuditBadge(audit.status) : 'Not audited')}</strong>
         </div>
-        <div class="tsimm-ledger-sale-foot">${escapeHtml(when)} · ${escapeHtml(sale.captureMethod)}</div>
+        <div class="tsimm-ledger-sale-foot">
+          <span>${escapeHtml(when)} · ${escapeHtml(sale.captureMethod)}</span>
+          <button type="button" data-tsimm-action="receipt-audit-open" data-tsimm-sale-id="${escapeHtml(sale.id)}">${audit ? 'Review audit' : 'Audit sale'}</button>
+        </div>
       </article>
     `;
   }
@@ -2583,7 +3153,7 @@
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
-          <div><strong>📒 IMM Purchase Ledger</strong><small>Purchase lots + realized sales · schema v2</small></div>
+          <div><strong>📒 IMM Purchase Ledger</strong><small>Purchase lots + realized sales + receipt audits · schema v3</small></div>
           <button type="button" data-tsimm-action="ledger-close">×</button>
         </div>
         <div class="tsimm-ledger-summary">
@@ -2864,7 +3434,7 @@
       <article class="tsimm-trader-card">
         <div class="tsimm-trader-card-head">
           ${trader.profileUrl
-            ? `<a class="tsimm-trader-profile-button${trader.bannerUrl ? ' has-banner' : ''}" href="${escapeHtml(trader.profileUrl)}" title="Open ${escapeHtml(trader.name)}'s profile">${trader.bannerUrl ? `<img src="${escapeHtml(trader.bannerUrl)}" alt="${escapeHtml(trader.name)}">` : `<strong>${escapeHtml(trader.name)}</strong>`}<span>${escapeHtml(stars)}</span></a>`
+            ? `<a class="tsimm-trader-profile-button${trader.bannerUrl ? ' has-banner' : ''}" href="${escapeHtml(trader.profileUrl)}" title="Open ${escapeHtml(trader.name)}'s profile">${trader.bannerUrl ? `<img src="${escapeHtml(trader.bannerUrl)}" alt="${escapeHtml(trader.name)}"><span class="tsimm-trader-banner-label"><strong>${escapeHtml(trader.name)}</strong>${trader.userId ? `<small>[${escapeHtml(trader.userId)}]</small>` : ''}</span>` : `<strong>${escapeHtml(trader.name)}</strong>`}<span class="tsimm-trader-stars">${escapeHtml(stars)}</span></a>`
             : `<div class="tsimm-trader-profile-button"><strong>${escapeHtml(trader.name)}</strong><span>${escapeHtml(stars)}</span></div>`}
           <b>${escapeHtml(formatPercent(trader.targetPercent))} target</b>
         </div>
@@ -3042,6 +3612,7 @@
     renderPanel();
     renderLedger();
     renderTraders();
+    renderReceiptAudit();
   }
 
   function injectStyles() {
@@ -3079,7 +3650,7 @@
       .tsimm-ledger-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#282330;border-bottom:1px solid #4f4759}.tsimm-ledger-head>div{display:grid;gap:1px;flex:1}.tsimm-ledger-head strong{font-size:14px}.tsimm-ledger-head small{color:#aaa1b7}.tsimm-ledger-head>button{border:1px solid #655d70;border-radius:7px;background:#393341;color:#fff;width:30px;height:30px;font-size:19px}
       .tsimm-ledger-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:5px;padding:8px}.tsimm-ledger-summary>div{display:grid;text-align:center;padding:7px 3px;border:1px solid #494250;border-radius:8px;background:#24212a}.tsimm-ledger-summary strong{font-size:12px}.tsimm-ledger-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}
       .tsimm-ledger-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.tsimm-ledger-actions button{flex:1;min-width:105px;border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:7px;font-weight:700}.tsimm-ledger-actions button:first-child{background:#5b2b82;border-color:#8e55b9}
-      .tsimm-ledger-toggle{display:flex;align-items:center;gap:6px;margin:0 8px 8px;color:#c9c2d0}.tsimm-ledger-future{margin:0 8px 8px;padding:6px 8px;border:1px solid #51425e;border-radius:7px;background:#241d2a;color:#cdbbdd}.tsimm-ledger-section-title{padding:3px 10px 6px;color:#cdbbdd;font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.05em}.tsimm-ledger-sales{padding:0 8px 8px;display:grid;gap:7px}.tsimm-ledger-sale{border:1px solid #4b6657;border-radius:9px;background:#202a25;padding:8px}.tsimm-ledger-sale-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-sale-head strong{flex:1;font-size:12px}.tsimm-ledger-sale-head span{font-size:9px;text-transform:uppercase;color:#9ee2bb;border:1px solid #37634b;border-radius:999px;padding:2px 5px}.tsimm-ledger-sale-foot{margin-top:6px;padding-top:5px;border-top:1px solid #385044;color:#94aa9d;font-size:10px}
+      .tsimm-ledger-toggle{display:flex;align-items:center;gap:6px;margin:0 8px 8px;color:#c9c2d0}.tsimm-ledger-future{margin:0 8px 8px;padding:6px 8px;border:1px solid #51425e;border-radius:7px;background:#241d2a;color:#cdbbdd}.tsimm-ledger-section-title{padding:3px 10px 6px;color:#cdbbdd;font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.05em}.tsimm-ledger-sales{padding:0 8px 8px;display:grid;gap:7px}.tsimm-ledger-sale{border:1px solid #4b6657;border-radius:9px;background:#202a25;padding:8px}.tsimm-ledger-sale-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-sale-head strong{flex:1;font-size:12px}.tsimm-ledger-sale-head span{font-size:9px;text-transform:uppercase;color:#9ee2bb;border:1px solid #37634b;border-radius:999px;padding:2px 5px}.tsimm-ledger-sale-foot{display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:5px;border-top:1px solid #385044;color:#94aa9d;font-size:10px}.tsimm-ledger-sale-foot span{flex:1}.tsimm-ledger-sale-foot button{border:1px solid #4e6759;border-radius:6px;background:#2d4136;color:#e6fff0;padding:4px 7px;font-weight:700}
       .tsimm-ledger-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-ledger-empty{padding:18px 10px;text-align:center;color:#aaa1b7;border:1px dashed #514a59;border-radius:8px}
       .tsimm-ledger-lot{border:1px solid #4d4656;border-radius:9px;background:#24212a;padding:8px}.tsimm-ledger-lot-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-lot-head strong{flex:1;font-size:13px}.tsimm-ledger-lot-head span{font-size:9px;text-transform:uppercase;color:#c9a2e4;border:1px solid #66497a;border-radius:999px;padding:2px 5px}
       .tsimm-ledger-lot-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-ledger-lot-grid span{color:#aaa1b7}.tsimm-ledger-lot-grid strong{text-align:right}.tsimm-ledger-profit{color:#63df9f}.tsimm-ledger-loss{color:#ff7c85}
@@ -3088,7 +3659,9 @@
       #${APP.traderOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
       .tsimm-trader-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #7a6740;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-trader-top{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;color:#d8caa5}.tsimm-trader-top span{color:#aaa1b7;font-size:10px}
-      .tsimm-trader-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-profile-button{display:grid;flex:1;gap:2px;min-width:0;color:#fff;text-decoration:none}.tsimm-trader-profile-button strong{font-size:13px}.tsimm-trader-profile-button span{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-profile-button.has-banner{border:1px solid #5d5137;border-radius:6px;overflow:hidden;background:#17140f}.tsimm-trader-profile-button.has-banner img{display:block;width:100%;max-height:62px;object-fit:cover}.tsimm-trader-profile-button.has-banner span{padding:2px 6px}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px;white-space:nowrap}.tsimm-trader-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:7px}.tsimm-trader-grid span{color:#b6ad99}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}.tsimm-profile-capture-card{display:flex;align-items:center;gap:8px;margin:7px 0;padding:7px;border:1px solid #6f5220;border-radius:8px;background:#2b2417}.tsimm-profile-capture-card img{width:112px;max-height:44px;object-fit:cover;border-radius:5px}.tsimm-profile-capture-card div{display:grid;min-width:0}.tsimm-profile-capture-card strong{color:#f6d16f}.tsimm-profile-capture-card span{color:#bdb4c8;font-size:10px}.tsimm-btn-gold{background:#775715!important;border-color:#b98c2c!important;color:#fff5cc!important}
+      .tsimm-trader-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-profile-button{display:grid;flex:1;gap:2px;min-width:0;color:#fff;text-decoration:none}.tsimm-trader-profile-button>strong{font-size:13px}.tsimm-trader-profile-button>.tsimm-trader-stars{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-profile-button.has-banner{position:relative;display:block;min-height:68px;border:1px solid #5d5137;border-radius:6px;overflow:hidden;background:#17140f}.tsimm-trader-profile-button.has-banner img{display:block;width:100%;height:68px;object-fit:cover}.tsimm-trader-banner-label{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:6px;background:linear-gradient(90deg,#0008,#0002 38%,#0002 62%,#0008);text-shadow:0 2px 4px #000,0 0 8px #000;color:#fff!important;letter-spacing:.02em;text-align:center}.tsimm-trader-banner-label strong{font-size:15px;line-height:1.05}.tsimm-trader-banner-label small{font-size:9px;color:#ded7e6}.tsimm-trader-profile-button.has-banner>.tsimm-trader-stars{position:absolute;left:6px;bottom:3px;padding:1px 4px;border-radius:999px;background:#0009;color:#f4c95d;font-size:10px}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px;white-space:nowrap}.tsimm-trader-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:7px}.tsimm-trader-grid span{color:#b6ad99}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}.tsimm-profile-capture-card{display:flex;align-items:center;gap:8px;margin:7px 0;padding:7px;border:1px solid #6f5220;border-radius:8px;background:#2b2417}.tsimm-profile-capture-card img{width:112px;max-height:44px;object-fit:cover;border-radius:5px}.tsimm-profile-capture-card div{display:grid;min-width:0}.tsimm-profile-capture-card strong{color:#f6d16f}.tsimm-profile-capture-card span{color:#bdb4c8;font-size:10px}.tsimm-btn-gold{background:#775715!important;border-color:#b98c2c!important;color:#fff5cc!important}
+      #${APP.receiptAuditOverlayId}{position:fixed;inset:0;z-index:2147483600;background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
+      .tsimm-audit-shell{width:min(660px,100%);max-height:95vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #71617d;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}.tsimm-audit-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:5px;padding:8px}.tsimm-audit-summary>div{display:grid;gap:2px;padding:7px;border:1px solid #4a4352;border-radius:8px;background:#25212a}.tsimm-audit-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}.tsimm-audit-input{display:grid;gap:5px;padding:0 8px 8px}.tsimm-audit-input label{font-weight:700;color:#ded5e7}.tsimm-audit-input textarea{min-height:120px;max-height:220px;resize:vertical;border:1px solid #625a70;border-radius:8px;background:#141218;color:#f7f3fa;padding:8px;font:11px/1.35 monospace}.tsimm-audit-input small{color:#9d94a7}.tsimm-audit-result{margin:0 8px 8px;padding:8px;border:1px solid #51485c;border-radius:9px;background:#242129}.tsimm-audit-result-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.tsimm-audit-result-head span{font-size:9px;text-transform:uppercase;color:#b8afc1}.tsimm-audit-result p{margin:5px 0 7px;color:#cbc3d2}.tsimm-audit-link{display:block;margin-top:7px;text-align:center;border:1px solid #615372;border-radius:6px;background:#352d3f;color:#fff;text-decoration:none;padding:6px;font-weight:700}.tsimm-audit-items{overflow:auto;display:grid;gap:6px;padding:0 8px 8px}.tsimm-audit-item{padding:7px;border:1px solid #4f4759;border-radius:8px;background:#24212a}.tsimm-audit-item>div:first-child{display:flex;justify-content:space-between;gap:8px}.tsimm-audit-item>div:first-child span{font-size:9px;text-transform:uppercase}.tsimm-audit-item>small{display:block;margin-top:5px;color:#a9a0b2}.tsimm-audit-gold{border-color:#a98532!important}.tsimm-audit-green{border-color:#3e8b62!important}.tsimm-audit-purple{border-color:#7b4c9e!important}.tsimm-audit-red{border-color:#9c4650!important}.tsimm-audit-gray{border-color:#5e5963!important}.tsimm-audit-warning{margin:0 8px 8px;padding:7px;border:1px solid #8f4650;border-radius:7px;background:#301d21;color:#ffb8be}.tsimm-audit-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.tsimm-audit-actions button{flex:1;min-width:110px;border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:7px;font-weight:700}.tsimm-audit-actions button:first-child{background:#5b2b82;border-color:#8e55b9}.tsimm-audit-actions button:disabled{opacity:.5}.tsimm-audit-status-gold{color:#f4c95d}.tsimm-audit-status-green{color:#63df9f}.tsimm-audit-status-purple{color:#cf8cff}.tsimm-audit-status-red{color:#ff7c85}.tsimm-audit-status-gray,.tsimm-audit-status-link-only{color:#bbb2c3}
       #tsimm-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:2147483647;padding:8px 11px;border-radius:8px;background:#17151b;color:#fff;border:1px solid #655d70;box-shadow:0 6px 20px #0009;font:12px Arial,sans-serif}
     `;
     document.head.appendChild(style);
@@ -3287,6 +3860,16 @@
             toast(error?.message || 'Sale recording failed.');
           }
         }
+      } else if (action === 'receipt-audit-open') {
+        openReceiptAudit(button.dataset.tsimmSaleId);
+      } else if (action === 'receipt-audit-close') {
+        closeReceiptAudit();
+      } else if (action === 'receipt-audit-preview') {
+        previewReceiptAudit();
+      } else if (action === 'receipt-audit-save') {
+        saveReceiptAudit();
+      } else if (action === 'receipt-audit-clear') {
+        clearReceiptAudit();
       } else if (action === 'ledger-open') {
         openLedger();
       } else if (action === 'traders-open') {
@@ -3349,7 +3932,7 @@
       updateSetting(key, value);
     });
     document.addEventListener('input', (event) => {
-      if (event.target.closest(`#${APP.panelId}`)) return;
+      if (event.target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) return;
       if (pageLooksLikeTrade()) scheduleScan(180);
     }, true);
   }
@@ -3369,14 +3952,14 @@
       for (const mutation of mutations) {
         if (mutation.type === 'characterData') {
           const parent = mutation.target.parentElement;
-          if (parent && !parent.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.traderOverlayId},[data-tsimm-generated]`)) {
+          if (parent && !parent.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},[data-tsimm-generated]`)) {
             inspectPurchaseSignal(parent.textContent, 'dom');
           }
         }
         for (const node of mutation.addedNodes || []) {
           if (node.nodeType === Node.TEXT_NODE) {
             inspectPurchaseSignal(node.textContent, 'dom');
-          } else if (node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId}`)) {
+          } else if (node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) {
             inspectPurchaseSignal(node.textContent, 'dom');
           }
         }
@@ -3435,6 +4018,9 @@
       normalizeSaleRecord,
       normalizeTrader,
       normalizeTraders,
+      normalizeReceiptAudit,
+      parseReceiptInput,
+      buildReceiptAudit,
       traderSalesFor,
       linkRecordedSalesToTrader,
       optionalFiniteNumber,
