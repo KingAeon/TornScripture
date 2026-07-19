@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.5.0
-// @description  Audits item-market margins, verifies 99% trade payouts, tracks purchase lots and sales, captures trader profiles, and audits receipts.
+// @version      0.5.1
+// @description  Fast item-market margin overlays, 99% trade verification, purchase lots, trader profiles, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,7 +15,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.5.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.5.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
@@ -30,7 +30,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.5.0',
+    version: '0.5.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -51,7 +51,9 @@
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
     recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
     catalogUrl: 'https://api.torn.com/v2/torn/items',
-    scanDelayMs: 450,
+    fastScanDelayMs: 35,
+    settleScanDelayMs: 520,
+    minimumScanIntervalMs: 90,
     catalogMaxAgeMs: 24 * 60 * 60 * 1000,
     pendingPurchaseMaxAgeMs: 30 * 60 * 1000,
     duplicatePurchaseWindowMs: 2 * 60 * 1000,
@@ -82,6 +84,10 @@
     lastScan: emptyScanStats(),
     syncing: false,
     scanTimer: null,
+    scanDueAt: 0,
+    settleScanTimer: null,
+    lastScanStartedAt: 0,
+    marketScanGeneration: 0,
     observer: null,
     initialized: false,
     networkObserversBound: false,
@@ -1772,15 +1778,20 @@
   }
 
   function directTextElements(selector = 'span,div,p,strong,b') {
-    return [...document.querySelectorAll(selector)].filter((element) => ownText(element));
+    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},.${APP.badgeClass},[data-tsimm-generated]`;
+    return [...document.querySelectorAll(selector)].filter((element) =>
+      ownText(element) && !element.closest(ignored)
+    );
   }
 
   function exactTextElements(regex, selector = 'span,div,p,strong,b') {
     return [...document.querySelectorAll(selector)].filter((element) => {
       if (element.closest(`#${APP.panelId}`) || element.closest(`.${APP.badgeClass}`)) return false;
-      const text = normalizeWhitespace(element.innerText);
+      const text = normalizeWhitespace(ownText(element) || element.innerText);
       if (!regex.test(text)) return false;
-      return ![...element.children].some((child) => regex.test(normalizeWhitespace(child.innerText)));
+      return ![...element.children]
+        .filter((child) => !child.matches?.(`.${APP.badgeClass},[data-tsimm-generated]`))
+        .some((child) => regex.test(normalizeWhitespace(ownText(child) || child.innerText)));
     });
   }
 
@@ -1850,12 +1861,14 @@
     const candidates = [];
     const seen = new Set();
     const categoryPriceRegex = /^\$[\d,.]+\s*\([\d,]+\)$/;
-    const priceElements = exactTextElements(categoryPriceRegex);
+    const priceElements = directTextElements().filter((element) =>
+      categoryPriceRegex.test(normalizeWhitespace(ownText(element)))
+    );
     for (const priceElement of priceElements) {
-      const priceText = normalizeWhitespace(priceElement.innerText);
+      const priceText = normalizeWhitespace(ownText(priceElement));
       const match = priceText.match(/^\$([\d,.]+)\s*\(([\d,]+)\)$/);
       if (!match) continue;
-      const card = findCategoryCard(priceElement);
+      const card = priceElement.closest(`.${APP.categoryMark}`) || findCategoryCard(priceElement);
       if (!card || seen.has(card)) continue;
       seen.add(card);
       const name = extractCategoryName(card, priceText);
@@ -1872,9 +1885,11 @@
   }
 
   function findVisibleMarketValue() {
-    const elements = exactTextElements(/^Value:\s*\$[\d,.]+$/i);
+    const elements = directTextElements().filter((element) =>
+      /^Value:\s*\$[\d,.]+$/i.test(normalizeWhitespace(ownText(element)))
+    );
     for (const element of elements) {
-      const text = normalizeWhitespace(element.innerText);
+      const text = normalizeWhitespace(ownText(element));
       const match = text.match(/^Value:\s*\$([\d,.]+)$/i);
       if (match) return parseNumber(match[1]);
     }
@@ -1922,6 +1937,20 @@
     const itemId = itemIdFromLocation();
     if (itemId) {
       const item = state.catalog.itemsById?.[String(itemId)];
+      const visibleItemName = listingItemNameFromPage();
+      if (
+        item?.marketPrice > 0
+        && visibleItemName
+        && normalizeName(visibleItemName) !== normalizeName(item.name)
+      ) {
+        return {
+          value: null,
+          visibleValue: null,
+          source: 'page-transition',
+          itemId,
+          itemName: item.name,
+        };
+      }
       if (item?.marketPrice > 0) {
         return {
           value: item.marketPrice,
@@ -1998,11 +2027,13 @@
   function listingCandidates() {
     const candidates = [];
     const seen = new Set();
-    const priceElements = exactTextElements(/^\$[\d,.]+$/);
+    const priceElements = directTextElements().filter((element) =>
+      /^\$[\d,.]+$/.test(normalizeWhitespace(ownText(element)))
+    );
     for (const priceElement of priceElements) {
-      const row = findListingRow(priceElement);
+      const row = priceElement.closest(`.${APP.listingMark}`) || findListingRow(priceElement);
       if (!row || seen.has(row)) continue;
-      const price = parseNumber(normalizeWhitespace(priceElement.innerText));
+      const price = parseNumber(normalizeWhitespace(ownText(priceElement)));
       const quantity = extractListingQuantity(row, priceElement);
       if (!Number.isFinite(price) || !Number.isFinite(quantity) || quantity <= 0) continue;
       seen.add(row);
@@ -2011,14 +2042,60 @@
     return candidates;
   }
 
+  const MARKET_TIER_CLASSES = Object.freeze([
+    'tsimm-tier-gold',
+    'tsimm-tier-good',
+    'tsimm-tier-minor',
+    'tsimm-tier-loss',
+  ]);
+
+  function clearTierMark(element, markClass) {
+    if (!(element instanceof Element)) return;
+    element.classList.remove(markClass, ...MARKET_TIER_CLASSES);
+    delete element.dataset.tsimmScanToken;
+  }
+
+  function clearMarketAnnotations() {
+    document.querySelectorAll(`.${APP.badgeClass}`).forEach((element) => element.remove());
+    document.querySelectorAll(`.${APP.categoryMark}`).forEach((element) => clearTierMark(element, APP.categoryMark));
+    document.querySelectorAll(`.${APP.listingMark}`).forEach((element) => clearTierMark(element, APP.listingMark));
+  }
+
   function clearAnnotations() {
     clearTradeAnnotations();
-    document.querySelectorAll(`.${APP.badgeClass}`).forEach((element) => element.remove());
+    clearMarketAnnotations();
+  }
+
+  function directMarginBadge(target, mode) {
+    if (!(target instanceof Element)) return null;
+    return [...target.children].find((child) =>
+      child.classList?.contains(APP.badgeClass)
+      && child.classList?.contains(`tsimm-badge-${mode}`)
+    ) || null;
+  }
+
+  function applyTierMark(element, markClass, tier, scanToken) {
+    if (!(element instanceof Element)) return;
+    element.classList.remove(markClass, ...MARKET_TIER_CLASSES);
+    element.classList.add(markClass, `tsimm-tier-${tier}`);
+    element.dataset.tsimmScanToken = scanToken;
+  }
+
+  function removeDirectMarginBadge(target, mode, highlightTarget, markClass) {
+    directMarginBadge(target, mode)?.remove();
+    clearTierMark(highlightTarget, markClass);
+  }
+
+  function pruneMarketAnnotations(scanToken) {
+    document.querySelectorAll(`.${APP.badgeClass}`).forEach((badge) => {
+      if (badge.dataset.tsimmScanToken === scanToken) return;
+      badge.remove();
+    });
     document.querySelectorAll(`.${APP.categoryMark}`).forEach((element) => {
-      element.classList.remove(APP.categoryMark, 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss');
+      if (element.dataset.tsimmScanToken !== scanToken) clearTierMark(element, APP.categoryMark);
     });
     document.querySelectorAll(`.${APP.listingMark}`).forEach((element) => {
-      element.classList.remove(APP.listingMark, 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss');
+      if (element.dataset.tsimmScanToken !== scanToken) clearTierMark(element, APP.listingMark);
     });
   }
 
@@ -2036,31 +2113,53 @@
       + `<span>${escapeHtml(auditLine)}</span>`;
   }
 
-  function addBadge(target, margin, mode, highlightTarget = target) {
-    if (margin.tier === 'loss' && !state.settings.showLossesDuringTesting) return;
-    const badge = document.createElement('span');
-    badge.className = `${APP.badgeClass} tsimm-badge-${mode} tsimm-tier-${margin.tier}`;
-    badge.dataset.tsimmGenerated = 'true';
-    badge.innerHTML = badgeHtml(margin, mode);
+  function addBadge(target, margin, mode, highlightTarget = target, scanToken = '') {
+    const markClass = mode === 'category' ? APP.categoryMark : APP.listingMark;
+    if (margin.tier === 'loss' && !state.settings.showLossesDuringTesting) {
+      removeDirectMarginBadge(target, mode, highlightTarget, markClass);
+      return;
+    }
+
+    let badge = directMarginBadge(target, mode);
+    const html = badgeHtml(margin, mode);
+    const signature = [
+      margin.tier,
+      margin.price,
+      margin.value,
+      margin.payout,
+      margin.qty,
+      margin.profitEach,
+      margin.totalProfit,
+      margin.roiPercent.toFixed(4),
+    ].join('|');
+
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.dataset.tsimmGenerated = 'true';
+      target.appendChild(badge);
+    }
+    if (badge.dataset.tsimmSignature !== signature) {
+      badge.className = `${APP.badgeClass} tsimm-badge-${mode} tsimm-tier-${margin.tier}`;
+      badge.innerHTML = html;
+      badge.dataset.tsimmSignature = signature;
+    }
+    badge.dataset.tsimmScanToken = scanToken;
+
     if (mode === 'category') {
       const computed = getComputedStyle(target);
       if (computed.position === 'static') target.style.position = 'relative';
-      highlightTarget.classList.add(APP.categoryMark, `tsimm-tier-${margin.tier}`);
-      target.appendChild(badge);
-    } else {
-      highlightTarget.classList.add(APP.listingMark, `tsimm-tier-${margin.tier}`);
-      target.appendChild(badge);
     }
+    applyTierMark(highlightTarget, markClass, margin.tier, scanToken);
   }
 
-  function scanCategory(stats) {
+  function scanCategory(stats, scanToken) {
     const candidates = categoryCandidates();
     stats.categoryCandidates = candidates.length;
     for (const candidate of candidates) {
       const catalog = catalogItemFor(candidate.name, candidate.itemId);
       if (!catalog || !candidate.lowestPrice) continue;
       const margin = marginFor(candidate.lowestPrice, catalog.marketPrice, 1);
-      addBadge(candidate.card, margin, 'category');
+      addBadge(candidate.card, margin, 'category', candidate.card, scanToken);
       stats.categoryMatched += 1;
       if (margin.tier === 'gold') stats.categoryGold += 1;
       if (margin.tier === 'good') stats.categoryGood += 1;
@@ -2069,7 +2168,7 @@
     }
   }
 
-  function scanListings(stats) {
+  function scanListings(stats, scanToken) {
     const candidates = listingCandidates();
     stats.listingCandidates = candidates.length;
 
@@ -2083,7 +2182,7 @@
 
     for (const candidate of candidates) {
       const margin = marginFor(candidate.price, resolution.value, candidate.quantity);
-      addBadge(candidate.priceElement, margin, 'listing', candidate.row);
+      addBadge(candidate.priceElement, margin, 'listing', candidate.row, scanToken);
       stats.listingMatched += 1;
       if (margin.tier === 'gold') stats.listingGold += 1;
       if (margin.tier === 'good') stats.listingGood += 1;
@@ -2099,7 +2198,17 @@
     return 'unknown';
   }
 
+  function comparableScanStats(stats) {
+    const clone = structuredCloneSafe(stats || {});
+    delete clone.scannedAt;
+    return JSON.stringify(clone);
+  }
+
   function scanPage() {
+    state.scanTimer = null;
+    state.scanDueAt = 0;
+    state.lastScanStartedAt = Date.now();
+
     const isProfile = pageLooksLikeProfile();
     const isItemMarket = pageLooksLikeItemMarket();
     const isTrade = !isProfile && pageLooksLikeTrade();
@@ -2110,12 +2219,21 @@
       state.lastScan.notes.push('Waiting for the Item Market, Trade, or player Profile page.');
       return;
     }
-    clearAnnotations();
+
+    const previousSignature = comparableScanStats(state.lastScan);
     const stats = emptyScanStats();
+
     if (isItemMarket) {
-      scanCategory(stats);
-      scanListings(stats);
+      clearTradeAnnotations();
+      const scanToken = String(++state.marketScanGeneration);
+      scanCategory(stats, scanToken);
+      scanListings(stats, scanToken);
+      pruneMarketAnnotations(scanToken);
+    } else {
+      clearMarketAnnotations();
+      clearTradeAnnotations();
     }
+
     if (isTrade) scanTrade(stats);
     if (isProfile) scanProfile(stats);
     stats.pageType = isProfile ? 'profile' : (isTrade ? 'trade' : detectPageType(stats));
@@ -2128,14 +2246,26 @@
       stats.notes.push('The item value was resolved, but listing rows were not recognized.');
     }
     if (stats.listingCandidates && !stats.listingMarketValue) {
-      stats.notes.push('Listing rows were found, but no market value could be resolved from the page or cached item ID.');
+      if (stats.listingMarketValueSource === 'page-transition') {
+        stats.notes.push('The Item Market page is still switching items; IMM is waiting for the visible item name to match the URL.');
+      } else {
+        stats.notes.push('Listing rows were found, but no market value could be resolved from the page or cached item ID.');
+      }
     }
     if (stats.listingMarketValueSource === 'catalog-item-id') {
       stats.notes.push('The compact listing page hid Value; IMM used the cached catalog value for the itemID in the URL.');
     }
+
     state.lastScan = stats;
-    if (isTrade) maybeAutoRecordCompletedTrade(stats);
-    renderPanel();
+    const recordedSale = isTrade ? maybeAutoRecordCompletedTrade(stats) : null;
+    const nextSignature = comparableScanStats(stats);
+    if (
+      recordedSale
+      || previousSignature !== nextSignature
+      || !document.getElementById(APP.panelId)
+    ) {
+      renderPanel();
+    }
   }
 
   function pageLooksLikeItemMarket() {
@@ -2146,9 +2276,25 @@
     return /\bItem Market\b/i.test(document.body?.innerText || '');
   }
 
-  function scheduleScan(delay = APP.scanDelayMs) {
+  function scheduleFastScan(delay = APP.fastScanDelayMs) {
+    const now = Date.now();
+    const requestedDelay = Math.max(0, Number(delay) || 0);
+    const minimumWait = Math.max(0, APP.minimumScanIntervalMs - (now - state.lastScanStartedAt));
+    const dueAt = now + Math.max(requestedDelay, minimumWait);
+
+    if (state.scanTimer && state.scanDueAt <= dueAt) return;
     clearTimeout(state.scanTimer);
-    state.scanTimer = setTimeout(scanPage, delay);
+    state.scanDueAt = dueAt;
+    state.scanTimer = setTimeout(scanPage, Math.max(0, dueAt - Date.now()));
+  }
+
+  function scheduleScan(delay = APP.fastScanDelayMs) {
+    scheduleFastScan(delay);
+    clearTimeout(state.settleScanTimer);
+    state.settleScanTimer = setTimeout(() => {
+      state.settleScanTimer = null;
+      scheduleFastScan(0);
+    }, APP.settleScanDelayMs);
   }
 
 
@@ -3946,38 +4092,72 @@
     setTimeout(() => element.remove(), 2800);
   }
 
+  function immUiSelector() {
+    return `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},[data-tsimm-generated]`;
+  }
+
+  function mutationNodeElement(node) {
+    if (node?.nodeType === Node.TEXT_NODE) return node.parentElement;
+    return node instanceof Element ? node : null;
+  }
+
+  function mutationLooksRelevant(mutation) {
+    const targetElement = mutationNodeElement(mutation.target);
+    if (targetElement?.closest(immUiSelector())) return false;
+
+    const href = String(location.href || '').toLowerCase();
+    const marketRoute = href.includes('itemmarket') || href.includes('item-market') || href.includes('imarket');
+    const tradeRoute = href.includes('trade.php');
+    const profileRoute = href.includes('profiles.php');
+    const added = [...(mutation.addedNodes || [])];
+
+    if (mutation.type === 'characterData') {
+      const text = normalizeWhitespace(mutation.target.textContent);
+      if (!text) return false;
+      if (marketRoute) return /\$|\bvalue\b|\bqty\b|\bbuy\b|\bowner\b|\([\d,]+\)/i.test(text);
+      if (tradeRoute) return /\btrade\b|\bin trade\b|\bx\s*[\d,]+\b|\$[\d,]+/i.test(text);
+      if (profileRoute) return /profile|level|rank|\[\d+\]/i.test(text);
+      return false;
+    }
+
+    return added.some((node) => {
+      const element = mutationNodeElement(node);
+      if (element?.closest(immUiSelector()) || element?.matches(immUiSelector())) return false;
+      const text = normalizeWhitespace(node.textContent);
+      if (marketRoute) {
+        return /\$[\d,.]+|\bItem Market\b|\bValue\b|\bQty\b|\bOwner\b/i.test(text)
+          || Boolean(element?.matches('li,[class*="row"],[class*="item"],[class*="market"]'))
+          || Boolean(element?.querySelector?.('[class*="price"],li,img'));
+      }
+      if (tradeRoute) {
+        return /\btrade\b|\bin trade\b|\bx\s*[\d,]+\b|\$[\d,]+/i.test(text)
+          || Boolean(element?.matches('.user,[class*="trade"],li.color2'));
+      }
+      if (profileRoute) {
+        return /profile|level|rank|\[\d+\]/i.test(text)
+          || Boolean(element?.matches('img,[class*="profile"],[class*="user"]'));
+      }
+      return false;
+    });
+  }
+
   function bindObserver() {
     if (state.observer) return;
     state.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === 'characterData') {
           const parent = mutation.target.parentElement;
-          if (parent && !parent.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},[data-tsimm-generated]`)) {
+          if (parent && !parent.closest(immUiSelector())) {
             inspectPurchaseSignal(parent.textContent, 'dom');
           }
         }
         for (const node of mutation.addedNodes || []) {
-          if (node.nodeType === Node.TEXT_NODE) {
-            inspectPurchaseSignal(node.textContent, 'dom');
-          } else if (node.nodeType === Node.ELEMENT_NODE && !node.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) {
-            inspectPurchaseSignal(node.textContent, 'dom');
-          }
+          const element = mutationNodeElement(node);
+          if (element?.closest(immUiSelector()) || element?.matches(immUiSelector())) continue;
+          inspectPurchaseSignal(node.textContent, 'dom');
         }
       }
-      const meaningful = mutations.some((mutation) => {
-        if (mutation.type === 'characterData') {
-          const parent = mutation.target.parentElement;
-          return parent && !parent.closest(`#${APP.panelId}, [data-tsimm-generated]`);
-        }
-        if (mutation.target instanceof Element && mutation.target.closest(`#${APP.panelId}, [data-tsimm-generated]`)) return false;
-        return [...mutation.addedNodes].some((node) => {
-          if (node.nodeType === Node.TEXT_NODE) return Boolean(normalizeWhitespace(node.textContent));
-          return node.nodeType === Node.ELEMENT_NODE
-            && !node.matches?.(`#${APP.panelId}, .${APP.badgeClass}, .${APP.tradeBadgeClass}, [data-tsimm-generated]`)
-            && !node.closest?.(`#${APP.panelId}`);
-        });
-      });
-      if (meaningful) scheduleScan();
+      if (mutations.some(mutationLooksRelevant)) scheduleScan();
     });
     state.observer.observe(document.body, { childList: true, characterData: true, subtree: true });
   }
@@ -3990,7 +4170,12 @@
     bindPanelEvents();
     installNetworkObservers();
     bindObserver();
-    scheduleScan(250);
+    window.addEventListener('hashchange', () => scheduleScan(20));
+    window.addEventListener('popstate', () => scheduleScan(20));
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) scheduleScan(20);
+    });
+    scheduleScan(120);
   }
 
   if (document.readyState === 'loading') {
