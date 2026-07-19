@@ -1,21 +1,23 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.6.1
-// @description  Item-market and overseas profit overlays, load planning, 99% trade verification, purchase lots, trader profiles, and receipt audits.
+// @version      0.7.0
+// @description  Item-market and overseas profit overlays, searchable purchase history, load planning, trade verification, trader profiles, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
 // @homepageURL  https://github.com/KingAeon/TornScripture
+// @downloadURL  https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-Item-Market-Margin.user.js
+// @updateURL    https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-Item-Market-Margin.user.js
 // ==/UserScript==
 
 (() => {
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.6.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.7.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
@@ -30,7 +32,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.6.1',
+    version: '0.7.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -51,6 +53,7 @@
     tradersStorageKey: 'tornscripture-imm-traders-v1',
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
     recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
+    purchasePrivacyMigrationStorageKey: 'tornscripture-imm-purchase-privacy-v1',
     catalogUrl: 'https://api.torn.com/v2/torn/items',
     fastScanDelayMs: 35,
     settleScanDelayMs: 520,
@@ -72,6 +75,7 @@
     tradeSidePreference: 'auto',
     showTradeItemBreakdown: true,
     showClosedLedgerLots: true,
+    ledgerShowSoldPurchases: true,
     overseasLoadLimit: 21,
   });
 
@@ -94,7 +98,14 @@
     initialized: false,
     networkObserversBound: false,
     receiptAuditDraft: null,
+    ledgerUi: {
+      view: 'holdings',
+      search: '',
+      sort: 'newest',
+      showSold: true,
+    },
   };
+  state.ledgerUi.showSold = state.settings.ledgerShowSoldPurchases !== false;
 
   function structuredCloneSafe(value) {
     return JSON.parse(JSON.stringify(value));
@@ -309,6 +320,41 @@
     };
   }
 
+  function sanitizePurchaseSignalText(value) {
+    return normalizeWhitespace(String(value || '')
+      .replace(/\s+from\s+[^$]+?(?=\s+for\s+(?:a\s+total\s+of\s+)?\$)/i, ''));
+  }
+
+  function scrubItemMarketPurchaseNotes(value, source = '', venue = '') {
+    let notes = normalizeWhitespace(value);
+    const sourceKey = normalizeName(source);
+    const venueKey = normalizeName(venue);
+    const isItemMarket = ['item market', 'item-market'].includes(sourceKey) || ['item market', 'item-market'].includes(venueKey);
+    if (!isItemMarket || !notes) return notes;
+    notes = notes.replace(/(?:^|\s)Seller:\s*[^.]+\.?\s*/gi, ' ');
+    notes = notes.replace(/\s{2,}/g, ' ').trim();
+    return notes;
+  }
+
+  function stableTextHash(value) {
+    let hash = 2166136261;
+    const text = String(value || '');
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function runPurchasePrivacyMigration() {
+    if (localStorage.getItem(APP.purchasePrivacyMigrationStorageKey) === '1') return;
+    state.ledger = normalizeLedger(state.ledger);
+    saveJson(APP.ledgerStorageKey, state.ledger);
+    state.recentPurchaseFingerprints = [];
+    localStorage.removeItem(APP.recentPurchaseFingerprintsStorageKey);
+    localStorage.setItem(APP.purchasePrivacyMigrationStorageKey, '1');
+  }
+
   function normalizeLedger(raw) {
     const sourceLots = Array.isArray(raw?.lots) ? raw.lots : Array.isArray(raw) ? raw : [];
     const sourceSales = Array.isArray(raw?.sales) ? raw.sales : [];
@@ -350,7 +396,7 @@
         purchaseUrl: normalizeWhitespace(candidate?.purchaseUrl),
         captureMethod: normalizeWhitespace(candidate?.captureMethod) || 'import',
         status: remainingQuantity > 0 ? 'open' : 'closed',
-        notes: normalizeWhitespace(candidate?.notes),
+        notes: scrubItemMarketPurchaseNotes(candidate?.notes, candidate?.source, candidate?.venue),
       });
     }
     const sales = sourceSales.map(normalizeSaleRecord).filter(Boolean);
@@ -358,7 +404,7 @@
     sales.sort((a, b) => Date.parse(b.soldAt || '') - Date.parse(a.soldAt || ''));
     return {
       schema: 'tornscripture-imm-ledger',
-      schemaVersion: 3,
+      schemaVersion: 4,
       updatedAt: raw?.updatedAt || null,
       lots,
       sales,
@@ -386,7 +432,7 @@
       source: normalizeWhitespace(raw.source) || 'item-market',
       createdAt: raw.createdAt || raw.clickedAt || new Date().toISOString(),
       purchaseUrl: normalizeWhitespace(raw.purchaseUrl) || location.href,
-      confirmationText: normalizeWhitespace(raw.confirmationText),
+      confirmationText: sanitizePurchaseSignalText(raw.confirmationText),
     };
   }
 
@@ -460,7 +506,7 @@
       purchaseUrl: normalizeWhitespace(source?.purchaseUrl) || location.href,
       captureMethod,
       status: 'open',
-      notes: normalizeWhitespace(source?.notes),
+      notes: scrubItemMarketPurchaseNotes(source?.notes, source?.source, source?.venue),
     };
   }
 
@@ -481,7 +527,7 @@
       marketValueAtPurchase: pending.marketValue,
       traderValueAtPurchase: pending.traderValue,
       capturedAt: new Date().toISOString(),
-      notes: signal ? `Capture signal: ${signal.slice(0, 180)}` : '',
+      notes: signal ? `Capture signal: ${sanitizePurchaseSignalText(signal).slice(0, 180)}` : '',
     }, captureMethod);
     state.pendingPurchase = null;
     savePendingPurchase();
@@ -788,6 +834,7 @@
       };
       saveJson(APP.catalogStorageKey, state.catalog);
       toast(`Loaded ${formatInteger(catalogCount())} item values.`);
+      renderLedger();
       scheduleScan(50);
     } catch (error) {
       console.error('[TornScripture IMM] Catalog sync failed:', error);
@@ -2697,7 +2744,7 @@
       country: overseas ? overseasCountryFromPage() : '',
       createdAt: new Date().toISOString(),
       purchaseUrl: location.href,
-      confirmationText: parsed.confirmationText,
+      confirmationText: sanitizePurchaseSignalText(parsed.confirmationText),
     };
     savePendingPurchase();
     recordPurchaseSignal('pending', 'click', parsed.confirmationText, location.href);
@@ -2709,7 +2756,7 @@
       at: new Date().toISOString(),
       type,
       source,
-      snippet: normalizeWhitespace(snippet).slice(0, 360),
+      snippet: sanitizePurchaseSignalText(snippet).slice(0, 360),
       url: normalizeWhitespace(url).slice(0, 300),
       pendingId: state.pendingPurchase?.id || null,
     });
@@ -2729,12 +2776,10 @@
       const withSeller = index === 0;
       const quantity = Math.max(0, Math.floor(parseNumber(match[1]) || 0));
       const itemName = normalizeWhitespace(match[2]);
-      const sellerName = withSeller ? normalizeWhitespace(match[3]) : '';
       const totalCost = Math.max(0, parseNumber(match[withSeller ? 4 : 3]) || 0);
       if (!itemName || quantity <= 0 || totalCost <= 0) continue;
       return {
         itemName,
-        sellerName,
         quantity,
         totalCost,
         unitCost: totalCost / quantity,
@@ -2749,8 +2794,8 @@
       normalizeName(parsed?.itemName),
       Math.floor(Number(parsed?.quantity) || 0),
       Math.round(Number(parsed?.totalCost) || 0),
-      normalizeName(parsed?.sellerName),
       Number(itemIdFromLocation()) || 0,
+      stableTextHash(parsed?.successText),
     ].join('|');
   }
 
@@ -2809,9 +2854,7 @@
       traderValueAtPurchase: traderPayout(marketValueAtPurchase),
       capturedAt: new Date().toISOString(),
       purchaseUrl: url || location.href,
-      notes: parsed.sellerName
-        ? `Seller: ${parsed.sellerName}. Captured from Torn success message.`
-        : 'Captured from Torn success message.',
+      notes: 'Captured from Torn success message.',
     }, source);
 
     rememberPurchaseFingerprint(fingerprint);
@@ -3063,6 +3106,68 @@
     }
   }
 
+  function relativeAge(value) {
+    const timestamp = Date.parse(value || '');
+    if (!Number.isFinite(timestamp)) return 'not synced';
+    const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function ledgerProfitClass(tier) {
+    if (tier === 'gold') return 'tsimm-ledger-gold';
+    if (tier === 'good') return 'tsimm-ledger-profit';
+    if (tier === 'minor') return 'tsimm-ledger-minor';
+    return 'tsimm-ledger-loss';
+  }
+
+  function lotProfitProjection(lot) {
+    const originalMarketValue = Math.max(0, Number(lot.marketValueAtPurchase) || 0);
+    const original = originalMarketValue > 0
+      ? marginFor(lot.unitCost, originalMarketValue, lot.quantity)
+      : null;
+    const catalog = catalogItemFor(lot.itemName, lot.itemId);
+    const currentMarketValue = Math.max(0, Number(catalog?.marketPrice) || 0);
+    const remaining = Math.max(0, Number(lot.remainingQuantity) || 0);
+    const current = currentMarketValue > 0 && remaining > 0
+      ? marginFor(lot.unitCost, currentMarketValue, remaining)
+      : null;
+    return { original, current, currentMarketValue };
+  }
+
+  function sortLedgerLots(lots, sortMode) {
+    const result = [...lots];
+    result.sort((left, right) => {
+      if (sortMode === 'oldest') return Date.parse(left.capturedAt || '') - Date.parse(right.capturedAt || '');
+      if (sortMode === 'profit-now') {
+        const leftProfit = lotProfitProjection(left).current?.totalProfit ?? Number.NEGATIVE_INFINITY;
+        const rightProfit = lotProfitProjection(right).current?.totalProfit ?? Number.NEGATIVE_INFINITY;
+        return rightProfit - leftProfit;
+      }
+      if (sortMode === 'item-name') return String(left.itemName).localeCompare(String(right.itemName));
+      if (sortMode === 'purchase-price') return Number(right.unitCost || 0) - Number(left.unitCost || 0);
+      return Date.parse(right.capturedAt || '') - Date.parse(left.capturedAt || '');
+    });
+    return result;
+  }
+
+  function visibleLedgerLots() {
+    const view = state.ledgerUi.view;
+    const query = normalizeName(state.ledgerUi.search);
+    let lots = state.ledger.lots || [];
+    if (view === 'holdings') lots = lots.filter((lot) => Number(lot.remainingQuantity || 0) > 0);
+    if (view === 'history' && !state.ledgerUi.showSold) {
+      lots = lots.filter((lot) => Number(lot.remainingQuantity || 0) > 0);
+    }
+    if (query) lots = lots.filter((lot) => normalizeName(lot.itemName).includes(query));
+    return sortLedgerLots(lots, state.ledgerUi.sort);
+  }
+
   function saleAllocationsForLot(lotId) {
     const entries = [];
     for (const sale of state.ledger.sales || []) {
@@ -3081,47 +3186,44 @@
   }
 
   function ledgerLotHtml(lot) {
-    const allocations = saleAllocationsForLot(lot.id);
     const soldQuantity = Math.max(0, Number(lot.quantity || 0) - Number(lot.remainingQuantity || 0));
-    const realizedProfit = allocations.reduce((sum, allocation) =>
-      sum + (optionalFiniteNumber(allocation.realizedProfit) ?? 0), 0);
-    const remainingExpectedProfit = Number(lot.expectedProfitEach || 0) * Number(lot.remainingQuantity || 0);
-    const expectedClass = remainingExpectedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
-    const realizedClass = realizedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss';
+    const remaining = Math.max(0, Number(lot.remainingQuantity || 0));
+    const projection = lotProfitProjection(lot);
+    const originalProfit = projection.original?.totalProfit ?? null;
+    const originalClass = projection.original ? ledgerProfitClass(projection.original.tier) : '';
+    const currentProfit = projection.current?.totalProfit ?? null;
+    const currentClass = projection.current ? ledgerProfitClass(projection.current.tier) : '';
     const when = (() => {
       const date = new Date(lot.capturedAt);
       return Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Unknown date';
     })();
-    const source = lot.country ? `${lot.source} · ${lot.country}` : lot.source;
-    const status = Number(lot.remainingQuantity || 0) > 0
-      ? (soldQuantity > 0 ? 'partial' : 'open')
-      : 'sold';
+    const status = remaining > 0 ? (soldQuantity > 0 ? 'partial' : 'open') : 'sold';
+    const currentProfitText = remaining <= 0
+      ? 'Sold out'
+      : currentProfit === null
+        ? 'Current value unavailable'
+        : `${currentProfit >= 0 ? '+' : ''}${formatMoney(currentProfit)}`;
     return `
       <article class="tsimm-ledger-lot" data-tsimm-lot-id="${escapeHtml(lot.id)}">
         <div class="tsimm-ledger-lot-head">
-          <strong>${escapeHtml(lot.itemName)} × ${formatInteger(lot.remainingQuantity)} remaining</strong>
+          <strong>${escapeHtml(lot.itemName)}</strong>
           <span>${escapeHtml(status)}</span>
         </div>
         <div class="tsimm-ledger-lot-grid">
-          <span>Purchased quantity</span><strong>${formatInteger(lot.quantity)}</strong>
-          <span>Sold quantity</span><strong>${formatInteger(soldQuantity)}</strong>
+          <span>Obtained</span><strong>${formatInteger(lot.quantity)}</strong>
+          <span>Remaining</span><strong>${formatInteger(remaining)}</strong>
           <span>Paid each</span><strong>${formatMoney(lot.unitCost)}</strong>
-          <span>Open cost basis</span><strong>${formatMoney(Number(lot.unitCost || 0) * Number(lot.remainingQuantity || 0))}</strong>
-          <span>Ⓜ at purchase</span><strong>${formatMoney(lot.marketValueAtPurchase)}</strong>
-          <span>Ⓣ at purchase</span><strong>${formatMoney(lot.traderValueAtPurchase)}</strong>
-          <span>Expected profit remaining</span><strong class="${expectedClass}">${remainingExpectedProfit >= 0 ? '+' : ''}${formatMoney(remainingExpectedProfit)}</strong>
-          ${soldQuantity > 0
-            ? `<span>Realized sale profit</span><strong class="${realizedClass}">${realizedProfit >= 0 ? '+' : ''}${formatMoney(realizedProfit)}</strong>`
-            : ''}
+          <span>Total paid</span><strong>${formatMoney(lot.totalCost)}</strong>
+          <span>Possible profit when bought</span><strong class="${originalClass}">${originalProfit === null ? 'Original value unavailable' : `${originalProfit >= 0 ? '+' : ''}${formatMoney(originalProfit)}`}</strong>
+          <span>Possible profit now${remaining > 0 ? ' on remaining' : ''}</span><strong class="${currentClass}">${escapeHtml(currentProfitText)}</strong>
         </div>
         <div class="tsimm-ledger-lot-foot">
-          <small>${escapeHtml(when)} · ${escapeHtml(source)} · ${escapeHtml(lot.captureMethod)}</small>
+          <small>${escapeHtml(when)}</small>
           <div>
             <button type="button" data-tsimm-action="ledger-edit" data-tsimm-lot-id="${escapeHtml(lot.id)}">Edit</button>
             <button type="button" data-tsimm-action="ledger-delete" data-tsimm-lot-id="${escapeHtml(lot.id)}">Delete</button>
           </div>
         </div>
-        ${lot.notes ? `<div class="tsimm-ledger-notes">${escapeHtml(lot.notes)}</div>` : ''}
       </article>
     `;
   }
@@ -3656,23 +3758,30 @@
     const overlay = document.getElementById(APP.ledgerOverlayId);
     if (!overlay) return;
     const summary = ledgerSummary();
-    const allLots = state.ledger.lots || [];
-    const lots = state.settings.showClosedLedgerLots
-      ? allLots
-      : allLots.filter((lot) => Number(lot.remainingQuantity || 0) > 0);
+    const lots = visibleLedgerLots();
     const sales = state.ledger.sales || [];
+    const view = state.ledgerUi.view;
+    const catalogFreshness = state.catalog.updatedAt
+      ? `Current values synced ${relativeAge(state.catalog.updatedAt)}${catalogIsFresh() ? '' : ' · stale'}`
+      : 'Current values have not been synced';
+    const showPurchaseControls = view === 'holdings' || view === 'history';
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
-          <div><strong>📒 IMM Purchase Ledger</strong><small>Purchase lots + realized sales + receipt audits · schema v3</small></div>
+          <div><strong>📒 IMM Purchase Ledger</strong><small>What you obtained, what it cost, and what it can earn · schema v4</small></div>
           <button type="button" data-tsimm-action="ledger-close">×</button>
         </div>
         <div class="tsimm-ledger-summary">
           <div><strong>${formatInteger(summary.lots)}</strong><span>open lots</span></div>
           <div><strong>${formatInteger(summary.remainingQuantity)}</strong><span>on hand</span></div>
           <div><strong>${formatMoney(summary.invested)}</strong><span>invested</span></div>
-          <div><strong class="${summary.expectedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${summary.expectedProfit >= 0 ? '+' : ''}${formatMoney(summary.expectedProfit)}</strong><span>expected</span></div>
+          <div><strong class="${summary.expectedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${summary.expectedProfit >= 0 ? '+' : ''}${formatMoney(summary.expectedProfit)}</strong><span>original expected</span></div>
           <div><strong class="${summary.realizedProfit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${summary.realizedProfit >= 0 ? '+' : ''}${formatMoney(summary.realizedProfit)}</strong><span>realized</span></div>
+        </div>
+        <div class="tsimm-ledger-tabs" role="tablist">
+          <button type="button" class="${view === 'holdings' ? 'active' : ''}" data-tsimm-action="ledger-tab" data-tsimm-ledger-view="holdings">Current holdings</button>
+          <button type="button" class="${view === 'history' ? 'active' : ''}" data-tsimm-action="ledger-tab" data-tsimm-ledger-view="history">Purchase history</button>
+          <button type="button" class="${view === 'sales' ? 'active' : ''}" data-tsimm-action="ledger-tab" data-tsimm-ledger-view="sales">Sale audits</button>
         </div>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="ledger-add">Add manual lot</button>
@@ -3680,21 +3789,35 @@
           <button type="button" data-tsimm-action="ledger-import">Import JSON</button>
           <button type="button" data-tsimm-action="ledger-clear">Clear all</button>
         </div>
-        <label class="tsimm-ledger-toggle"><input type="checkbox" data-tsimm-setting="showClosedLedgerLots" ${state.settings.showClosedLedgerLots ? 'checked' : ''}> Show sold and closed lots</label>
-        <div class="tsimm-ledger-future">Trade sales consume the oldest matching purchase lots first. Overseas shop purchases use the same pending/success capture, with manual entry as a fallback.</div>
-        ${sales.length
-          ? `<div class="tsimm-ledger-section-title">Sale history</div><div class="tsimm-ledger-sales">${sales.map(ledgerSaleHtml).join('')}</div>`
-          : ''}
-        <div class="tsimm-ledger-section-title">Purchase lots</div>
-        <div class="tsimm-ledger-list">
-          ${lots.length ? lots.map(ledgerLotHtml).join('') : '<div class="tsimm-ledger-empty">No matching purchase lots to show.</div>'}
-        </div>
+        ${showPurchaseControls ? `
+          <div class="tsimm-ledger-filters">
+            <input type="search" value="${escapeHtml(state.ledgerUi.search)}" placeholder="Search item name" data-tsimm-ledger-search>
+            <select data-tsimm-ledger-sort>
+              <option value="newest" ${state.ledgerUi.sort === 'newest' ? 'selected' : ''}>Newest</option>
+              <option value="oldest" ${state.ledgerUi.sort === 'oldest' ? 'selected' : ''}>Oldest</option>
+              <option value="profit-now" ${state.ledgerUi.sort === 'profit-now' ? 'selected' : ''}>Highest profit now</option>
+              <option value="item-name" ${state.ledgerUi.sort === 'item-name' ? 'selected' : ''}>Item name</option>
+              <option value="purchase-price" ${state.ledgerUi.sort === 'purchase-price' ? 'selected' : ''}>Purchase price</option>
+            </select>
+          </div>
+          ${view === 'history' ? `<label class="tsimm-ledger-toggle"><input type="checkbox" data-tsimm-ledger-show-sold ${state.ledgerUi.showSold ? 'checked' : ''}> Show sold purchases</label>` : ''}
+          <div class="tsimm-ledger-freshness">${escapeHtml(catalogFreshness)}</div>
+          <div class="tsimm-ledger-section-title">${view === 'holdings' ? 'Current holdings' : 'Purchase history'} · ${formatInteger(lots.length)} lot${lots.length === 1 ? '' : 's'}</div>
+          <div class="tsimm-ledger-list">
+            ${lots.length ? lots.map(ledgerLotHtml).join('') : '<div class="tsimm-ledger-empty">No matching purchase lots to show.</div>'}
+          </div>
+        ` : `
+          <div class="tsimm-ledger-section-title">Sale history</div>
+          <div class="tsimm-ledger-sales">${sales.length ? sales.map(ledgerSaleHtml).join('') : '<div class="tsimm-ledger-empty">No recorded sales yet.</div>'}</div>
+        `}
       </div>
     `;
   }
 
   function openLedger() {
     injectStyles();
+    state.ledgerUi.view = 'holdings';
+    state.ledgerUi.search = '';
     let overlay = document.getElementById(APP.ledgerOverlayId);
     if (!overlay) {
       overlay = document.createElement('div');
@@ -4164,10 +4287,10 @@
       .tsimm-ledger-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#282330;border-bottom:1px solid #4f4759}.tsimm-ledger-head>div{display:grid;gap:1px;flex:1}.tsimm-ledger-head strong{font-size:14px}.tsimm-ledger-head small{color:#aaa1b7}.tsimm-ledger-head>button{border:1px solid #655d70;border-radius:7px;background:#393341;color:#fff;width:30px;height:30px;font-size:19px}
       .tsimm-ledger-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:5px;padding:8px}.tsimm-ledger-summary>div{display:grid;text-align:center;padding:7px 3px;border:1px solid #494250;border-radius:8px;background:#24212a}.tsimm-ledger-summary strong{font-size:12px}.tsimm-ledger-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}
       .tsimm-ledger-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.tsimm-ledger-actions button{flex:1;min-width:105px;border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:7px;font-weight:700}.tsimm-ledger-actions button:first-child{background:#5b2b82;border-color:#8e55b9}
-      .tsimm-ledger-toggle{display:flex;align-items:center;gap:6px;margin:0 8px 8px;color:#c9c2d0}.tsimm-ledger-future{margin:0 8px 8px;padding:6px 8px;border:1px solid #51425e;border-radius:7px;background:#241d2a;color:#cdbbdd}.tsimm-ledger-section-title{padding:3px 10px 6px;color:#cdbbdd;font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.05em}.tsimm-ledger-sales{padding:0 8px 8px;display:grid;gap:7px}.tsimm-ledger-sale{border:1px solid #4b6657;border-radius:9px;background:#202a25;padding:8px}.tsimm-ledger-sale-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-sale-head strong{flex:1;font-size:12px}.tsimm-ledger-sale-head span{font-size:9px;text-transform:uppercase;color:#9ee2bb;border:1px solid #37634b;border-radius:999px;padding:2px 5px}.tsimm-ledger-sale-foot{display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:5px;border-top:1px solid #385044;color:#94aa9d;font-size:10px}.tsimm-ledger-sale-foot span{flex:1}.tsimm-ledger-sale-foot button{border:1px solid #4e6759;border-radius:6px;background:#2d4136;color:#e6fff0;padding:4px 7px;font-weight:700}
+      .tsimm-ledger-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px}.tsimm-ledger-tabs button{border:1px solid #514a59;border-radius:7px;background:#28242f;color:#bdb5c6;padding:7px 4px;font-size:10px;font-weight:700}.tsimm-ledger-tabs button.active{background:#5b2b82;border-color:#9a61c2;color:#fff}.tsimm-ledger-filters{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:6px;padding:0 8px 8px}.tsimm-ledger-filters input,.tsimm-ledger-filters select{min-width:0;border:1px solid #5a5266;border-radius:7px;background:#17151b;color:#fff;padding:7px}.tsimm-ledger-freshness{margin:0 8px 8px;color:#aaa1b7;font-size:10px}.tsimm-ledger-toggle{display:flex;align-items:center;gap:6px;margin:0 8px 8px;color:#c9c2d0}.tsimm-ledger-future{margin:0 8px 8px;padding:6px 8px;border:1px solid #51425e;border-radius:7px;background:#241d2a;color:#cdbbdd}.tsimm-ledger-section-title{padding:3px 10px 6px;color:#cdbbdd;font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.05em}.tsimm-ledger-sales{padding:0 8px 8px;display:grid;gap:7px;overflow:auto}.tsimm-ledger-sale{border:1px solid #4b6657;border-radius:9px;background:#202a25;padding:8px}.tsimm-ledger-sale-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-sale-head strong{flex:1;font-size:12px}.tsimm-ledger-sale-head span{font-size:9px;text-transform:uppercase;color:#9ee2bb;border:1px solid #37634b;border-radius:999px;padding:2px 5px}.tsimm-ledger-sale-foot{display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:5px;border-top:1px solid #385044;color:#94aa9d;font-size:10px}.tsimm-ledger-sale-foot span{flex:1}.tsimm-ledger-sale-foot button{border:1px solid #4e6759;border-radius:6px;background:#2d4136;color:#e6fff0;padding:4px 7px;font-weight:700}
       .tsimm-ledger-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-ledger-empty{padding:18px 10px;text-align:center;color:#aaa1b7;border:1px dashed #514a59;border-radius:8px}
       .tsimm-ledger-lot{border:1px solid #4d4656;border-radius:9px;background:#24212a;padding:8px}.tsimm-ledger-lot-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-ledger-lot-head strong{flex:1;font-size:13px}.tsimm-ledger-lot-head span{font-size:9px;text-transform:uppercase;color:#c9a2e4;border:1px solid #66497a;border-radius:999px;padding:2px 5px}
-      .tsimm-ledger-lot-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-ledger-lot-grid span{color:#aaa1b7}.tsimm-ledger-lot-grid strong{text-align:right}.tsimm-ledger-profit{color:#63df9f}.tsimm-ledger-loss{color:#ff7c85}
+      .tsimm-ledger-lot-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-ledger-lot-grid span{color:#aaa1b7}.tsimm-ledger-lot-grid strong{text-align:right}.tsimm-ledger-gold{color:#f4c95d}.tsimm-ledger-profit{color:#63df9f}.tsimm-ledger-minor{color:#c77dff}.tsimm-ledger-loss{color:#ff7c85}
       .tsimm-ledger-lot-foot{display:flex;gap:8px;align-items:center;margin-top:7px;padding-top:6px;border-top:1px solid #423c49}.tsimm-ledger-lot-foot small{flex:1;color:#8f8798}.tsimm-ledger-lot-foot button{border:1px solid #5a5266;border-radius:6px;background:#332e3a;color:#fff;padding:4px 7px;margin-left:4px}.tsimm-ledger-notes{margin-top:5px;color:#c1b8ca;font-size:10px}
       .tsimm-gold-text{color:#f4c95d}
       #${APP.traderOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
@@ -4441,6 +4564,13 @@
         copyTradersJson();
       } else if (action === 'traders-import') {
         importTradersJson();
+      } else if (action === 'ledger-tab') {
+        const view = button.dataset.tsimmLedgerView;
+        if (['holdings', 'history', 'sales'].includes(view)) {
+          state.ledgerUi.view = view;
+          state.ledgerUi.search = '';
+          renderLedger();
+        }
       } else if (action === 'ledger-close') {
         closeLedger();
       } else if (action === 'ledger-copy') {
@@ -4472,6 +4602,22 @@
       }
     });
     document.addEventListener('change', (event) => {
+      const soldToggle = event.target.closest('[data-tsimm-ledger-show-sold]');
+      if (soldToggle) {
+        state.ledgerUi.showSold = soldToggle.checked;
+        state.settings.ledgerShowSoldPurchases = soldToggle.checked;
+        saveJson(APP.settingsStorageKey, state.settings);
+        renderLedger();
+        return;
+      }
+      const ledgerSort = event.target.closest('[data-tsimm-ledger-sort]');
+      if (ledgerSort) {
+        state.ledgerUi.sort = ['newest', 'oldest', 'profit-now', 'item-name', 'purchase-price'].includes(ledgerSort.value)
+          ? ledgerSort.value
+          : 'newest';
+        renderLedger();
+        return;
+      }
       const input = event.target.closest('[data-tsimm-setting]');
       if (!input) return;
       const key = input.dataset.tsimmSetting;
@@ -4482,6 +4628,18 @@
       updateSetting(key, value);
     });
     document.addEventListener('input', (event) => {
+      const ledgerSearch = event.target.closest('[data-tsimm-ledger-search]');
+      if (ledgerSearch) {
+        const cursor = ledgerSearch.selectionStart ?? ledgerSearch.value.length;
+        state.ledgerUi.search = ledgerSearch.value;
+        renderLedger();
+        const replacement = document.querySelector(`#${APP.ledgerOverlayId} [data-tsimm-ledger-search]`);
+        if (replacement) {
+          replacement.focus();
+          replacement.setSelectionRange(cursor, cursor);
+        }
+        return;
+      }
       if (event.target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) return;
       if (pageLooksLikeTrade()) scheduleScan(180);
     }, true);
@@ -4571,6 +4729,7 @@
     if (state.initialized || !document.body) return;
     state.initialized = true;
     injectStyles();
+    runPurchasePrivacyMigration();
     savePendingPurchase();
     bindPanelEvents();
     installNetworkObservers();
@@ -4607,6 +4766,8 @@
       resolveListingMarketValue,
       parsePurchaseConfirmationText,
       parsePurchaseSuccessText,
+      sanitizePurchaseSignalText,
+      scrubItemMarketPurchaseNotes,
       normalizeLedger,
       normalizeSaleRecord,
       normalizeTrader,
@@ -4619,6 +4780,8 @@
       optionalFiniteNumber,
       buildLedgerLot,
       ledgerSummary,
+      lotProfitProjection,
+      sortLedgerLots,
       ledgerSalePlan,
       recordTradeSale,
       _state: state,
