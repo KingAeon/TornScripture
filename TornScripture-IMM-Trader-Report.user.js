@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Deals
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.2
-// @description  Compact terminal-style per-trader Deals reports with safe pricelist move and disconnect controls.
+// @version      0.2.3
+// @description  Terminal-style per-trader Deals reports with visible compact rows and safe pricelist controls.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   const APP = Object.freeze({
-    version: '0.2.2',
+    version: '0.2.3',
     traderBookId: 'tornscripture-imm-traders',
     overlayId: 'tornscripture-imm-trader-deals-addon',
     styleId: 'tornscripture-imm-trader-deals-style',
@@ -416,20 +416,23 @@
       ? `<div class="td-owned">OWNED ${formatInteger(row.owned)} · RETURN ${formatMoney(row.ownedReturn)} · PROFIT ${row.ownedProfit >= 0 ? '+' : ''}${formatMoney(row.ownedProfit)}</div>`
       : '';
     return `
-      <details class="td-row ${escapeHtml(row.bucket)}">
-        <summary>
+      <article class="td-row ${escapeHtml(row.bucket)}" data-td-row>
+        <button type="button" class="td-row-toggle" data-td="row" aria-expanded="false">
+          <span class="td-chevron" aria-hidden="true">&gt;</span>
           <span class="td-row-title"><strong>${escapeHtml(row.itemName)}</strong><small>TRADER ${formatMoney(row.price)} · MARKET ${row.market ? formatMoney(row.market) : 'NOT SYNCED'} · VS 99% ${escapeHtml(compactGap(row.differenceVs99))}</small></span>
           <b>${escapeHtml(bucketLabel(row.bucket))}</b>
-        </summary>
-        <div class="td-detail-grid">
-          <span>TRADER PAYS</span><strong>${formatMoney(row.price)}</strong>
-          <span>MARKET VALUE</span><strong>${row.market ? formatMoney(row.market) : 'NOT SYNCED'}</strong>
-          <span>PERCENT OF MARKET</span><strong>${row.percent === null ? 'UNKNOWN' : formatPercent(row.percent)}</strong>
-          <span>VS MARKET</span><strong class="${row.differenceVsMarket === null ? 'td-muted' : row.differenceVsMarket >= 0 ? 'td-good' : 'td-bad'}">${escapeHtml(compactGap(row.differenceVsMarket))}</strong>
-          <span>VS 99% ROUTE</span><strong class="${row.differenceVs99 === null ? 'td-muted' : row.differenceVs99 >= 0 ? 'td-good' : 'td-bad'}">${escapeHtml(compactGap(row.differenceVs99))}</strong>
+        </button>
+        <div class="td-row-body" hidden>
+          <div class="td-detail-grid">
+            <span>TRADER PAYS</span><strong>${formatMoney(row.price)}</strong>
+            <span>MARKET VALUE</span><strong>${row.market ? formatMoney(row.market) : 'NOT SYNCED'}</strong>
+            <span>PERCENT OF MARKET</span><strong>${row.percent === null ? 'UNKNOWN' : formatPercent(row.percent)}</strong>
+            <span>VS MARKET</span><strong class="${row.differenceVsMarket === null ? 'td-muted' : row.differenceVsMarket >= 0 ? 'td-good' : 'td-bad'}">${escapeHtml(compactGap(row.differenceVsMarket))}</strong>
+            <span>VS 99% ROUTE</span><strong class="${row.differenceVs99 === null ? 'td-muted' : row.differenceVs99 >= 0 ? 'td-good' : 'td-bad'}">${escapeHtml(compactGap(row.differenceVs99))}</strong>
+          </div>
+          ${ownedLine}
         </div>
-        ${ownedLine}
-      </details>
+      </article>
     `;
   }
 
@@ -782,7 +785,14 @@
       const action = button.dataset.td;
 
       if (action === 'close') closeReport();
-      else if (action === 'controls') {
+      else if (action === 'row') {
+        const card = button.closest('[data-td-row]');
+        const body = card?.querySelector('.td-row-body');
+        if (!card || !body) return;
+        const expanded = card.classList.toggle('expanded');
+        body.hidden = !expanded;
+        button.setAttribute('aria-expanded', String(expanded));
+      } else if (action === 'controls') {
         ui.controlsOpen = !ui.controlsOpen;
         ui.manageOpen = false;
         renderReport();
@@ -866,8 +876,8 @@
       .td-toolbar{position:relative;z-index:11;display:flex;gap:4px;overflow-x:auto;padding:5px 6px;background:#020704;border-bottom:1px solid #123e1c;flex:0 0 auto}.td-toolbar button,.td-toolbar a{white-space:nowrap;border:1px solid #2d713a;border-radius:4px;background:#06170a;color:#aaff83;padding:5px 7px;font:700 10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-decoration:none}
       .td-drawer,.td-manage{position:relative;z-index:11;display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.55fr);gap:5px;padding:6px;background:#031008;border-bottom:1px solid #245d2f;flex:0 0 auto}.td-drawer input,.td-drawer select,.td-drawer label,.td-drawer button,.td-manage select,.td-manage button{min-width:0;border:1px solid #2a7137;border-radius:4px;background:#010803;color:#aaff83;padding:6px;font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.td-drawer label{display:flex;align-items:center;gap:5px}.td-drawer input[type=number]{width:58px}.td-manage{grid-template-columns:1fr}.td-manage>strong{color:#b7ff91}.td-manage>small{color:#609d69}.td-move-row{display:grid;grid-template-columns:1fr auto;gap:5px}.td-manage .danger{border-color:#9f3942;color:#ff9aa2;background:#22080b}
       .td-list{position:relative;z-index:11;min-height:0;flex:1 1 auto;overflow:auto;display:grid;align-content:start;gap:4px;padding:5px 6px 8px;background:#010402}
-      .td-row{border:1px solid #245f30;border-radius:5px;background:#020a04;overflow:hidden}.td-row[open]{border-color:#5ed36b;background:#031008}.td-row.premium{border-left:3px solid #8dff72}.td-row.strong{border-left:3px solid #59d9c8}.td-row.near{border-left:3px solid #e6b84a}.td-row.withhold{border-left:3px solid #99424b}.td-row.unknown{border-left:3px solid #5d6b61}
-      .td-row summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 7px;cursor:pointer}.td-row summary::-webkit-details-marker{display:none}.td-row summary::before{content:">";color:#57a864;font-weight:800}.td-row[open] summary::before{content:"v"}.td-row-title{display:grid;min-width:0;flex:1}.td-row-title strong{color:#b8ff9c;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.td-row-title small{color:#66a672;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.td-row summary>b{flex:0 0 auto;border:1px solid currentColor;border-radius:999px;padding:2px 5px;color:#7adf83;font-size:7px}.td-row.premium summary>b{color:#9cff85}.td-row.strong summary>b{color:#6fe4d3}.td-row.near summary>b{color:#f2c45e}.td-row.withhold summary>b{color:#e87982}.td-row.unknown summary>b{color:#86918a}
+      .td-row{display:block;min-height:46px;border:1px solid #245f30;border-radius:5px;background:#020a04;overflow:hidden}.td-row.expanded{border-color:#5ed36b;background:#031008}.td-row.premium{border-left:3px solid #8dff72}.td-row.strong{border-left:3px solid #59d9c8}.td-row.near{border-left:3px solid #e6b84a}.td-row.withhold{border-left:3px solid #99424b}.td-row.unknown{border-left:3px solid #5d6b61}
+      #${APP.overlayId} .td-row-toggle{appearance:none!important;-webkit-appearance:none!important;width:100%!important;min-height:44px!important;margin:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:#aaff83!important;display:grid!important;grid-template-columns:auto minmax(0,1fr) auto!important;align-items:center!important;gap:7px!important;padding:7px 8px!important;text-align:left!important;cursor:pointer!important;font:inherit!important;line-height:1.25!important;box-shadow:none!important}.td-chevron{color:#57a864;font-weight:800;font-size:12px}.td-row.expanded .td-chevron{transform:rotate(90deg);color:#9cff85}.td-row-title{display:grid;min-width:0;gap:2px}.td-row-title strong{display:block;color:#b8ff9c!important;font-size:12px!important;line-height:1.15!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.td-row-title small{display:block;color:#66a672!important;font-size:9px!important;line-height:1.2!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.td-row-toggle>b{display:inline-block;flex:0 0 auto;border:1px solid currentColor;border-radius:999px;padding:2px 5px;color:#7adf83;font-size:7px;white-space:nowrap}.td-row.premium .td-row-toggle>b{color:#9cff85}.td-row.strong .td-row-toggle>b{color:#6fe4d3}.td-row.near .td-row-toggle>b{color:#f2c45e}.td-row.withhold .td-row-toggle>b{color:#e87982}.td-row.unknown .td-row-toggle>b{color:#86918a}.td-row-body[hidden]{display:none!important}
       .td-detail-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;padding:6px 9px 7px;border-top:1px dashed #1b4e27}.td-detail-grid span{color:#5f9e69;font-size:9px}.td-detail-grid strong{text-align:right;color:#b3ff92;font-size:9px}.td-owned{padding:5px 9px;border-top:1px dashed #1b4e27;color:#79cfff;font-size:8px}.td-good{color:#87ff77!important}.td-bad{color:#ff7f89!important}.td-muted{color:#718277!important}
       .td-empty,.td-more{border:1px solid #275f31;border-radius:5px;background:#031008;color:#88d891;padding:8px;text-align:center;font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.td-more{cursor:pointer}
       @media(max-width:560px){#${APP.overlayId}{padding:0;align-items:stretch}.td-shell{width:100%;height:100dvh;max-height:none;border-radius:0;border-left:0;border-right:0}.td-head{padding-top:max(8px,env(safe-area-inset-top))}.td-drawer{grid-template-columns:1fr}.td-summary button{min-width:64px}.td-list{padding-bottom:max(8px,env(safe-area-inset-bottom))}}
