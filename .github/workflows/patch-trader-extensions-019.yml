@@ -1,0 +1,34 @@
+name: Patch Trader Extensions 0.1.9
+
+on:
+  push:
+    branches:
+      - dev/trader-extensions-019-style-refresh
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/trader-extensions-019-style-refresh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply guarded patch
+        run: python tools/patch_trader_extensions_019.py
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-IMM-Trader-Extensions.user.js
+      - name: Commit validated userscript
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-IMM-Trader-Extensions.user.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Refresh Trader Extensions CSS after TornPDA script updates"
+            git push
+          fi
