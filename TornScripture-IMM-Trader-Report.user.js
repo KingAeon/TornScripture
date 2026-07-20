@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Deals
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.1
-// @description  Reliable per-trader Deals reports for captured pricelists.
+// @version      0.2.2
+// @description  Compact terminal-style per-trader Deals reports with safe pricelist move and disconnect controls.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
@@ -16,41 +16,899 @@
 
 (() => {
   'use strict';
-  const A={v:'0.2.1',book:'tornscripture-imm-traders',box:'tornscripture-imm-trader-deals-addon',style:'tornscripture-imm-trader-deals-style',traders:'tornscripture-imm-traders-v1',catalog:'tornscripture-imm-catalog-v1',shared:'tornscripture-ish-torn-catalog-v1',ledger:'tornscripture-imm-ledger-v1',settings:'tornscripture-imm-report-addon-settings-v1'};
-  const D={near:97,bucket:'deals',owned:false,search:'',sort:'pct',limit:200};
-  let ui={...D,...read(A.settings,{})},active='',bound=false,started=false,timer=0,signature='',traders=[],catalog={byId:{},byName:{},updatedAt:null},counts=new Map();
-  ui.near=clamp(Number.isFinite(Number(ui.nearFloorPercent))?ui.nearFloorPercent:Number.isFinite(Number(ui.nearWindowPercent))?99-Number(ui.nearWindowPercent):ui.near,0,99);
-  function read(k,f){try{const r=localStorage.getItem(k);return r?JSON.parse(r):JSON.parse(JSON.stringify(f));}catch{return JSON.parse(JSON.stringify(f));}}
-  function write(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
-  function clean(v){return String(v??'').replace(/\s+/g,' ').trim();}
-  function key(v){return clean(v).toLowerCase().replace(/[’‘]/g,"'").replace(/[^a-z0-9'+&-]+/g,' ').replace(/\s+/g,' ').trim();}
-  function esc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
-  function clamp(v,a,b){v=Number(v);return Math.min(b,Math.max(a,Number.isFinite(v)?v:a));}
-  function money(v){return new Intl.NumberFormat(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v)||0);}
-  function num(v){return new Intl.NumberFormat().format(Math.floor(Number(v)||0));}
-  function pct(v){v=Number(v)||0;return `${v.toFixed(Math.abs(v)>=10?1:2)}%`;}
-  function priceItem(x){if(!x||typeof x!=='object')return null;const id=Number(x.itemId??x.id)>0?Number(x.itemId??x.id):null,n=clean(x.itemName??x.name)||(id?`Item ${id}`:''),p=Math.max(0,Number(x.unitPrice??x.price??x.value)||0);return n&&p?{itemId:id,itemName:n,norm:key(n),price:p}:null;}
-  function trader(x){if(!x||typeof x!=='object')return null;const n=clean(x.name??x.username);if(!n)return null;const uid=Math.max(0,Math.floor(Number(x.userId??x.tornId)||0))||null,id=clean(x.recordId)||clean(x.uuid)||(typeof x.id==='string'?clean(x.id):'')||(uid?`trader-${uid}`:`trader-${key(n)}`),items=(Array.isArray(x.pricePageItems??x.pricingItems)?x.pricePageItems??x.pricingItems:[]).map(priceItem).filter(Boolean);return{...x,id,name:n,norm:key(n),userId:uid,items,url:clean(x.pricePageUrl??x.pricingPageUrl),captured:x.pricePageLastCheckedAt??x.pricePageCapturedAt??x.pricesCapturedAt??null};}
-  function normCatalog(raw){const out={updatedAt:raw?.updatedAt||null,byId:{},byName:{}},src=raw?.itemsByName||raw?.items||{},entries=Array.isArray(src)?src.map(x=>[String(x?.id??''),x]):Object.entries(src);for(const [k,x] of entries){if(!x||typeof x!=='object')continue;const val=x.value&&typeof x.value==='object'?x.value:{},id=Number(x.id??x.itemId??k)>0?Number(x.id??x.itemId??k):null,n=clean(x.name),m=Math.max(0,Number(x.marketPrice??x.market_price??val.market_price)||0);if(!n||!m)continue;const item={id,name:n,norm:key(n),market:m};if(id)out.byId[String(id)]=item;out.byName[item.norm]=item;}return out;}
-  function holdingMaps(){const lots=read(A.ledger,{}).lots||[],byId=new Map(),byName=new Map();for(const l of lots){const q=Math.max(0,Math.floor(Number(l?.remainingQuantity)||0));if(!q)continue;const c=q*Math.max(0,Number(l?.unitCost)||0),add=(map,k)=>{const o=map.get(k)||{q:0,c:0};map.set(k,{q:o.q+q,c:o.c+c});};if(Number(l?.itemId)>0)add(byId,String(Number(l.itemId)));const n=key(l?.itemName);if(n)add(byName,n);}return{byId,byName};}
-  function refresh(force=false){let s='';try{s=[localStorage.getItem(A.traders)||'',localStorage.getItem(A.catalog)||'',localStorage.getItem(A.shared)||'',ui.near].join('|');}catch{}if(!force&&s===signature&&traders.length)return;signature=s;const raw=read(A.traders,[]);traders=(Array.isArray(raw)?raw:raw?.traders||[]).map(trader).filter(Boolean);const sh=normCatalog(read(A.shared,{})),own=normCatalog(read(A.catalog,{}));catalog={updatedAt:own.updatedAt||sh.updatedAt,byId:{...sh.byId,...own.byId},byName:{...sh.byName,...own.byName}};counts=new Map(traders.map(t=>[t.id,countRows(rows(t,{byId:new Map(),byName:new Map()})).deals]));}
-  function marketFor(i){return(i.itemId&&catalog.byId[String(i.itemId)])||catalog.byName[i.norm]||null;}
-  function group(v){if(v===null||!Number.isFinite(v))return'unknown';if(v>=100)return'premium';if(v>=99)return'strong';if(v>=ui.near)return'near';return'withhold';}
-  function rows(t,h=holdingMaps()){return(t?.items||[]).map(i=>{const m=marketFor(i),mv=Math.max(0,Number(m?.market)||0),pp=mv?i.price/mv*100:null,vs=mv?i.price-mv:null,r99=mv?Math.floor(mv*.99):0,vs99=mv?i.price-r99:null,hold=(i.itemId?h.byId.get(String(i.itemId)):null)||h.byName.get(i.norm)||{q:0,c:0};return{...i,market:mv,percent:pp,vs,vs99,bucket:group(pp),owned:hold.q||0,ownedReturn:(hold.q||0)*i.price,ownedProfit:(hold.q||0)*i.price-(hold.c||0)};});}
-  function countRows(rs){const c={all:rs.length,deals:0,premium:0,strong:0,near:0,withhold:0,unknown:0,owned:0};for(const r of rs){if(Object.prototype.hasOwnProperty.call(c,r.bucket))c[r.bucket]++;if(['premium','strong','near'].includes(r.bucket))c.deals++;if(r.owned)c.owned++;}return c;}
-  function cardTrader(card){refresh();const id=clean(card.querySelector('[data-tsimm-trader-id]')?.dataset?.tsimmTraderId);if(id){const t=traders.find(x=>x.id===id);if(t)return t;}const href=card.querySelector('a[href*="profiles.php?XID="]')?.getAttribute('href')||'',xid=href.match(/[?&]XID=(\d+)/i)?.[1];if(xid){const t=traders.find(x=>Number(x.userId)===Number(xid));if(t)return t;}const n=key(card.querySelector('.tsimm-trader-banner-label strong,.tsimm-trader-profile-button strong')?.textContent);return n?traders.find(x=>x.norm===n)||null:null;}
-  function decorate(){const book=document.getElementById(A.book);if(!book)return;try{refresh();for(const card of book.querySelectorAll('.tsimm-trader-card')){const t=cardTrader(card);let b=card.querySelector('[data-tsimm-deals-open]');if(!t?.items?.length){b?.remove();continue;}const bar=card.querySelector('.tsimm-trader-actions')||card,edit=bar.querySelector('[data-tsimm-action="trader-edit"]');if(!b){b=document.createElement('button');b.type='button';b.className='tsimm-deals-button';b.dataset.tsimmDealsOpen='1';edit?bar.insertBefore(b,edit):bar.appendChild(b);}const c=counts.get(t.id)||0;b.dataset.tsimmTraderId=t.id;b.textContent=c?`Deals ${num(c)}`:'Deals';b.title=`${num(c)} captured prices at or near market value`;}}catch(e){console.error('[IMM Trader Deals] decorate failed',e);}}
-  function schedule(ms=40){clearTimeout(timer);timer=setTimeout(decorate,ms);}
-  function filtered(rs){let a=[...rs];if(ui.bucket==='deals')a=a.filter(r=>['premium','strong','near'].includes(r.bucket));else if(ui.bucket!=='all')a=a.filter(r=>r.bucket===ui.bucket);if(ui.owned)a=a.filter(r=>r.owned);const q=key(ui.search);if(q)a=a.filter(r=>r.norm.includes(q)||String(r.itemId||'').includes(q));const v=(r,f)=>r.percent===null?f:Number(r.percent);a.sort((x,y)=>ui.sort==='pct-asc'?v(x,Infinity)-v(y,Infinity):ui.sort==='vs'?Number(y.vs??-Infinity)-Number(x.vs??-Infinity):ui.sort==='vs99'?Number(y.vs99??-Infinity)-Number(x.vs99??-Infinity):ui.sort==='price'?y.price-x.price:ui.sort==='name'?x.itemName.localeCompare(y.itemName):v(y,-Infinity)-v(x,-Infinity));return a;}
-  function label(b){return{premium:'PREMIUM 100%+',strong:'STRONG 99%+',near:'NEAR MARKET',withhold:'WITHHOLD',unknown:'NO MARKET VALUE'}[b]||'UNKNOWN';}
-  function rowHtml(r){const gap=r.vs===null?'No comparison':`${r.vs>=0?'+':''}${money(r.vs)}`,gap99=r.vs99===null?'No comparison':`${r.vs99>=0?'+':''}${money(r.vs99)}`;return`<article class="td-row ${r.bucket}"><div class="td-row-head"><strong>${esc(r.itemName)}</strong><b>${label(r.bucket)}</b></div><div class="td-grid"><span>Trader pays</span><strong>${money(r.price)}</strong><span>Market value</span><strong>${r.market?money(r.market):'Not synced'}</strong><span>Percent of market</span><strong>${r.percent===null?'Unknown':pct(r.percent)}</strong><span>Difference vs market</span><strong class="${r.vs===null?'td-muted':r.vs>=0?'td-good':'td-bad'}">${esc(gap)}</strong><span>Difference vs 99% route</span><strong class="${r.vs99===null?'td-muted':r.vs99>=0?'td-good':'td-bad'}">${esc(gap99)}</strong></div>${r.owned?`<span class="td-owned">Owned × ${num(r.owned)} · return ${money(r.ownedReturn)} · tracked profit ${r.ownedProfit>=0?'+':''}${money(r.ownedProfit)}</span>`:''}</article>`;}
-  function render(){const box=document.getElementById(A.box);if(!box)return;refresh(true);const t=traders.find(x=>x.id===active);if(!t){close();return;}const rs=rows(t),c=countRows(rs),list=filtered(rs),shown=list.slice(0,ui.limit),tabs=[['deals','Deals',c.deals],['premium','Premium',c.premium],['strong','Strong',c.strong],['near','Near',c.near],['withhold','Withhold',c.withhold],['unknown','No market',c.unknown],['all','All',c.all]].map(([v,l,n])=>`<button class="${ui.bucket===v?'active':''}" data-td="filter" data-bucket="${v}">${l} ${num(n)}</button>`).join('');box.innerHTML=`<div class="td-shell"><div class="td-head"><div><strong>💎 ${esc(t.name)} Deals</strong><small>Per-trader comparison · v${A.v}</small></div><button data-td="close">×</button></div><div class="td-summary"><div class="premium"><strong>${num(c.premium)}</strong><span>premium 100%+</span></div><div class="strong"><strong>${num(c.strong)}</strong><span>strong 99%+</span></div><div class="near"><strong>${num(c.near)}</strong><span>near ${pct(ui.near)}+</span></div><div class="withhold"><strong>${num(c.withhold)}</strong><span>withhold</span></div><div><strong>${num(c.owned)}</strong><span>owned</span></div></div><div class="td-actions"><button data-td="reload">Reload</button><button data-td="copy">Copy deals</button>${t.url?`<a href="${esc(t.url)}">Open pricelist</a>`:''}<label><input type="checkbox" data-td-owned ${ui.owned?'checked':''}> Owned only</label><label>Near floor <input type="number" min="0" max="99" step=".5" value="${ui.near}" data-td-near> %</label></div><div class="td-tabs">${tabs}</div><div class="td-controls"><input type="search" placeholder="Search item or ID" value="${esc(ui.search)}" data-td-search><select data-td-sort><option value="pct" ${ui.sort==='pct'?'selected':''}>Payout % high</option><option value="pct-asc" ${ui.sort==='pct-asc'?'selected':''}>Payout % low</option><option value="vs" ${ui.sort==='vs'?'selected':''}>Best vs market</option><option value="vs99" ${ui.sort==='vs99'?'selected':''}>Best vs 99%</option><option value="price" ${ui.sort==='price'?'selected':''}>Trader price high</option><option value="name" ${ui.sort==='name'?'selected':''}>Item name</option></select></div><div class="td-list">${shown.length?shown.map(rowHtml).join(''):'<div class="td-note">No items match this filter.</div>'}${list.length>shown.length?`<button class="td-more" data-td="more">Show ${num(Math.min(200,list.length-shown.length))} more</button>`:''}</div></div>`;}
-  function open(id){refresh(true);const t=traders.find(x=>x.id===id);if(!t?.items?.length)return;active=t.id;ui={...ui,bucket:'deals',search:'',owned:false,limit:200};save();let b=document.getElementById(A.box);if(!b){b=document.createElement('div');b.id=A.box;document.body.appendChild(b);}render();}
-  function close(){document.getElementById(A.box)?.remove();active='';}
-  function save(){write(A.settings,{nearFloorPercent:ui.near,bucket:ui.bucket,ownedOnly:ui.owned,search:ui.search,sort:ui.sort,limit:ui.limit});}
-  async function copy(){const t=traders.find(x=>x.id===active);if(!t)return;const rs=filtered(rows(t)),text=[`${t.name} deals`,`Near floor: ${pct(ui.near)}`,'','Group\tItem\tTrader\tMarket\tPayout %\tVs market\tVs 99%\tOwned',...rs.map(r=>[label(r.bucket),r.itemName,r.price,r.market||'',r.percent===null?'':r.percent.toFixed(2),r.vs??'',r.vs99??'',r.owned].join('\t'))].join('\n');try{await navigator.clipboard.writeText(text);}catch{const a=document.createElement('textarea');a.value=text;a.style.cssText='position:fixed;opacity:0';document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();}}
-  function bind(){if(bound)return;bound=true;document.addEventListener('click',e=>{const d=e.target.closest('[data-tsimm-deals-open]');if(d){open(d.dataset.tsimmTraderId);return;}const b=e.target.closest('[data-td]');if(!b)return;const a=b.dataset.td;if(a==='close')close();else if(a==='reload'){signature='';render();schedule(0);}else if(a==='copy')copy();else if(a==='filter'){ui.bucket=b.dataset.bucket;ui.limit=200;save();render();}else if(a==='more'){ui.limit+=200;save();render();}},true);document.addEventListener('change',e=>{if(e.target.matches('[data-td-owned]'))ui.owned=e.target.checked;else if(e.target.matches('[data-td-sort]'))ui.sort=e.target.value;else if(e.target.matches('[data-td-near]')){ui.near=clamp(e.target.value,0,99);signature='';schedule(0);}else return;ui.limit=200;save();render();},true);document.addEventListener('input',e=>{if(!e.target.matches('[data-td-search]'))return;const pos=e.target.selectionStart??e.target.value.length;ui.search=e.target.value;ui.limit=200;save();render();const x=document.querySelector(`#${A.box} [data-td-search]`);x?.focus();x?.setSelectionRange(pos,pos);},true);}
-  function styles(){if(document.getElementById(A.style))return;const s=document.createElement('style');s.id=A.style;s.textContent=`.tsimm-deals-button{background:#23577a!important;border-color:#3f8fc0!important;color:#e5f6ff!important}#${A.box}{position:fixed;inset:0;z-index:2147483645;background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f3f7fa}.td-shell{width:min(760px,100%);max-height:96vh;display:flex;flex-direction:column;background:#171d24;border:1px solid #50718a;border-radius:12px;overflow:hidden}.td-head{display:flex;justify-content:space-between;align-items:center;padding:10px;background:#1f2a34;border-bottom:1px solid #394b5a}.td-head>div{display:grid}.td-head small{color:#a9bdcc}.td-head button,.td-actions button,.td-actions a,.td-actions label,.td-tabs button,.td-more{border:1px solid #506779;border-radius:7px;background:#293744;color:#fff;padding:6px 8px;font-weight:700;text-decoration:none}.td-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;padding:8px}.td-summary>div{display:grid;padding:7px;border:1px solid #41505d;border-radius:8px;background:#202a33}.td-summary strong{font-size:17px}.td-summary span{font-size:9px;text-transform:uppercase;color:#aebdca}.td-summary .premium strong{color:#6cf0ba}.td-summary .strong strong{color:#64cfff}.td-summary .near strong{color:#f1c85d}.td-summary .withhold strong{color:#ff7f89}.td-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.td-actions label{display:flex;gap:5px;align-items:center}.td-actions input[type=number]{width:58px;background:#13191e;color:#fff;border:1px solid #60788a;border-radius:5px}.td-tabs{display:flex;gap:4px;overflow:auto;padding:0 8px 8px}.td-tabs button{white-space:nowrap;border-radius:999px}.td-tabs button.active{background:#37617e;border-color:#64add8}.td-controls{display:grid;grid-template-columns:1fr 180px;gap:5px;padding:0 8px 8px}.td-controls input,.td-controls select{background:#12181d;color:#fff;border:1px solid #52697a;border-radius:7px;padding:7px}.td-list{overflow:auto;display:grid;gap:6px;padding:0 8px 10px}.td-row{padding:7px;border:1px solid #4b5964;border-radius:8px;background:#212930}.td-row.premium{border-color:#36a977}.td-row.strong{border-color:#3786b5}.td-row.near{border-color:#90763a}.td-row.withhold{border-color:#94444f}.td-row-head{display:flex;justify-content:space-between;gap:8px}.td-row-head b{font-size:9px;border:1px solid currentColor;border-radius:999px;padding:2px 6px}.td-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:6px}.td-grid span{color:#aebbc5}.td-grid strong{text-align:right}.td-owned{display:block;margin-top:6px;padding-top:5px;border-top:1px solid #3e4b55;color:#84d3ff}.td-good{color:#67e8a5!important}.td-bad{color:#ff8791!important}.td-muted{color:#aeb8c0!important}.td-note{margin:0 8px 8px;padding:7px;background:#202a34;border:1px solid #405466;border-radius:7px}@media(max-width:560px){.td-summary{grid-template-columns:repeat(2,1fr)}.td-controls{grid-template-columns:1fr}}`;document.head?.appendChild(s);}
-  function boot(){if(!document.body){setTimeout(boot,80);return;}if(started){schedule(0);return;}started=true;styles();bind();new MutationObserver(()=>schedule()).observe(document.body,{childList:true,subtree:true});setInterval(()=>{if(document.getElementById(A.book))decorate();},750);schedule(0);}
-  if(typeof window!=='undefined'&&typeof document!=='undefined'){boot();if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});}
+
+  const APP = Object.freeze({
+    version: '0.2.2',
+    traderBookId: 'tornscripture-imm-traders',
+    overlayId: 'tornscripture-imm-trader-deals-addon',
+    styleId: 'tornscripture-imm-trader-deals-style',
+    tradersKey: 'tornscripture-imm-traders-v1',
+    catalogKey: 'tornscripture-imm-catalog-v1',
+    sharedCatalogKey: 'tornscripture-ish-torn-catalog-v1',
+    ledgerKey: 'tornscripture-imm-ledger-v1',
+    settingsKey: 'tornscripture-imm-report-addon-settings-v1',
+    priceIndexKey: 'tornscripture-imm-trader-price-index-v1',
+    linkBackupKey: 'tornscripture-imm-trader-link-backup-v1',
+  });
+
+  const DEFAULTS = Object.freeze({
+    near: 97,
+    bucket: 'deals',
+    ownedOnly: false,
+    search: '',
+    sort: 'pct',
+    limit: 200,
+    controlsOpen: false,
+    manageOpen: false,
+  });
+
+  let ui = { ...DEFAULTS, ...readJson(APP.settingsKey, {}) };
+  ui.near = clamp(
+    Number.isFinite(Number(ui.nearFloorPercent))
+      ? ui.nearFloorPercent
+      : Number.isFinite(Number(ui.nearWindowPercent))
+        ? 99 - Number(ui.nearWindowPercent)
+        : ui.near,
+    0,
+    99,
+  );
+
+  let activeTraderId = '';
+  let bound = false;
+  let started = false;
+  let decorateTimer = 0;
+  let storageSignature = '';
+  let traders = [];
+  let catalog = { byId: {}, byName: {}, updatedAt: null };
+  let dealCounts = new Map();
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function readJson(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : clone(fallback);
+    } catch {
+      return clone(fallback);
+    }
+  }
+
+  function writeJson(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function clean(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  function nameKey(value) {
+    return clean(value)
+      .toLowerCase()
+      .replace(/[’‘]/g, "'")
+      .replace(/[^a-z0-9'+&-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function clamp(value, minimum, maximum) {
+    const number = Number(value);
+    return Math.min(maximum, Math.max(minimum, Number.isFinite(number) ? number : minimum));
+  }
+
+  function formatMoney(value) {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0,
+    }).format(Number(value) || 0);
+  }
+
+  function formatInteger(value) {
+    return new Intl.NumberFormat().format(Math.floor(Number(value) || 0));
+  }
+
+  function formatPercent(value) {
+    const number = Number(value) || 0;
+    return `${number.toFixed(Math.abs(number) >= 10 ? 1 : 2)}%`;
+  }
+
+  function formatAge(value) {
+    const timestamp = Date.parse(value || '');
+    if (!Number.isFinite(timestamp)) return 'capture time unknown';
+    const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+    if (minutes < 60) return `${minutes}m old`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `${hours}h old`;
+    return `${Math.floor(hours / 24)}d old`;
+  }
+
+  function normalizePriceItem(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const itemId = Number(candidate.itemId ?? candidate.id) > 0
+      ? Number(candidate.itemId ?? candidate.id)
+      : null;
+    const itemName = clean(candidate.itemName ?? candidate.name) || (itemId ? `Item ${itemId}` : '');
+    const price = Math.max(0, Number(candidate.unitPrice ?? candidate.price ?? candidate.value) || 0);
+    if (!itemName || !price) return null;
+    return { itemId, itemName, normalizedName: nameKey(itemName), price };
+  }
+
+  function normalizedTraderId(candidate, name = '', userId = null) {
+    return clean(candidate?.recordId)
+      || clean(candidate?.uuid)
+      || (typeof candidate?.id === 'string' ? clean(candidate.id) : '')
+      || (userId ? `trader-${userId}` : `trader-${nameKey(name)}`);
+  }
+
+  function normalizeTrader(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const name = clean(candidate.name ?? candidate.username);
+    if (!name) return null;
+    const userId = Math.max(0, Math.floor(Number(candidate.userId ?? candidate.tornId) || 0)) || null;
+    const items = (Array.isArray(candidate.pricePageItems ?? candidate.pricingItems)
+      ? candidate.pricePageItems ?? candidate.pricingItems
+      : []).map(normalizePriceItem).filter(Boolean);
+    return {
+      ...candidate,
+      id: normalizedTraderId(candidate, name, userId),
+      name,
+      normalizedName: nameKey(name),
+      userId,
+      items,
+      pricePageUrl: clean(candidate.pricePageUrl ?? candidate.pricingPageUrl),
+      capturedAt: candidate.pricePageLastCheckedAt
+        ?? candidate.pricePageCapturedAt
+        ?? candidate.pricesCapturedAt
+        ?? null,
+    };
+  }
+
+  function normalizeCatalog(raw) {
+    const output = { updatedAt: raw?.updatedAt || null, byId: {}, byName: {} };
+    const source = raw?.itemsByName || raw?.items || {};
+    const entries = Array.isArray(source)
+      ? source.map((item) => [String(item?.id ?? ''), item])
+      : Object.entries(source);
+
+    for (const [key, candidate] of entries) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const value = candidate.value && typeof candidate.value === 'object' ? candidate.value : {};
+      const itemId = Number(candidate.id ?? candidate.itemId ?? key) > 0
+        ? Number(candidate.id ?? candidate.itemId ?? key)
+        : null;
+      const itemName = clean(candidate.name);
+      const market = Math.max(0, Number(candidate.marketPrice ?? candidate.market_price ?? value.market_price) || 0);
+      if (!itemName || !market) continue;
+      const item = { itemId, itemName, normalizedName: nameKey(itemName), market };
+      if (itemId) output.byId[String(itemId)] = item;
+      output.byName[item.normalizedName] = item;
+    }
+
+    return output;
+  }
+
+  function holdingMaps() {
+    const lots = readJson(APP.ledgerKey, {}).lots || [];
+    const byId = new Map();
+    const byName = new Map();
+    const add = (map, key, quantity, cost) => {
+      const current = map.get(key) || { quantity: 0, cost: 0 };
+      map.set(key, { quantity: current.quantity + quantity, cost: current.cost + cost });
+    };
+
+    for (const lot of lots) {
+      const quantity = Math.max(0, Math.floor(Number(lot?.remainingQuantity) || 0));
+      if (!quantity) continue;
+      const cost = quantity * Math.max(0, Number(lot?.unitCost) || 0);
+      if (Number(lot?.itemId) > 0) add(byId, String(Number(lot.itemId)), quantity, cost);
+      const key = nameKey(lot?.itemName);
+      if (key) add(byName, key, quantity, cost);
+    }
+
+    return { byId, byName };
+  }
+
+  function refreshData(force = false) {
+    let signature = '';
+    try {
+      signature = [
+        localStorage.getItem(APP.tradersKey) || '',
+        localStorage.getItem(APP.catalogKey) || '',
+        localStorage.getItem(APP.sharedCatalogKey) || '',
+        ui.near,
+      ].join('|');
+    } catch {}
+
+    if (!force && signature === storageSignature && traders.length) return;
+    storageSignature = signature;
+
+    const rawTraders = readJson(APP.tradersKey, []);
+    traders = (Array.isArray(rawTraders) ? rawTraders : rawTraders?.traders || [])
+      .map(normalizeTrader)
+      .filter(Boolean);
+
+    const shared = normalizeCatalog(readJson(APP.sharedCatalogKey, {}));
+    const own = normalizeCatalog(readJson(APP.catalogKey, {}));
+    catalog = {
+      updatedAt: own.updatedAt || shared.updatedAt,
+      byId: { ...shared.byId, ...own.byId },
+      byName: { ...shared.byName, ...own.byName },
+    };
+
+    dealCounts = new Map(traders.map((entry) => [
+      entry.id,
+      countRows(reportRows(entry, { byId: new Map(), byName: new Map() })).deals,
+    ]));
+  }
+
+  function marketItemFor(item) {
+    return (item.itemId && catalog.byId[String(item.itemId)])
+      || catalog.byName[item.normalizedName]
+      || null;
+  }
+
+  function classifyPayout(percent, nearFloor = ui.near) {
+    if (percent === null || !Number.isFinite(percent)) return 'unknown';
+    if (percent >= 100) return 'premium';
+    if (percent >= 99) return 'strong';
+    if (percent >= nearFloor) return 'near';
+    return 'withhold';
+  }
+
+  function reportRows(trader, holdings = holdingMaps()) {
+    return (trader?.items || []).map((item) => {
+      const marketItem = marketItemFor(item);
+      const market = Math.max(0, Number(marketItem?.market) || 0);
+      const percent = market ? item.price / market * 100 : null;
+      const differenceVsMarket = market ? item.price - market : null;
+      const route99 = market ? Math.floor(market * 0.99) : 0;
+      const differenceVs99 = market ? item.price - route99 : null;
+      const holding = (item.itemId ? holdings.byId.get(String(item.itemId)) : null)
+        || holdings.byName.get(item.normalizedName)
+        || { quantity: 0, cost: 0 };
+      const owned = Math.max(0, Number(holding.quantity) || 0);
+      return {
+        ...item,
+        market,
+        percent,
+        differenceVsMarket,
+        differenceVs99,
+        bucket: classifyPayout(percent),
+        owned,
+        ownedReturn: owned * item.price,
+        ownedProfit: owned * item.price - Math.max(0, Number(holding.cost) || 0),
+      };
+    });
+  }
+
+  function countRows(rows) {
+    const counts = {
+      all: rows.length,
+      deals: 0,
+      premium: 0,
+      strong: 0,
+      near: 0,
+      withhold: 0,
+      unknown: 0,
+      owned: 0,
+    };
+    for (const row of rows) {
+      if (Object.prototype.hasOwnProperty.call(counts, row.bucket)) counts[row.bucket] += 1;
+      if (['premium', 'strong', 'near'].includes(row.bucket)) counts.deals += 1;
+      if (row.owned) counts.owned += 1;
+    }
+    return counts;
+  }
+
+  function traderForCard(card) {
+    refreshData();
+    const directId = clean(card.querySelector('[data-tsimm-trader-id]')?.dataset?.tsimmTraderId);
+    if (directId) {
+      const direct = traders.find((entry) => entry.id === directId);
+      if (direct) return direct;
+    }
+
+    const profileHref = card.querySelector('a[href*="profiles.php?XID="]')?.getAttribute('href') || '';
+    const userId = profileHref.match(/[?&]XID=(\d+)/i)?.[1];
+    if (userId) {
+      const byUserId = traders.find((entry) => Number(entry.userId) === Number(userId));
+      if (byUserId) return byUserId;
+    }
+
+    const visibleName = nameKey(
+      card.querySelector('.tsimm-trader-banner-label strong,.tsimm-trader-profile-button strong')?.textContent,
+    );
+    return visibleName ? traders.find((entry) => entry.normalizedName === visibleName) || null : null;
+  }
+
+  function decorateTraderBook() {
+    const book = document.getElementById(APP.traderBookId);
+    if (!book) return;
+    try {
+      refreshData();
+      for (const card of book.querySelectorAll('.tsimm-trader-card')) {
+        const trader = traderForCard(card);
+        let button = card.querySelector('[data-tsimm-deals-open]');
+        if (!trader?.items?.length) {
+          button?.remove();
+          continue;
+        }
+        const actions = card.querySelector('.tsimm-trader-actions') || card;
+        const edit = actions.querySelector('[data-tsimm-action="trader-edit"]');
+        if (!button) {
+          button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'tsimm-deals-button';
+          button.dataset.tsimmDealsOpen = '1';
+          edit ? actions.insertBefore(button, edit) : actions.appendChild(button);
+        }
+        const count = dealCounts.get(trader.id) || 0;
+        button.dataset.tsimmTraderId = trader.id;
+        button.textContent = count ? `Deals ${formatInteger(count)}` : 'Deals';
+        button.title = `${formatInteger(count)} captured prices at or near market value`;
+      }
+    } catch (error) {
+      console.error('[IMM Trader Deals] decorate failed', error);
+    }
+  }
+
+  function scheduleDecorate(delay = 40) {
+    clearTimeout(decorateTimer);
+    decorateTimer = setTimeout(decorateTraderBook, delay);
+  }
+
+  function filteredRows(rows) {
+    let output = [...rows];
+    if (ui.bucket === 'deals') output = output.filter((row) => ['premium', 'strong', 'near'].includes(row.bucket));
+    else if (ui.bucket !== 'all') output = output.filter((row) => row.bucket === ui.bucket);
+    if (ui.ownedOnly) output = output.filter((row) => row.owned);
+
+    const query = nameKey(ui.search);
+    if (query) {
+      output = output.filter((row) => row.normalizedName.includes(query) || String(row.itemId || '').includes(query));
+    }
+
+    const percent = (row, fallback) => row.percent === null ? fallback : Number(row.percent);
+    output.sort((left, right) => {
+      if (ui.sort === 'pct-asc') return percent(left, Infinity) - percent(right, Infinity);
+      if (ui.sort === 'market') return Number(right.differenceVsMarket ?? -Infinity) - Number(left.differenceVsMarket ?? -Infinity);
+      if (ui.sort === 'route99') return Number(right.differenceVs99 ?? -Infinity) - Number(left.differenceVs99 ?? -Infinity);
+      if (ui.sort === 'price') return right.price - left.price;
+      if (ui.sort === 'name') return left.itemName.localeCompare(right.itemName);
+      return percent(right, -Infinity) - percent(left, -Infinity);
+    });
+    return output;
+  }
+
+  function bucketLabel(bucket) {
+    return {
+      premium: 'PREMIUM 100%+',
+      strong: 'STRONG 99%+',
+      near: 'NEAR MARKET',
+      withhold: 'WITHHOLD',
+      unknown: 'NO MARKET VALUE',
+    }[bucket] || 'UNKNOWN';
+  }
+
+  function compactGap(value) {
+    if (value === null) return 'n/a';
+    return `${value >= 0 ? '+' : ''}${formatMoney(value)}`;
+  }
+
+  function rowHtml(row) {
+    const ownedLine = row.owned
+      ? `<div class="td-owned">OWNED ${formatInteger(row.owned)} · RETURN ${formatMoney(row.ownedReturn)} · PROFIT ${row.ownedProfit >= 0 ? '+' : ''}${formatMoney(row.ownedProfit)}</div>`
+      : '';
+    return `
+      <details class="td-row ${escapeHtml(row.bucket)}">
+        <summary>
+          <span class="td-row-title"><strong>${escapeHtml(row.itemName)}</strong><small>TRADER ${formatMoney(row.price)} · MARKET ${row.market ? formatMoney(row.market) : 'NOT SYNCED'} · VS 99% ${escapeHtml(compactGap(row.differenceVs99))}</small></span>
+          <b>${escapeHtml(bucketLabel(row.bucket))}</b>
+        </summary>
+        <div class="td-detail-grid">
+          <span>TRADER PAYS</span><strong>${formatMoney(row.price)}</strong>
+          <span>MARKET VALUE</span><strong>${row.market ? formatMoney(row.market) : 'NOT SYNCED'}</strong>
+          <span>PERCENT OF MARKET</span><strong>${row.percent === null ? 'UNKNOWN' : formatPercent(row.percent)}</strong>
+          <span>VS MARKET</span><strong class="${row.differenceVsMarket === null ? 'td-muted' : row.differenceVsMarket >= 0 ? 'td-good' : 'td-bad'}">${escapeHtml(compactGap(row.differenceVsMarket))}</strong>
+          <span>VS 99% ROUTE</span><strong class="${row.differenceVs99 === null ? 'td-muted' : row.differenceVs99 >= 0 ? 'td-good' : 'td-bad'}">${escapeHtml(compactGap(row.differenceVs99))}</strong>
+        </div>
+        ${ownedLine}
+      </details>
+    `;
+  }
+
+  function rawTraderRecords() {
+    const raw = readJson(APP.tradersKey, []);
+    return {
+      shape: Array.isArray(raw) ? 'array' : 'object',
+      root: raw,
+      records: Array.isArray(raw) ? raw : Array.isArray(raw?.traders) ? raw.traders : [],
+    };
+  }
+
+  function saveRawTraderRecords(snapshot, records) {
+    if (snapshot.shape === 'object') {
+      return writeJson(APP.tradersKey, { ...snapshot.root, traders: records });
+    }
+    return writeJson(APP.tradersKey, records);
+  }
+
+  function pricePayload(record) {
+    return {
+      pricePageUrl: clean(record?.pricePageUrl ?? record?.pricingPageUrl),
+      previousPricePageUrl: clean(record?.previousPricePageUrl),
+      pricePageTitle: clean(record?.pricePageTitle ?? record?.pricingPageTitle),
+      pricePageItems: clone(Array.isArray(record?.pricePageItems ?? record?.pricingItems)
+        ? record.pricePageItems ?? record.pricingItems
+        : []),
+      pricePageCapturedAt: record?.pricePageCapturedAt ?? record?.pricesCapturedAt ?? null,
+      pricePageLastCheckedAt: record?.pricePageLastCheckedAt ?? record?.pricePageCapturedAt ?? null,
+      pricePageCaptureCount: Math.max(0, Math.floor(Number(record?.pricePageCaptureCount) || 0)),
+      pricePageLastChangedCount: Math.max(0, Math.floor(Number(record?.pricePageLastChangedCount) || 0)),
+      pricePageLastResult: clean(record?.pricePageLastResult),
+    };
+  }
+
+  function clearPriceConnection(record) {
+    const next = { ...record };
+    next.pricePageUrl = '';
+    next.previousPricePageUrl = '';
+    next.pricePageTitle = '';
+    next.pricePageItems = [];
+    next.pricePageCapturedAt = null;
+    next.pricePageLastCheckedAt = null;
+    next.pricePageCaptureCount = 0;
+    next.pricePageLastChangedCount = 0;
+    next.pricePageLastResult = '';
+    next.updatedAt = new Date().toISOString();
+    delete next.pricingPageUrl;
+    delete next.receiptPageUrl;
+    delete next.pricingPageTitle;
+    delete next.pricingItems;
+    delete next.pricesCapturedAt;
+    return next;
+  }
+
+  function applyPricePayload(record, payload) {
+    const next = clearPriceConnection(record);
+    next.pricePageUrl = payload.pricePageUrl;
+    next.previousPricePageUrl = payload.previousPricePageUrl;
+    next.pricePageTitle = payload.pricePageTitle;
+    next.pricePageItems = clone(payload.pricePageItems);
+    next.pricePageCapturedAt = payload.pricePageCapturedAt;
+    next.pricePageLastCheckedAt = payload.pricePageLastCheckedAt;
+    next.pricePageCaptureCount = payload.pricePageCaptureCount;
+    next.pricePageLastChangedCount = payload.pricePageLastChangedCount;
+    next.pricePageLastResult = payload.pricePageLastResult;
+    next.updatedAt = new Date().toISOString();
+    return next;
+  }
+
+  function rawRecordMatches(record, trader) {
+    const normalized = normalizeTrader(record);
+    return Boolean(normalized && (
+      normalized.id === trader.id
+      || (normalized.userId && trader.userId && Number(normalized.userId) === Number(trader.userId))
+      || normalized.normalizedName === trader.normalizedName
+    ));
+  }
+
+  function storeLinkBackup(snapshot) {
+    writeJson(APP.linkBackupKey, {
+      savedAt: new Date().toISOString(),
+      shape: snapshot.shape,
+      root: snapshot.root,
+    });
+  }
+
+  function rebuildAfterLinkChange() {
+    try {
+      localStorage.removeItem(APP.priceIndexKey);
+      window.dispatchEvent(new CustomEvent('tsimm:trader-price-index-updated', { detail: { source: 'trader-deals' } }));
+    } catch {}
+    location.reload();
+  }
+
+  function disconnectActivePricelist() {
+    refreshData(true);
+    const trader = traders.find((entry) => entry.id === activeTraderId);
+    if (!trader) return;
+    const count = trader.items.length;
+    const confirmed = confirm(
+      `Disconnect ${trader.name}'s pricelist?\n\nThis removes the saved URL, ${count} captured prices, and capture timestamps. Profile, notes, rating, trade history, and profits stay intact.`,
+    );
+    if (!confirmed) return;
+
+    const snapshot = rawTraderRecords();
+    const index = snapshot.records.findIndex((record) => rawRecordMatches(record, trader));
+    if (index < 0) return;
+    storeLinkBackup(snapshot);
+    const records = [...snapshot.records];
+    records[index] = clearPriceConnection(records[index]);
+    if (!saveRawTraderRecords(snapshot, records)) {
+      alert('IMM could not update local trader storage. No data was changed.');
+      return;
+    }
+    rebuildAfterLinkChange();
+  }
+
+  function moveActivePricelist() {
+    refreshData(true);
+    const source = traders.find((entry) => entry.id === activeTraderId);
+    const targetId = clean(document.querySelector(`#${APP.overlayId} [data-td-move-target]`)?.value);
+    const target = traders.find((entry) => entry.id === targetId);
+    if (!source || !target || source.id === target.id) return;
+
+    const replacementWarning = target.items.length
+      ? `\n\n${target.name} already has ${target.items.length} captured prices. Those will be replaced.`
+      : '';
+    const confirmed = confirm(
+      `Move ${source.items.length} captured prices from ${source.name} to ${target.name}?${replacementWarning}\n\nThe trader profiles, notes, ratings, and trade histories will not move.`,
+    );
+    if (!confirmed) return;
+
+    const snapshot = rawTraderRecords();
+    const sourceIndex = snapshot.records.findIndex((record) => rawRecordMatches(record, source));
+    const targetIndex = snapshot.records.findIndex((record) => rawRecordMatches(record, target));
+    if (sourceIndex < 0 || targetIndex < 0) return;
+
+    storeLinkBackup(snapshot);
+    const records = [...snapshot.records];
+    const payload = pricePayload(records[sourceIndex]);
+    const targetPreviousUrl = clean(records[targetIndex]?.pricePageUrl ?? records[targetIndex]?.pricingPageUrl);
+    if (targetPreviousUrl && targetPreviousUrl !== payload.pricePageUrl) payload.previousPricePageUrl = targetPreviousUrl;
+    records[sourceIndex] = clearPriceConnection(records[sourceIndex]);
+    records[targetIndex] = applyPricePayload(records[targetIndex], payload);
+
+    if (!saveRawTraderRecords(snapshot, records)) {
+      alert('IMM could not update local trader storage. No data was changed.');
+      return;
+    }
+    rebuildAfterLinkChange();
+  }
+
+  function undoLastLinkChange() {
+    const backup = readJson(APP.linkBackupKey, null);
+    if (!backup?.root) return;
+    if (!confirm('Undo the most recent pricelist move or disconnect?')) return;
+    if (!writeJson(APP.tradersKey, backup.root)) {
+      alert('IMM could not restore the trader backup.');
+      return;
+    }
+    try {
+      localStorage.removeItem(APP.linkBackupKey);
+      localStorage.removeItem(APP.priceIndexKey);
+    } catch {}
+    location.reload();
+  }
+
+  function persistUi() {
+    writeJson(APP.settingsKey, {
+      nearFloorPercent: ui.near,
+      bucket: ui.bucket,
+      ownedOnly: ui.ownedOnly,
+      search: ui.search,
+      sort: ui.sort,
+      limit: ui.limit,
+    });
+  }
+
+  function summaryChip(value, label, count, className = '') {
+    const active = ui.bucket === value && !ui.ownedOnly ? ' active' : '';
+    return `<button type="button" class="${escapeHtml(className)}${active}" data-td="filter" data-bucket="${escapeHtml(value)}"><strong>${formatInteger(count)}</strong><span>${escapeHtml(label)}</span></button>`;
+  }
+
+  function renderReport() {
+    const overlay = document.getElementById(APP.overlayId);
+    if (!overlay) return;
+    refreshData(true);
+    const trader = traders.find((entry) => entry.id === activeTraderId);
+    if (!trader) {
+      closeReport();
+      return;
+    }
+
+    const rows = reportRows(trader);
+    const counts = countRows(rows);
+    const filtered = filteredRows(rows);
+    const shown = filtered.slice(0, Math.max(50, Number(ui.limit) || 200));
+    const capturedText = trader.capturedAt ? formatAge(trader.capturedAt) : 'capture time unknown';
+    const moveTargets = traders
+      .filter((entry) => entry.id !== trader.id)
+      .map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.name)}${entry.items.length ? ` · replaces ${formatInteger(entry.items.length)} prices` : ''}</option>`)
+      .join('');
+    const hasBackup = Boolean(readJson(APP.linkBackupKey, null)?.root);
+
+    overlay.innerHTML = `
+      <div class="td-shell">
+        <header class="td-head">
+          <div>
+            <strong>&gt; ${escapeHtml(trader.name.toUpperCase())}_DEALS</strong>
+            <small>${formatInteger(trader.items.length)} PRICES · ${escapeHtml(capturedText.toUpperCase())} · V${APP.version}</small>
+          </div>
+          <button type="button" data-td="close" aria-label="Close">×</button>
+        </header>
+
+        <nav class="td-summary" aria-label="Deal filters">
+          ${summaryChip('deals', 'DEALS', counts.deals, 'deals')}
+          ${summaryChip('premium', 'PREM', counts.premium, 'premium')}
+          ${summaryChip('strong', 'STRONG', counts.strong, 'strong')}
+          ${summaryChip('near', 'NEAR', counts.near, 'near')}
+          ${summaryChip('withhold', 'HOLD', counts.withhold, 'withhold')}
+          <button type="button" class="owned${ui.ownedOnly ? ' active' : ''}" data-td="owned"><strong>${formatInteger(counts.owned)}</strong><span>OWNED</span></button>
+        </nav>
+
+        <div class="td-toolbar">
+          <button type="button" data-td="controls">${ui.controlsOpen ? 'HIDE FILTERS' : 'FILTERS'}</button>
+          <button type="button" data-td="copy">COPY</button>
+          ${trader.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">OPEN LIST</a>` : ''}
+          <button type="button" data-td="manage">${ui.manageOpen ? 'CLOSE MANAGE' : 'MANAGE LINK'}</button>
+        </div>
+
+        ${ui.controlsOpen ? `
+          <section class="td-drawer">
+            <input type="search" placeholder="SEARCH ITEM OR ID" value="${escapeHtml(ui.search)}" data-td-search>
+            <select data-td-sort>
+              <option value="pct" ${ui.sort === 'pct' ? 'selected' : ''}>PAYOUT % HIGH</option>
+              <option value="pct-asc" ${ui.sort === 'pct-asc' ? 'selected' : ''}>PAYOUT % LOW</option>
+              <option value="market" ${ui.sort === 'market' ? 'selected' : ''}>BEST VS MARKET</option>
+              <option value="route99" ${ui.sort === 'route99' ? 'selected' : ''}>BEST VS 99%</option>
+              <option value="price" ${ui.sort === 'price' ? 'selected' : ''}>TRADER PRICE HIGH</option>
+              <option value="name" ${ui.sort === 'name' ? 'selected' : ''}>ITEM NAME</option>
+            </select>
+            <label>NEAR FLOOR <input type="number" min="0" max="99" step="0.5" value="${escapeHtml(ui.near)}" data-td-near> %</label>
+            <label><input type="checkbox" data-td-owned ${ui.ownedOnly ? 'checked' : ''}> OWNED ONLY</label>
+            <button type="button" data-td="all">SHOW ALL ${formatInteger(counts.all)}</button>
+            ${counts.unknown ? `<button type="button" data-td="unknown">NO MARKET ${formatInteger(counts.unknown)}</button>` : ''}
+          </section>
+        ` : ''}
+
+        ${ui.manageOpen ? `
+          <section class="td-manage">
+            <strong>PRICE CONNECTION</strong>
+            <small>Moving or disconnecting changes only captured pricelist data. Trader history stays put.</small>
+            <div class="td-move-row">
+              <select data-td-move-target>
+                <option value="">MOVE TO SAVED TRADER…</option>
+                ${moveTargets}
+              </select>
+              <button type="button" data-td="move">MOVE</button>
+            </div>
+            <button type="button" class="danger" data-td="disconnect">DISCONNECT PRICELIST</button>
+            ${hasBackup ? '<button type="button" data-td="undo">UNDO LAST LINK CHANGE</button>' : ''}
+          </section>
+        ` : ''}
+
+        <main class="td-list">
+          ${shown.length ? shown.map(rowHtml).join('') : '<div class="td-empty">NO ITEMS MATCH THIS FILTER.</div>'}
+          ${filtered.length > shown.length ? `<button type="button" class="td-more" data-td="more">LOAD ${formatInteger(Math.min(200, filtered.length - shown.length))} MORE</button>` : ''}
+        </main>
+      </div>
+    `;
+  }
+
+  function openReport(traderId) {
+    refreshData(true);
+    const trader = traders.find((entry) => entry.id === traderId);
+    if (!trader?.items?.length) return;
+    activeTraderId = trader.id;
+    ui = {
+      ...ui,
+      bucket: 'deals',
+      ownedOnly: false,
+      search: '',
+      limit: 200,
+      controlsOpen: false,
+      manageOpen: false,
+    };
+    persistUi();
+    let overlay = document.getElementById(APP.overlayId);
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = APP.overlayId;
+      document.body.appendChild(overlay);
+    }
+    renderReport();
+  }
+
+  function closeReport() {
+    document.getElementById(APP.overlayId)?.remove();
+    activeTraderId = '';
+  }
+
+  async function copyReport() {
+    const trader = traders.find((entry) => entry.id === activeTraderId);
+    if (!trader) return;
+    const rows = filteredRows(reportRows(trader));
+    const text = [
+      `${trader.name} deals`,
+      `Near floor: ${formatPercent(ui.near)}`,
+      '',
+      'Group\tItem\tTrader\tMarket\tPayout %\tVs market\tVs 99%\tOwned',
+      ...rows.map((row) => [
+        bucketLabel(row.bucket),
+        row.itemName,
+        row.price,
+        row.market || '',
+        row.percent === null ? '' : row.percent.toFixed(2),
+        row.differenceVsMarket ?? '',
+        row.differenceVs99 ?? '',
+        row.owned,
+      ].join('\t')),
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand('copy');
+      area.remove();
+    }
+  }
+
+  function bindEvents() {
+    if (bound) return;
+    bound = true;
+
+    document.addEventListener('click', (event) => {
+      const opener = event.target.closest('[data-tsimm-deals-open]');
+      if (opener) {
+        openReport(opener.dataset.tsimmTraderId);
+        return;
+      }
+
+      const button = event.target.closest('[data-td]');
+      if (!button) return;
+      const action = button.dataset.td;
+
+      if (action === 'close') closeReport();
+      else if (action === 'controls') {
+        ui.controlsOpen = !ui.controlsOpen;
+        ui.manageOpen = false;
+        renderReport();
+      } else if (action === 'manage') {
+        ui.manageOpen = !ui.manageOpen;
+        ui.controlsOpen = false;
+        renderReport();
+      } else if (action === 'copy') copyReport();
+      else if (action === 'filter') {
+        ui.bucket = button.dataset.bucket;
+        ui.ownedOnly = false;
+        ui.limit = 200;
+        persistUi();
+        renderReport();
+      } else if (action === 'owned') {
+        ui.ownedOnly = !ui.ownedOnly;
+        ui.limit = 200;
+        persistUi();
+        renderReport();
+      } else if (action === 'all') {
+        ui.bucket = 'all';
+        ui.ownedOnly = false;
+        ui.limit = 200;
+        persistUi();
+        renderReport();
+      } else if (action === 'unknown') {
+        ui.bucket = 'unknown';
+        ui.ownedOnly = false;
+        ui.limit = 200;
+        persistUi();
+        renderReport();
+      } else if (action === 'more') {
+        ui.limit += 200;
+        persistUi();
+        renderReport();
+      } else if (action === 'disconnect') disconnectActivePricelist();
+      else if (action === 'move') moveActivePricelist();
+      else if (action === 'undo') undoLastLinkChange();
+    }, true);
+
+    document.addEventListener('change', (event) => {
+      if (event.target.matches('[data-td-owned]')) ui.ownedOnly = event.target.checked;
+      else if (event.target.matches('[data-td-sort]')) ui.sort = event.target.value;
+      else if (event.target.matches('[data-td-near]')) {
+        ui.near = clamp(event.target.value, 0, 99);
+        storageSignature = '';
+        scheduleDecorate(0);
+      } else return;
+      ui.limit = 200;
+      persistUi();
+      renderReport();
+    }, true);
+
+    document.addEventListener('input', (event) => {
+      if (!event.target.matches('[data-td-search]')) return;
+      const cursor = event.target.selectionStart ?? event.target.value.length;
+      ui.search = event.target.value;
+      ui.limit = 200;
+      persistUi();
+      renderReport();
+      const replacement = document.querySelector(`#${APP.overlayId} [data-td-search]`);
+      replacement?.focus();
+      replacement?.setSelectionRange(cursor, cursor);
+    }, true);
+  }
+
+  function injectStyles() {
+    if (document.getElementById(APP.styleId)) return;
+    const style = document.createElement('style');
+    style.id = APP.styleId;
+    style.textContent = `
+      .tsimm-deals-button{background:#073914!important;border-color:#55ff79!important;color:#b6ff9d!important;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}
+      #${APP.overlayId}{position:fixed;inset:0;z-index:2147483645;background:#000d;display:flex;align-items:center;justify-content:center;padding:8px;color:#aaff83;font:12px/1.32 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      #${APP.overlayId} *{box-sizing:border-box}
+      .td-shell{position:relative;width:min(760px,100%);height:min(94dvh,900px);display:flex;flex-direction:column;overflow:hidden;background:#020704;border:1px solid #39b84f;border-radius:10px;box-shadow:0 0 0 1px #0d3516,0 18px 54px #000}
+      .td-shell::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,#7dff8c08 0,#7dff8c08 1px,transparent 1px,transparent 4px);mix-blend-mode:screen}
+      .td-head{position:relative;z-index:11;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:#041108;border-bottom:1px solid #267e37;flex:0 0 auto}
+      .td-head>div{display:grid;min-width:0}.td-head strong{color:#b7ff91;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.td-head small{color:#5ba769;font-size:9px;letter-spacing:.04em}.td-head button{width:30px;height:30px;border:1px solid #3d9c4c;border-radius:5px;background:#06190a;color:#aaff83;font:700 18px/1 monospace}
+      .td-summary{position:relative;z-index:11;display:flex;gap:4px;overflow-x:auto;padding:5px 6px;background:#020b04;border-bottom:1px solid #123e1c;scrollbar-width:none;flex:0 0 auto}.td-summary::-webkit-scrollbar{display:none}
+      .td-summary button{min-width:70px;display:grid;gap:0;padding:4px 7px;border:1px solid #245d2f;border-radius:5px;background:#031107;color:#6eb87b;text-align:left;font:inherit}.td-summary button strong{font-size:15px;line-height:1;color:#9dff7a}.td-summary button span{font-size:8px;letter-spacing:.06em}.td-summary button.active{background:#0a2b10;border-color:#7dff6e;box-shadow:inset 0 0 0 1px #2f7c39}.td-summary .premium strong{color:#aaff83}.td-summary .strong strong{color:#66e9d5}.td-summary .near strong{color:#ffd166}.td-summary .withhold strong{color:#ff7f89}.td-summary .owned strong{color:#8bd9ff}
+      .td-toolbar{position:relative;z-index:11;display:flex;gap:4px;overflow-x:auto;padding:5px 6px;background:#020704;border-bottom:1px solid #123e1c;flex:0 0 auto}.td-toolbar button,.td-toolbar a{white-space:nowrap;border:1px solid #2d713a;border-radius:4px;background:#06170a;color:#aaff83;padding:5px 7px;font:700 10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-decoration:none}
+      .td-drawer,.td-manage{position:relative;z-index:11;display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.55fr);gap:5px;padding:6px;background:#031008;border-bottom:1px solid #245d2f;flex:0 0 auto}.td-drawer input,.td-drawer select,.td-drawer label,.td-drawer button,.td-manage select,.td-manage button{min-width:0;border:1px solid #2a7137;border-radius:4px;background:#010803;color:#aaff83;padding:6px;font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.td-drawer label{display:flex;align-items:center;gap:5px}.td-drawer input[type=number]{width:58px}.td-manage{grid-template-columns:1fr}.td-manage>strong{color:#b7ff91}.td-manage>small{color:#609d69}.td-move-row{display:grid;grid-template-columns:1fr auto;gap:5px}.td-manage .danger{border-color:#9f3942;color:#ff9aa2;background:#22080b}
+      .td-list{position:relative;z-index:11;min-height:0;flex:1 1 auto;overflow:auto;display:grid;align-content:start;gap:4px;padding:5px 6px 8px;background:#010402}
+      .td-row{border:1px solid #245f30;border-radius:5px;background:#020a04;overflow:hidden}.td-row[open]{border-color:#5ed36b;background:#031008}.td-row.premium{border-left:3px solid #8dff72}.td-row.strong{border-left:3px solid #59d9c8}.td-row.near{border-left:3px solid #e6b84a}.td-row.withhold{border-left:3px solid #99424b}.td-row.unknown{border-left:3px solid #5d6b61}
+      .td-row summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 7px;cursor:pointer}.td-row summary::-webkit-details-marker{display:none}.td-row summary::before{content:">";color:#57a864;font-weight:800}.td-row[open] summary::before{content:"v"}.td-row-title{display:grid;min-width:0;flex:1}.td-row-title strong{color:#b8ff9c;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.td-row-title small{color:#66a672;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.td-row summary>b{flex:0 0 auto;border:1px solid currentColor;border-radius:999px;padding:2px 5px;color:#7adf83;font-size:7px}.td-row.premium summary>b{color:#9cff85}.td-row.strong summary>b{color:#6fe4d3}.td-row.near summary>b{color:#f2c45e}.td-row.withhold summary>b{color:#e87982}.td-row.unknown summary>b{color:#86918a}
+      .td-detail-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;padding:6px 9px 7px;border-top:1px dashed #1b4e27}.td-detail-grid span{color:#5f9e69;font-size:9px}.td-detail-grid strong{text-align:right;color:#b3ff92;font-size:9px}.td-owned{padding:5px 9px;border-top:1px dashed #1b4e27;color:#79cfff;font-size:8px}.td-good{color:#87ff77!important}.td-bad{color:#ff7f89!important}.td-muted{color:#718277!important}
+      .td-empty,.td-more{border:1px solid #275f31;border-radius:5px;background:#031008;color:#88d891;padding:8px;text-align:center;font:10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.td-more{cursor:pointer}
+      @media(max-width:560px){#${APP.overlayId}{padding:0;align-items:stretch}.td-shell{width:100%;height:100dvh;max-height:none;border-radius:0;border-left:0;border-right:0}.td-head{padding-top:max(8px,env(safe-area-inset-top))}.td-drawer{grid-template-columns:1fr}.td-summary button{min-width:64px}.td-list{padding-bottom:max(8px,env(safe-area-inset-bottom))}}
+    `;
+    document.head?.appendChild(style);
+  }
+
+  function boot() {
+    if (!document.body) {
+      setTimeout(boot, 80);
+      return;
+    }
+    if (started) {
+      scheduleDecorate(0);
+      return;
+    }
+    started = true;
+    injectStyles();
+    bindEvents();
+    new MutationObserver(() => scheduleDecorate()).observe(document.body, { childList: true, subtree: true });
+    setInterval(() => {
+      if (document.getElementById(APP.traderBookId)) decorateTraderBook();
+    }, 750);
+    scheduleDecorate(0);
+  }
+
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    boot();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  }
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      classifyPayout,
+      normalizePriceItem,
+      normalizeTrader,
+      normalizeCatalog,
+      pricePayload,
+      clearPriceConnection,
+      applyPricePayload,
+      countRows,
+    };
+  }
 })();
