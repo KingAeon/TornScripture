@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - IMM TornExchange Safe Return
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.0
-// @description  Prevents TornExchange captures from returning to Torn routes that cannot be reopened directly in TornPDA.
+// @version      0.1.1
+// @description  Diverts TornExchange captures to Torn's current Item Market route instead of reopening temporary or obsolete Torn pages.
 // @author       KingAeon
 // @match        https://tornexchange.com/prices/*
 // @match        https://www.tornexchange.com/prices/*
@@ -18,7 +18,7 @@
   'use strict';
 
   const PREFIX = 'TSIMM_PRICE_BRIDGE:';
-  const SAFE_RETURN_URL = 'https://www.torn.com/itemmarket.php';
+  const SAFE_RETURN_URL = 'https://www.torn.com/page.php?sid=ItemMarket';
   const MAX_AGE_MS = 20 * 60 * 1000;
 
   function readBridge() {
@@ -76,8 +76,8 @@
     forceSafeRequest(true);
   }, true);
 
-  // TornExchange and TornPDA can restore window.name a moment after document-start.
-  // Keep correcting only request payloads until capture begins.
+  // TornExchange and TornPDA can restore window.name shortly after startup.
+  // Keep forcing the fixed Item Market landing page until capture begins.
   const startedAt = Date.now();
   const timer = setInterval(() => {
     const bridge = readBridge();
