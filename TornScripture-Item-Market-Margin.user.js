@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.8.0
-// @description  Item-market, NPC-store, and overseas profit overlays with purchase history, load planning, trade verification, trader profiles, and receipt audits.
+// @version      0.9.0
+// @description  Item-market and overseas profit overlays with NPC buyback flips, trader price-page capture, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -17,10 +17,10 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.8.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.0
    *
    * SAFETY BOUNDARY
-   * - Reads item names, lowest prices, market values, visible listing rows, NPC shop prices, and trade manifests.
+   * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
    * - Torn catalog values are requested only when the user presses Sync values.
    * - The API key, catalog cache, pending purchase, purchase lots, sale history, trader book, and receipt audits remain in this browser's local storage.
    * - The key is sent only to Torn's official API.
@@ -32,7 +32,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.8.0',
+    version: '0.9.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -47,22 +47,23 @@
     apiKeyStorageKey: 'tornscripture-imm-api-key-v1',
     sharedApiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
-    npcPriceStorageKey: 'tornscripture-imm-npc-prices-v1',
     sharedCatalogStorageKey: 'tornscripture-ish-torn-catalog-v1',
     settingsStorageKey: 'tornscripture-imm-settings-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
     tradersStorageKey: 'tornscripture-imm-traders-v1',
+    pendingTraderCaptureStorageKey: 'tornscripture-imm-pending-trader-capture-v1',
+    priceRecaptureSessionKey: 'tornscripture-imm-price-recapture-v1',
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
     recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
     purchasePrivacyMigrationStorageKey: 'tornscripture-imm-purchase-privacy-v1',
     catalogUrl: 'https://api.torn.com/v2/torn/items',
-    cityShopsUrl: 'https://api.torn.com/torn/',
     fastScanDelayMs: 35,
     settleScanDelayMs: 520,
     minimumScanIntervalMs: 90,
     catalogMaxAgeMs: 24 * 60 * 60 * 1000,
     pendingPurchaseMaxAgeMs: 30 * 60 * 1000,
     duplicatePurchaseWindowMs: 2 * 60 * 1000,
+    traderCaptureMaxAgeMs: 60 * 60 * 1000,
   });
 
   const PDA_API_KEY = '###PDA-APIKEY###';
@@ -84,9 +85,9 @@
   const state = {
     settings: { ...structuredCloneSafe(DEFAULT_SETTINGS), ...loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS) },
     catalog: mergeCatalogCaches(),
-    npcPrices: normalizeNpcPriceCache(loadJson(APP.npcPriceStorageKey, {})),
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
     traders: normalizeTraders(loadJson(APP.tradersStorageKey, [])),
+    pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
     purchaseSignals: [],
     recentPurchaseFingerprints: loadJson(APP.recentPurchaseFingerprintsStorageKey, []),
@@ -101,6 +102,8 @@
     initialized: false,
     networkObserversBound: false,
     receiptAuditDraft: null,
+    priceRecaptureTimer: null,
+    priceRecaptureInFlight: false,
     ledgerUi: {
       view: 'holdings',
       search: '',
@@ -140,6 +143,23 @@
     return Number.isFinite(number) ? number : null;
   }
 
+  function normalizeTraderPriceItem(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const itemName = normalizeWhitespace(candidate.itemName ?? candidate.name);
+    const itemId = Number(candidate.itemId ?? candidate.id) > 0 ? Number(candidate.itemId ?? candidate.id) : null;
+    const unitPrice = Math.max(0, Number(candidate.unitPrice ?? candidate.price ?? candidate.value) || 0);
+    if ((!itemName && !itemId) || unitPrice <= 0) return null;
+    const resolvedName = itemName || `Item ${itemId}`;
+    return {
+      itemId,
+      itemName: resolvedName,
+      normalizedName: normalizeName(resolvedName),
+      unitPrice,
+      quantity: Math.max(1, Math.floor(Number(candidate.quantity ?? candidate.qty) || 1)),
+      sourceText: normalizeWhitespace(candidate.sourceText ?? candidate.text).slice(0, 300),
+    };
+  }
+
   function normalizeTrader(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
     const name = normalizeWhitespace(candidate.name ?? candidate.username);
@@ -153,6 +173,9 @@
     const tradeUrl = normalizeHttpUrl(candidate.tradeUrl)
       || (userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : '');
     const bannerUrl = normalizeHttpUrl(candidate.bannerUrl ?? candidate.bannerImageUrl ?? candidate.userbarUrl);
+    const pricePageItems = Array.isArray(candidate.pricePageItems ?? candidate.pricingItems)
+      ? (candidate.pricePageItems ?? candidate.pricingItems).map(normalizeTraderPriceItem).filter(Boolean)
+      : [];
     return {
       id: normalizeWhitespace(candidate.recordId)
         || normalizeWhitespace(candidate.uuid)
@@ -167,6 +190,15 @@
       tradeUrl,
       bannerUrl,
       captureSource: normalizeWhitespace(candidate.captureSource) || (bannerUrl ? 'profile-page' : 'manual'),
+      pricePageUrl: normalizeHttpUrl(candidate.pricePageUrl ?? candidate.pricingPageUrl ?? candidate.receiptPageUrl),
+      previousPricePageUrl: normalizeHttpUrl(candidate.previousPricePageUrl),
+      pricePageTitle: normalizeWhitespace(candidate.pricePageTitle ?? candidate.pricingPageTitle).slice(0, 160),
+      pricePageItems,
+      pricePageCapturedAt: candidate.pricePageCapturedAt ?? candidate.pricesCapturedAt ?? null,
+      pricePageLastCheckedAt: candidate.pricePageLastCheckedAt ?? candidate.pricePageCapturedAt ?? null,
+      pricePageCaptureCount: Math.max(0, Math.floor(Number(candidate.pricePageCaptureCount) || 0)),
+      pricePageLastChangedCount: Math.max(0, Math.floor(Number(candidate.pricePageLastChangedCount) || 0)),
+      pricePageLastResult: normalizeWhitespace(candidate.pricePageLastResult) || (pricePageItems.length ? 'captured' : ''),
       notes: normalizeWhitespace(candidate.notes),
       createdAt: candidate.createdAt || new Date().toISOString(),
       updatedAt: candidate.updatedAt || new Date().toISOString(),
@@ -190,6 +222,396 @@
   function saveTraders() {
     state.traders = normalizeTraders(state.traders);
     saveJson(APP.tradersStorageKey, state.traders);
+  }
+
+
+  function normalizePendingTraderCapture(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const name = normalizeWhitespace(candidate.name);
+    const traderId = normalizeWhitespace(candidate.traderId);
+    const userId = Math.max(0, Math.floor(Number(candidate.userId) || 0)) || null;
+    const armedAt = Number(candidate.armedAt) || Date.now();
+    const expiresAt = Number(candidate.expiresAt) || (armedAt + APP.traderCaptureMaxAgeMs);
+    if ((!traderId && !userId && !name) || expiresAt <= Date.now()) return null;
+    return { traderId, userId, name, armedAt, expiresAt };
+  }
+
+  function savePendingTraderCapture() {
+    if (state.pendingTraderCapture) saveJson(APP.pendingTraderCaptureStorageKey, state.pendingTraderCapture);
+    else localStorage.removeItem(APP.pendingTraderCaptureStorageKey);
+  }
+
+  function activePendingTraderCapture() {
+    const pending = normalizePendingTraderCapture(state.pendingTraderCapture);
+    if (!pending) {
+      if (state.pendingTraderCapture) {
+        state.pendingTraderCapture = null;
+        savePendingTraderCapture();
+      }
+      return null;
+    }
+    state.pendingTraderCapture = pending;
+    return pending;
+  }
+
+  function traderForPendingCapture(pending = activePendingTraderCapture()) {
+    if (!pending) return null;
+    return state.traders.find((trader) =>
+      (pending.traderId && trader.id === pending.traderId)
+      || (pending.userId && trader.userId === pending.userId)
+      || (pending.name && trader.normalizedName === normalizeName(pending.name))
+    ) || null;
+  }
+
+  function clearPendingTraderCapture(message = '') {
+    state.pendingTraderCapture = null;
+    savePendingTraderCapture();
+    renderPanel();
+    renderTraders();
+    if (message) toast(message);
+  }
+
+  function armTraderForPriceCapture(trader) {
+    if (!trader) return;
+    state.pendingTraderCapture = {
+      traderId: trader.id,
+      userId: trader.userId || null,
+      name: trader.name,
+      armedAt: Date.now(),
+      expiresAt: Date.now() + APP.traderCaptureMaxAgeMs,
+    };
+    savePendingTraderCapture();
+    renderPanel();
+    renderTraders();
+    toast(`${trader.name} armed for the next receipt or price page.`);
+  }
+
+  function armCurrentProfileTrader() {
+    const identity = currentProfileIdentity();
+    if (!identity.name || !identity.userId) {
+      toast('IMM could not resolve this profile name and Torn ID.');
+      return;
+    }
+    let trader = state.traders.find((entry) =>
+      entry.userId === identity.userId || entry.normalizedName === normalizeName(identity.name)
+    ) || null;
+    if (!trader) {
+      trader = upsertTrader(normalizeTrader({
+        ...identity,
+        rating: 0,
+        targetPercent: TRADER_PERCENT,
+        captureSource: 'profile-page-armed',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+    armTraderForPriceCapture(trader);
+  }
+
+  function loadSessionJson(key, fallback = null) {
+    try {
+      const raw = sessionStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function saveSessionJson(key, value) {
+    try {
+      if (value === null || value === undefined) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // Session storage can be unavailable in hardened webviews. Manual capture still works.
+    }
+  }
+
+  function normalizePriceRecaptureRequest(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const traderId = normalizeWhitespace(candidate.traderId);
+    const url = normalizeHttpUrl(candidate.url);
+    const requestedAt = Number(candidate.requestedAt) || Date.now();
+    const expiresAt = Number(candidate.expiresAt) || requestedAt + (15 * 60 * 1000);
+    if (!traderId || !url || expiresAt <= Date.now()) return null;
+    return { traderId, url, requestedAt, expiresAt };
+  }
+
+  function activePriceRecaptureRequest() {
+    const request = normalizePriceRecaptureRequest(loadSessionJson(APP.priceRecaptureSessionKey, null));
+    if (!request) saveSessionJson(APP.priceRecaptureSessionKey, null);
+    return request;
+  }
+
+  function isTornPageUrl(value) {
+    const normalized = normalizeHttpUrl(value);
+    if (!normalized) return false;
+    try {
+      const host = new URL(normalized).hostname.toLowerCase();
+      return host === 'torn.com' || host.endsWith('.torn.com');
+    } catch {
+      return false;
+    }
+  }
+
+  function recaptureUrlsMatch(left, right) {
+    const a = normalizeHttpUrl(left);
+    const b = normalizeHttpUrl(right);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    try {
+      const ua = new URL(a);
+      const ub = new URL(b);
+      return ua.origin === ub.origin
+        && ua.pathname === ub.pathname
+        && ua.search === ub.search
+        && (!ua.hash || !ub.hash || ua.hash === ub.hash);
+    } catch {
+      return false;
+    }
+  }
+
+  function traderPriceItemKey(item) {
+    const id = Number(item?.itemId);
+    return Number.isFinite(id) && id > 0
+      ? `id:${id}`
+      : `name:${normalizeName(item?.itemName)}`;
+  }
+
+  function mergeCapturedPriceItem(target, candidate, confidence = 1) {
+    const item = normalizeTraderPriceItem(candidate);
+    if (!item) return;
+    const key = traderPriceItemKey(item);
+    if (!key || key === 'name:') return;
+    const existing = target.get(key);
+    if (!existing || confidence >= existing.confidence) target.set(key, { ...item, confidence });
+  }
+
+  function quantityFromPriceLine(text, catalog) {
+    if (!catalog?.name) return 1;
+    const escaped = escapeRegExp(catalog.name);
+    const after = text.match(new RegExp(`${escaped}\\s*(?:x|×)\\s*([\\d,]+)`, 'i'));
+    const before = text.match(new RegExp(`([\\d,]+)\\s*(?:x|×)\\s*${escaped}`, 'i'));
+    return Math.max(1, Math.floor(parseNumber(after?.[1] ?? before?.[1]) || 1));
+  }
+
+  function explicitUnitPriceFromLine(text) {
+    const patterns = [
+      /(?:@|each|ea\.?|unit\s+price|price|pays?|value)\s*[:=-]?\s*\$\s*([\d,.]+)/i,
+      /\$\s*([\d,.]+)\s*(?:each|ea\.?)\b/i,
+    ];
+    for (const pattern of patterns) {
+      const match = String(text || '').match(pattern);
+      const value = parseNumber(match?.[1]);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    const tokens = [...String(text || '').matchAll(/\$\s*([\d,.]+)/g)]
+      .map((match) => parseNumber(match[1]))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    return tokens[0] || 0;
+  }
+
+  function priceItemFromPageText(text) {
+    const cleanText = normalizeWhitespace(text);
+    if (!cleanText || cleanText.length > 700 || !cleanText.includes('$')) return null;
+    const catalog = catalogNameInReceiptLine(cleanText);
+    if (!catalog) return null;
+    const unitPrice = explicitUnitPriceFromLine(cleanText);
+    if (!(unitPrice > 0)) return null;
+    return {
+      itemId: catalog.id,
+      itemName: catalog.name,
+      unitPrice,
+      quantity: quantityFromPriceLine(cleanText, catalog),
+      sourceText: cleanText,
+    };
+  }
+
+  function priceItemsFromParsedReceipt(parsed) {
+    return (parsed?.items || []).map((item) => ({
+      itemId: item.itemId,
+      itemName: item.itemName,
+      unitPrice: Number(item.unitPrice) > 0
+        ? Number(item.unitPrice)
+        : (Number(item.totalValue) > 0 && Number(item.quantity) > 0 ? Number(item.totalValue) / Number(item.quantity) : 0),
+      quantity: item.quantity || 1,
+      sourceText: `${item.itemName} × ${item.quantity}`,
+    })).map(normalizeTraderPriceItem).filter(Boolean);
+  }
+
+  function pageTextWithoutImmUi() {
+    const clone = document.body?.cloneNode(true);
+    if (!clone) return '';
+    clone.querySelectorAll(immUiSelector()).forEach((node) => node.remove());
+    return String(clone.innerText || clone.textContent || '').trim();
+  }
+
+  function capturePriceItemsFromCurrentPage() {
+    const captured = new Map();
+    const pageText = pageTextWithoutImmUi();
+    const parsed = parseReceiptInput(pageText);
+    for (const item of priceItemsFromParsedReceipt(parsed)) mergeCapturedPriceItem(captured, item, 5);
+    for (const line of pageText.split(/\r?\n/)) {
+      const item = priceItemFromPageText(line);
+      if (item) mergeCapturedPriceItem(captured, item, 2);
+    }
+    const selectors = 'tr,[role="row"],li,article,[class*="price"],[class*="item"],[class*="row"]';
+    const ignored = immUiSelector();
+    const seenText = new Set();
+    for (const element of document.querySelectorAll(selectors)) {
+      if (!(element instanceof Element) || element.closest(ignored) || !visibleElement(element)) continue;
+      const rowText = normalizeWhitespace(element.innerText || element.textContent);
+      if (!rowText || rowText.length > 700 || !rowText.includes('$') || seenText.has(rowText)) continue;
+      seenText.add(rowText);
+      const item = priceItemFromPageText(rowText);
+      if (item) mergeCapturedPriceItem(captured, item, 4);
+    }
+    return [...captured.values()]
+      .map(({ confidence, ...item }) => item)
+      .sort((a, b) => a.itemName.localeCompare(b.itemName))
+      .slice(0, 600);
+  }
+
+  function capturedPriceChangeCount(previous = [], next = []) {
+    const oldMap = new Map(previous.map((item) => [traderPriceItemKey(item), normalizeTraderPriceItem(item)]).filter((entry) => entry[0] && entry[1]));
+    const newMap = new Map(next.map((item) => [traderPriceItemKey(item), normalizeTraderPriceItem(item)]).filter((entry) => entry[0] && entry[1]));
+    const keys = new Set([...oldMap.keys(), ...newMap.keys()]);
+    let changed = 0;
+    for (const key of keys) {
+      const oldItem = oldMap.get(key);
+      const newItem = newMap.get(key);
+      if (!oldItem || !newItem || Math.round(oldItem.unitPrice) !== Math.round(newItem.unitPrice)) changed += 1;
+    }
+    return changed;
+  }
+
+  function saveTraderPriceCapture(trader, { url = '', title = '', items = [], sourceType = 'page', automatic = false } = {}) {
+    if (!trader) return null;
+    const cleanUrl = normalizeHttpUrl(url || location.href);
+    const cleanItems = items.map(normalizeTraderPriceItem).filter(Boolean);
+    const previousItems = trader.pricePageItems || [];
+    const preservePrevious = cleanItems.length === 0 && previousItems.length > 0;
+    const changedCount = cleanItems.length ? capturedPriceChangeCount(previousItems, cleanItems) : 0;
+    const previousUrl = cleanUrl && trader.pricePageUrl && cleanUrl !== trader.pricePageUrl
+      ? trader.pricePageUrl
+      : trader.previousPricePageUrl;
+    const now = new Date().toISOString();
+    const next = normalizeTrader({
+      ...trader,
+      recordId: trader.id,
+      previousPricePageUrl: previousUrl,
+      pricePageUrl: cleanUrl || trader.pricePageUrl,
+      pricePageTitle: normalizeWhitespace(title || document.title || trader.pricePageTitle).slice(0, 160),
+      pricePageItems: preservePrevious ? previousItems : cleanItems,
+      pricePageCapturedAt: cleanItems.length ? now : trader.pricePageCapturedAt,
+      pricePageLastCheckedAt: now,
+      pricePageCaptureCount: Number(trader.pricePageCaptureCount || 0) + 1,
+      pricePageLastChangedCount: changedCount,
+      pricePageLastResult: cleanItems.length ? `${sourceType}:${automatic ? 'auto' : 'manual'}` : 'no-prices-found',
+      updatedAt: now,
+    });
+    const saved = upsertTrader(next);
+    return {
+      trader: saved,
+      parsedCount: cleanItems.length,
+      changedCount,
+      preservedPrevious,
+      url: cleanUrl,
+    };
+  }
+
+  function captureCurrentPricePageForTrader(traderId = '', { automatic = false, consumePending = true } = {}) {
+    const pending = activePendingTraderCapture();
+    const trader = state.traders.find((entry) => entry.id === traderId)
+      || traderForPendingCapture(pending);
+    if (!trader) {
+      toast('No trader is armed for this price-page capture.');
+      return null;
+    }
+    const result = saveTraderPriceCapture(trader, {
+      url: location.href,
+      title: document.title,
+      items: capturePriceItemsFromCurrentPage(),
+      sourceType: 'price-page',
+      automatic,
+    });
+    if (consumePending && pending) clearPendingTraderCapture();
+    if (!result) return null;
+    const resultText = result.parsedCount
+      ? `${formatInteger(result.parsedCount)} prices captured${result.changedCount ? ` · ${formatInteger(result.changedCount)} changed` : ''}`
+      : result.preservedPrevious
+        ? 'Page checked, but no prices parsed; the previous snapshot was kept'
+        : 'Page linked, but no prices were parsed';
+    toast(`${result.trader.name}: ${resultText}.`);
+    return result;
+  }
+
+  function requestTraderPriceRecapture(traderId) {
+    const trader = state.traders.find((entry) => entry.id === traderId);
+    if (!trader?.pricePageUrl) {
+      toast('This trader does not have a saved price page yet.');
+      return;
+    }
+    if (!isTornPageUrl(trader.pricePageUrl)) {
+      toast('Automatic recapture currently works on Torn pages. Opening the saved page instead.');
+      window.location.assign(trader.pricePageUrl);
+      return;
+    }
+    saveSessionJson(APP.priceRecaptureSessionKey, {
+      traderId: trader.id,
+      url: trader.pricePageUrl,
+      requestedAt: Date.now(),
+      expiresAt: Date.now() + (15 * 60 * 1000),
+    });
+    window.location.assign(trader.pricePageUrl);
+  }
+
+  function maybeScheduleTraderPriceRecapture() {
+    const request = activePriceRecaptureRequest();
+    if (!request || state.priceRecaptureTimer || state.priceRecaptureInFlight) return;
+    if (!recaptureUrlsMatch(location.href, request.url)) return;
+    state.priceRecaptureTimer = setTimeout(() => {
+      state.priceRecaptureTimer = null;
+      state.priceRecaptureInFlight = true;
+      try {
+        captureCurrentPricePageForTrader(request.traderId, { automatic: true, consumePending: false });
+      } finally {
+        saveSessionJson(APP.priceRecaptureSessionKey, null);
+        state.priceRecaptureInFlight = false;
+        renderPanel();
+        renderTraders();
+      }
+    }, 900);
+  }
+
+  function linkPendingTraderToReceiptAudit() {
+    const pending = activePendingTraderCapture();
+    const trader = traderForPendingCapture(pending);
+    const draft = state.receiptAuditDraft;
+    const sale = (state.ledger.sales || []).find((entry) => entry.id === draft?.saleId);
+    const input = document.querySelector(`#${APP.receiptAuditOverlayId} [data-tsimm-receipt-input]`);
+    if (!trader || !sale) {
+      toast('No armed trader or receipt sale was available to link.');
+      return;
+    }
+    const rawText = String(input?.value || draft?.rawText || '').trim();
+    const parsed = parseReceiptInput(rawText);
+    sale.counterparty = trader.name;
+    if (trader.userId) sale.counterpartyId = trader.userId;
+    if (trader.profileUrl) sale.counterpartyProfileUrl = trader.profileUrl;
+    saveLedger();
+    const items = priceItemsFromParsedReceipt(parsed);
+    const url = parsed.receiptUrl || sale.receiptAudit?.receiptUrl || sale.saleUrl || location.href;
+    const result = saveTraderPriceCapture(trader, {
+      url,
+      title: `Receipt / pricing page for ${trader.name}`,
+      items,
+      sourceType: 'receipt-audit',
+      automatic: false,
+    });
+    clearPendingTraderCapture();
+    renderReceiptAudit();
+    renderLedger();
+    toast(`${trader.name} linked to this receipt${result?.parsedCount ? ` · ${result.parsedCount} prices captured` : ''}.`);
   }
 
   function normalizeReceiptAuditItem(candidate) {
@@ -534,6 +956,7 @@
     }, captureMethod);
     state.pendingPurchase = null;
     savePendingPurchase();
+    activePendingTraderCapture();
     addLedgerLot(lot);
     scheduleScan(30);
     toast(`Ledger recorded ${formatInteger(lot.quantity)}× ${lot.itemName}.`);
@@ -750,154 +1173,6 @@
     return merged;
   }
 
-  function npcItemKey(itemId, name) {
-    const id = Number(itemId);
-    if (Number.isFinite(id) && id > 0) return `id:${id}`;
-    const normalized = normalizeName(name);
-    return normalized ? `name:${normalized}` : '';
-  }
-
-  function normalizeNpcPriceCache(raw) {
-    const normalized = { updatedAt: raw?.updatedAt || null, items: {} };
-    const sourceItems = raw?.items && typeof raw.items === 'object' ? raw.items : {};
-    for (const [rawKey, rawItem] of Object.entries(sourceItems)) {
-      const key = npcItemKey(rawItem?.itemId, rawItem?.name) || rawKey;
-      if (!key) continue;
-      const sources = Array.isArray(rawItem?.sources) ? rawItem.sources : [];
-      const cleanSources = sources.map((source) => {
-        const price = parseNumber(source?.price ?? source?.lastPrice);
-        const minPrice = parseNumber(source?.minPrice ?? price);
-        const maxPrice = parseNumber(source?.maxPrice ?? price);
-        if (!Number.isFinite(price) || price <= 0) return null;
-        return {
-          sourceType: normalizeWhitespace(source?.sourceType || 'observed'),
-          country: normalizeWhitespace(source?.country),
-          shop: normalizeWhitespace(source?.shop || 'NPC shop'),
-          price,
-          minPrice: Number.isFinite(minPrice) && minPrice > 0 ? minPrice : price,
-          maxPrice: Number.isFinite(maxPrice) && maxPrice > 0 ? maxPrice : price,
-          overseas: Boolean(source?.overseas),
-          lastSeen: source?.lastSeen || null,
-        };
-      }).filter(Boolean);
-      if (!cleanSources.length) continue;
-      normalized.items[key] = {
-        itemId: Number(rawItem?.itemId) || null,
-        name: normalizeWhitespace(rawItem?.name),
-        sources: cleanSources,
-      };
-    }
-    return normalized;
-  }
-
-  function saveNpcPriceCache() {
-    state.npcPrices.updatedAt = new Date().toISOString();
-    saveJson(APP.npcPriceStorageKey, state.npcPrices);
-  }
-
-  function recordNpcPrice({ itemId = null, name = '', price = 0, country = '', shop = 'NPC shop', sourceType = 'observed', overseas = false }) {
-    const cleanPrice = parseNumber(price);
-    const cleanName = normalizeWhitespace(name);
-    const key = npcItemKey(itemId, cleanName);
-    if (!key || !Number.isFinite(cleanPrice) || cleanPrice <= 0) return false;
-    const item = state.npcPrices.items[key] || {
-      itemId: Number(itemId) || null,
-      name: cleanName,
-      sources: [],
-    };
-    if (!item.itemId && Number(itemId) > 0) item.itemId = Number(itemId);
-    if (!item.name && cleanName) item.name = cleanName;
-    const cleanCountry = normalizeWhitespace(country);
-    const cleanShop = normalizeWhitespace(shop || 'NPC shop');
-    const cleanSourceType = normalizeWhitespace(sourceType || 'observed');
-    const sourceKey = `${normalizeName(cleanSourceType)}|${normalizeName(cleanCountry)}|${normalizeName(cleanShop)}`;
-    let source = item.sources.find((entry) =>
-      `${normalizeName(entry.sourceType)}|${normalizeName(entry.country)}|${normalizeName(entry.shop)}` === sourceKey
-    );
-    let changed = false;
-    if (!source) {
-      source = {
-        sourceType: cleanSourceType,
-        country: cleanCountry,
-        shop: cleanShop,
-        price: cleanPrice,
-        minPrice: cleanPrice,
-        maxPrice: cleanPrice,
-        overseas: Boolean(overseas),
-        lastSeen: new Date().toISOString(),
-      };
-      item.sources.push(source);
-      changed = true;
-    } else {
-      const nextMin = Math.min(Number(source.minPrice) || cleanPrice, cleanPrice);
-      const nextMax = Math.max(Number(source.maxPrice) || cleanPrice, cleanPrice);
-      if (Number(source.price) !== cleanPrice || Number(source.minPrice) !== nextMin || Number(source.maxPrice) !== nextMax) {
-        source.price = cleanPrice;
-        source.minPrice = nextMin;
-        source.maxPrice = nextMax;
-        source.lastSeen = new Date().toISOString();
-        changed = true;
-      }
-      source.overseas = Boolean(source.overseas || overseas);
-    }
-    state.npcPrices.items[key] = item;
-    return changed;
-  }
-
-  function npcSourcesFor(catalog) {
-    if (!catalog) return [];
-    const keys = [npcItemKey(catalog.id, catalog.name), npcItemKey(null, catalog.name)].filter(Boolean);
-    const observed = keys.flatMap((key) => state.npcPrices.items[key]?.sources || []);
-    const sources = observed.map((source) => ({ ...source, exact: true }));
-    if (Number(catalog.buyPrice) > 0) {
-      sources.push({
-        sourceType: 'catalog',
-        country: '',
-        shop: 'NPC shop',
-        price: Number(catalog.buyPrice),
-        minPrice: Number(catalog.buyPrice),
-        maxPrice: Number(catalog.buyPrice),
-        overseas: false,
-        lastSeen: state.catalog.updatedAt || null,
-        exact: false,
-      });
-    }
-    return sources
-      .filter((source) => Number(source.price) > 0)
-      .sort((a, b) => Number(a.price) - Number(b.price) || Number(Boolean(b.exact)) - Number(Boolean(a.exact)));
-  }
-
-  function bestNpcSourceFor(catalog) {
-    return npcSourcesFor(catalog)[0] || null;
-  }
-
-  function npcSourceLabel(source) {
-    if (!source) return 'NPC shop';
-    const parts = [];
-    if (source.country) parts.push(source.country);
-    if (source.shop && normalizeName(source.shop) !== 'npc shop') parts.push(source.shop);
-    if (!parts.length) parts.push(source.exact ? 'NPC shop' : 'NPC shop price');
-    if (source.overseas) parts.push('travel');
-    if (!source.exact) parts.push('from catalog');
-    return parts.join(' · ');
-  }
-
-  function npcComparisonFor(listingPrice, catalog, quantity = 1) {
-    const source = bestNpcSourceFor(catalog);
-    const price = Number(listingPrice) || 0;
-    const shopPrice = Number(source?.price) || 0;
-    if (!source || price <= 0 || shopPrice <= 0 || shopPrice >= price) return null;
-    const qty = Math.max(1, Math.floor(Number(quantity) || 1));
-    const savingsEach = price - shopPrice;
-    return {
-      source,
-      shopPrice,
-      savingsEach,
-      totalSavings: savingsEach * qty,
-      qty,
-    };
-  }
-
   function catalogCount() {
     return Object.keys(state.catalog.itemsByName || {}).length;
   }
@@ -939,66 +1214,6 @@
     if (apiError?.error) return apiError.error;
     if (apiError?.message) return apiError.message;
     return `Torn API request failed (${response.status}).`;
-  }
-
-  async function syncCityShopPrices(key) {
-    const url = new URL(APP.cityShopsUrl);
-    url.searchParams.set('selections', 'cityshops');
-    url.searchParams.set('comment', 'TornScripture Item Market Margin');
-
-    async function request(useQueryKey = false) {
-      const requestUrl = new URL(url);
-      if (useQueryKey) requestUrl.searchParams.set('key', key);
-      const response = await fetch(requestUrl, {
-        method: 'GET',
-        headers: useQueryKey ? { Accept: 'application/json' } : {
-          Accept: 'application/json',
-          Authorization: `ApiKey ${key}`,
-        },
-        credentials: 'omit',
-        cache: 'no-store',
-      });
-      let payload;
-      try {
-        payload = await response.json();
-      } catch {
-        return { response, payload: null };
-      }
-      return { response, payload };
-    }
-
-    let result = await request(false);
-    const errorCode = Number(result.payload?.error?.code ?? result.payload?.error?.error_code);
-    if ((!result.response.ok || result.payload?.error) && (errorCode === 1 || errorCode === 2 || errorCode === 16)) {
-      result = await request(true);
-    }
-    if (!result.response.ok || result.payload?.error || !result.payload?.cityshops) {
-      throw new Error(apiErrorMessage(result.payload || {}, result.response));
-    }
-
-    let changed = false;
-    let recorded = 0;
-    for (const shopData of Object.values(result.payload.cityshops || {})) {
-      const shopName = normalizeWhitespace(shopData?.name || 'Torn City shop');
-      const inventory = shopData?.inventory && typeof shopData.inventory === 'object' ? shopData.inventory : {};
-      for (const [itemId, rawItem] of Object.entries(inventory)) {
-        const price = parseNumber(rawItem?.price);
-        const name = normalizeWhitespace(rawItem?.name);
-        if (!name || !Number.isFinite(price) || price <= 0) continue;
-        if (recordNpcPrice({
-          itemId: Number(itemId),
-          name,
-          price,
-          country: 'Torn City',
-          shop: shopName,
-          sourceType: 'cityshops-api',
-          overseas: false,
-        })) changed = true;
-        recorded += 1;
-      }
-    }
-    if (changed) saveNpcPriceCache();
-    return recorded;
   }
 
   async function syncCatalog() {
@@ -1051,15 +1266,7 @@
         itemsById,
       };
       saveJson(APP.catalogStorageKey, state.catalog);
-      let cityShopCount = 0;
-      let cityShopWarning = '';
-      try {
-        cityShopCount = await syncCityShopPrices(key);
-      } catch (error) {
-        cityShopWarning = ' · city-shop sync unavailable';
-        console.warn('[TornScripture IMM] City shop sync failed:', error);
-      }
-      toast(`Loaded ${formatInteger(catalogCount())} item values · ${formatInteger(cityShopCount)} NPC listings${cityShopWarning}.`);
+      toast(`Loaded ${formatInteger(catalogCount())} item values, including NPC buyback payouts where Torn provides them.`);
       renderLedger();
       scheduleScan(50);
     } catch (error) {
@@ -1111,10 +1318,25 @@
     };
   }
 
+  function npcBuybackFor(listingPrice, catalog, quantity = 1) {
+    const price = Number(listingPrice) || 0;
+    const payout = Number(catalog?.sellPrice) || 0;
+    if (price <= 0 || payout <= price) return null;
+    const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+    const profitEach = payout - price;
+    return {
+      payout,
+      profitEach,
+      totalProfit: profitEach * qty,
+      qty,
+      source: 'Torn item catalog sell_price',
+    };
+  }
+
   function marketAnalysisFor(listingPrice, catalog, quantity = 1, fallbackMarketValue = 0) {
     const marketValue = Number(catalog?.marketPrice) > 0 ? Number(catalog.marketPrice) : Number(fallbackMarketValue) || 0;
     const margin = marginFor(listingPrice, marketValue, quantity);
-    const npc = npcComparisonFor(listingPrice, catalog, quantity);
+    const npc = npcBuybackFor(listingPrice, catalog, quantity);
     return npc ? { ...margin, tier: 'npc', npc } : margin;
   }
 
@@ -2679,18 +2901,14 @@
     const sign = margin.profitEach > 0 ? '+' : '';
     const auditLine = `Ⓜ ${formatMoney(margin.value)} · Ⓣ ${formatMoney(margin.payout)}`;
     if (margin.tier === 'npc' && margin.npc) {
-      const shopPriceText = margin.npc.source.exact
-        ? formatMoney(margin.npc.shopPrice)
-        : `from ${formatMoney(margin.npc.shopPrice)}`;
-      const sourceLabel = npcSourceLabel(margin.npc.source);
       if (mode === 'category') {
-        return `<strong>NPC saves ${escapeHtml(formatMoney(margin.npc.savingsEach))} ea</strong>`
-          + `<span>Ⓢ ${escapeHtml(shopPriceText)} · listed ${escapeHtml(formatMoney(margin.price))}</span>`
-          + `<span>${escapeHtml(sourceLabel)}</span>`;
+        return `<strong>NPC pays +${escapeHtml(formatMoney(margin.npc.profitEach))} ea</strong>`
+          + `<span>Ⓢ ${escapeHtml(formatMoney(margin.npc.payout))} · listed ${escapeHtml(formatMoney(margin.price))}</span>`
+          + '<span>Guaranteed store exit</span>';
       }
-      return `<strong>NPC ${escapeHtml(shopPriceText)}</strong>`
-        + `<span>Save ${escapeHtml(formatMoney(margin.npc.savingsEach))} ea · ${escapeHtml(formatMoney(margin.npc.totalSavings))} lot</span>`
-        + `<span>${escapeHtml(sourceLabel)}</span>`;
+      return `<strong>NPC pays ${escapeHtml(formatMoney(margin.npc.payout))}</strong>`
+        + `<span>+${escapeHtml(formatMoney(margin.npc.profitEach))} ea · +${escapeHtml(formatMoney(margin.npc.totalProfit))} lot</span>`
+        + '<span>Sell to an NPC store</span>';
     }
     if (mode === 'category') {
       return `<strong>${sign}${escapeHtml(formatMoney(margin.profitEach))} ea</strong>`
@@ -2727,9 +2945,9 @@
       margin.profitEach,
       margin.totalProfit,
       margin.roiPercent.toFixed(4),
-      margin.npc?.shopPrice || 0,
-      margin.npc?.savingsEach || 0,
-      margin.npc ? npcSourceLabel(margin.npc.source) : '',
+      margin.npc?.payout || 0,
+      margin.npc?.profitEach || 0,
+      margin.npc?.totalProfit || 0,
     ].join('|');
 
     if (!badge) {
@@ -2809,19 +3027,9 @@
     stats.overseasRemainingCapacity = Math.max(0, configuredLimit - Math.min(configuredLimit, currentLoad));
 
     const priced = [];
-    let npcPriceCacheChanged = false;
     for (const candidate of candidates) {
       const catalog = catalogItemFor(candidate.name, candidate.itemId);
       if (!catalog) continue;
-      if (recordNpcPrice({
-        itemId: catalog.id || candidate.itemId,
-        name: catalog.name || candidate.name,
-        price: candidate.price,
-        country: stats.overseasCountry,
-        shop: overseasShopNameForRow(candidate.row),
-        sourceType: 'observed-overseas',
-        overseas: true,
-      })) npcPriceCacheChanged = true;
       const visibleQuantity = Math.max(1, Math.floor(Number(candidate.availableQuantity) || 1));
       const margin = marginFor(candidate.price, catalog.marketPrice, visibleQuantity);
       addBadge(candidate.priceElement, margin, 'overseas', candidate.row, scanToken);
@@ -2834,7 +3042,6 @@
       if (margin.tier === 'loss') stats.overseasLoss += 1;
     }
 
-    if (npcPriceCacheChanged) saveNpcPriceCache();
 
     const plan = overseasLoadPlan(priced, configuredLimit, currentLoad);
     stats.overseasRemainingCapacity = plan.remainingCapacity;
@@ -2882,11 +3089,13 @@
     const isOverseas = !isProfile && pageLooksLikeOverseasShop();
     const isItemMarket = !isOverseas && pageLooksLikeItemMarket();
     const isTrade = !isProfile && !isOverseas && pageLooksLikeTrade();
-    if (!isItemMarket && !isTrade && !isProfile && !isOverseas) {
+    const hasPriceCaptureContext = Boolean(activePendingTraderCapture() || activePriceRecaptureRequest());
+    const isPriceCapturePage = !isItemMarket && !isTrade && !isProfile && !isOverseas && hasPriceCaptureContext;
+    if (!isItemMarket && !isTrade && !isProfile && !isOverseas && !isPriceCapturePage) {
       clearAnnotations();
       document.getElementById(APP.panelId)?.remove();
       state.lastScan = emptyScanStats();
-      state.lastScan.notes.push('Waiting for the Item Market, overseas shop, Trade, or player Profile page.');
+      state.lastScan.notes.push('Waiting for the Item Market, overseas shop, Trade, player Profile, or an armed price-page capture.');
       return;
     }
 
@@ -2909,7 +3118,8 @@
 
     if (isTrade) scanTrade(stats);
     if (isProfile) scanProfile(stats);
-    stats.pageType = isProfile ? 'profile' : (isTrade ? 'trade' : (isOverseas ? 'overseas shop' : detectPageType(stats)));
+    stats.pageType = isProfile ? 'profile' : (isTrade ? 'trade' : (isOverseas ? 'overseas shop' : (isPriceCapturePage ? 'price capture' : detectPageType(stats))));
+    if (isPriceCapturePage) stats.notes.push('Trader capture is armed. Use Capture this page after the pricing or receipt content finishes loading.');
     stats.scannedAt = new Date().toISOString();
     if (!catalogCount()) stats.notes.push('No catalog values cached. Press Sync values.');
     if (stats.categoryCandidates && !stats.categoryMatched) {
@@ -2948,6 +3158,7 @@
     ) {
       renderPanel();
     }
+    maybeScheduleTraderPriceRecapture();
   }
 
   function pageLooksLikeItemMarket() {
@@ -3937,6 +4148,7 @@
         <div class="tsimm-audit-actions">
           <button type="button" data-tsimm-action="receipt-audit-preview">Parse preview</button>
           <button type="button" data-tsimm-action="receipt-audit-save" ${audit ? '' : 'disabled'}>Save audit</button>
+          ${activePendingTraderCapture() ? `<button type="button" data-tsimm-action="receipt-link-pending-trader">Link ${escapeHtml(activePendingTraderCapture().name)} + save page</button>` : ''}
           ${sale.receiptAudit ? '<button type="button" data-tsimm-action="receipt-audit-clear">Clear saved audit</button>' : ''}
         </div>
       </div>
@@ -4317,7 +4529,7 @@
   }
 
   async function copyTradersJson() {
-    const text = JSON.stringify({ schema: 'tornscripture-imm-traders', schemaVersion: 1, traders: state.traders }, null, 2);
+    const text = JSON.stringify({ schema: 'tornscripture-imm-traders', schemaVersion: 2, traders: state.traders }, null, 2);
     try {
       await navigator.clipboard.writeText(text);
       toast('Trader book JSON copied.');
@@ -4351,6 +4563,11 @@
     const stats = traderStats(trader);
     const stars = trader.rating ? `${'★'.repeat(trader.rating)}${'☆'.repeat(5 - trader.rating)}` : 'Not rated';
     const lastTrade = stats.lastTradeAt ? new Date(stats.lastTradeAt).toLocaleDateString() : 'None recorded';
+    const lastPriceCapture = trader.pricePageLastCheckedAt
+      ? new Date(trader.pricePageLastCheckedAt).toLocaleString()
+      : 'Never';
+    const priceItemCount = trader.pricePageItems?.length || 0;
+    const autoRecaptureAvailable = trader.pricePageUrl && isTornPageUrl(trader.pricePageUrl);
     return `
       <article class="tsimm-trader-card">
         <div class="tsimm-trader-card-head">
@@ -4365,11 +4582,15 @@
           <span>Tracked profit</span><strong class="${stats.profit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${stats.profit >= 0 ? '+' : ''}${formatMoney(stats.profit)}</strong>
           <span>Observed payout</span><strong>${stats.effectivePercent === null ? 'No history' : formatPercent(stats.effectivePercent)}</strong>
           <span>Last recorded trade</span><strong>${escapeHtml(lastTrade)}</strong>
+          ${trader.pricePageUrl ? `<span>Saved price page</span><strong>${formatInteger(priceItemCount)} prices</strong><span>Last price check</span><strong>${escapeHtml(lastPriceCapture)}</strong><span>Last changes</span><strong>${formatInteger(trader.pricePageLastChangedCount || 0)}</strong>` : ''}
         </div>
         ${trader.notes ? `<div class="tsimm-trader-notes">${escapeHtml(trader.notes)}</div>` : ''}
         <div class="tsimm-trader-actions">
           ${trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : ''}
           ${trader.profileUrl ? `<a href="${escapeHtml(trader.profileUrl)}">Profile</a>` : ''}
+          ${trader.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Open prices</a>` : ''}
+          ${autoRecaptureAvailable ? `<button type="button" data-tsimm-action="trader-open-recapture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open & recapture</button>` : ''}
+          <button type="button" data-tsimm-action="trader-arm-capture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Arm price capture</button>
           <button type="button" data-tsimm-action="trader-edit" data-tsimm-trader-id="${escapeHtml(trader.id)}">Edit</button>
           <button type="button" data-tsimm-action="trader-delete" data-tsimm-trader-id="${escapeHtml(trader.id)}">Delete</button>
         </div>
@@ -4388,7 +4609,7 @@
         </div>
         <div class="tsimm-trader-top">
           <strong>${formatInteger(state.traders.length)} saved traders</strong>
-          <span>Stored only in this browser unless exported.</span>
+          <span>${activePendingTraderCapture() ? `${escapeHtml(activePendingTraderCapture().name)} armed for next page` : 'Stored only in this browser unless exported.'}</span>
         </div>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="trader-add">Add trader</button>
@@ -4432,6 +4653,25 @@
         <div>
           <button type="button" data-tsimm-action="pending-record">Record completed</button>
           <button type="button" data-tsimm-action="pending-discard">Discard</button>
+        </div>
+      </div>
+    `;
+  }
+
+
+  function pendingTraderCaptureHtml() {
+    const pending = activePendingTraderCapture();
+    if (!pending) return '';
+    const trader = traderForPendingCapture(pending);
+    const minutes = Math.max(0, Math.ceil((pending.expiresAt - Date.now()) / 60000));
+    return `
+      <div class="tsimm-trader-capture-card">
+        <strong>🔗 Trader armed: ${escapeHtml(trader?.name || pending.name)}</strong>
+        <span>${formatInteger(minutes)}m remaining · open a receipt or pricing page</span>
+        <small>Capture stores this page address and a local price snapshot on the trader card.</small>
+        <div>
+          <button type="button" data-tsimm-action="trader-capture-current-page">Capture this page</button>
+          <button type="button" data-tsimm-action="trader-clear-capture">Clear</button>
         </div>
       </div>
     `;
@@ -4489,6 +4729,7 @@
         traderPercent: TRADER_PERCENT,
         payoutFormula: 'floor(marketValue * 0.99)',
         profitFormula: 'traderPayout - listingPrice',
+        npcBuybackFormula: 'catalog.sell_price - listingPrice',
         manifestFormula: 'sum(floor(itemMarketValue * 0.99) * quantity)',
         tradeDifferenceFormula: 'otherSideCash - mySideCash - manifestTarget',
       },
@@ -4501,6 +4742,8 @@
         recentSales: (state.ledger.sales || []).slice(0, 5),
       },
       pendingPurchase: state.pendingPurchase,
+      pendingTraderCapture: activePendingTraderCapture(),
+      pendingPriceRecapture: activePriceRecaptureRequest(),
       recentPurchaseSignals: state.purchaseSignals.slice(0, 12),
       categorySample,
       listingSample,
@@ -4548,7 +4791,7 @@
       .tsimm-head strong{flex:1;font-size:13px}.tsimm-head small{color:#aaa1b7}.tsimm-head button,.tsimm-btn{border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:6px 8px;font-weight:700;cursor:pointer}
       .tsimm-head button{padding:2px 7px}.tsimm-body{padding:9px}.tsimm-collapsed .tsimm-body,.tsimm-collapsed .tsimm-head small{display:none}
       .tsimm-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
-      .tsimm-actions{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}.tsimm-btn{flex:1;min-width:78px}.tsimm-btn-primary{background:#5b2b82;border-color:#8e55b9}.tsimm-btn:disabled{opacity:.55;cursor:wait}
+      .tsimm-actions{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}.tsimm-btn{flex:1;min-width:78px}.tsimm-btn-primary{background:#5b2b82;border-color:#8e55b9}.tsimm-btn-blue{background:#174f75!important;border-color:#3b8fc2!important;color:#eaf7ff!important}.tsimm-btn:disabled{opacity:.55;cursor:wait}
       .tsimm-controls{display:grid;grid-template-columns:1fr 72px;gap:5px;align-items:center;margin-top:6px}.tsimm-controls input{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}.tsimm-check{display:flex;align-items:center;gap:6px;margin-top:7px;color:#c9c2d0}
       .tsimm-note{margin-top:6px;color:#d0c8d8}.tsimm-muted{color:#aaa1b7}.tsimm-npc-text{color:#58bfff}.tsimm-good-text{color:#63df9f}.tsimm-minor-text{color:#c77dff}.tsimm-loss-text{color:#ff6b76}
       .${APP.badgeClass}{display:flex;flex-direction:column;justify-content:center;gap:1px;border:1px solid currentColor;border-radius:7px;padding:3px 5px;font:700 10px/1.15 Arial,sans-serif;white-space:nowrap;box-shadow:0 2px 8px #0007;background:#19171dcc;pointer-events:none}
@@ -4569,6 +4812,7 @@
       .tsimm-trade-items{margin-top:7px;padding-top:6px;border-top:1px solid #47404f;max-height:118px;overflow:auto}.tsimm-trade-item-line{display:grid;grid-template-columns:1fr auto;gap:6px;padding:2px 0;font-size:10px}.tsimm-trade-item-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-unmatched{color:#ff9ba2}.tsimm-trade-record{width:100%;margin-top:7px;border:1px solid #4b9d70;border-radius:7px;background:#215b3b;color:#eafff2;padding:7px;font-weight:800}
       .tsimm-controls select{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}
       .tsimm-pending-card{margin:7px 0;padding:8px;border:1px solid #c48b35;border-radius:8px;background:#2b2418;display:grid;gap:3px}.tsimm-pending-card>strong{color:#ffd184}.tsimm-pending-card>span{color:#f2e8d5}.tsimm-pending-card>small{color:#c9baa0}.tsimm-pending-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-pending-card button{flex:1;border:1px solid #725f3d;border-radius:6px;background:#3b3020;color:#fff;padding:5px;font-weight:700}
+      .tsimm-trader-capture-card{margin:7px 0;padding:8px;border:1px solid #3b8fc2;border-radius:8px;background:#172833;display:grid;gap:3px}.tsimm-trader-capture-card>strong{color:#83d1ff}.tsimm-trader-capture-card>span{color:#d9f1ff}.tsimm-trader-capture-card>small{color:#9fbfce}.tsimm-trader-capture-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-trader-capture-card button{flex:1;border:1px solid #376b89;border-radius:6px;background:#1e4359;color:#fff;padding:5px;font-weight:700}
       #${APP.ledgerOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
       .tsimm-ledger-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #655d70;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-ledger-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#282330;border-bottom:1px solid #4f4759}.tsimm-ledger-head>div{display:grid;gap:1px;flex:1}.tsimm-ledger-head strong{font-size:14px}.tsimm-ledger-head small{color:#aaa1b7}.tsimm-ledger-head>button{border:1px solid #655d70;border-radius:7px;background:#393341;color:#fff;width:30px;height:30px;font-size:19px}
@@ -4708,6 +4952,8 @@
     const isTrade = stats.pageType === 'trade';
     const isProfile = stats.pageType === 'profile';
     const isOverseas = stats.pageType === 'overseas shop';
+    const isPriceCapture = stats.pageType === 'price capture';
+    const isMarketPage = isOverseas || stats.pageType === 'category' || stats.pageType.startsWith('item listings');
     const npcCount = stats.categoryNpc + stats.listingNpc;
     const goldCount = stats.categoryGold + stats.listingGold + stats.overseasGold;
     const goodCount = stats.categoryGood + stats.listingGood + stats.overseasGood;
@@ -4732,15 +4978,25 @@
             <div class="tsimm-stat"><strong>${stats.profileBannerUrl ? '✓' : '—'}</strong><span>banner</span></div>
             <div class="tsimm-stat"><strong>${formatInteger(state.traders.length)}</strong><span>saved</span></div>
           </div>`
-        : `<div class="tsimm-status">
-            <div class="tsimm-stat"><strong class="tsimm-npc-text">${npcCount}</strong><span>NPC blue</span></div>
+        : isPriceCapture
+          ? (() => {
+              const pending = activePendingTraderCapture();
+              const trader = traderForPendingCapture(pending);
+              return `<div class="tsimm-status">
+                <div class="tsimm-stat"><strong class="tsimm-npc-text">🔗</strong><span>armed</span></div>
+                <div class="tsimm-stat"><strong>${escapeHtml(trader?.name || pending?.name || '?')}</strong><span>trader</span></div>
+                <div class="tsimm-stat"><strong>${formatInteger(trader?.pricePageItems?.length || 0)}</strong><span>saved prices</span></div>
+              </div>`;
+            })()
+          : `<div class="tsimm-status">
+            <div class="tsimm-stat"><strong class="tsimm-npc-text">${npcCount}</strong><span>NPC flips</span></div>
             <div class="tsimm-stat"><strong class="tsimm-gold-text">${goldCount}</strong><span>gold</span></div>
             <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
             <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
             <div class="tsimm-stat"><strong class="tsimm-loss-text">${lossCount}</strong><span>red</span></div>
             <div class="tsimm-stat"><strong>${matchedCount}</strong><span>matched</span></div>
           </div>`;
-    const marketControls = !isTrade && !isProfile
+    const marketControls = isMarketPage
       ? `${isOverseas ? `<div class="tsimm-controls"><label>Travel load limit</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.overseasLoadLimit)}" data-tsimm-setting="overseasLoadLimit"></div>` : ''}<div class="tsimm-controls"><label>Gold profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.goldMinimumProfitEach)}" data-tsimm-setting="goldMinimumProfitEach"></div>
         <div class="tsimm-controls"><label>Green profit each</label><input type="number" min="0" step="1" value="${escapeHtml(state.settings.minimumProfitEach)}" data-tsimm-setting="minimumProfitEach"></div>
         <div class="tsimm-controls"><label>Green minimum ROI %</label><input type="number" min="0" step="0.01" value="${escapeHtml(state.settings.minimumRoiPercent)}" data-tsimm-setting="minimumRoiPercent"></div>
@@ -4765,8 +5021,9 @@
         ${statusHtml}
         <div class="tsimm-muted">Catalog: ${formatInteger(catalogCount())} values${catalogIsFresh() ? ' · fresh' : ''}</div>
         <div class="tsimm-muted">Ledger: ${formatInteger(ledger.lots)} open lots · ${formatMoney(ledger.invested)} invested · ${ledger.expectedProfit >= 0 ? '+' : ''}${formatMoney(ledger.expectedProfit)} expected · ${ledger.realizedProfit >= 0 ? '+' : ''}${formatMoney(ledger.realizedProfit)} realized</div>
-        <div class="tsimm-note">Profit base: Ⓣ = floor(Ⓜ × 99%) per item</div>
+        <div class="tsimm-note">Profit base: Ⓣ = floor(Ⓜ × 99%) per item · blue = NPC store payout above listing price</div>
         ${pendingPurchaseHtml()}
+        ${pendingTraderCaptureHtml()}
         ${overseasSummaryHtml(stats)}
         ${tradeSummaryHtml(stats)}
         ${isProfile && stats.profileName ? `<div class="tsimm-profile-capture-card">${stats.profileBannerUrl ? `<img src="${escapeHtml(stats.profileBannerUrl)}" alt="${escapeHtml(stats.profileName)}">` : ''}<div><strong>${escapeHtml(stats.profileName)}</strong><span>Torn ID ${escapeHtml(stats.profileUserId || 'unresolved')}</span></div></div>` : ''}
@@ -4776,7 +5033,8 @@
           <button class="tsimm-btn" type="button" data-tsimm-action="diagnostics">Copy diagnostics</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="ledger-open">Ledger (${formatInteger(ledger.lots)})</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="traders-open">Traders (${formatInteger(state.traders.length)})</button>
-          ${isProfile && stats.profileCaptureReady ? '<button class="tsimm-btn tsimm-btn-gold" type="button" data-tsimm-action="trader-capture-profile">Capture profile</button>' : ''}
+          ${isProfile && stats.profileCaptureReady ? '<button class="tsimm-btn tsimm-btn-gold" type="button" data-tsimm-action="trader-capture-profile">Capture profile</button><button class="tsimm-btn tsimm-btn-blue" type="button" data-tsimm-action="trader-arm-current-profile">Arm price capture</button>' : ''}
+          ${activePendingTraderCapture() ? '<button class="tsimm-btn tsimm-btn-blue" type="button" data-tsimm-action="trader-capture-current-page">Capture current page</button>' : ''}
           ${isTrade && stats.tradeCounterparty ? '<button class="tsimm-btn" type="button" data-tsimm-action="trader-save-current">Save trader</button>' : ''}
         </div>
         ${tradeControls}
@@ -4832,6 +5090,8 @@
         saveReceiptAudit();
       } else if (action === 'receipt-audit-clear') {
         clearReceiptAudit();
+      } else if (action === 'receipt-link-pending-trader') {
+        linkPendingTraderToReceiptAudit();
       } else if (action === 'ledger-open') {
         openLedger();
       } else if (action === 'traders-open') {
@@ -4842,6 +5102,16 @@
         saveCurrentTrader();
       } else if (action === 'trader-capture-profile') {
         saveCurrentProfileTrader();
+      } else if (action === 'trader-arm-current-profile') {
+        armCurrentProfileTrader();
+      } else if (action === 'trader-arm-capture') {
+        armTraderForPriceCapture(state.traders.find((entry) => entry.id === button.dataset.tsimmTraderId));
+      } else if (action === 'trader-capture-current-page') {
+        captureCurrentPricePageForTrader();
+      } else if (action === 'trader-clear-capture') {
+        clearPendingTraderCapture('Trader price capture cleared.');
+      } else if (action === 'trader-open-recapture') {
+        requestTraderPriceRecapture(button.dataset.tsimmTraderId);
       } else if (action === 'trader-add') {
         const trader = promptTrader();
         if (trader) { upsertTrader(trader); toast(`Saved trader ${trader.name}.`); }
@@ -5029,6 +5299,7 @@
       if (!document.hidden) scheduleScan(20);
     });
     scheduleScan(120);
+    maybeScheduleTraderPriceRecapture();
   }
 
   if (document.readyState === 'loading') {
@@ -5059,11 +5330,14 @@
       scrubItemMarketPurchaseNotes,
       normalizeLedger,
       normalizeSaleRecord,
+      normalizeTraderPriceItem,
       normalizeTrader,
       normalizeTraders,
       normalizeReceiptAudit,
       parseReceiptInput,
       buildReceiptAudit,
+      npcBuybackFor,
+      capturedPriceChangeCount,
       traderSalesFor,
       linkRecordedSalesToTrader,
       optionalFiniteNumber,
