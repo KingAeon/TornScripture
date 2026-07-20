@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.0
-// @description  Item-market and overseas profit overlays with NPC buyback flips, trader price-page capture, purchase history, trade verification, and receipt audits.
+// @version      0.9.1
+// @description  Item-market and overseas profit overlays with NPC buyback flips, TornW3B pricelist capture, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
+// @match        https://weav3r.dev/pricelist/*
+// @match        https://www.weav3r.dev/pricelist/*
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
@@ -17,7 +19,7 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -32,7 +34,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.0',
+    version: '0.9.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -53,6 +55,8 @@
     tradersStorageKey: 'tornscripture-imm-traders-v1',
     pendingTraderCaptureStorageKey: 'tornscripture-imm-pending-trader-capture-v1',
     priceRecaptureSessionKey: 'tornscripture-imm-price-recapture-v1',
+    priceBridgeWindowNamePrefix: 'TSIMM_PRICE_BRIDGE:',
+    priceImportQueryKey: 'tsimmPriceImport',
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
     recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
     purchasePrivacyMigrationStorageKey: 'tornscripture-imm-purchase-privacy-v1',
@@ -104,6 +108,10 @@
     receiptAuditDraft: null,
     priceRecaptureTimer: null,
     priceRecaptureInFlight: false,
+    weav3rCapturePreview: null,
+    weav3rCaptureTimer: null,
+    weav3rObserver: null,
+    weav3rAutoReturnTimer: null,
     ledgerUi: {
       view: 'holdings',
       search: '',
@@ -266,6 +274,7 @@
   function clearPendingTraderCapture(message = '') {
     state.pendingTraderCapture = null;
     savePendingTraderCapture();
+    if (readPriceBridgeWindowName()?.type === 'request') clearPriceBridgeWindowName();
     renderPanel();
     renderTraders();
     if (message) toast(message);
@@ -281,6 +290,10 @@
       expiresAt: Date.now() + APP.traderCaptureMaxAgeMs,
     };
     savePendingTraderCapture();
+    writePriceBridgeWindowName({
+      ...priceCaptureRequestForTrader(trader),
+      autoReturn: false,
+    });
     renderPanel();
     renderTraders();
     toast(`${trader.name} armed for the next receipt or price page.`);
@@ -324,6 +337,462 @@
     } catch {
       // Session storage can be unavailable in hardened webviews. Manual capture still works.
     }
+  }
+
+
+  function base64UrlEncode(value) {
+    try {
+      const bytes = new TextEncoder().encode(JSON.stringify(value));
+      let binary = '';
+      for (let index = 0; index < bytes.length; index += 1) binary += String.fromCharCode(bytes[index]);
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    } catch {
+      return '';
+    }
+  }
+
+  function base64UrlDecode(value) {
+    try {
+      const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+      const binary = atob(padded);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      return null;
+    }
+  }
+
+  function readPriceBridgeWindowName() {
+    const raw = String(window.name || '');
+    if (!raw.startsWith(APP.priceBridgeWindowNamePrefix)) return null;
+    try {
+      const parsed = JSON.parse(raw.slice(APP.priceBridgeWindowNamePrefix.length));
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (Number(parsed.expiresAt) && Number(parsed.expiresAt) <= Date.now()) {
+        window.name = normalizeWhitespace(parsed.previousWindowName);
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function writePriceBridgeWindowName(payload) {
+    const current = readPriceBridgeWindowName();
+    const previousWindowName = current?.previousWindowName
+      || (String(window.name || '').startsWith(APP.priceBridgeWindowNamePrefix) ? '' : String(window.name || '').slice(0, 4096));
+    try {
+      window.name = APP.priceBridgeWindowNamePrefix + JSON.stringify({ ...payload, previousWindowName });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function clearPriceBridgeWindowName() {
+    const current = readPriceBridgeWindowName();
+    window.name = current?.previousWindowName || '';
+  }
+
+  function isWeav3rPriceListUrl(value = location.href) {
+    const normalized = normalizeHttpUrl(value);
+    if (!normalized) return false;
+    try {
+      const url = new URL(normalized);
+      const host = url.hostname.toLowerCase();
+      return (host === 'weav3r.dev' || host === 'www.weav3r.dev')
+        && /^\/pricelist\/\d+\/?$/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  function cleanWeav3rPriceListUrl(value = location.href) {
+    const normalized = normalizeHttpUrl(value);
+    if (!normalized) return '';
+    try {
+      const url = new URL(normalized);
+      if (/^tsimm-capture=/i.test(url.hash.slice(1))) url.hash = '';
+      return url.href;
+    } catch {
+      return normalized;
+    }
+  }
+
+  function isSupportedPricePageUrl(value) {
+    return isTornPageUrl(value) || isWeav3rPriceListUrl(value);
+  }
+
+  function compactTraderCaptureIdentity(trader) {
+    return {
+      traderId: normalizeWhitespace(trader?.id ?? trader?.traderId),
+      userId: Math.max(0, Math.floor(Number(trader?.userId) || 0)) || null,
+      name: normalizeWhitespace(trader?.name),
+      profileUrl: normalizeHttpUrl(trader?.profileUrl),
+      tradeUrl: normalizeHttpUrl(trader?.tradeUrl),
+      bannerUrl: normalizeHttpUrl(trader?.bannerUrl),
+    };
+  }
+
+  function priceCaptureRequestForTrader(trader, sourceUrl = '') {
+    return {
+      version: 1,
+      type: 'request',
+      trader: compactTraderCaptureIdentity(trader),
+      sourceUrl: cleanWeav3rPriceListUrl(sourceUrl),
+      returnUrl: normalizeHttpUrl(location.href) || 'https://www.torn.com/index.php',
+      requestedAt: Date.now(),
+      expiresAt: Date.now() + (15 * 60 * 1000),
+      autoReturn: true,
+    };
+  }
+
+  function weav3rUrlWithCaptureRequest(urlValue, request) {
+    const normalized = normalizeHttpUrl(urlValue);
+    if (!normalized) return '';
+    try {
+      const url = new URL(normalized);
+      const encoded = base64UrlEncode({
+        v: 1,
+        t: request.trader,
+        r: request.returnUrl,
+        a: request.autoReturn !== false,
+        x: request.expiresAt,
+      });
+      if (encoded) url.hash = `tsimm-capture=${encoded}`;
+      return url.href;
+    } catch {
+      return normalized;
+    }
+  }
+
+  function captureRequestFromWeav3rPage() {
+    const hash = String(location.hash || '').slice(1);
+    if (/^tsimm-capture=/i.test(hash)) {
+      const decoded = base64UrlDecode(hash.replace(/^tsimm-capture=/i, ''));
+      if (decoded && (!decoded.x || Number(decoded.x) > Date.now())) {
+        return {
+          version: 1,
+          type: 'request',
+          trader: decoded.t || {},
+          returnUrl: normalizeHttpUrl(decoded.r) || '',
+          autoReturn: decoded.a !== false,
+          expiresAt: Number(decoded.x) || Date.now() + (15 * 60 * 1000),
+        };
+      }
+    }
+    const bridged = readPriceBridgeWindowName();
+    return bridged?.type === 'request' ? bridged : null;
+  }
+
+  function weav3rTraderIdentity() {
+    const request = captureRequestFromWeav3rPage();
+    const profileAnchor = [...document.querySelectorAll('a[href*="profiles.php?XID=" i]')]
+      .find((anchor) => userIdFromUrl(anchor.href));
+    const pathMatch = String(location.pathname || '').match(/\/pricelist\/(\d+)/i);
+    const userId = userIdFromUrl(profileAnchor?.href) || Math.max(0, Math.floor(Number(pathMatch?.[1]) || 0)) || null;
+    const headings = [...document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')]
+      .map((element) => normalizeWhitespace(element.innerText || element.textContent))
+      .filter(Boolean);
+    let name = '';
+    for (const heading of headings) {
+      const match = heading.match(/^(.+?)(?:[’']s)\s+Pricelist$/i);
+      if (match?.[1]) { name = normalizeWhitespace(match[1]); break; }
+    }
+    if (!name) {
+      const titleMatch = normalizeWhitespace(document.title).match(/^(.+?)(?:[’']s)\s+Pricelist/i);
+      name = normalizeWhitespace(titleMatch?.[1]);
+    }
+    const requested = request?.trader || {};
+    return {
+      traderId: normalizeWhitespace(requested.traderId),
+      userId: userId || Math.max(0, Math.floor(Number(requested.userId) || 0)) || null,
+      name: name || normalizeWhitespace(requested.name) || (userId ? `Trader ${userId}` : 'Weav3r trader'),
+      profileUrl: normalizeHttpUrl(profileAnchor?.href || requested.profileUrl)
+        || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : ''),
+      tradeUrl: normalizeHttpUrl(requested.tradeUrl)
+        || (userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : ''),
+      bannerUrl: normalizeHttpUrl(requested.bannerUrl),
+    };
+  }
+
+  function weav3rItemPriceElements(container) {
+    return [...container.querySelectorAll('span,div,p,strong,b,td')]
+      .filter((element) => /^\$[\d,.]+$/.test(normalizeWhitespace(ownText(element) || element.textContent)))
+      .filter(visibleElement);
+  }
+
+  function weav3rRowForItemLink(link) {
+    let node = link.parentElement;
+    let fallback = null;
+    for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+      if (!(node instanceof Element)) continue;
+      const text = normalizeWhitespace(node.innerText || node.textContent);
+      if (!text || text.length > 900) continue;
+      const itemLinks = [...node.querySelectorAll('a[href*="/item/"]')]
+        .filter((anchor) => /\/item\/\d+\/?(?:[#?].*)?$/i.test(anchor.href));
+      const prices = weav3rItemPriceElements(node);
+      if (itemLinks.length === 1 && prices.length) return { row: node, priceElement: prices[0] };
+      if (!fallback && itemLinks.length <= 2 && prices.length) fallback = { row: node, priceElement: prices[0] };
+    }
+    return fallback;
+  }
+
+  function captureWeav3rPriceItems() {
+    const captured = new Map();
+    const links = [...document.querySelectorAll('a[href*="/item/"]')]
+      .filter((link) => /\/item\/\d+\/?(?:[#?].*)?$/i.test(link.href));
+    for (const link of links) {
+      const itemMatch = String(link.href).match(/\/item\/(\d+)/i);
+      const itemId = Math.max(0, Math.floor(Number(itemMatch?.[1]) || 0)) || null;
+      const itemName = normalizeWhitespace(link.innerText || link.textContent || link.getAttribute('aria-label'));
+      if (!itemId || !itemName) continue;
+      const resolved = weav3rRowForItemLink(link);
+      const unitPrice = parseNumber(resolved?.priceElement?.textContent);
+      if (!(unitPrice > 0)) continue;
+      captured.set(`id:${itemId}`, normalizeTraderPriceItem({
+        itemId,
+        itemName,
+        unitPrice,
+        quantity: 1,
+        sourceText: `${itemName} ${formatMoney(unitPrice)}`,
+      }));
+    }
+    return [...captured.values()].filter(Boolean).sort((a, b) => a.itemName.localeCompare(b.itemName));
+  }
+
+  function compactPriceCaptureResult(payload) {
+    return {
+      v: 1,
+      t: compactTraderCaptureIdentity(payload.trader),
+      u: cleanWeav3rPriceListUrl(payload.sourceUrl),
+      l: normalizeWhitespace(payload.title).slice(0, 160),
+      c: payload.capturedAt || new Date().toISOString(),
+      i: (payload.items || []).map((item) => {
+        const normalized = normalizeTraderPriceItem(item);
+        if (!normalized) return null;
+        return normalized.itemId
+          ? [normalized.itemId, Math.round(normalized.unitPrice)]
+          : [0, Math.round(normalized.unitPrice), normalized.itemName];
+      }).filter(Boolean),
+    };
+  }
+
+  function expandPriceCaptureResult(compact) {
+    if (!compact || typeof compact !== 'object' || !Array.isArray(compact.i)) return null;
+    const items = compact.i.map((entry) => {
+      if (!Array.isArray(entry) || entry.length < 2) return null;
+      const itemId = Math.max(0, Math.floor(Number(entry[0]) || 0)) || null;
+      const catalog = itemId ? state.catalog.itemsById?.[String(itemId)] : null;
+      return normalizeTraderPriceItem({
+        itemId,
+        itemName: normalizeWhitespace(entry[2]) || catalog?.name || (itemId ? `Item ${itemId}` : ''),
+        unitPrice: Number(entry[1]) || 0,
+      });
+    }).filter(Boolean);
+    return {
+      trader: compact.t || {},
+      sourceUrl: normalizeHttpUrl(compact.u),
+      title: normalizeWhitespace(compact.l),
+      capturedAt: compact.c || null,
+      items,
+    };
+  }
+
+  function returnUrlWithPriceCapture(result, returnUrl = '') {
+    const target = normalizeHttpUrl(returnUrl)
+      || (result.trader?.userId ? `https://www.torn.com/profiles.php?XID=${result.trader.userId}` : 'https://www.torn.com/index.php');
+    try {
+      const url = new URL(target);
+      const encoded = base64UrlEncode(compactPriceCaptureResult(result));
+      if (encoded) url.searchParams.set(APP.priceImportQueryKey, encoded);
+      return url.href;
+    } catch {
+      return 'https://www.torn.com/index.php';
+    }
+  }
+
+  function priceCaptureResultFromCurrentUrl() {
+    try {
+      const url = new URL(location.href);
+      const encoded = url.searchParams.get(APP.priceImportQueryKey);
+      if (!encoded) return null;
+      return expandPriceCaptureResult(base64UrlDecode(encoded));
+    } catch {
+      return null;
+    }
+  }
+
+  function clearPriceCaptureImportFromUrl() {
+    try {
+      const url = new URL(location.href);
+      if (!url.searchParams.has(APP.priceImportQueryKey)) return;
+      url.searchParams.delete(APP.priceImportQueryKey);
+      history.replaceState(history.state, document.title, url.href);
+    } catch {
+      // The saved capture is already in local storage even if URL cleanup fails.
+    }
+  }
+
+  function consumeImportedPriceCapture() {
+    const bridged = readPriceBridgeWindowName();
+    const fromWindow = bridged?.type === 'result' ? expandPriceCaptureResult(bridged.compact) : null;
+    const imported = priceCaptureResultFromCurrentUrl() || fromWindow;
+    if (!imported?.items?.length) return null;
+    const identity = imported.trader || {};
+    let trader = state.traders.find((entry) =>
+      (identity.traderId && entry.id === identity.traderId)
+      || (identity.userId && entry.userId === Number(identity.userId))
+      || (identity.name && entry.normalizedName === normalizeName(identity.name))
+    ) || null;
+    if (!trader) {
+      trader = upsertTrader(normalizeTrader({
+        recordId: identity.traderId,
+        name: identity.name || (identity.userId ? `Trader ${identity.userId}` : 'Imported trader'),
+        userId: identity.userId,
+        profileUrl: identity.profileUrl,
+        tradeUrl: identity.tradeUrl,
+        bannerUrl: identity.bannerUrl,
+        captureSource: 'weav3r-pricelist',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+    const result = saveTraderPriceCapture(trader, {
+      url: imported.sourceUrl,
+      title: imported.title || `${trader.name}'s TornW3B pricelist`,
+      items: imported.items,
+      sourceType: 'weav3r-pricelist',
+      automatic: true,
+    });
+    const pending = activePendingTraderCapture();
+    if (pending && traderForPendingCapture(pending)?.id === trader.id) {
+      state.pendingTraderCapture = null;
+      savePendingTraderCapture();
+    }
+    clearPriceBridgeWindowName();
+    clearPriceCaptureImportFromUrl();
+    return result;
+  }
+
+  function createWeav3rCaptureResult() {
+    const request = captureRequestFromWeav3rPage();
+    const identity = weav3rTraderIdentity();
+    const items = captureWeav3rPriceItems();
+    const result = {
+      trader: { ...identity, traderId: identity.traderId || request?.trader?.traderId || '' },
+      sourceUrl: cleanWeav3rPriceListUrl(location.href),
+      title: document.title,
+      items,
+      capturedAt: new Date().toISOString(),
+    };
+    state.weav3rCapturePreview = result;
+    writePriceBridgeWindowName({
+      version: 1,
+      type: 'result',
+      compact: compactPriceCaptureResult(result),
+      returnUrl: request?.returnUrl || '',
+      expiresAt: Date.now() + (20 * 60 * 1000),
+    });
+    return { result, request };
+  }
+
+  function goBackToTornWithWeav3rCapture({ automatic = false } = {}) {
+    const { result, request } = createWeav3rCaptureResult();
+    renderWeav3rCapturePanel();
+    if (!result.items.length) {
+      toast('No TornW3B prices were parsed yet. Wait for the page to finish loading and retry.');
+      return null;
+    }
+    const returnUrl = returnUrlWithPriceCapture(result, request?.returnUrl);
+    toast(`${formatInteger(result.items.length)} prices captured${automatic ? ' · returning to Torn' : ''}.`);
+    clearTimeout(state.weav3rAutoReturnTimer);
+    state.weav3rAutoReturnTimer = setTimeout(() => window.location.assign(returnUrl), automatic ? 900 : 350);
+    return result;
+  }
+
+  function renderWeav3rCapturePanel() {
+    injectStyles();
+    let panel = document.getElementById(APP.panelId);
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = APP.panelId;
+      document.body.appendChild(panel);
+    }
+    panel.classList.toggle('tsimm-collapsed', Boolean(state.settings.collapsed));
+    const request = captureRequestFromWeav3rPage();
+    const identity = weav3rTraderIdentity();
+    const preview = state.weav3rCapturePreview || { items: captureWeav3rPriceItems() };
+    state.weav3rCapturePreview = { ...preview, trader: identity };
+    const count = preview.items?.length || 0;
+    panel.innerHTML = `
+      <div class="tsimm-head">
+        <strong>📈 ${escapeHtml(APP.shortName)}</strong>
+        <small>v${escapeHtml(APP.version)} · TornW3B pricelist</small>
+        <button type="button" data-tsimm-weav3r-action="toggle">${state.settings.collapsed ? '+' : '−'}</button>
+      </div>
+      <div class="tsimm-body">
+        <div class="tsimm-status">
+          <div class="tsimm-stat"><strong class="${count ? 'tsimm-good-text' : 'tsimm-loss-text'}">${formatInteger(count)}</strong><span>prices found</span></div>
+          <div class="tsimm-stat"><strong>${escapeHtml(identity.name || '?')}</strong><span>trader</span></div>
+          <div class="tsimm-stat"><strong>${escapeHtml(identity.userId || '?')}</strong><span>Torn ID</span></div>
+        </div>
+        <div class="tsimm-note">IMM can read this public TornW3B pricelist, save its address to the trader, and bring the captured prices back to Torn.</div>
+        ${request ? `<div class="tsimm-note">Recapture requested for ${escapeHtml(request.trader?.name || identity.name)}. It will return to Torn automatically after a successful scan.</div>` : ''}
+        <div class="tsimm-actions">
+          <button class="tsimm-btn tsimm-btn-blue" type="button" data-tsimm-weav3r-action="capture-return">Capture & return to Torn</button>
+          <button class="tsimm-btn" type="button" data-tsimm-weav3r-action="rescan">Rescan page</button>
+        </div>
+      </div>`;
+  }
+
+  function scheduleWeav3rCaptureScan(delay = 450) {
+    clearTimeout(state.weav3rCaptureTimer);
+    state.weav3rCaptureTimer = setTimeout(() => {
+      state.weav3rCaptureTimer = null;
+      const items = captureWeav3rPriceItems();
+      state.weav3rCapturePreview = {
+        trader: weav3rTraderIdentity(),
+        sourceUrl: cleanWeav3rPriceListUrl(location.href),
+        title: document.title,
+        items,
+      };
+      renderWeav3rCapturePanel();
+      const request = captureRequestFromWeav3rPage();
+      const bridged = readPriceBridgeWindowName();
+      if (request?.autoReturn && items.length && bridged?.type !== 'result') {
+        goBackToTornWithWeav3rCapture({ automatic: true });
+      }
+    }, Math.max(0, Number(delay) || 0));
+  }
+
+  function initializeWeav3rPriceCapture() {
+    injectStyles();
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-tsimm-weav3r-action]');
+      if (!button) return;
+      const action = button.dataset.tsimmWeav3rAction;
+      if (action === 'toggle') {
+        state.settings.collapsed = !state.settings.collapsed;
+        renderWeav3rCapturePanel();
+      } else if (action === 'rescan') {
+        scheduleWeav3rCaptureScan(20);
+      } else if (action === 'capture-return') {
+        goBackToTornWithWeav3rCapture({ automatic: false });
+      }
+    });
+    state.weav3rObserver = new MutationObserver((mutations) => {
+      if (mutations.some((mutation) => normalizeWhitespace(mutation.target?.textContent).includes('$')
+        || [...(mutation.addedNodes || [])].some((node) => normalizeWhitespace(node.textContent).includes('$')))) {
+        scheduleWeav3rCaptureScan(300);
+      }
+    });
+    state.weav3rObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    renderWeav3rCapturePanel();
+    scheduleWeav3rCaptureScan(700);
+    setTimeout(() => scheduleWeav3rCaptureScan(1800), 1800);
   }
 
   function normalizePriceRecaptureRequest(candidate) {
@@ -551,8 +1020,14 @@
       toast('This trader does not have a saved price page yet.');
       return;
     }
+    if (isWeav3rPriceListUrl(trader.pricePageUrl)) {
+      const request = priceCaptureRequestForTrader(trader, trader.pricePageUrl);
+      writePriceBridgeWindowName(request);
+      window.location.assign(weav3rUrlWithCaptureRequest(trader.pricePageUrl, request));
+      return;
+    }
     if (!isTornPageUrl(trader.pricePageUrl)) {
-      toast('Automatic recapture currently works on Torn pages. Opening the saved page instead.');
+      toast('This saved page can be opened, but automatic recapture is not supported for its domain yet.');
       window.location.assign(trader.pricePageUrl);
       return;
     }
@@ -4567,7 +5042,7 @@
       ? new Date(trader.pricePageLastCheckedAt).toLocaleString()
       : 'Never';
     const priceItemCount = trader.pricePageItems?.length || 0;
-    const autoRecaptureAvailable = trader.pricePageUrl && isTornPageUrl(trader.pricePageUrl);
+    const autoRecaptureAvailable = trader.pricePageUrl && isSupportedPricePageUrl(trader.pricePageUrl);
     return `
       <article class="tsimm-trader-card">
         <div class="tsimm-trader-card-head">
@@ -5287,12 +5762,20 @@
   function initialize() {
     if (state.initialized || !document.body) return;
     state.initialized = true;
+    if (isWeav3rPriceListUrl(location.href)) {
+      initializeWeav3rPriceCapture();
+      return;
+    }
     injectStyles();
+    const importedPriceCapture = consumeImportedPriceCapture();
     runPurchasePrivacyMigration();
     savePendingPurchase();
     bindPanelEvents();
     installNetworkObservers();
     bindObserver();
+    if (importedPriceCapture) {
+      setTimeout(() => toast(`${importedPriceCapture.trader.name}: ${formatInteger(importedPriceCapture.parsedCount)} TornW3B prices saved${importedPriceCapture.changedCount ? ` · ${formatInteger(importedPriceCapture.changedCount)} changed` : ''}.`), 150);
+    }
     window.addEventListener('hashchange', () => scheduleScan(20));
     window.addEventListener('popstate', () => scheduleScan(20));
     document.addEventListener('visibilitychange', () => {
@@ -5338,6 +5821,9 @@
       buildReceiptAudit,
       npcBuybackFor,
       capturedPriceChangeCount,
+      isWeav3rPriceListUrl,
+      compactPriceCaptureResult,
+      expandPriceCaptureResult,
       traderSalesFor,
       linkRecordedSalesToTrader,
       optionalFiniteNumber,
