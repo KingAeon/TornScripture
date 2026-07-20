@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Extensions
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.8
+// @version      0.1.9
 // @description  Adds TornExchange capture, a persistent Deals tracking dock, and compact tracked-exit margin prompts on Item Market listings.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -20,7 +20,7 @@
   'use strict';
 
   const A = Object.freeze({
-    v: '0.1.8',
+    v: '0.1.9',
     bridge: 'TSIMM_PRICE_BRIDGE:',
     traders: 'tornscripture-imm-traders-v1',
     pending: 'tornscripture-imm-pending-trader-capture-v1',
@@ -100,9 +100,13 @@
   };
 
   function injectStyle() {
-    if (document.getElementById(A.style) || !document.head) return;
-    const style = document.createElement('style');
-    style.id = A.style;
+    if (!document.head) return;
+    let style = document.getElementById(A.style);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = A.style;
+      document.head.appendChild(style);
+    }
     style.textContent = `
       #tsimm-tx-panel{position:fixed;right:10px;bottom:10px;z-index:2147483646;width:min(360px,calc(100vw - 20px));border:1px solid #3bd35d;border-radius:9px;background:#020704;color:#aaff83;box-shadow:0 14px 40px #000c;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden}
       #tsimm-tx-panel *{box-sizing:border-box}.txh{display:flex;padding:9px 10px;background:#041108;border-bottom:1px solid #1d6b2d}.txh strong{flex:1}.txb{display:grid;gap:7px;padding:10px}.txg{display:grid;grid-template-columns:1fr auto;gap:4px 8px}.txg b{text-align:right}.txw{padding:7px;border:1px solid #9a6d1f;border-radius:5px;background:#241a05;color:#ffd166}.txa{display:grid;grid-template-columns:1fr 1.7fr;gap:6px}
@@ -114,7 +118,6 @@
       .tsimm-track-format-row{position:relative!important}.tsimm-track-caption-anchor{position:relative!important}.tsimm-track-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:106px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}
       .tsimm-track-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-track-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-track-floor-row{box-shadow:inset 0 2px #347c41!important}
     `;
-    document.head.appendChild(style);
   }
 
   function tradersRaw() {
