@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Extensions
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.7
+// @version      0.1.8
 // @description  Adds TornExchange capture, a persistent Deals tracking dock, and compact tracked-exit margin prompts on Item Market listings.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -20,7 +20,7 @@
   'use strict';
 
   const A = Object.freeze({
-    v: '0.1.7',
+    v: '0.1.8',
     bridge: 'TSIMM_PRICE_BRIDGE:',
     traders: 'tornscripture-imm-traders-v1',
     pending: 'tornscripture-imm-pending-trader-capture-v1',
@@ -111,7 +111,7 @@
       #${A.dock}[hidden]{display:none!important}#${A.dock} .track-copy{display:grid;min-width:0;gap:2px}#${A.dock} small{color:#5ea66a;font-size:7px;letter-spacing:.08em}#${A.dock} strong{overflow:hidden;color:#c1ff9d;font-size:11px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} span{overflow:hidden;color:#70b87b;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} button{min-width:88px;min-height:38px;border:1px solid #58d76d;border-radius:5px;background:#082b10;color:#c5ffac;padding:6px 9px;font:800 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.dock} button.on{border-color:#9dff7c;background:#16461e;color:#e1ffd2}.tsimm-track-selected{outline:1px solid #9dff7c!important;outline-offset:-2px!important}
       #${A.caption}{z-index:9;display:grid;gap:1px;box-sizing:border-box;padding:3px 6px;border:1px solid #27863f;border-radius:5px;background:#041109f5;color:#9ff48e;font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:normal;box-shadow:none;pointer-events:none}
       #${A.caption} strong{font-size:8px;color:#c7ffad}#${A.caption} span{display:block;color:#72bd7d;font-size:7px}#${A.caption}.stacked{position:static!important;transform:none!important;width:auto!important;max-width:none!important;margin:3px 5px!important}#${A.caption}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.caption}.stale strong,#${A.caption}.stale span{color:#ffd166}#${A.caption}.outdated,#${A.caption}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.caption}.outdated strong,#${A.caption}.outdated span,#${A.caption}.missing strong,#${A.caption}.missing span{color:#ff9ba3}
-      .tsimm-listing-mark{position:relative!important}.tsimm-track-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:106px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}
+      .tsimm-track-format-row{position:relative!important}.tsimm-track-caption-anchor{position:relative!important}.tsimm-track-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:106px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}
       .tsimm-track-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-track-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-track-floor-row{box-shadow:inset 0 2px #347c41!important}
     `;
     document.head.appendChild(style);
@@ -680,9 +680,19 @@
 
   function cleanupMarket() {
     document.querySelectorAll('[data-tsimm-tracked], [data-tsimm-track-profit]').forEach((element) => element.remove());
-    document.getElementById(A.caption)?.remove();
-    document.querySelectorAll('.tsimm-tracked-buy-row,.tsimm-track-profitable,.tsimm-track-floor-row').forEach((row) => {
-      row.classList.remove('tsimm-tracked-buy-row', 'tsimm-track-profitable', 'tsimm-track-floor-row');
+    const caption = document.getElementById(A.caption);
+    const captionAnchor = caption?.parentElement;
+    caption?.remove();
+    if (captionAnchor?.dataset?.tsimmTrackCaptionAnchor === '1') {
+      captionAnchor.classList.remove('tsimm-track-caption-anchor');
+      delete captionAnchor.dataset.tsimmTrackCaptionAnchor;
+    }
+    document.querySelectorAll('[data-tsimm-track-caption-anchor="1"]').forEach((anchor) => {
+      anchor.classList.remove('tsimm-track-caption-anchor');
+      delete anchor.dataset.tsimmTrackCaptionAnchor;
+    });
+    document.querySelectorAll('.tsimm-tracked-buy-row,.tsimm-track-profitable,.tsimm-track-floor-row,.tsimm-track-format-row').forEach((row) => {
+      row.classList.remove('tsimm-tracked-buy-row', 'tsimm-track-profitable', 'tsimm-track-floor-row', 'tsimm-track-format-row');
       delete row.dataset.tsimmTrackedToken;
     });
   }
@@ -691,7 +701,13 @@
     const closest = title.closest('[class*="header"],[class*="title"]');
     const anchor = closest && closest !== title ? closest : title.parentElement || title;
     if (!(anchor instanceof Element)) return;
-    anchor.style.position = 'relative';
+    document.querySelectorAll('[data-tsimm-track-caption-anchor="1"]').forEach((previous) => {
+      if (previous === anchor) return;
+      previous.classList.remove('tsimm-track-caption-anchor');
+      delete previous.dataset.tsimmTrackCaptionAnchor;
+    });
+    anchor.classList.add('tsimm-track-caption-anchor');
+    anchor.dataset.tsimmTrackCaptionAnchor = '1';
     if (caption.parentElement !== anchor) anchor.appendChild(caption);
     caption.classList.remove('stacked');
     caption.style.position = 'absolute';
@@ -706,6 +722,8 @@
     if (available >= 150) return;
     caption.classList.add('stacked');
     caption.removeAttribute('style');
+    anchor.classList.remove('tsimm-track-caption-anchor');
+    delete anchor.dataset.tsimmTrackCaptionAnchor;
     anchor.insertAdjacentElement('afterend', caption);
   }
 
@@ -754,7 +772,7 @@
     marker.dataset.tsimmTrackTraderProfit = String(trackedProfit);
     marker.textContent = label;
     row.appendChild(marker);
-    row.classList.add('tsimm-track-profitable');
+    row.classList.add('tsimm-track-format-row', 'tsimm-track-profitable');
     return true;
   }
 
