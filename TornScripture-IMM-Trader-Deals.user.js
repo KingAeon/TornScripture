@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Deals
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.0
+// @version      0.1.1
 // @description  Adds a Deals report to each captured IMM trader, highlighting prices near or above Torn market value.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   const APP = Object.freeze({
-    version: '0.1.0',
+    version: '0.1.1',
     tradersKey: 'tornscripture-imm-traders-v1',
     catalogKey: 'tornscripture-imm-catalog-v1',
     sharedCatalogKey: 'tornscripture-ish-torn-catalog-v1',
@@ -219,6 +219,7 @@
     const style = document.createElement('style');
     style.id = APP.styleId;
     style.textContent = `
+      .tsimm-addon-report-button{display:none!important}
       .tsimm-deals-button{background:#166b61!important;border-color:#39b8a9!important;color:#edfffb!important}
       #${APP.overlayId}{position:fixed;inset:0;z-index:2147483646;background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f8fb}
       .tsimm-d-shell{width:min(740px,100%);max-height:96vh;display:flex;flex-direction:column;background:#171d24;border:1px solid #4c7a78;border-radius:12px;overflow:hidden;box-shadow:0 14px 44px #000e}
@@ -241,7 +242,6 @@
       const edit = card.querySelector('[data-tsimm-action="trader-edit"][data-tsimm-trader-id]');
       if (!edit) return;
       const trader = map.get(edit.dataset.tsimmTraderId);
-      card.querySelectorAll('.tsimm-addon-report-button').forEach((button) => button.remove());
       let button = card.querySelector('[data-tsimm-deals-trader]');
       if (!trader?.items?.length) { button?.remove(); return; }
       const total = counts(rowsFor(trader)).deals;
