@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Market Overlay
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.0
-// @description  Compares live Item Market prices with captured trader pricelists using separate stricter buy thresholds.
+// @version      0.1.1
+// @description  Compares live Item Market prices with captured trader pricelists and formats compact tracked-exit margin prompts.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   const APP = Object.freeze({
-    version: '0.1.0',
+    version: '0.1.1',
     tradersKey: 'tornscripture-imm-traders-v1',
     catalogKey: 'tornscripture-imm-catalog-v1',
     sharedCatalogKey: 'tornscripture-ish-torn-catalog-v1',
@@ -492,9 +492,86 @@
       || Boolean(document.querySelector(`.${APP.categoryMark},.${APP.listingMark}`));
   }
 
+  function signedEach(value) {
+    const match = clean(value).match(/([+-])\s*\$([\d,.]+)\s*ea/i);
+    if (!match) return null;
+    const amount = parseNumber(match[2]);
+    if (!Number.isFinite(amount)) return null;
+    return match[1] === '-' ? -amount : amount;
+  }
+
+  function trackedCaptionData(caption) {
+    if (!(caption instanceof Element)) return null;
+    const title = clean(caption.querySelector('strong')?.textContent);
+    const detail = clean(caption.querySelector('span')?.textContent);
+    if (!/TRACKED EXIT/i.test(title)) return null;
+    const trader = clean(title.split('·').slice(1).join('·')) || 'Tracked trader';
+    const payoutMatch = detail.match(/Pays\s+(\$[\d,.]+)/i);
+    const ageMatch = detail.match(/captured\s+(.+?)\s+ago/i);
+    const payout = payoutMatch ? parseNumber(payoutMatch[1]) : null;
+    return { trader, payout, age: clean(ageMatch?.[1]) || 'fresh' };
+  }
+
+  function formatTrackedMargins() {
+    document.querySelectorAll('.tsimm-track-floor-row').forEach((row) => row.classList.remove('tsimm-track-floor-row'));
+
+    const floor = document.getElementById('tsimm-track-floor');
+    if (floor) {
+      const nextRow = floor.nextElementSibling;
+      if (nextRow?.classList?.contains(APP.listingMark)) nextRow.classList.add('tsimm-track-floor-row');
+      floor.remove();
+    }
+
+    const caption = document.getElementById('tsimm-track-caption');
+    if (!caption) return;
+    caption.classList.add('tsimm-track-caption-compact');
+
+    const markers = [...document.querySelectorAll('.tsimm-track-profit')];
+    const profits = [];
+    for (const marker of markers) {
+      const row = marker.closest(`.${APP.listingMark}`);
+      if (!row) continue;
+      let traderProfit = Number(marker.dataset.tsimmTrackTraderProfit);
+      if (!Number.isFinite(traderProfit)) {
+        traderProfit = signedEach(marker.textContent);
+        if (Number.isFinite(traderProfit)) marker.dataset.tsimmTrackTraderProfit = String(traderProfit);
+      }
+      if (!Number.isFinite(traderProfit) || traderProfit <= 0) continue;
+      profits.push(traderProfit);
+
+      if (marker.parentElement !== row) row.appendChild(marker);
+      row.classList.add('tsimm-track-format-row');
+
+      const immProfit = signedEach(row.querySelector('.tsimm-margin-badge')?.textContent);
+      let label = '';
+      let flip = false;
+      if (Number.isFinite(immProfit) && immProfit < 0) {
+        label = `📌 FLIP +${money(traderProfit)}`;
+        flip = true;
+      } else if (Number.isFinite(immProfit)) {
+        const extra = Math.max(0, traderProfit - immProfit);
+        label = `📌 +${money(extra)} extra`;
+      } else {
+        label = `📌 +${money(traderProfit)}`;
+      }
+      if (marker.textContent !== label) marker.textContent = label;
+      marker.classList.toggle('flip', flip);
+    }
+
+    const data = trackedCaptionData(caption);
+    if (data && profits.length) {
+      const best = Math.max(...profits);
+      const payout = Number.isFinite(data.payout) ? money(data.payout) : 'captured payout';
+      const html = `<strong>📌 ${escapeHtml(data.trader)} pays ${escapeHtml(payout)} · ${escapeHtml(data.age)} old</strong>`
+        + `<span>${integer(profits.length)} profitable · best +${escapeHtml(money(best))} ea · buy below ${escapeHtml(payout)}</span>`;
+      if (caption.innerHTML !== html) caption.innerHTML = html;
+    }
+  }
+
   function decorateMarket() {
     refreshIndex();
     decoratePanelButton();
+    formatTrackedMargins();
     if (!settings.enabled || !itemMarketPage()) {
       prune();
       return;
@@ -504,6 +581,7 @@
       applyBadge(candidate, analyze(candidate), token);
     }
     prune(token);
+    formatTrackedMargins();
   }
 
   function decoratePanelButton() {
@@ -588,6 +666,7 @@
     style.textContent = `
       .tsimm-tmo-settings-button{background:#075c68!important;border-color:#20aab6!important;color:#eaffff!important}
       .${APP.badgeClass}{display:grid;gap:2px;margin-top:4px;padding:5px 7px;min-width:155px;max-width:300px;box-sizing:border-box;border:1px solid #4d7279;border-radius:7px;background:#102228f2;color:#e8fbff;font:600 10px/1.25 Arial,sans-serif;white-space:normal;box-shadow:0 5px 14px #0008}.${APP.badgeClass} strong{font-size:11px;color:#8cecf4}.${APP.badgeClass} span{display:block}.${APP.badgeClass}.actionable{border-color:#27d5d0;background:#092e31f5;box-shadow:0 0 0 1px #27d5d055,0 6px 18px #0009}.${APP.badgeClass}.actionable strong{color:#6ffff4}.${APP.badgeClass}.stale{border-color:#8a7451;background:#2b2417f2;color:#e6d4b7}.${APP.badgeClass}.stale strong{color:#ffd78c}.tsimm-tmo-category{position:absolute;left:4px;bottom:4px;z-index:7;max-width:calc(100% - 8px)}.tsimm-tmo-buy-row{box-shadow:inset -4px 0 #27d5d0!important}
+      #tsimm-track-caption{position:static!important;display:grid!important;gap:1px!important;width:auto!important;max-width:none!important;min-width:0!important;margin:4px 6px!important;padding:4px 7px!important;box-sizing:border-box!important;border-radius:5px!important;font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:normal!important;box-shadow:none!important}#tsimm-track-caption strong{font-size:9px!important;white-space:normal!important}#tsimm-track-caption span{display:block!important;font-size:8px!important;opacity:.85!important}#tsimm-track-floor{display:none!important}.${APP.listingMark}{position:relative!important}.tsimm-track-format-row{position:relative!important}.tsimm-track-profit{position:absolute!important;inset-inline-end:clamp(72px,21%,150px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:112px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border-radius:4px!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}.tsimm-track-profit.flip{border-color:#6ee98a!important;background:#073411f2!important;color:#c8ffb4!important}.tsimm-track-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-track-floor-row{box-shadow:inset 0 2px #347c41!important}
       #${APP.settingsOverlayId}{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:8px;background:#000c;color:#f4fbfc;font:12px/1.35 Arial,sans-serif}.tsimm-tmo-shell{width:min(560px,100%);max-height:95vh;overflow:auto;border:1px solid #2aa4ad;border-radius:12px;background:#171d24;box-shadow:0 14px 44px #000e}.tsimm-tmo-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid #345b62;background:#1d2d32}.tsimm-tmo-head>div{display:grid}.tsimm-tmo-head small{color:#a9c5c9}.tsimm-tmo-head button{border:1px solid #55727a;border-radius:7px;background:#293940;color:#fff;padding:5px 9px;font-weight:800}.tsimm-tmo-note{margin:8px;padding:8px;border:1px solid #35666d;border-radius:8px;background:#16282d;color:#cce8eb}.tsimm-tmo-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:0 8px 8px}.tsimm-tmo-grid label{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px;border:1px solid #3d5660;border-radius:8px;background:#202a32}.tsimm-tmo-grid input[type=number]{width:90px;border:1px solid #57727c;border-radius:6px;background:#11181d;color:#fff;padding:5px}.tsimm-tmo-actions{display:flex;justify-content:flex-end;gap:7px;padding:0 8px 9px}.tsimm-tmo-actions button{border:1px solid #55727c;border-radius:7px;background:#263943;color:#fff;padding:7px 9px;font-weight:800}.tsimm-tmo-actions button.primary{background:#087883;border-color:#23bdc4}
       @media(max-width:520px){.tsimm-tmo-grid{grid-template-columns:1fr}.tsimm-tmo-category{position:static;max-width:none;margin:5px}}
     `;
