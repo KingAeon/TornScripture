@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.7.0
-// @description  Item-market and overseas profit overlays, searchable purchase history, load planning, trade verification, trader profiles, and receipt audits.
+// @version      0.8.0
+// @description  Item-market, NPC-store, and overseas profit overlays with purchase history, load planning, trade verification, trader profiles, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -17,10 +17,10 @@
   'use strict';
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.7.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.8.0
    *
    * SAFETY BOUNDARY
-   * - Reads item names, lowest prices, market values, visible listing rows, and trade manifests.
+   * - Reads item names, lowest prices, market values, visible listing rows, NPC shop prices, and trade manifests.
    * - Torn catalog values are requested only when the user presses Sync values.
    * - The API key, catalog cache, pending purchase, purchase lots, sale history, trader book, and receipt audits remain in this browser's local storage.
    * - The key is sent only to Torn's official API.
@@ -32,7 +32,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.7.0',
+    version: '0.8.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -47,6 +47,7 @@
     apiKeyStorageKey: 'tornscripture-imm-api-key-v1',
     sharedApiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
+    npcPriceStorageKey: 'tornscripture-imm-npc-prices-v1',
     sharedCatalogStorageKey: 'tornscripture-ish-torn-catalog-v1',
     settingsStorageKey: 'tornscripture-imm-settings-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
@@ -55,6 +56,7 @@
     recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
     purchasePrivacyMigrationStorageKey: 'tornscripture-imm-purchase-privacy-v1',
     catalogUrl: 'https://api.torn.com/v2/torn/items',
+    cityShopsUrl: 'https://api.torn.com/torn/',
     fastScanDelayMs: 35,
     settleScanDelayMs: 520,
     minimumScanIntervalMs: 90,
@@ -82,6 +84,7 @@
   const state = {
     settings: { ...structuredCloneSafe(DEFAULT_SETTINGS), ...loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS) },
     catalog: mergeCatalogCaches(),
+    npcPrices: normalizeNpcPriceCache(loadJson(APP.npcPriceStorageKey, {})),
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
     traders: normalizeTraders(loadJson(APP.tradersStorageKey, [])),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
@@ -618,12 +621,14 @@
       pageType: 'unknown',
       categoryCandidates: 0,
       categoryMatched: 0,
+      categoryNpc: 0,
       categoryGold: 0,
       categoryGood: 0,
       categoryMinor: 0,
       categoryLoss: 0,
       listingCandidates: 0,
       listingMatched: 0,
+      listingNpc: 0,
       listingGold: 0,
       listingGood: 0,
       listingMinor: 0,
@@ -701,12 +706,17 @@
     const value = raw?.value && typeof raw.value === 'object' ? raw.value : {};
     const name = normalizeWhitespace(raw?.name);
     const marketPrice = parseNumber(raw?.marketPrice ?? value.market_price);
-    if (!name || !Number.isFinite(marketPrice) || marketPrice <= 0) return null;
+    const buyPrice = parseNumber(raw?.buyPrice ?? value.buy_price);
+    const sellPrice = parseNumber(raw?.sellPrice ?? value.sell_price);
+    const hasUsefulValue = [marketPrice, buyPrice, sellPrice].some((price) => Number.isFinite(price) && price > 0);
+    if (!name || !hasUsefulValue) return null;
     return {
       id: Number.isFinite(id) && id > 0 ? id : null,
       name,
       normalizedName: normalizeName(name),
-      marketPrice,
+      marketPrice: Number.isFinite(marketPrice) && marketPrice > 0 ? marketPrice : 0,
+      buyPrice: Number.isFinite(buyPrice) && buyPrice > 0 ? buyPrice : 0,
+      sellPrice: Number.isFinite(sellPrice) && sellPrice > 0 ? sellPrice : 0,
     };
   }
 
@@ -738,6 +748,154 @@
       itemsById: { ...shared.itemsById, ...own.itemsById },
     };
     return merged;
+  }
+
+  function npcItemKey(itemId, name) {
+    const id = Number(itemId);
+    if (Number.isFinite(id) && id > 0) return `id:${id}`;
+    const normalized = normalizeName(name);
+    return normalized ? `name:${normalized}` : '';
+  }
+
+  function normalizeNpcPriceCache(raw) {
+    const normalized = { updatedAt: raw?.updatedAt || null, items: {} };
+    const sourceItems = raw?.items && typeof raw.items === 'object' ? raw.items : {};
+    for (const [rawKey, rawItem] of Object.entries(sourceItems)) {
+      const key = npcItemKey(rawItem?.itemId, rawItem?.name) || rawKey;
+      if (!key) continue;
+      const sources = Array.isArray(rawItem?.sources) ? rawItem.sources : [];
+      const cleanSources = sources.map((source) => {
+        const price = parseNumber(source?.price ?? source?.lastPrice);
+        const minPrice = parseNumber(source?.minPrice ?? price);
+        const maxPrice = parseNumber(source?.maxPrice ?? price);
+        if (!Number.isFinite(price) || price <= 0) return null;
+        return {
+          sourceType: normalizeWhitespace(source?.sourceType || 'observed'),
+          country: normalizeWhitespace(source?.country),
+          shop: normalizeWhitespace(source?.shop || 'NPC shop'),
+          price,
+          minPrice: Number.isFinite(minPrice) && minPrice > 0 ? minPrice : price,
+          maxPrice: Number.isFinite(maxPrice) && maxPrice > 0 ? maxPrice : price,
+          overseas: Boolean(source?.overseas),
+          lastSeen: source?.lastSeen || null,
+        };
+      }).filter(Boolean);
+      if (!cleanSources.length) continue;
+      normalized.items[key] = {
+        itemId: Number(rawItem?.itemId) || null,
+        name: normalizeWhitespace(rawItem?.name),
+        sources: cleanSources,
+      };
+    }
+    return normalized;
+  }
+
+  function saveNpcPriceCache() {
+    state.npcPrices.updatedAt = new Date().toISOString();
+    saveJson(APP.npcPriceStorageKey, state.npcPrices);
+  }
+
+  function recordNpcPrice({ itemId = null, name = '', price = 0, country = '', shop = 'NPC shop', sourceType = 'observed', overseas = false }) {
+    const cleanPrice = parseNumber(price);
+    const cleanName = normalizeWhitespace(name);
+    const key = npcItemKey(itemId, cleanName);
+    if (!key || !Number.isFinite(cleanPrice) || cleanPrice <= 0) return false;
+    const item = state.npcPrices.items[key] || {
+      itemId: Number(itemId) || null,
+      name: cleanName,
+      sources: [],
+    };
+    if (!item.itemId && Number(itemId) > 0) item.itemId = Number(itemId);
+    if (!item.name && cleanName) item.name = cleanName;
+    const cleanCountry = normalizeWhitespace(country);
+    const cleanShop = normalizeWhitespace(shop || 'NPC shop');
+    const cleanSourceType = normalizeWhitespace(sourceType || 'observed');
+    const sourceKey = `${normalizeName(cleanSourceType)}|${normalizeName(cleanCountry)}|${normalizeName(cleanShop)}`;
+    let source = item.sources.find((entry) =>
+      `${normalizeName(entry.sourceType)}|${normalizeName(entry.country)}|${normalizeName(entry.shop)}` === sourceKey
+    );
+    let changed = false;
+    if (!source) {
+      source = {
+        sourceType: cleanSourceType,
+        country: cleanCountry,
+        shop: cleanShop,
+        price: cleanPrice,
+        minPrice: cleanPrice,
+        maxPrice: cleanPrice,
+        overseas: Boolean(overseas),
+        lastSeen: new Date().toISOString(),
+      };
+      item.sources.push(source);
+      changed = true;
+    } else {
+      const nextMin = Math.min(Number(source.minPrice) || cleanPrice, cleanPrice);
+      const nextMax = Math.max(Number(source.maxPrice) || cleanPrice, cleanPrice);
+      if (Number(source.price) !== cleanPrice || Number(source.minPrice) !== nextMin || Number(source.maxPrice) !== nextMax) {
+        source.price = cleanPrice;
+        source.minPrice = nextMin;
+        source.maxPrice = nextMax;
+        source.lastSeen = new Date().toISOString();
+        changed = true;
+      }
+      source.overseas = Boolean(source.overseas || overseas);
+    }
+    state.npcPrices.items[key] = item;
+    return changed;
+  }
+
+  function npcSourcesFor(catalog) {
+    if (!catalog) return [];
+    const keys = [npcItemKey(catalog.id, catalog.name), npcItemKey(null, catalog.name)].filter(Boolean);
+    const observed = keys.flatMap((key) => state.npcPrices.items[key]?.sources || []);
+    const sources = observed.map((source) => ({ ...source, exact: true }));
+    if (Number(catalog.buyPrice) > 0) {
+      sources.push({
+        sourceType: 'catalog',
+        country: '',
+        shop: 'NPC shop',
+        price: Number(catalog.buyPrice),
+        minPrice: Number(catalog.buyPrice),
+        maxPrice: Number(catalog.buyPrice),
+        overseas: false,
+        lastSeen: state.catalog.updatedAt || null,
+        exact: false,
+      });
+    }
+    return sources
+      .filter((source) => Number(source.price) > 0)
+      .sort((a, b) => Number(a.price) - Number(b.price) || Number(Boolean(b.exact)) - Number(Boolean(a.exact)));
+  }
+
+  function bestNpcSourceFor(catalog) {
+    return npcSourcesFor(catalog)[0] || null;
+  }
+
+  function npcSourceLabel(source) {
+    if (!source) return 'NPC shop';
+    const parts = [];
+    if (source.country) parts.push(source.country);
+    if (source.shop && normalizeName(source.shop) !== 'npc shop') parts.push(source.shop);
+    if (!parts.length) parts.push(source.exact ? 'NPC shop' : 'NPC shop price');
+    if (source.overseas) parts.push('travel');
+    if (!source.exact) parts.push('from catalog');
+    return parts.join(' · ');
+  }
+
+  function npcComparisonFor(listingPrice, catalog, quantity = 1) {
+    const source = bestNpcSourceFor(catalog);
+    const price = Number(listingPrice) || 0;
+    const shopPrice = Number(source?.price) || 0;
+    if (!source || price <= 0 || shopPrice <= 0 || shopPrice >= price) return null;
+    const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+    const savingsEach = price - shopPrice;
+    return {
+      source,
+      shopPrice,
+      savingsEach,
+      totalSavings: savingsEach * qty,
+      qty,
+    };
   }
 
   function catalogCount() {
@@ -781,6 +939,66 @@
     if (apiError?.error) return apiError.error;
     if (apiError?.message) return apiError.message;
     return `Torn API request failed (${response.status}).`;
+  }
+
+  async function syncCityShopPrices(key) {
+    const url = new URL(APP.cityShopsUrl);
+    url.searchParams.set('selections', 'cityshops');
+    url.searchParams.set('comment', 'TornScripture Item Market Margin');
+
+    async function request(useQueryKey = false) {
+      const requestUrl = new URL(url);
+      if (useQueryKey) requestUrl.searchParams.set('key', key);
+      const response = await fetch(requestUrl, {
+        method: 'GET',
+        headers: useQueryKey ? { Accept: 'application/json' } : {
+          Accept: 'application/json',
+          Authorization: `ApiKey ${key}`,
+        },
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        return { response, payload: null };
+      }
+      return { response, payload };
+    }
+
+    let result = await request(false);
+    const errorCode = Number(result.payload?.error?.code ?? result.payload?.error?.error_code);
+    if ((!result.response.ok || result.payload?.error) && (errorCode === 1 || errorCode === 2 || errorCode === 16)) {
+      result = await request(true);
+    }
+    if (!result.response.ok || result.payload?.error || !result.payload?.cityshops) {
+      throw new Error(apiErrorMessage(result.payload || {}, result.response));
+    }
+
+    let changed = false;
+    let recorded = 0;
+    for (const shopData of Object.values(result.payload.cityshops || {})) {
+      const shopName = normalizeWhitespace(shopData?.name || 'Torn City shop');
+      const inventory = shopData?.inventory && typeof shopData.inventory === 'object' ? shopData.inventory : {};
+      for (const [itemId, rawItem] of Object.entries(inventory)) {
+        const price = parseNumber(rawItem?.price);
+        const name = normalizeWhitespace(rawItem?.name);
+        if (!name || !Number.isFinite(price) || price <= 0) continue;
+        if (recordNpcPrice({
+          itemId: Number(itemId),
+          name,
+          price,
+          country: 'Torn City',
+          shop: shopName,
+          sourceType: 'cityshops-api',
+          overseas: false,
+        })) changed = true;
+        recorded += 1;
+      }
+    }
+    if (changed) saveNpcPriceCache();
+    return recorded;
   }
 
   async function syncCatalog() {
@@ -833,7 +1051,15 @@
         itemsById,
       };
       saveJson(APP.catalogStorageKey, state.catalog);
-      toast(`Loaded ${formatInteger(catalogCount())} item values.`);
+      let cityShopCount = 0;
+      let cityShopWarning = '';
+      try {
+        cityShopCount = await syncCityShopPrices(key);
+      } catch (error) {
+        cityShopWarning = ' · city-shop sync unavailable';
+        console.warn('[TornScripture IMM] City shop sync failed:', error);
+      }
+      toast(`Loaded ${formatInteger(catalogCount())} item values · ${formatInteger(cityShopCount)} NPC listings${cityShopWarning}.`);
       renderLedger();
       scheduleScan(50);
     } catch (error) {
@@ -883,6 +1109,13 @@
       roiPercent,
       tier,
     };
+  }
+
+  function marketAnalysisFor(listingPrice, catalog, quantity = 1, fallbackMarketValue = 0) {
+    const marketValue = Number(catalog?.marketPrice) > 0 ? Number(catalog.marketPrice) : Number(fallbackMarketValue) || 0;
+    const margin = marginFor(listingPrice, marketValue, quantity);
+    const npc = npcComparisonFor(listingPrice, catalog, quantity);
+    return npc ? { ...margin, tier: 'npc', npc } : margin;
   }
 
   function manifestTotals(items = []) {
@@ -1108,6 +1341,27 @@
       .map(parseNumber)
       .filter((value) => Number.isFinite(value) && value > 0 && value !== price && value < 1_000_000);
     return numericCells.length ? Math.max(...numericCells) : 1;
+  }
+
+  function overseasShopNameForRow(row) {
+    const known = [
+      'General Store', 'Arms Dealer', 'Black Market', 'Pharmacy',
+      'Flower Shop', 'Souvenir Shop', 'Jewelry Shop', 'Sweet Shop',
+    ];
+    let node = row;
+    for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
+      if (!(node instanceof Element)) continue;
+      const text = normalizeWhitespace(node.innerText || node.textContent);
+      const match = known.find((name) => new RegExp(`\b${escapeRegExp(name)}\b`, 'i').test(text));
+      if (match) return match;
+      let sibling = node.previousElementSibling;
+      for (let offset = 0; sibling && offset < 3; offset += 1, sibling = sibling.previousElementSibling) {
+        const siblingText = normalizeWhitespace(sibling.innerText || sibling.textContent);
+        const siblingMatch = known.find((name) => new RegExp(`\b${escapeRegExp(name)}\b`, 'i').test(siblingText));
+        if (siblingMatch) return siblingMatch;
+      }
+    }
+    return 'Overseas NPC shop';
   }
 
   function overseasCandidates() {
@@ -2360,6 +2614,7 @@
   }
 
   const MARKET_TIER_CLASSES = Object.freeze([
+    'tsimm-tier-npc',
     'tsimm-tier-gold',
     'tsimm-tier-good',
     'tsimm-tier-minor',
@@ -2423,6 +2678,20 @@
   function badgeHtml(margin, mode) {
     const sign = margin.profitEach > 0 ? '+' : '';
     const auditLine = `Ⓜ ${formatMoney(margin.value)} · Ⓣ ${formatMoney(margin.payout)}`;
+    if (margin.tier === 'npc' && margin.npc) {
+      const shopPriceText = margin.npc.source.exact
+        ? formatMoney(margin.npc.shopPrice)
+        : `from ${formatMoney(margin.npc.shopPrice)}`;
+      const sourceLabel = npcSourceLabel(margin.npc.source);
+      if (mode === 'category') {
+        return `<strong>NPC saves ${escapeHtml(formatMoney(margin.npc.savingsEach))} ea</strong>`
+          + `<span>Ⓢ ${escapeHtml(shopPriceText)} · listed ${escapeHtml(formatMoney(margin.price))}</span>`
+          + `<span>${escapeHtml(sourceLabel)}</span>`;
+      }
+      return `<strong>NPC ${escapeHtml(shopPriceText)}</strong>`
+        + `<span>Save ${escapeHtml(formatMoney(margin.npc.savingsEach))} ea · ${escapeHtml(formatMoney(margin.npc.totalSavings))} lot</span>`
+        + `<span>${escapeHtml(sourceLabel)}</span>`;
+    }
     if (mode === 'category') {
       return `<strong>${sign}${escapeHtml(formatMoney(margin.profitEach))} ea</strong>`
         + `<span>${escapeHtml(auditLine)}</span>`
@@ -2458,6 +2727,9 @@
       margin.profitEach,
       margin.totalProfit,
       margin.roiPercent.toFixed(4),
+      margin.npc?.shopPrice || 0,
+      margin.npc?.savingsEach || 0,
+      margin.npc ? npcSourceLabel(margin.npc.source) : '',
     ].join('|');
 
     if (!badge) {
@@ -2485,9 +2757,10 @@
     for (const candidate of candidates) {
       const catalog = catalogItemFor(candidate.name, candidate.itemId);
       if (!catalog || !candidate.lowestPrice) continue;
-      const margin = marginFor(candidate.lowestPrice, catalog.marketPrice, 1);
+      const margin = marketAnalysisFor(candidate.lowestPrice, catalog, 1);
       addBadge(candidate.card, margin, 'category', candidate.card, scanToken);
       stats.categoryMatched += 1;
+      if (margin.tier === 'npc') stats.categoryNpc += 1;
       if (margin.tier === 'gold') stats.categoryGold += 1;
       if (margin.tier === 'good') stats.categoryGood += 1;
       if (margin.tier === 'minor') stats.categoryMinor += 1;
@@ -2507,11 +2780,13 @@
     stats.listingItemId = resolution.itemId;
     stats.listingItemName = resolution.itemName;
     if (!resolution.value) return;
+    const catalog = catalogItemFor(resolution.itemName, resolution.itemId);
 
     for (const candidate of candidates) {
-      const margin = marginFor(candidate.price, resolution.value, candidate.quantity);
+      const margin = marketAnalysisFor(candidate.price, catalog, candidate.quantity, resolution.value);
       addBadge(candidate.priceElement, margin, 'listing', candidate.row, scanToken);
       stats.listingMatched += 1;
+      if (margin.tier === 'npc') stats.listingNpc += 1;
       if (margin.tier === 'gold') stats.listingGold += 1;
       if (margin.tier === 'good') stats.listingGood += 1;
       if (margin.tier === 'minor') stats.listingMinor += 1;
@@ -2534,9 +2809,19 @@
     stats.overseasRemainingCapacity = Math.max(0, configuredLimit - Math.min(configuredLimit, currentLoad));
 
     const priced = [];
+    let npcPriceCacheChanged = false;
     for (const candidate of candidates) {
       const catalog = catalogItemFor(candidate.name, candidate.itemId);
       if (!catalog) continue;
+      if (recordNpcPrice({
+        itemId: catalog.id || candidate.itemId,
+        name: catalog.name || candidate.name,
+        price: candidate.price,
+        country: stats.overseasCountry,
+        shop: overseasShopNameForRow(candidate.row),
+        sourceType: 'observed-overseas',
+        overseas: true,
+      })) npcPriceCacheChanged = true;
       const visibleQuantity = Math.max(1, Math.floor(Number(candidate.availableQuantity) || 1));
       const margin = marginFor(candidate.price, catalog.marketPrice, visibleQuantity);
       addBadge(candidate.priceElement, margin, 'overseas', candidate.row, scanToken);
@@ -2548,6 +2833,8 @@
       if (margin.tier === 'minor') stats.overseasMinor += 1;
       if (margin.tier === 'loss') stats.overseasLoss += 1;
     }
+
+    if (npcPriceCacheChanged) saveNpcPriceCache();
 
     const plan = overseasLoadPlan(priced, configuredLimit, currentLoad);
     stats.overseasRemainingCapacity = plan.remainingCapacity;
@@ -4263,15 +4550,15 @@
       .tsimm-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
       .tsimm-actions{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}.tsimm-btn{flex:1;min-width:78px}.tsimm-btn-primary{background:#5b2b82;border-color:#8e55b9}.tsimm-btn:disabled{opacity:.55;cursor:wait}
       .tsimm-controls{display:grid;grid-template-columns:1fr 72px;gap:5px;align-items:center;margin-top:6px}.tsimm-controls input{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}.tsimm-check{display:flex;align-items:center;gap:6px;margin-top:7px;color:#c9c2d0}
-      .tsimm-note{margin-top:6px;color:#d0c8d8}.tsimm-muted{color:#aaa1b7}.tsimm-good-text{color:#63df9f}.tsimm-minor-text{color:#c77dff}.tsimm-loss-text{color:#ff6b76}
+      .tsimm-note{margin-top:6px;color:#d0c8d8}.tsimm-muted{color:#aaa1b7}.tsimm-npc-text{color:#58bfff}.tsimm-good-text{color:#63df9f}.tsimm-minor-text{color:#c77dff}.tsimm-loss-text{color:#ff6b76}
       .${APP.badgeClass}{display:flex;flex-direction:column;justify-content:center;gap:1px;border:1px solid currentColor;border-radius:7px;padding:3px 5px;font:700 10px/1.15 Arial,sans-serif;white-space:nowrap;box-shadow:0 2px 8px #0007;background:#19171dcc;pointer-events:none}
-      .${APP.badgeClass} span{font-size:8px;font-weight:600;opacity:.9}.tsimm-tier-gold{--tsimm-tier:#f4c95d}.tsimm-tier-good{--tsimm-tier:#44d88b}.tsimm-tier-minor{--tsimm-tier:#bd6cff}.tsimm-tier-loss{--tsimm-tier:#ff626d}
-      .${APP.badgeClass}.tsimm-tier-gold{color:#f4c95d}.${APP.badgeClass}.tsimm-tier-good{color:#44d88b}.${APP.badgeClass}.tsimm-tier-minor{color:#bd6cff}.${APP.badgeClass}.tsimm-tier-loss{color:#ff626d}
+      .${APP.badgeClass} span{font-size:8px;font-weight:600;opacity:.9}.tsimm-tier-npc{--tsimm-tier:#58bfff}.tsimm-tier-gold{--tsimm-tier:#f4c95d}.tsimm-tier-good{--tsimm-tier:#44d88b}.tsimm-tier-minor{--tsimm-tier:#bd6cff}.tsimm-tier-loss{--tsimm-tier:#ff626d}
+      .${APP.badgeClass}.tsimm-tier-npc{color:#58bfff}.${APP.badgeClass}.tsimm-tier-gold{color:#f4c95d}.${APP.badgeClass}.tsimm-tier-good{color:#44d88b}.${APP.badgeClass}.tsimm-tier-minor{color:#bd6cff}.${APP.badgeClass}.tsimm-tier-loss{color:#ff626d}
       .tsimm-badge-category{position:absolute;right:4px;top:4px;z-index:5;max-width:calc(100% - 8px)}
       .tsimm-badge-listing{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
       .tsimm-badge-overseas{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
-      .${APP.categoryMark}.tsimm-tier-gold{outline:2px solid #f4c95d99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
-      .${APP.listingMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
+      .${APP.categoryMark}.tsimm-tier-npc{outline:2px solid #58bfff99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-gold{outline:2px solid #f4c95d99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
+      .${APP.listingMark}.tsimm-tier-npc{box-shadow:inset 3px 0 #58bfff}.${APP.listingMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       .${APP.overseasMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.overseasMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.overseasMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.overseasMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       .tsimm-overseas-card{margin:8px 0;padding:8px;border:1px solid #4d5967;border-radius:9px;background:#20272d}.tsimm-overseas-title{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-overseas-title strong{flex:1;color:#a7d9ff}.tsimm-overseas-title span{font-size:9px;color:#9eb2c2;text-transform:uppercase}.tsimm-overseas-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-overseas-grid span{color:#aebbc4}.tsimm-overseas-grid strong{text-align:right}.tsimm-overseas-profit{color:#63df9f}.tsimm-overseas-plan{margin-top:7px;padding-top:6px;border-top:1px solid #3e4a53;display:grid;gap:3px;max-height:110px;overflow:auto}.tsimm-overseas-plan>div{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:10px}.tsimm-overseas-plan span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c8d4dc}
       .${APP.tradeItemMark}{position:relative;min-height:38px}      .${APP.tradeBadgeClass}{display:inline-flex;flex-direction:column;gap:1px;margin:3px 0 3px 6px;padding:3px 5px;border:1px solid #bd6cff;border-radius:7px;background:#19171dcc;color:#d9a6ff;font:700 10px/1.15 Arial,sans-serif;vertical-align:middle;white-space:nowrap;pointer-events:none}
@@ -4421,6 +4708,7 @@
     const isTrade = stats.pageType === 'trade';
     const isProfile = stats.pageType === 'profile';
     const isOverseas = stats.pageType === 'overseas shop';
+    const npcCount = stats.categoryNpc + stats.listingNpc;
     const goldCount = stats.categoryGold + stats.listingGold + stats.overseasGold;
     const goodCount = stats.categoryGood + stats.listingGood + stats.overseasGood;
     const minorCount = stats.categoryMinor + stats.listingMinor + stats.overseasMinor;
@@ -4445,6 +4733,7 @@
             <div class="tsimm-stat"><strong>${formatInteger(state.traders.length)}</strong><span>saved</span></div>
           </div>`
         : `<div class="tsimm-status">
+            <div class="tsimm-stat"><strong class="tsimm-npc-text">${npcCount}</strong><span>NPC blue</span></div>
             <div class="tsimm-stat"><strong class="tsimm-gold-text">${goldCount}</strong><span>gold</span></div>
             <div class="tsimm-stat"><strong class="tsimm-good-text">${goodCount}</strong><span>green</span></div>
             <div class="tsimm-stat"><strong class="tsimm-minor-text">${minorCount}</strong><span>purple</span></div>
