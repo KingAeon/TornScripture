@@ -513,10 +513,9 @@
   }
 
   function formatTrackedMargins() {
-    document.querySelectorAll('.tsimm-track-floor-row').forEach((row) => row.classList.remove('tsimm-track-floor-row'));
-
     const floor = document.getElementById('tsimm-track-floor');
     if (floor) {
+      document.querySelectorAll('.tsimm-track-floor-row').forEach((row) => row.classList.remove('tsimm-track-floor-row'));
       const nextRow = floor.nextElementSibling;
       if (nextRow?.classList?.contains(APP.listingMark)) nextRow.classList.add('tsimm-track-floor-row');
       floor.remove();
