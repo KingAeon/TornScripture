@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TornScripture - IMM Trader Price Report
+// @name         TornScripture - IMM Trader Deals
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.0
-// @description  Adds a lazy-loaded trader-vs-market price report to the stable IMM Trader Book without changing IMM startup.
+// @version      0.2.0
+// @description  Adds a per-trader Deals report to the stable IMM Trader Book, highlighting prices near or above Torn market value.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
@@ -18,9 +18,9 @@
   'use strict';
 
   const ADDON = Object.freeze({
-    version: '0.1.0',
-    overlayId: 'tornscripture-imm-trader-report-addon',
-    styleId: 'tornscripture-imm-trader-report-addon-style',
+    version: '0.2.0',
+    overlayId: 'tornscripture-imm-trader-deals-addon',
+    styleId: 'tornscripture-imm-trader-deals-addon-style',
     traderOverlayId: 'tornscripture-imm-traders',
     tradersStorageKey: 'tornscripture-imm-traders-v1',
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
@@ -30,18 +30,43 @@
   });
 
   const DEFAULT_SETTINGS = Object.freeze({
-    nearWindowPercent: 2,
+    nearFloorPercent: 97,
     ownedOnly: false,
-    bucket: 'all',
+    bucket: 'deals',
     search: '',
     sort: 'payout-desc',
     limit: 200,
   });
 
-  let ui = { ...DEFAULT_SETTINGS, ...loadJson(ADDON.settingsStorageKey, {}) };
+  const previousSettings = loadJson(ADDON.settingsStorageKey, {});
+  const migratedNearFloor = Number.isFinite(Number(previousSettings.nearFloorPercent))
+    ? Number(previousSettings.nearFloorPercent)
+    : Number.isFinite(Number(previousSettings.nearWindowPercent))
+      ? 99 - Number(previousSettings.nearWindowPercent)
+      : DEFAULT_SETTINGS.nearFloorPercent;
+
+  let ui = {
+    ...DEFAULT_SETTINGS,
+    ...previousSettings,
+    nearFloorPercent: clamp(migratedNearFloor, 0, 99),
+    bucket: ['deals', 'all', 'premium', 'strong', 'near', 'withhold', 'unknown'].includes(previousSettings.bucket)
+      ? previousSettings.bucket
+      : DEFAULT_SETTINGS.bucket,
+  };
   let activeTraderId = null;
   let decorateTimer = null;
   let observer = null;
+  let lastTraderSnapshot = '';
+  let lastCatalogSnapshot = '';
+  let cachedDealCounts = new Map();
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.min(maximum, Math.max(minimum, Number(value) || 0));
+  }
 
   function loadJson(key, fallback) {
     try {
@@ -58,12 +83,8 @@
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch {
-      // The report remains usable for this session even when persistence fails.
+      // The report remains usable for this session if persistence is unavailable.
     }
-  }
-
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
   }
 
   function normalizeWhitespace(value) {
@@ -105,6 +126,25 @@
     return `${number.toFixed(Math.abs(number) >= 10 ? 1 : 2)}%`;
   }
 
+  function formatAge(value) {
+    const timestamp = Date.parse(value || '');
+    if (!Number.isFinite(timestamp)) return 'capture time unknown';
+    const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+    if (minutes < 60) return `${minutes}m old`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `${hours}h old`;
+    return `${Math.floor(hours / 24)}d old`;
+  }
+
+  function captureFreshness(value) {
+    const timestamp = Date.parse(value || '');
+    if (!Number.isFinite(timestamp)) return { className: 'unknown', label: 'Capture time unknown' };
+    const hours = Math.max(0, Date.now() - timestamp) / 3600000;
+    if (hours <= 24) return { className: 'fresh', label: `Fresh · ${formatAge(value)}` };
+    if (hours <= 72) return { className: 'aging', label: `Aging · ${formatAge(value)}` };
+    return { className: 'stale', label: `Stale · ${formatAge(value)}` };
+  }
+
   function normalizeTraderPriceItem(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
     const itemName = normalizeWhitespace(candidate.itemName ?? candidate.name);
@@ -137,8 +177,11 @@
           || `trader-${normalizeName(name)}`,
         name,
         normalizedName: normalizeName(name),
-        targetPercent: Math.max(0, Math.min(100, Number(candidate.targetPercent ?? candidate.preferredPercent) || 99)),
+        targetPercent: clamp(candidate.targetPercent ?? candidate.preferredPercent ?? 99, 0, 100),
         pricePageItems,
+        pricePageCapturedAt: candidate.pricePageCapturedAt ?? candidate.pricesCapturedAt ?? null,
+        pricePageLastCheckedAt: candidate.pricePageLastCheckedAt ?? candidate.pricePageCapturedAt ?? null,
+        pricePageUrl: normalizeWhitespace(candidate.pricePageUrl ?? candidate.pricingPageUrl),
       };
     }).filter(Boolean);
   }
@@ -213,11 +256,16 @@
     });
   }
 
-  function reportRows(trader, catalog = mergedCatalog(), holdings = openHoldings(), nearWindow = ui.nearWindowPercent) {
+  function classifyPayout(payoutPercent, nearFloorPercent = ui.nearFloorPercent) {
+    if (payoutPercent === null || !Number.isFinite(payoutPercent)) return 'unknown';
+    if (payoutPercent >= 100) return 'premium';
+    if (payoutPercent >= 99) return 'strong';
+    if (payoutPercent >= clamp(nearFloorPercent, 0, 99)) return 'near';
+    return 'withhold';
+  }
+
+  function reportRows(trader, catalog = mergedCatalog(), holdings = openHoldings(), nearFloorPercent = ui.nearFloorPercent) {
     if (!trader) return [];
-    const targetPercent = Math.max(0, Math.min(100, Number(trader.targetPercent) || 99));
-    const near = Math.max(0, Number(nearWindow) || 0);
-    const nearFloorPercent = Math.max(0, targetPercent - near);
     return (trader.pricePageItems || []).map((rawItem) => {
       const item = normalizeTraderPriceItem(rawItem);
       if (!item) return null;
@@ -225,14 +273,10 @@
       const marketPrice = Math.max(0, Number(catalogItem?.marketPrice) || 0);
       const traderPrice = Math.max(0, Number(item.unitPrice) || 0);
       const payoutPercent = marketPrice > 0 ? traderPrice / marketPrice * 100 : null;
-      const targetPayout = marketPrice > 0 ? Math.floor(marketPrice * targetPercent / 100) : 0;
-      const gapToTarget = marketPrice > 0 ? traderPrice - targetPayout : null;
-      let bucket = 'unknown';
-      if (payoutPercent !== null) {
-        if (traderPrice >= targetPayout) bucket = 'sell';
-        else if (payoutPercent >= nearFloorPercent) bucket = 'near';
-        else bucket = 'withhold';
-      }
+      const marketDifference = marketPrice > 0 ? traderPrice - marketPrice : null;
+      const route99 = marketPrice > 0 ? Math.floor(marketPrice * 0.99) : 0;
+      const differenceVs99 = marketPrice > 0 ? traderPrice - route99 : null;
+      const bucket = classifyPayout(payoutPercent, nearFloorPercent);
       const holding = (item.itemId ? holdings.byId.get(String(item.itemId)) : null)
         || holdings.byName.get(item.normalizedName)
         || { quantity: 0, costBasis: 0 };
@@ -243,9 +287,9 @@
         traderPrice,
         marketPrice,
         payoutPercent,
-        targetPercent,
-        targetPayout,
-        gapToTarget,
+        marketDifference,
+        route99,
+        differenceVs99,
         bucket,
         ownedQuantity,
         ownedCostBasis,
@@ -256,9 +300,10 @@
   }
 
   function reportCounts(rows) {
-    const counts = { all: rows.length, sell: 0, near: 0, withhold: 0, unknown: 0, owned: 0 };
+    const counts = { all: rows.length, deals: 0, premium: 0, strong: 0, near: 0, withhold: 0, unknown: 0, owned: 0 };
     for (const row of rows) {
       if (Object.hasOwn(counts, row.bucket)) counts[row.bucket] += 1;
+      if (['premium', 'strong', 'near'].includes(row.bucket)) counts.deals += 1;
       if (row.ownedQuantity > 0) counts.owned += 1;
     }
     return counts;
@@ -266,7 +311,8 @@
 
   function filteredRows(rows) {
     let result = [...rows];
-    if (ui.bucket !== 'all') result = result.filter((row) => row.bucket === ui.bucket);
+    if (ui.bucket === 'deals') result = result.filter((row) => ['premium', 'strong', 'near'].includes(row.bucket));
+    else if (ui.bucket !== 'all') result = result.filter((row) => row.bucket === ui.bucket);
     if (ui.ownedOnly) result = result.filter((row) => row.ownedQuantity > 0);
     const query = normalizeName(ui.search);
     if (query) result = result.filter((row) => row.normalizedName.includes(query) || String(row.itemId || '').includes(query));
@@ -278,8 +324,9 @@
     const percent = (row, fallback) => row.payoutPercent === null ? fallback : Number(row.payoutPercent);
     copy.sort((a, b) => {
       if (sort === 'payout-asc') return percent(a, Infinity) - percent(b, Infinity) || a.itemName.localeCompare(b.itemName);
-      if (sort === 'gap-desc') return Number(b.gapToTarget ?? -Infinity) - Number(a.gapToTarget ?? -Infinity) || a.itemName.localeCompare(b.itemName);
-      if (sort === 'gap-asc') return Number(a.gapToTarget ?? Infinity) - Number(b.gapToTarget ?? Infinity) || a.itemName.localeCompare(b.itemName);
+      if (sort === 'market-gap-desc') return Number(b.marketDifference ?? -Infinity) - Number(a.marketDifference ?? -Infinity) || a.itemName.localeCompare(b.itemName);
+      if (sort === 'market-gap-asc') return Number(a.marketDifference ?? Infinity) - Number(b.marketDifference ?? Infinity) || a.itemName.localeCompare(b.itemName);
+      if (sort === 'route99-desc') return Number(b.differenceVs99 ?? -Infinity) - Number(a.differenceVs99 ?? -Infinity) || a.itemName.localeCompare(b.itemName);
       if (sort === 'price-desc') return Number(b.traderPrice) - Number(a.traderPrice) || a.itemName.localeCompare(b.itemName);
       if (sort === 'name') return a.itemName.localeCompare(b.itemName);
       return percent(b, -Infinity) - percent(a, -Infinity) || a.itemName.localeCompare(b.itemName);
@@ -289,8 +336,9 @@
 
   function bucketLabel(bucket) {
     return {
-      sell: 'SELL TO TRADER',
-      near: 'NEAR TARGET',
+      premium: 'PREMIUM 100%+',
+      strong: 'STRONG 99%+',
+      near: 'NEAR MARKET',
       withhold: 'WITHHOLD',
       unknown: 'NO MARKET VALUE',
     }[bucket] || 'UNKNOWN';
@@ -304,6 +352,23 @@
     return allTraders().find((trader) => trader.id === traderId) || null;
   }
 
+  function dealCountFor(trader, catalog) {
+    return reportCounts(reportRows(trader, catalog, { byId: new Map(), byName: new Map() }, ui.nearFloorPercent)).deals;
+  }
+
+  function refreshDealCountCache(traders, catalog) {
+    let traderRaw = '';
+    let catalogRaw = '';
+    try {
+      traderRaw = localStorage.getItem(ADDON.tradersStorageKey) || '';
+      catalogRaw = `${localStorage.getItem(ADDON.catalogStorageKey) || ''}|${localStorage.getItem(ADDON.sharedCatalogStorageKey) || ''}|${ui.nearFloorPercent}`;
+    } catch {}
+    if (traderRaw === lastTraderSnapshot && catalogRaw === lastCatalogSnapshot && cachedDealCounts.size) return;
+    lastTraderSnapshot = traderRaw;
+    lastCatalogSnapshot = catalogRaw;
+    cachedDealCounts = new Map(traders.map((trader) => [trader.id, dealCountFor(trader, catalog)]));
+  }
+
   function injectStyles() {
     if (document.getElementById(ADDON.styleId)) return;
     const style = document.createElement('style');
@@ -311,15 +376,15 @@
     style.textContent = `
       .tsimm-addon-report-button{background:#23577a!important;border-color:#3f8fc0!important;color:#e5f6ff!important}
       #${ADDON.overlayId}{position:fixed;inset:0;z-index:2147483645;background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f3f7fa}
-      .tsimm-ar-shell{width:min(720px,100%);max-height:95vh;display:flex;flex-direction:column;background:#171d24;border:1px solid #50718a;border-radius:12px;box-shadow:0 14px 44px #000e;overflow:hidden}
+      .tsimm-ar-shell{width:min(760px,100%);max-height:95vh;display:flex;flex-direction:column;background:#171d24;border:1px solid #50718a;border-radius:12px;box-shadow:0 14px 44px #000e;overflow:hidden}
       .tsimm-ar-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid #394b5a;background:#1f2a34}.tsimm-ar-head>div{display:grid}.tsimm-ar-head small{color:#a9bdcc}.tsimm-ar-head button{border:1px solid #566b7c;border-radius:7px;background:#293642;color:#fff;padding:5px 9px;font-weight:800}
-      .tsimm-ar-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:8px}.tsimm-ar-summary>div{display:grid;gap:2px;padding:7px;border:1px solid #41505d;border-radius:8px;background:#202a33}.tsimm-ar-summary strong{font-size:17px}.tsimm-ar-summary span{font-size:9px;text-transform:uppercase;color:#aebdca}.tsimm-ar-summary .sell strong{color:#62e49c}.tsimm-ar-summary .near strong{color:#f1c85d}.tsimm-ar-summary .withhold strong{color:#ff7f89}
-      .tsimm-ar-note{margin:0 8px 8px;padding:7px;border:1px solid #405466;border-radius:7px;background:#202a34;color:#c8d8e4}
-      .tsimm-ar-actions{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:0 8px 8px}.tsimm-ar-actions button,.tsimm-ar-actions label{display:flex;align-items:center;gap:5px;border:1px solid #506779;border-radius:7px;background:#293744;color:#fff;padding:6px 8px;font-weight:700}.tsimm-ar-actions input[type=number]{width:55px;border:1px solid #60788a;border-radius:5px;background:#13191e;color:#fff;padding:3px}
+      .tsimm-ar-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;padding:8px}.tsimm-ar-summary>div{display:grid;gap:2px;padding:7px;border:1px solid #41505d;border-radius:8px;background:#202a33}.tsimm-ar-summary strong{font-size:17px}.tsimm-ar-summary span{font-size:9px;text-transform:uppercase;color:#aebdca}.tsimm-ar-summary .premium strong{color:#6cf0ba}.tsimm-ar-summary .strong strong{color:#64cfff}.tsimm-ar-summary .near strong{color:#f1c85d}.tsimm-ar-summary .withhold strong{color:#ff7f89}
+      .tsimm-ar-note{margin:0 8px 8px;padding:7px;border:1px solid #405466;border-radius:7px;background:#202a34;color:#c8d8e4}.tsimm-ar-fresh{color:#67e8a5}.tsimm-ar-aging{color:#f4cf65}.tsimm-ar-stale{color:#ff8791}
+      .tsimm-ar-actions{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:0 8px 8px}.tsimm-ar-actions button,.tsimm-ar-actions label,.tsimm-ar-actions a{display:flex;align-items:center;gap:5px;border:1px solid #506779;border-radius:7px;background:#293744;color:#fff;padding:6px 8px;font-weight:700;text-decoration:none}.tsimm-ar-actions input[type=number]{width:58px;border:1px solid #60788a;border-radius:5px;background:#13191e;color:#fff;padding:3px}
       .tsimm-ar-tabs{display:flex;gap:4px;overflow:auto;padding:0 8px 8px}.tsimm-ar-tabs button{white-space:nowrap;border:1px solid #4a5c69;border-radius:999px;background:#252e36;color:#dce7ee;padding:5px 8px;font-weight:700}.tsimm-ar-tabs button.active{background:#37617e;border-color:#64add8;color:#fff}
-      .tsimm-ar-controls{display:grid;grid-template-columns:1fr 160px;gap:5px;padding:0 8px 8px}.tsimm-ar-controls input,.tsimm-ar-controls select{min-width:0;border:1px solid #52697a;border-radius:7px;background:#12181d;color:#fff;padding:7px}
-      .tsimm-ar-list{overflow:auto;display:grid;gap:6px;padding:0 8px 10px}.tsimm-ar-row{padding:7px;border:1px solid #4b5964;border-radius:8px;background:#212930}.tsimm-ar-row.sell{border-color:#39885d}.tsimm-ar-row.near{border-color:#90763a}.tsimm-ar-row.withhold{border-color:#94444f}.tsimm-ar-row.unknown{border-color:#626971}.tsimm-ar-row-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.tsimm-ar-row-head b{font-size:9px;border:1px solid currentColor;border-radius:999px;padding:2px 6px}.tsimm-ar-row.sell .tsimm-ar-row-head b{color:#62e49c}.tsimm-ar-row.near .tsimm-ar-row-head b{color:#f1c85d}.tsimm-ar-row.withhold .tsimm-ar-row-head b{color:#ff7f89}.tsimm-ar-row.unknown .tsimm-ar-row-head b{color:#bbc3ca}.tsimm-ar-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:6px}.tsimm-ar-grid span{color:#aebbc5}.tsimm-ar-grid strong{text-align:right}.tsimm-ar-owned{display:block;margin-top:6px;padding-top:5px;border-top:1px solid #3e4b55;color:#84d3ff}.tsimm-ar-good{color:#64e39d}.tsimm-ar-bad{color:#ff828c}.tsimm-ar-muted{color:#aeb8c0}.tsimm-ar-more{border:1px solid #52697a;border-radius:7px;background:#293744;color:#fff;padding:8px;font-weight:700}
-      @media(max-width:520px){.tsimm-ar-summary{grid-template-columns:repeat(2,1fr)}.tsimm-ar-controls{grid-template-columns:1fr}.tsimm-ar-shell{max-height:97vh}}
+      .tsimm-ar-controls{display:grid;grid-template-columns:1fr 180px;gap:5px;padding:0 8px 8px}.tsimm-ar-controls input,.tsimm-ar-controls select{min-width:0;border:1px solid #52697a;border-radius:7px;background:#12181d;color:#fff;padding:7px}
+      .tsimm-ar-list{overflow:auto;display:grid;gap:6px;padding:0 8px 10px}.tsimm-ar-row{padding:7px;border:1px solid #4b5964;border-radius:8px;background:#212930}.tsimm-ar-row.premium{border-color:#36a977}.tsimm-ar-row.strong{border-color:#3786b5}.tsimm-ar-row.near{border-color:#90763a}.tsimm-ar-row.withhold{border-color:#94444f}.tsimm-ar-row.unknown{border-color:#626971}.tsimm-ar-row-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.tsimm-ar-row-head b{font-size:9px;border:1px solid currentColor;border-radius:999px;padding:2px 6px}.tsimm-ar-row.premium .tsimm-ar-row-head b{color:#6cf0ba}.tsimm-ar-row.strong .tsimm-ar-row-head b{color:#64cfff}.tsimm-ar-row.near .tsimm-ar-row-head b{color:#f1c85d}.tsimm-ar-row.withhold .tsimm-ar-row-head b{color:#ff7f89}.tsimm-ar-row.unknown .tsimm-ar-row-head b{color:#bbc3ca}.tsimm-ar-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:6px}.tsimm-ar-grid span{color:#aebbc5}.tsimm-ar-grid strong{text-align:right}.tsimm-ar-owned{display:block;margin-top:6px;padding-top:5px;border-top:1px solid #3e4b55;color:#84d3ff}.tsimm-ar-good{color:#64e39d}.tsimm-ar-bad{color:#ff828c}.tsimm-ar-muted{color:#aeb8c0}.tsimm-ar-more{border:1px solid #52697a;border-radius:7px;background:#293744;color:#fff;padding:8px;font-weight:700}
+      @media(max-width:560px){.tsimm-ar-summary{grid-template-columns:repeat(2,1fr)}.tsimm-ar-controls{grid-template-columns:1fr}.tsimm-ar-shell{max-height:97vh}}
     `;
     document.head?.appendChild(style);
   }
@@ -327,7 +392,10 @@
   function decorateTraderBook() {
     const overlay = document.getElementById(ADDON.traderOverlayId);
     if (!overlay) return;
-    const traders = new Map(allTraders().map((trader) => [trader.id, trader]));
+    const traderList = allTraders();
+    const traders = new Map(traderList.map((trader) => [trader.id, trader]));
+    const catalog = mergedCatalog();
+    refreshDealCountCache(traderList, catalog);
     overlay.querySelectorAll('.tsimm-trader-card').forEach((card) => {
       const reference = card.querySelector('[data-tsimm-action="trader-edit"][data-tsimm-trader-id]');
       if (!reference) return;
@@ -338,15 +406,17 @@
         button?.remove();
         return;
       }
+      const count = cachedDealCounts.get(traderId) || 0;
       if (!button) {
         button = document.createElement('button');
         button.type = 'button';
         button.className = 'tsimm-addon-report-button';
         button.dataset.tsimmAddonAction = 'open-report';
         button.dataset.tsimmTraderId = traderId;
-        button.textContent = 'Price report';
         reference.parentElement?.insertBefore(button, reference);
       }
+      button.textContent = count > 0 ? `Deals ${formatInteger(count)}` : 'Deals';
+      button.title = `${formatInteger(count)} captured prices at or near market value`;
     });
   }
 
@@ -357,9 +427,12 @@
 
   function rowHtml(row) {
     const percent = row.payoutPercent === null ? 'Unknown' : formatPercent(row.payoutPercent);
-    const gap = row.gapToTarget === null
+    const marketGap = row.marketDifference === null
       ? 'No comparison'
-      : `${row.gapToTarget >= 0 ? '+' : ''}${formatMoney(row.gapToTarget)} vs target`;
+      : `${row.marketDifference >= 0 ? '+' : ''}${formatMoney(row.marketDifference)}`;
+    const route99Gap = row.differenceVs99 === null
+      ? 'No comparison'
+      : `${row.differenceVs99 >= 0 ? '+' : ''}${formatMoney(row.differenceVs99)}`;
     const owned = row.ownedQuantity > 0
       ? `<span class="tsimm-ar-owned">Owned × ${formatInteger(row.ownedQuantity)} · return ${formatMoney(row.ownedTraderReturn)} · tracked profit ${row.ownedProfit >= 0 ? '+' : ''}${formatMoney(row.ownedProfit)}</span>`
       : '';
@@ -369,8 +442,9 @@
         <div class="tsimm-ar-grid">
           <span>Trader pays</span><strong>${formatMoney(row.traderPrice)}</strong>
           <span>Market value</span><strong>${row.marketPrice > 0 ? formatMoney(row.marketPrice) : 'Not synced'}</strong>
-          <span>Market payout</span><strong>${escapeHtml(percent)}</strong>
-          <span>Target gap</span><strong class="${row.gapToTarget === null ? 'tsimm-ar-muted' : row.gapToTarget >= 0 ? 'tsimm-ar-good' : 'tsimm-ar-bad'}">${escapeHtml(gap)}</strong>
+          <span>Percent of market</span><strong>${escapeHtml(percent)}</strong>
+          <span>Difference vs market</span><strong class="${row.marketDifference === null ? 'tsimm-ar-muted' : row.marketDifference >= 0 ? 'tsimm-ar-good' : 'tsimm-ar-bad'}">${escapeHtml(marketGap)}</strong>
+          <span>Difference vs 99% route</span><strong class="${row.differenceVs99 === null ? 'tsimm-ar-muted' : row.differenceVs99 >= 0 ? 'tsimm-ar-good' : 'tsimm-ar-bad'}">${escapeHtml(route99Gap)}</strong>
         </div>
         ${owned}
       </article>
@@ -387,7 +461,7 @@
       return;
     }
     const catalog = mergedCatalog();
-    const rows = reportRows(trader, catalog, openHoldings(), ui.nearWindowPercent);
+    const rows = reportRows(trader, catalog, openHoldings(), ui.nearFloorPercent);
     const counts = reportCounts(rows);
     const filtered = filteredRows(rows);
     const limit = Math.max(50, Math.floor(Number(ui.limit) || 200));
@@ -395,32 +469,45 @@
     const synced = catalog.updatedAt ? new Date(catalog.updatedAt).toLocaleString() : 'Never';
     const captured = trader.pricePageLastCheckedAt || trader.pricePageCapturedAt;
     const capturedText = captured ? new Date(captured).toLocaleString() : 'Unknown';
+    const freshness = captureFreshness(captured);
+    const premiumRows = rows.filter((row) => row.bucket === 'premium');
+    const bestPremium = premiumRows.sort((a, b) => Number(b.marketDifference) - Number(a.marketDifference))[0] || null;
     const tabs = [
-      ['all', 'All', counts.all],
-      ['sell', 'Sell', counts.sell],
+      ['deals', 'Deals', counts.deals],
+      ['premium', 'Premium', counts.premium],
+      ['strong', 'Strong', counts.strong],
       ['near', 'Near', counts.near],
       ['withhold', 'Withhold', counts.withhold],
       ['unknown', 'No market', counts.unknown],
+      ['all', 'All', counts.all],
     ].map(([value, label, count]) => `<button type="button" class="${ui.bucket === value ? 'active' : ''}" data-tsimm-addon-action="filter" data-bucket="${value}">${label} ${formatInteger(count)}</button>`).join('');
+    const sourceLink = trader.pricePageUrl
+      ? `<a href="${escapeHtml(trader.pricePageUrl)}" target="_self" rel="noopener">Open saved pricelist</a>`
+      : '';
 
     overlay.innerHTML = `
       <div class="tsimm-ar-shell">
         <div class="tsimm-ar-head">
-          <div><strong>📊 ${escapeHtml(trader.name)} Price Report</strong><small>Lazy add-on v${ADDON.version} · IMM startup remains untouched</small></div>
+          <div><strong>💎 ${escapeHtml(trader.name)} Deals</strong><small>Per-trader market comparison · add-on v${ADDON.version}</small></div>
           <button type="button" data-tsimm-addon-action="close">×</button>
         </div>
         <div class="tsimm-ar-summary">
-          <div class="sell"><strong>${formatInteger(counts.sell)}</strong><span>sell to trader</span></div>
-          <div class="near"><strong>${formatInteger(counts.near)}</strong><span>near target</span></div>
+          <div class="premium"><strong>${formatInteger(counts.premium)}</strong><span>premium 100%+</span></div>
+          <div class="strong"><strong>${formatInteger(counts.strong)}</strong><span>strong 99%+</span></div>
+          <div class="near"><strong>${formatInteger(counts.near)}</strong><span>near ${formatPercent(ui.nearFloorPercent)}+</span></div>
           <div class="withhold"><strong>${formatInteger(counts.withhold)}</strong><span>withhold</span></div>
           <div><strong>${formatInteger(counts.owned)}</strong><span>owned matches</span></div>
         </div>
-        <div class="tsimm-ar-note">Sell means at least ${escapeHtml(formatPercent(trader.targetPercent))} of market. Near means within ${escapeHtml(formatPercent(ui.nearWindowPercent))} below that target. Market values synced ${escapeHtml(synced)}; trader prices captured ${escapeHtml(capturedText)}.</div>
+        <div class="tsimm-ar-note">
+          <strong class="tsimm-ar-${escapeHtml(freshness.className)}">${escapeHtml(freshness.label)}</strong> · trader prices captured ${escapeHtml(capturedText)} · Torn market values synced ${escapeHtml(synced)}.
+          ${bestPremium ? ` Best premium: <strong class="tsimm-ar-good">${escapeHtml(bestPremium.itemName)} ${bestPremium.marketDifference >= 0 ? '+' : ''}${formatMoney(bestPremium.marketDifference)} above market</strong>.` : ''}
+        </div>
         <div class="tsimm-ar-actions">
           <button type="button" data-tsimm-addon-action="reload">Reload saved data</button>
-          <button type="button" data-tsimm-addon-action="copy">Copy report</button>
+          <button type="button" data-tsimm-addon-action="copy">Copy deal list</button>
+          ${sourceLink}
           <label><input type="checkbox" data-tsimm-addon-owned ${ui.ownedOnly ? 'checked' : ''}> Owned only</label>
-          <label>Near range <input type="number" min="0" max="25" step="0.5" value="${escapeHtml(ui.nearWindowPercent)}" data-tsimm-addon-near></label>
+          <label>Near floor <input type="number" min="0" max="99" step="0.5" value="${escapeHtml(ui.nearFloorPercent)}" data-tsimm-addon-near> %</label>
         </div>
         <div class="tsimm-ar-tabs">${tabs}</div>
         <div class="tsimm-ar-controls">
@@ -428,14 +515,15 @@
           <select data-tsimm-addon-sort>
             <option value="payout-desc" ${ui.sort === 'payout-desc' ? 'selected' : ''}>Payout % high</option>
             <option value="payout-asc" ${ui.sort === 'payout-asc' ? 'selected' : ''}>Payout % low</option>
-            <option value="gap-desc" ${ui.sort === 'gap-desc' ? 'selected' : ''}>Best target gap</option>
-            <option value="gap-asc" ${ui.sort === 'gap-asc' ? 'selected' : ''}>Worst target gap</option>
+            <option value="market-gap-desc" ${ui.sort === 'market-gap-desc' ? 'selected' : ''}>Best vs market</option>
+            <option value="market-gap-asc" ${ui.sort === 'market-gap-asc' ? 'selected' : ''}>Worst vs market</option>
+            <option value="route99-desc" ${ui.sort === 'route99-desc' ? 'selected' : ''}>Best vs 99% route</option>
             <option value="price-desc" ${ui.sort === 'price-desc' ? 'selected' : ''}>Trader price high</option>
             <option value="name" ${ui.sort === 'name' ? 'selected' : ''}>Item name</option>
           </select>
         </div>
         <div class="tsimm-ar-list">
-          ${shown.length ? shown.map(rowHtml).join('') : '<div class="tsimm-ar-note">No items match this report filter.</div>'}
+          ${shown.length ? shown.map(rowHtml).join('') : '<div class="tsimm-ar-note">No items match this Deals filter.</div>'}
           ${filtered.length > shown.length ? `<button type="button" class="tsimm-ar-more" data-tsimm-addon-action="more">Show ${formatInteger(Math.min(200, filtered.length - shown.length))} more · ${formatInteger(filtered.length - shown.length)} hidden</button>` : ''}
         </div>
       </div>
@@ -450,7 +538,7 @@
     }
     injectStyles();
     activeTraderId = trader.id;
-    ui = { ...ui, bucket: 'all', search: '', sort: 'payout-desc', ownedOnly: false, limit: 200 };
+    ui = { ...ui, bucket: 'deals', search: '', sort: 'payout-desc', ownedOnly: false, limit: 200 };
     persistUi();
     let overlay = document.getElementById(ADDON.overlayId);
     if (!overlay) {
@@ -468,13 +556,15 @@
 
   function persistUi() {
     saveJson(ADDON.settingsStorageKey, {
-      nearWindowPercent: Math.max(0, Number(ui.nearWindowPercent) || 0),
+      nearFloorPercent: clamp(ui.nearFloorPercent, 0, 99),
       ownedOnly: Boolean(ui.ownedOnly),
       bucket: ui.bucket,
       search: ui.search,
       sort: ui.sort,
       limit: ui.limit,
     });
+    lastCatalogSnapshot = '';
+    scheduleDecorate(0);
   }
 
   async function copyReport() {
@@ -482,25 +572,27 @@
     if (!trader) return;
     const rows = filteredRows(reportRows(trader));
     const lines = [
-      `${trader.name} price report`,
-      `Target: ${formatPercent(trader.targetPercent)} of market`,
-      `Near range: ${formatPercent(ui.nearWindowPercent)} below target`,
+      `${trader.name} deals`,
+      `Premium: 100%+ of market`,
+      `Strong: 99%–99.99% of market`,
+      `Near: ${formatPercent(ui.nearFloorPercent)}–98.99% of market`,
       '',
-      'Recommendation\tItem\tTrader price\tMarket value\tPayout %\tTarget gap\tOwned',
+      'Category\tItem\tTrader price\tMarket value\tPayout %\tVs market\tVs 99% route\tOwned',
       ...rows.map((row) => [
         bucketLabel(row.bucket),
         row.itemName,
         row.traderPrice,
         row.marketPrice || '',
         row.payoutPercent === null ? '' : row.payoutPercent.toFixed(2),
-        row.gapToTarget === null ? '' : row.gapToTarget,
-        row.ownedQuantity || 0,
+        row.marketDifference === null ? '' : row.marketDifference,
+        row.differenceVs99 === null ? '' : row.differenceVs99,
+        row.ownedQuantity || '',
       ].join('\t')),
     ];
     const text = lines.join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      notify(`Copied ${formatInteger(rows.length)} report rows.`);
+      notify(`Copied ${formatInteger(rows.length)} deal rows.`);
     } catch {
       const area = document.createElement('textarea');
       area.value = text;
@@ -510,7 +602,7 @@
       area.select();
       document.execCommand('copy');
       area.remove();
-      notify(`Copied ${formatInteger(rows.length)} report rows.`);
+      notify(`Copied ${formatInteger(rows.length)} deal rows.`);
     }
   }
 
@@ -534,10 +626,16 @@
       const action = button.dataset.tsimmAddonAction;
       if (action === 'open-report') openReport(button.dataset.tsimmTraderId);
       else if (action === 'close') closeReport();
-      else if (action === 'reload') renderReport();
-      else if (action === 'copy') copyReport();
+      else if (action === 'reload') {
+        lastTraderSnapshot = '';
+        lastCatalogSnapshot = '';
+        renderReport();
+        scheduleDecorate(0);
+      } else if (action === 'copy') copyReport();
       else if (action === 'filter') {
-        ui.bucket = ['all', 'sell', 'near', 'withhold', 'unknown'].includes(button.dataset.bucket) ? button.dataset.bucket : 'all';
+        ui.bucket = ['deals', 'all', 'premium', 'strong', 'near', 'withhold', 'unknown'].includes(button.dataset.bucket)
+          ? button.dataset.bucket
+          : 'deals';
         ui.limit = 200;
         persistUi();
         renderReport();
@@ -555,14 +653,14 @@
         persistUi();
         renderReport();
       } else if (event.target.matches('[data-tsimm-addon-sort]')) {
-        ui.sort = ['payout-desc', 'payout-asc', 'gap-desc', 'gap-asc', 'price-desc', 'name'].includes(event.target.value)
+        ui.sort = ['payout-desc', 'payout-asc', 'market-gap-desc', 'market-gap-asc', 'route99-desc', 'price-desc', 'name'].includes(event.target.value)
           ? event.target.value
           : 'payout-desc';
         ui.limit = 200;
         persistUi();
         renderReport();
       } else if (event.target.matches('[data-tsimm-addon-near]')) {
-        ui.nearWindowPercent = Math.max(0, Math.min(25, Number(event.target.value) || 0));
+        ui.nearFloorPercent = clamp(event.target.value, 0, 99);
         ui.limit = 200;
         persistUi();
         renderReport();
@@ -593,6 +691,19 @@
     bindEvents();
     observer = new MutationObserver(() => scheduleDecorate());
     observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('storage', (event) => {
+      if ([ADDON.tradersStorageKey, ADDON.catalogStorageKey, ADDON.sharedCatalogStorageKey, ADDON.ledgerStorageKey].includes(event.key)) {
+        lastTraderSnapshot = '';
+        lastCatalogSnapshot = '';
+        scheduleDecorate(0);
+        if (activeTraderId) renderReport();
+      }
+    });
+    window.addEventListener('tsimm:trader-price-index-updated', () => {
+      lastTraderSnapshot = '';
+      scheduleDecorate(0);
+      if (activeTraderId) renderReport();
+    });
     scheduleDecorate(0);
   }
 
@@ -607,6 +718,7 @@
       normalizeTraderPriceItem,
       normalizeTraders,
       normalizeCatalog,
+      classifyPayout,
       reportRows,
       reportCounts,
       sortRows,
