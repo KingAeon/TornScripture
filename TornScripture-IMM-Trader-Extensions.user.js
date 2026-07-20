@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Extensions
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.6
+// @version      0.1.7
 // @description  Adds TornExchange capture, a persistent Deals tracking dock, and compact tracked-exit margin prompts on Item Market listings.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -20,7 +20,7 @@
   'use strict';
 
   const A = Object.freeze({
-    v: '0.1.6',
+    v: '0.1.7',
     bridge: 'TSIMM_PRICE_BRIDGE:',
     traders: 'tornscripture-imm-traders-v1',
     pending: 'tornscripture-imm-pending-trader-capture-v1',
@@ -33,7 +33,6 @@
     style: 'tsimm-trader-extensions-style',
     dock: 'tsimm-track-dock',
     caption: 'tsimm-track-caption',
-    floor: 'tsimm-track-floor',
   });
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -110,11 +109,10 @@
       #tsimm-tx-panel button,.tsimm-tx-recapture{border:1px solid #2c843d;border-radius:5px;background:#06170a;color:#b6ff9d;padding:8px;font:700 10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${A.dock}{position:fixed;left:8px;right:8px;bottom:max(70px,calc(env(safe-area-inset-bottom) + 62px));z-index:2147483647;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 9px;border:1px solid #68e879;border-radius:7px;background:#020a04f2;color:#aaff83;box-shadow:0 8px 28px #000d;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${A.dock}[hidden]{display:none!important}#${A.dock} .track-copy{display:grid;min-width:0;gap:2px}#${A.dock} small{color:#5ea66a;font-size:7px;letter-spacing:.08em}#${A.dock} strong{overflow:hidden;color:#c1ff9d;font-size:11px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} span{overflow:hidden;color:#70b87b;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} button{min-width:88px;min-height:38px;border:1px solid #58d76d;border-radius:5px;background:#082b10;color:#c5ffac;padding:6px 9px;font:800 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.dock} button.on{border-color:#9dff7c;background:#16461e;color:#e1ffd2}.tsimm-track-selected{outline:1px solid #9dff7c!important;outline-offset:-2px!important}
-      #${A.caption}{display:grid;gap:2px;margin:5px 0;padding:6px 8px;border:1px solid #27863f;border-radius:6px;background:#041109;color:#9ff48e;font:700 9px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-sizing:border-box}
-      #${A.caption} strong{font-size:10px;color:#c7ffad}#${A.caption} span{display:block;color:#72bd7d}#${A.caption}.stale{border-color:#9a6d1f;background:#211705;color:#ffd166}#${A.caption}.stale strong,#${A.caption}.stale span{color:#ffd166}#${A.caption}.outdated,#${A.caption}.missing{border-color:#8f4850;background:#23090c;color:#ff9ba3}#${A.caption}.outdated strong,#${A.caption}.outdated span,#${A.caption}.missing strong,#${A.caption}.missing span{color:#ff9ba3}
-      .tsimm-track-profit{display:inline-flex!important;align-items:center!important;margin:2px 0 0 4px!important;padding:2px 5px!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230d!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important}
-      .tsimm-track-profitable{box-shadow:inset -3px 0 #58df78!important}
-      #${A.floor}{display:block;width:100%;box-sizing:border-box;margin:2px 0;padding:3px 6px;border-top:1px dashed #398447;border-bottom:1px dashed #1e4a28;background:#031007;color:#72bd7d;text-align:center;font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;grid-column:1/-1}
+      #${A.caption}{z-index:9;display:grid;gap:1px;box-sizing:border-box;padding:3px 6px;border:1px solid #27863f;border-radius:5px;background:#041109f5;color:#9ff48e;font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:normal;box-shadow:none;pointer-events:none}
+      #${A.caption} strong{font-size:8px;color:#c7ffad}#${A.caption} span{display:block;color:#72bd7d;font-size:7px}#${A.caption}.stacked{position:static!important;transform:none!important;width:auto!important;max-width:none!important;margin:3px 5px!important}#${A.caption}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.caption}.stale strong,#${A.caption}.stale span{color:#ffd166}#${A.caption}.outdated,#${A.caption}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.caption}.outdated strong,#${A.caption}.outdated span,#${A.caption}.missing strong,#${A.caption}.missing span{color:#ff9ba3}
+      .tsimm-listing-mark{position:relative!important}.tsimm-track-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:106px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}
+      .tsimm-track-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-track-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-track-floor-row{box-shadow:inset 0 2px #347c41!important}
     `;
     document.head.appendChild(style);
   }
@@ -672,30 +670,59 @@
     return 0;
   }
 
+  function signedEach(value) {
+    const match = clean(value).match(/([+-])\s*\$([\d,.]+)\s*ea/i);
+    if (!match) return null;
+    const amount = Number(match[2].replace(/,/g, ''));
+    if (!Number.isFinite(amount)) return null;
+    return match[1] === '-' ? -amount : amount;
+  }
+
   function cleanupMarket() {
     document.querySelectorAll('[data-tsimm-tracked], [data-tsimm-track-profit]').forEach((element) => element.remove());
     document.getElementById(A.caption)?.remove();
-    document.getElementById(A.floor)?.remove();
-    document.querySelectorAll('.tsimm-tracked-buy-row,.tsimm-track-profitable').forEach((row) => {
-      row.classList.remove('tsimm-tracked-buy-row', 'tsimm-track-profitable');
+    document.querySelectorAll('.tsimm-tracked-buy-row,.tsimm-track-profitable,.tsimm-track-floor-row').forEach((row) => {
+      row.classList.remove('tsimm-tracked-buy-row', 'tsimm-track-profitable', 'tsimm-track-floor-row');
       delete row.dataset.tsimmTrackedToken;
     });
   }
 
-  function renderCaption(entry, itemName) {
+  function placeCaption(caption, title) {
+    const closest = title.closest('[class*="header"],[class*="title"]');
+    const anchor = closest && closest !== title ? closest : title.parentElement || title;
+    if (!(anchor instanceof Element)) return;
+    anchor.style.position = 'relative';
+    if (caption.parentElement !== anchor) anchor.appendChild(caption);
+    caption.classList.remove('stacked');
+    caption.style.position = 'absolute';
+    caption.style.top = '50%';
+    caption.style.transform = 'translateY(-50%)';
+    caption.style.right = '84px';
+    const anchorRect = anchor.getBoundingClientRect();
+    const titleRect = title.getBoundingClientRect();
+    const left = Math.max(8, Math.round(titleRect.right - anchorRect.left + 8));
+    caption.style.left = `${left}px`;
+    const available = anchorRect.width - left - 84;
+    if (available >= 150) return;
+    caption.classList.add('stacked');
+    caption.removeAttribute('style');
+    anchor.insertAdjacentElement('afterend', caption);
+  }
+
+  function renderCaption(entry, itemName, summary = null) {
     const title = findTitleElement(itemName);
     if (!title) return null;
     let caption = document.getElementById(A.caption);
     if (!caption) {
       caption = document.createElement('div');
       caption.id = A.caption;
-      const anchor = title.closest('[class*="title"],[class*="header"]') || title.parentElement || title;
-      anchor.insertAdjacentElement('afterend', caption);
     }
     caption.className = entry.status;
     const age = ageText(entry.captured);
     if (entry.status === 'fresh') {
-      caption.innerHTML = `<strong>📌 TRACKED EXIT · ${esc(entry.traderName)}</strong><span>Pays ${esc(cash(entry.price))} · captured ${esc(age)} ago</span>`;
+      const count = Math.max(0, Number(summary?.count) || 0);
+      const best = Math.max(0, Number(summary?.best) || 0);
+      caption.innerHTML = `<strong>📌 ${esc(entry.traderName)} pays ${esc(cash(entry.price))} · ${esc(age)} old</strong><span>${count.toLocaleString()} profitable${best > 0 ? ` · best +${esc(cash(best))} ea` : ''} · buy below ${esc(cash(entry.price))}</span>`;
     } else if (entry.status === 'stale') {
       caption.innerHTML = `<strong>⌛ TRACKED REFERENCE · ${esc(entry.traderName)}</strong><span>Last paid ${esc(cash(entry.price))} · ${esc(age)} old · no buy signal</span>`;
     } else if (entry.status === 'outdated') {
@@ -703,26 +730,32 @@
     } else {
       caption.innerHTML = `<strong>⚠ TRACKED PRICE UNAVAILABLE · ${esc(entry.traderName)}</strong><span>Recapture this trader before buying</span>`;
     }
+    placeCaption(caption, title);
     return caption;
   }
 
-  function addProfitMarker(row, profitEach) {
+  function addProfitMarker(row, trackedProfit) {
+    const immProfit = signedEach(row.querySelector('.tsimm-margin-badge')?.textContent);
+    let label = '';
+    let flip = false;
+    if (Number.isFinite(immProfit) && immProfit < 0) {
+      label = `📌 FLIP +${cash(trackedProfit)}`;
+      flip = true;
+    } else if (Number.isFinite(immProfit)) {
+      const extra = trackedProfit - immProfit;
+      if (extra <= 0) return false;
+      label = `📌 +${cash(extra)} extra`;
+    } else {
+      label = `📌 +${cash(trackedProfit)}`;
+    }
     const marker = document.createElement('span');
-    marker.className = 'tsimm-track-profit';
+    marker.className = `tsimm-track-profit${flip ? ' flip' : ''}`;
     marker.dataset.tsimmTrackProfit = '1';
-    marker.textContent = `📌 +${cash(profitEach)} ea`;
-    const margin = row.querySelector('.tsimm-margin-badge');
-    if (margin?.parentElement) margin.parentElement.appendChild(marker);
-    else row.appendChild(marker);
+    marker.dataset.tsimmTrackTraderProfit = String(trackedProfit);
+    marker.textContent = label;
+    row.appendChild(marker);
     row.classList.add('tsimm-track-profitable');
-  }
-
-  function addFloorDivider(row, entry) {
-    if (!row?.parentElement || document.getElementById(A.floor)) return;
-    const divider = document.createElement('div');
-    divider.id = A.floor;
-    divider.textContent = `TRADER PAYOUT FLOOR · ${entry.traderName} ${cash(entry.price)}`;
-    row.parentElement.insertBefore(divider, row);
+    return true;
   }
 
   function decorateMarket() {
@@ -733,22 +766,28 @@
     const match = currentTrackedGroup(groups);
     if (!match?.[1]?.length) return;
     const entry = match[1][0], itemName = clean(entry.itemName);
-    renderCaption(entry, itemName);
-    if (entry.status !== 'fresh') return;
+    if (entry.status !== 'fresh') {
+      renderCaption(entry, itemName);
+      return;
+    }
 
     const rows = [...document.querySelectorAll('.tsimm-listing-mark')];
-    let sawProfit = false, floorPlaced = false;
+    let sawProfit = false, floorPlaced = false, count = 0, best = 0;
     for (const row of rows) {
       const price = listingPrice(row);
-      const profitable = price > 0 && entry.price > price;
+      const trackedProfit = price > 0 ? entry.price - price : 0;
+      const profitable = trackedProfit > 0;
       if (profitable) {
         sawProfit = true;
-        addProfitMarker(row, entry.price - price);
+        count += 1;
+        best = Math.max(best, trackedProfit);
+        addProfitMarker(row, trackedProfit);
       } else if (sawProfit && !floorPlaced && price > 0) {
-        addFloorDivider(row, entry);
+        row.classList.add('tsimm-track-floor-row');
         floorPlaced = true;
       }
     }
+    renderCaption(entry, itemName, { count, best });
   }
 
   function cardTrader(card, traders) {
