@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Extensions
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.0
+// @version      0.2.1
 // @description  Adds favorite-trader watchlists, item-centric tracking, and best fresh trader-exit prompts to IMM.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   const A = Object.freeze({
-    v: '0.2.0',
+    v: '0.2.1',
     traders: 'tornscripture-imm-traders-v1',
     catalog: 'tornscripture-imm-catalog-v1',
     sharedCatalog: 'tornscripture-ish-torn-catalog-v1',
@@ -31,6 +31,7 @@
     style: 'tsimm-trader-extensions-style',
     dock: 'tsimm-watch-dock',
     panel: 'tsimm-watch-panel',
+    toast: 'tsimm-watch-toast',
   });
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -91,6 +92,7 @@
       #${A.dock}{position:fixed;left:8px;right:8px;bottom:max(70px,calc(env(safe-area-inset-bottom) + 62px));z-index:2147483647;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center;padding:8px 9px;border:1px solid #68e879;border-radius:7px;background:#020a04f2;color:#aaff83;box-shadow:0 8px 28px #000d;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${A.dock} .watch-copy{display:grid;min-width:0;gap:2px}#${A.dock} small{color:#5ea66a;font-size:7px;letter-spacing:.08em}#${A.dock} strong{overflow:hidden;color:#c1ff9d;font-size:11px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} span{overflow:hidden;color:#70b87b;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} button{min-height:36px;border:1px solid #58d76d;border-radius:5px;background:#082b10;color:#c5ffac;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.dock} button.on{border-color:#9dff7c;background:#16461e;color:#e1ffd2}.tsimm-watch-selected{outline:1px solid #9dff7c!important;outline-offset:-2px!important}
       .tsimm-favorite-trader-btn{border:1px solid #72622a!important;border-radius:5px!important;background:#171407!important;color:#d9bf55!important;padding:7px 8px!important;font:800 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-favorite-trader-btn.on{border-color:#d7b943!important;background:#332a08!important;color:#ffe47b!important}
+      #${A.toast}{position:fixed;left:50%;top:max(70px,calc(env(safe-area-inset-top) + 62px));z-index:2147483647;max-width:min(360px,calc(100vw - 24px));padding:8px 11px;transform:translate(-50%,-8px);border:1px solid #73df83;border-radius:6px;background:#06170af5;color:#d2ffc0;box-shadow:0 8px 26px #000c;font:800 10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;opacity:0;pointer-events:none;transition:opacity .16s ease,transform .16s ease}#${A.toast}.show{transform:translate(-50%,0);opacity:1}
       #${A.panel}{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;align-items:center;box-sizing:border-box;margin:3px 5px;padding:5px 7px;border:1px solid #27863f;border-radius:5px;background:#041109f5;color:#9ff48e;box-shadow:none;font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${A.panel} .watch-copy{display:grid;min-width:0;gap:2px}#${A.panel} strong{overflow:hidden;color:#c7ffad;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} span{display:block;overflow:hidden;color:#72bd7d;font-size:7px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} button{min-height:28px;border:1px solid #58d76d;border-radius:4px;background:#082b10;color:#c5ffac;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.panel}.idle{border-color:#4d5960;background:#0a0d0ff5;color:#aeb8bd}#${A.panel}.idle strong,#${A.panel}.idle span{color:#aeb8bd}#${A.panel}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.panel}.stale strong,#${A.panel}.stale span{color:#ffd166}#${A.panel}.outdated,#${A.panel}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.panel}.outdated strong,#${A.panel}.outdated span,#${A.panel}.missing strong,#${A.panel}.missing span{color:#ff9ba3}
       .tsimm-watch-inline-badge{min-width:0!important}.tsimm-watch-inline{display:block!important;max-width:100%!important;overflow:hidden!important;color:#baff9f!important;opacity:1!important;font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;text-overflow:ellipsis!important;white-space:nowrap!important}.tsimm-watch-format-row{position:relative!important}
@@ -271,13 +273,44 @@
     return store.entries.some((entry) => favoriteMatches(entry, trader));
   }
 
+  let favoriteToastTimer = 0;
+
+  function showFavoriteToast(message) {
+    let toast = document.getElementById(A.toast);
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = A.toast;
+      toast.setAttribute('role', 'status');
+      toast.setAttribute('aria-live', 'polite');
+      document.body.appendChild(toast);
+    }
+    toast.textContent = clean(message);
+    toast.classList.add('show');
+    clearTimeout(favoriteToastTimer);
+    favoriteToastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => { if (!toast.classList.contains('show')) toast.remove(); }, 220);
+    }, 1500);
+  }
+
+  function applyFavoriteButtonState(button, favorite, kind = 'dock') {
+    if (!(button instanceof HTMLElement)) return;
+    button.classList.toggle('on', favorite);
+    button.setAttribute('aria-pressed', String(favorite));
+    button.textContent = kind === 'book'
+      ? (favorite ? '★ FAVORITE' : '☆ FAVORITE')
+      : (favorite ? '★ TRADER' : '☆ TRADER');
+  }
+
   function toggleFavorite(trader) {
     const store = favoriteStore();
     const index = store.entries.findIndex((entry) => favoriteMatches(entry, trader));
-    if (index >= 0) store.entries.splice(index, 1);
-    else store.entries.push({ traderId: trader.id, traderName: trader.name, addedAt: new Date().toISOString() });
+    const added = index < 0;
+    if (added) store.entries.push({ traderId: trader.id, traderName: trader.name, addedAt: new Date().toISOString() });
+    else store.entries.splice(index, 1);
     saveFavorites(store);
     scheduleTorn();
+    return added;
   }
 
   function isWatched(store, item) {
@@ -360,7 +393,7 @@
     }
     const favorite = isFavorite(favoriteStore(), selectedDeal.trader);
     const watched = isWatched(watchedStore(), selectedDeal.item);
-    dock.innerHTML = `<div class="watch-copy"><small>ITEM-CENTRIC WATCH · ${esc(selectedDeal.trader.name)}</small><strong>${esc(selectedDeal.item.name)}</strong><span>This trader pays ${cash(selectedDeal.item.price)} · compare with every favorite</span></div><button type="button" class="${favorite ? 'on' : ''}" data-watch-favorite-toggle>${favorite ? '★ TRADER' : '☆ TRADER'}</button><button type="button" class="${watched ? 'on' : ''}" data-watch-item-toggle>${watched ? '★ WATCHED' : '☆ WATCH'}</button>`;
+    dock.innerHTML = `<div class="watch-copy"><small>ITEM-CENTRIC WATCH · ${esc(selectedDeal.trader.name)}</small><strong>${esc(selectedDeal.item.name)}</strong><span>This trader pays ${cash(selectedDeal.item.price)} · compare with every favorite</span></div><button type="button" class="${favorite ? 'on' : ''}" aria-pressed="${favorite}" data-watch-favorite-toggle>${favorite ? '★ TRADER' : '☆ TRADER'}</button><button type="button" class="${watched ? 'on' : ''}" data-watch-item-toggle>${watched ? '★ WATCHED' : '☆ WATCH'}</button>`;
     const selectedKey = itemKey(selectedDeal.item.id, selectedDeal.item.name);
     overlay.querySelectorAll('.td-row').forEach((row) => {
       const deal = dealFromRow(row, trader);
@@ -660,8 +693,7 @@
         actions.prepend(button);
       }
       const favorite = isFavorite(favorites, trader);
-      button.classList.toggle('on', favorite);
-      button.textContent = favorite ? '★ FAVORITE' : '☆ FAVORITE';
+      applyFavoriteButtonState(button, favorite, 'book');
       button.dataset.trader = trader.id;
     }
   }
@@ -707,7 +739,9 @@
         if (favoriteDock && selectedDeal) {
           event.preventDefault();
           event.stopImmediatePropagation();
-          toggleFavorite(selectedDeal.trader);
+          const added = toggleFavorite(selectedDeal.trader);
+          applyFavoriteButtonState(favoriteDock, added, 'dock');
+          showFavoriteToast(`${added ? 'Added' : 'Removed'} ${selectedDeal.trader.name} ${added ? 'to' : 'from'} favorites`);
           return;
         }
         const itemDock = event.target.closest?.('[data-watch-item-toggle]');
@@ -722,7 +756,11 @@
           event.preventDefault();
           event.stopImmediatePropagation();
           const trader = normTraders().find((candidate) => candidate.id === clean(favoriteBook.dataset.trader));
-          if (trader) toggleFavorite(trader);
+          if (trader) {
+            const added = toggleFavorite(trader);
+            applyFavoriteButtonState(favoriteBook, added, 'book');
+            showFavoriteToast(`${added ? 'Added' : 'Removed'} ${trader.name} ${added ? 'to' : 'from'} favorites`);
+          }
           return;
         }
         const marketWatch = event.target.closest?.('[data-market-watch-toggle]');
