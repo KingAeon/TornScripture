@@ -15,18 +15,22 @@ on:
       - tools/patch-tx-core-migration-v093.py
       - TornScripture-Item-Market-Margin.user.js
       - TornScripture-IMM-Trader-Extensions.user.js
+  issues:
+    types:
+      - opened
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event_name != 'issues' || github.event.issue.title == '[internal] Run TX migration v0.9.3'
     runs-on: ubuntu-latest
     steps:
       - name: Check out migration branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          ref: agent/tx-core-migration-v093-run
           fetch-depth: 0
 
       - name: Patch migration
@@ -53,5 +57,5 @@ jobs:
             echo "No userscript changes to commit."
           else
             git commit -m "Move TornExchange capture ownership into IMM core"
-            git push origin HEAD:${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}
+            git push origin HEAD:agent/tx-core-migration-v093-run
           fi
