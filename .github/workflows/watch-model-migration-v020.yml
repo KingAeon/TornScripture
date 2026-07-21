@@ -1,0 +1,48 @@
+name: Validate item-centric watch model
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/build-watch-model-v020.py
+      - TornScripture-IMM-Trader-Extensions.user.js
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Build tracking-only extension
+        run: python tools/build-watch-model-v020.py
+
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-IMM-Trader-Extensions.user.js
+
+      - name: Validate migration markers
+        run: |
+          grep -q "@version      0.2.0" TornScripture-IMM-Trader-Extensions.user.js
+          grep -q "tornscripture-imm-favorite-traders-v1" TornScripture-IMM-Trader-Extensions.user.js
+          grep -q "tornscripture-imm-watched-items-v1" TornScripture-IMM-Trader-Extensions.user.js
+          grep -q "function migrateLegacyTracking" TornScripture-IMM-Trader-Extensions.user.js
+          ! grep -q "tornexchange.com" TornScripture-IMM-Trader-Extensions.user.js
+
+      - name: Commit validated userscript
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-IMM-Trader-Extensions.user.js
+          if git diff --cached --quiet; then
+            echo "No userscript changes to commit."
+          else
+            git commit -m "Introduce favorite traders and watched items"
+            git push origin HEAD:${GITHUB_HEAD_REF}
+          fi
