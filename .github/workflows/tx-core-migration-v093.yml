@@ -1,6 +1,7 @@
 name: Migrate TornExchange capture to IMM core
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - agent/tx-core-migration-v0.9.3
