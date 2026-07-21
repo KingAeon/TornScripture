@@ -47,3 +47,5 @@ jobs:
             git commit -m "Move TornExchange capture ownership into IMM core"
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
+
+# Contents API trigger after validator inheritance.
