@@ -1,13 +1,11 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Extensions
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.11
-// @description  Adds TornExchange capture, a persistent Deals tracking dock, and compact tracked-exit margin prompts on Item Market listings.
+// @version      0.2.0
+// @description  Adds favorite-trader watchlists, item-centric tracking, and best fresh trader-exit prompts to IMM.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
-// @match        https://tornexchange.com/prices/*
-// @match        https://www.tornexchange.com/prices/*
 // @grant        none
 // @run-at       document-start
 // @license      MIT
@@ -20,19 +18,19 @@
   'use strict';
 
   const A = Object.freeze({
-    v: '0.1.11',
-    bridge: 'TSIMM_PRICE_BRIDGE:',
+    v: '0.2.0',
     traders: 'tornscripture-imm-traders-v1',
-    pending: 'tornscripture-imm-pending-trader-capture-v1',
     catalog: 'tornscripture-imm-catalog-v1',
     sharedCatalog: 'tornscripture-ish-torn-catalog-v1',
-    tracked: 'tornscripture-imm-tracked-items-v1',
+    legacyTracked: 'tornscripture-imm-tracked-items-v1',
+    favorites: 'tornscripture-imm-favorite-traders-v1',
+    watched: 'tornscripture-imm-watched-items-v1',
+    migration: 'tornscripture-imm-watch-model-migration-v1',
     overlaySettings: 'tornscripture-imm-trader-market-overlay-settings-v1',
-    notice: 'tsimm-tx-notice-v1',
     deals: 'tornscripture-imm-trader-deals-addon',
     style: 'tsimm-trader-extensions-style',
-    dock: 'tsimm-track-dock',
-    caption: 'tsimm-track-caption',
+    dock: 'tsimm-watch-dock',
+    panel: 'tsimm-watch-panel',
   });
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -70,35 +68,16 @@
     style: 'currency', currency: 'USD', maximumFractionDigits: 0,
   }).format(Number(value) || 0);
   const itemKey = (id, name) => Number(id) > 0 ? `id:${Number(id)}` : `name:${key(name)}`;
-  const http = (value) => {
-    try {
-      const url = new URL(String(value || ''), location.href);
-      return /^https?:$/.test(url.protocol) ? url.href : '';
-    } catch {
-      return '';
-    }
-  };
   const ageText = (value) => {
     const captured = Date.parse(value || '');
-    if (!Number.isFinite(captured)) return 'unknown age';
+    if (!Number.isFinite(captured)) return 'unknown';
     const minutes = Math.max(0, Math.floor((Date.now() - captured) / 60000));
     if (minutes < 60) return `${minutes}m`;
     const hours = Math.floor(minutes / 60);
     return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
   };
-  const isTorn = () => /^(?:www\.)?torn\.com$/i.test(location.hostname);
-  const coreOwnsTX = () => Boolean(window.__TSIMM_CORE_TX_CAPTURE__);
-  const isTX = (value = location.href) => {
-    const normalized = http(value);
-    if (!normalized) return false;
-    try {
-      const url = new URL(normalized);
-      return /^(?:www\.)?tornexchange\.com$/i.test(url.hostname)
-        && /^\/prices\/[^/]+\/?$/i.test(url.pathname);
-    } catch {
-      return false;
-    }
-  };
+  const marketPage = () => /(?:sid=ItemMarket|itemmarket|item-market)/i.test(location.href)
+    || Boolean(document.querySelector('.tsimm-listing-mark'));
 
   function injectStyle() {
     if (!document.head) return;
@@ -109,16 +88,13 @@
       document.head.appendChild(style);
     }
     style.textContent = `
-      #tsimm-tx-panel{position:fixed;right:10px;bottom:10px;z-index:2147483646;width:min(360px,calc(100vw - 20px));border:1px solid #3bd35d;border-radius:9px;background:#020704;color:#aaff83;box-shadow:0 14px 40px #000c;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden}
-      #tsimm-tx-panel *{box-sizing:border-box}.txh{display:flex;padding:9px 10px;background:#041108;border-bottom:1px solid #1d6b2d}.txh strong{flex:1}.txb{display:grid;gap:7px;padding:10px}.txg{display:grid;grid-template-columns:1fr auto;gap:4px 8px}.txg b{text-align:right}.txw{padding:7px;border:1px solid #9a6d1f;border-radius:5px;background:#241a05;color:#ffd166}.txa{display:grid;grid-template-columns:1fr 1.7fr;gap:6px}
-      #tsimm-tx-panel button,.tsimm-tx-recapture{border:1px solid #2c843d;border-radius:5px;background:#06170a;color:#b6ff9d;padding:8px;font:700 10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-      #${A.dock}{position:fixed;left:8px;right:8px;bottom:max(70px,calc(env(safe-area-inset-bottom) + 62px));z-index:2147483647;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 9px;border:1px solid #68e879;border-radius:7px;background:#020a04f2;color:#aaff83;box-shadow:0 8px 28px #000d;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-      #${A.dock}[hidden]{display:none!important}#${A.dock} .track-copy{display:grid;min-width:0;gap:2px}#${A.dock} small{color:#5ea66a;font-size:7px;letter-spacing:.08em}#${A.dock} strong{overflow:hidden;color:#c1ff9d;font-size:11px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} span{overflow:hidden;color:#70b87b;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} button{min-width:88px;min-height:38px;border:1px solid #58d76d;border-radius:5px;background:#082b10;color:#c5ffac;padding:6px 9px;font:800 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.dock} button.on{border-color:#9dff7c;background:#16461e;color:#e1ffd2}.tsimm-track-selected{outline:1px solid #9dff7c!important;outline-offset:-2px!important}
-      #${A.caption}{z-index:9;display:grid;gap:1px;box-sizing:border-box;padding:3px 6px;border:1px solid #27863f;border-radius:5px;background:#041109f5;color:#9ff48e;font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:normal;box-shadow:none;pointer-events:none}
-      #${A.caption} strong{font-size:8px;color:#c7ffad}#${A.caption} span{display:block;color:#72bd7d;font-size:7px}#${A.caption}.stacked{position:static!important;transform:none!important;width:auto!important;max-width:none!important;margin:3px 5px!important}#${A.caption}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.caption}.stale strong,#${A.caption}.stale span{color:#ffd166}#${A.caption}.outdated,#${A.caption}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.caption}.outdated strong,#${A.caption}.outdated span,#${A.caption}.missing strong,#${A.caption}.missing span{color:#ff9ba3}
-      .tsimm-track-format-row{position:relative!important}.tsimm-track-caption-anchor{position:relative!important}.tsimm-track-inline-badge{min-width:0!important}.tsimm-track-inline{display:block!important;max-width:100%!important;overflow:hidden!important;color:#baff9f!important;opacity:1!important;font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-      .tsimm-track-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:106px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}
-      .tsimm-track-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-track-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-track-floor-row{box-shadow:inset 0 2px #347c41!important}
+      #${A.dock}{position:fixed;left:8px;right:8px;bottom:max(70px,calc(env(safe-area-inset-bottom) + 62px));z-index:2147483647;display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center;padding:8px 9px;border:1px solid #68e879;border-radius:7px;background:#020a04f2;color:#aaff83;box-shadow:0 8px 28px #000d;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      #${A.dock} .watch-copy{display:grid;min-width:0;gap:2px}#${A.dock} small{color:#5ea66a;font-size:7px;letter-spacing:.08em}#${A.dock} strong{overflow:hidden;color:#c1ff9d;font-size:11px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} span{overflow:hidden;color:#70b87b;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} button{min-height:36px;border:1px solid #58d76d;border-radius:5px;background:#082b10;color:#c5ffac;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.dock} button.on{border-color:#9dff7c;background:#16461e;color:#e1ffd2}.tsimm-watch-selected{outline:1px solid #9dff7c!important;outline-offset:-2px!important}
+      .tsimm-favorite-trader-btn{border:1px solid #72622a!important;border-radius:5px!important;background:#171407!important;color:#d9bf55!important;padding:7px 8px!important;font:800 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-favorite-trader-btn.on{border-color:#d7b943!important;background:#332a08!important;color:#ffe47b!important}
+      #${A.panel}{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;align-items:center;box-sizing:border-box;margin:3px 5px;padding:5px 7px;border:1px solid #27863f;border-radius:5px;background:#041109f5;color:#9ff48e;box-shadow:none;font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      #${A.panel} .watch-copy{display:grid;min-width:0;gap:2px}#${A.panel} strong{overflow:hidden;color:#c7ffad;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} span{display:block;overflow:hidden;color:#72bd7d;font-size:7px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} button{min-height:28px;border:1px solid #58d76d;border-radius:4px;background:#082b10;color:#c5ffac;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.panel}.idle{border-color:#4d5960;background:#0a0d0ff5;color:#aeb8bd}#${A.panel}.idle strong,#${A.panel}.idle span{color:#aeb8bd}#${A.panel}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.panel}.stale strong,#${A.panel}.stale span{color:#ffd166}#${A.panel}.outdated,#${A.panel}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.panel}.outdated strong,#${A.panel}.outdated span,#${A.panel}.missing strong,#${A.panel}.missing span{color:#ff9ba3}
+      .tsimm-watch-inline-badge{min-width:0!important}.tsimm-watch-inline{display:block!important;max-width:100%!important;overflow:hidden!important;color:#baff9f!important;opacity:1!important;font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;text-overflow:ellipsis!important;white-space:nowrap!important}.tsimm-watch-format-row{position:relative!important}
+      .tsimm-watch-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:112px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}.tsimm-watch-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-watch-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-watch-floor-row{box-shadow:inset 0 2px #347c41!important}
     `;
   }
 
@@ -176,9 +152,9 @@
           : null;
         const name = clean(candidate.name);
         if (!name) continue;
-        const item = { id, name };
+        const item = { id, name, n: key(name) };
         if (id) result.id[String(id)] = item;
-        result.name[key(name)] = item;
+        result.name[item.n] = item;
       }
       return result;
     };
@@ -187,317 +163,142 @@
     return { id: { ...shared.id, ...own.id }, name: { ...shared.name, ...own.name } };
   }
 
-  function bridge() {
-    const raw = String(window.name || '');
-    if (!raw.startsWith(A.bridge)) return null;
-    try {
-      return JSON.parse(raw.slice(A.bridge.length));
-    } catch {
-      return null;
-    }
+  function legacyEntries() {
+    const raw = read(A.legacyTracked, {});
+    const source = Array.isArray(raw) ? raw : Array.isArray(raw?.entries) ? raw.entries : [];
+    return source.filter(Boolean);
   }
 
-  function findTrader(list, pending, identity) {
-    const pendingName = key(pending?.name), identityName = key(identity?.name);
-    return list.findIndex((candidate) =>
-      (pending?.traderId && String(candidate?.id) === String(pending.traderId))
-      || (Number(pending?.userId) > 0 && Number(candidate?.userId) === Number(pending.userId))
-      || (pendingName && key(candidate?.name) === pendingName)
-      || (identity?.traderId && String(candidate?.id) === String(identity.traderId))
-      || (Number(identity?.userId) > 0 && Number(candidate?.userId) === Number(identity.userId))
-      || (identityName && key(candidate?.name) === identityName));
-  }
-
-  function changed(previous, next) {
-    const map = (items) => new Map((items || []).map((item) => [itemKey(item.itemId, item.itemName), Number(item.unitPrice) || 0]));
-    const oldMap = map(previous), newMap = map(next), keys = new Set([...oldMap.keys(), ...newMap.keys()]);
-    let count = 0;
-    for (const entryKey of keys) {
-      if (!oldMap.has(entryKey) || !newMap.has(entryKey) || Math.round(oldMap.get(entryKey)) !== Math.round(newMap.get(entryKey))) count += 1;
-    }
-    return count;
-  }
-
-  function importTX() {
-    const envelope = bridge(), compact = envelope?.type === 'capture' ? envelope.compact : null;
-    if (!compact || clean(compact.p).toLowerCase() !== 'tornexchange') return false;
-    const values = catalog();
-    const items = (Array.isArray(compact.i) ? compact.i : []).map((entry) => {
-      if (!Array.isArray(entry) || entry.length < 2) return null;
-      const id = Number(entry[0]) > 0 ? Number(entry[0]) : null;
-      const price = Math.max(0, Number(entry[1]) || 0);
-      const name = clean(entry[2]) || (id ? values.id[String(id)]?.name : '') || (id ? `Item ${id}` : '');
-      return name && price ? { itemId: id, itemName: name, normalizedName: key(name), unitPrice: price } : null;
-    }).filter(Boolean);
-    if (!items.length) return false;
-
-    const pending = read(A.pending, null), identity = compact.t || {}, store = tradersRaw(), list = store.list;
-    let index = findTrader(list, pending, identity);
-    if (index < 0) {
-      const name = clean(pending?.name || identity.name || identity.pageName) || 'Captured trader';
-      list.push({
-        id: clean(pending?.traderId || identity.traderId) || `trader-${Date.now()}`,
-        name,
-        normalizedName: key(name),
-        userId: Number(pending?.userId || identity.userId) || null,
-        rating: 0,
-        targetPercent: 99,
-        profileUrl: clean(identity.profileUrl),
-        tradeUrl: clean(identity.tradeUrl),
-        bannerUrl: clean(identity.bannerUrl),
-        captureSource: 'tornexchange-pricelist',
-        pricePageItems: [],
-        createdAt: new Date().toISOString(),
-      });
-      index = list.length - 1;
-    }
-
-    const old = list[index], now = new Date().toISOString(), sourceUrl = clean(compact.u);
-    list[index] = {
-      ...old,
-      normalizedName: key(old.name),
-      previousPricePageUrl: sourceUrl && old.pricePageUrl && sourceUrl !== old.pricePageUrl
-        ? old.pricePageUrl
-        : clean(old.previousPricePageUrl),
-      pricePageUrl: sourceUrl || clean(old.pricePageUrl),
-      pricePageTitle: clean(compact.l || old.pricePageTitle).slice(0, 160),
-      pricePageProvider: 'tornexchange',
-      pricePageSourceUpdated: clean(compact.s).slice(0, 160),
-      pricePageItems: items,
-      pricePageCapturedAt: compact.c || now,
-      pricePageLastCheckedAt: now,
-      pricePageCaptureCount: Math.max(0, Number(old.pricePageCaptureCount) || 0) + 1,
-      pricePageLastChangedCount: changed(old.pricePageItems, items),
-      pricePageLastResult: 'tornexchange-pricelist:extensions',
-      updatedAt: now,
-    };
-
-    write(A.traders, store.object ? { ...store.root, traders: list } : list);
-    localStorage.removeItem(A.pending);
-    window.name = clean(envelope.previousWindowName);
-    try {
-      sessionStorage.setItem(A.notice, JSON.stringify({ name: list[index].name, count: items.length }));
-    } catch {}
-    location.replace(location.href);
-    return true;
-  }
-
-  function notice() {
-    let payload = null;
-    try {
-      payload = JSON.parse(sessionStorage.getItem(A.notice) || 'null');
-      sessionStorage.removeItem(A.notice);
-    } catch {}
-    if (!payload) return;
-    const mount = () => {
-      if (!document.body) return setTimeout(mount, 50);
-      const box = document.createElement('div');
-      box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483647;padding:12px;border:1px solid #36d399;border-radius:9px;background:#13231e;color:#eafff7;font:600 13px system-ui';
-      box.textContent = `${payload.name}: ${Number(payload.count).toLocaleString()} TornExchange prices saved.`;
-      document.body.appendChild(box);
-      setTimeout(() => box.remove(), 5000);
-    };
-    mount();
-  }
-
-  function pageName() {
-    const headings = [...document.querySelectorAll('h1,h2,h3,[role="heading"]')].map((element) => clean(element.textContent));
-    for (const heading of headings) {
-      const match = heading.match(/^(.+?)(?:[’']s)\s+(?:Trading|Price)\s+List/i);
-      if (match) return clean(match[1]);
-    }
-    const titleMatch = clean(document.title).match(/^(.+?)(?:[’']s)\s+(?:Trading|Price)\s+List/i);
-    if (titleMatch) return clean(titleMatch[1]);
-    return clean(decodeURIComponent(location.pathname).match(/^\/prices\/([^/]+)/i)?.[1]) || 'TornExchange trader';
-  }
-
-  function pageUpdated() {
-    return clean(String(document.body?.innerText || '').match(/Prices\s+last\s+updated\s*:\s*([^\n\r]+)/i)?.[1]).slice(0, 120);
-  }
-
-  function parsePrice(value) {
-    const text = clean(value);
-    if (!/\d/.test(text)) return null;
-    const number = Number(text.replace(/[^\d.-]/g, ''));
-    return Number.isFinite(number) && number > 0 ? number : null;
-  }
-
-  function rowId(row) {
-    for (const element of row.querySelectorAll('[href],[src],[data-item-id],[data-itemid],[data-id]')) {
-      for (const value of [
-        element.getAttribute('href'), element.getAttribute('src'), element.getAttribute('data-item-id'),
-        element.getAttribute('data-itemid'), element.getAttribute('data-id'),
-      ].filter(Boolean)) {
-        const match = String(value).match(/[?&#](?:itemID|itemId|item_id|ID|id)=(\d+)/i)
-          || String(value).match(/\/(?:images\/)?items?\/(\d+)(?:\/|\.|$)/i);
-        if (Number(match?.[1]) > 0) return Number(match[1]);
-      }
-    }
-    return null;
-  }
-
-  function scanTX() {
-    const found = new Map();
-    for (const table of document.querySelectorAll('table')) {
-      const headingRow = table.querySelector('thead tr') || table.querySelector('tr');
-      const headings = [...(headingRow?.querySelectorAll('th,td') || [])].map((element) => key(element.textContent));
-      const nameIndex = headings.findIndex((heading) => heading === 'item name' || heading === 'item');
-      const priceIndex = headings.findIndex((heading) => heading.includes('buy price') || heading === 'price');
-      const rows = table.querySelectorAll('tbody tr').length ? table.querySelectorAll('tbody tr') : table.querySelectorAll('tr');
-      for (const row of rows) {
-        if (row === headingRow) continue;
-        const cells = [...row.children].filter((element) => /^(?:TH|TD)$/i.test(element.tagName));
-        if (cells.length < 2) continue;
-        let selectedPriceIndex = priceIndex;
-        if (selectedPriceIndex < 0 || !parsePrice(cells[selectedPriceIndex]?.textContent)) {
-          for (let i = cells.length - 1; i >= 0; i -= 1) {
-            if (parsePrice(cells[i].textContent)) {
-              selectedPriceIndex = i;
-              break;
-            }
-          }
-        }
-        const price = parsePrice(cells[selectedPriceIndex]?.textContent);
-        if (!price) continue;
-        let name = clean(cells[nameIndex]?.textContent);
-        if (!name || /^(?:image|item|item name|buy price|price)$/i.test(name) || parsePrice(name)) {
-          name = cells.map((cell, index) => ({ index, text: clean(cell.textContent) }))
-            .filter((entry) => entry.index !== selectedPriceIndex && entry.text && !parsePrice(entry.text) && !/^image$/i.test(entry.text))
-            .sort((a, b) => b.text.length - a.text.length)[0]?.text || '';
-        }
-        if (!name) continue;
-        const id = rowId(row), entryKey = itemKey(id, name), previous = found.get(entryKey);
-        if (!previous || price > previous.price) found.set(entryKey, { id, name, price });
-      }
-    }
-    return [...found.values()];
-  }
-
-  function request() {
-    const envelope = bridge();
-    return envelope?.type === 'request' && (!envelope.expiresAt || Number(envelope.expiresAt) > Date.now())
-      ? envelope
-      : null;
-  }
-
-  function sendTX(items, name, updated) {
-    const captureRequest = request(), armed = clean(captureRequest?.trader?.name);
-    if (armed && key(armed) !== key(name)
-      && !confirm(`IMM is armed for ${armed}, but this page belongs to ${name}.\n\nSave these prices to ${armed}?`)) return;
-    const compact = {
-      v: 1,
-      p: 'tornexchange',
-      t: { ...(captureRequest?.trader || {}), name: armed || name, pageName: name },
-      u: location.origin + location.pathname,
-      l: `${name} TornExchange prices`,
-      c: new Date().toISOString(),
-      s: updated,
-      i: items.map((item) => item.id ? [item.id, Math.round(item.price)] : [0, Math.round(item.price), item.name]),
-    };
-    const returnUrl = 'https://www.torn.com/page.php?sid=ItemMarket';
-    window.name = A.bridge + JSON.stringify({
-      version: 1,
-      type: 'capture',
-      compact,
-      returnUrl,
-      previousWindowName: clean(captureRequest?.previousWindowName),
-    });
-    location.href = returnUrl;
-  }
-
-  function txBoot() {
-    let timer = 0, autoTimer = 0, sent = false;
-    const draw = () => {
-      injectStyle();
-      const items = scanTX(), name = pageName(), updated = pageUpdated(), captureRequest = request(), armed = clean(captureRequest?.trader?.name);
-      const mismatch = armed && key(armed) !== key(name);
-      let panel = document.getElementById('tsimm-tx-panel');
-      if (!panel) {
-        panel = document.createElement('section');
-        panel.id = 'tsimm-tx-panel';
-        document.body.appendChild(panel);
-      }
-      panel.innerHTML = `<div class="txh"><strong>&gt; TORNEXCHANGE_CAPTURE</strong><span>v${A.v}</span></div><div class="txb"><div class="txg"><span>PAGE</span><b>${esc(name)}</b><span>PRICES</span><b>${items.length.toLocaleString()}</b><span>UPDATED</span><b>${esc(updated || 'Unknown')}</b><span>TARGET</span><b>${esc(armed || name)}</b></div>${mismatch ? `<div class="txw">ARMED FOR ${esc(armed)} · PAGE IS ${esc(name)}</div>` : ''}<div class="txa"><button data-tx="scan">RESCAN</button><button data-tx="save" ${items.length ? '' : 'disabled'}>CAPTURE & RETURN</button></div></div>`;
-      panel.querySelector('[data-tx="scan"]')?.addEventListener('click', draw);
-      panel.querySelector('[data-tx="save"]')?.addEventListener('click', () => sendTX(items, name, updated));
-      clearTimeout(autoTimer);
-      if (captureRequest?.autoReturn && !mismatch && items.length && !sent) {
-        autoTimer = setTimeout(() => {
-          sent = true;
-          sendTX(items, name, updated);
-        }, 1400);
-      }
-    };
-    const start = () => {
-      if (!document.body) return setTimeout(start, 60);
-      draw();
-      new MutationObserver((records) => {
-        const panel = document.getElementById('tsimm-tx-panel');
-        if (panel && records.every((record) => panel.contains(record.target))) return;
-        clearTimeout(timer);
-        timer = setTimeout(draw, 180);
-      }).observe(document.body, { childList: true, subtree: true });
-    };
-    start();
-  }
-
-  function trackedStore() {
-    const raw = read(A.tracked, {});
+  function favoriteStore() {
+    const raw = read(A.favorites, {});
     const source = Array.isArray(raw) ? raw : Array.isArray(raw?.entries) ? raw.entries : [];
     const unique = new Map();
     for (const candidate of source) {
-      if (!candidate) continue;
-      const entry = {
-        traderId: clean(candidate.traderId),
-        traderName: clean(candidate.traderName),
-        itemId: Number(candidate.itemId) > 0 ? Number(candidate.itemId) : null,
-        itemName: clean(candidate.itemName),
-        markedAt: candidate.markedAt || new Date().toISOString(),
-        markedPrice: Number(candidate.markedPrice) || 0,
-        markedCapturedAt: candidate.markedCapturedAt || null,
-        sourceUrl: clean(candidate.sourceUrl),
-      };
-      if (!entry.itemName) continue;
-      unique.set(`${entry.traderId || key(entry.traderName)}|${itemKey(entry.itemId, entry.itemName)}`, entry);
+      const traderId = clean(candidate?.traderId ?? candidate?.id);
+      const traderName = clean(candidate?.traderName ?? candidate?.name);
+      if (!traderId && !traderName) continue;
+      unique.set(traderId || `name:${key(traderName)}`, {
+        traderId,
+        traderName,
+        addedAt: candidate?.addedAt || new Date().toISOString(),
+      });
     }
-    return { schema: 'tornscripture-imm-tracked-items', schemaVersion: 1, entries: [...unique.values()] };
+    return { schema: 'tornscripture-imm-favorite-traders', schemaVersion: 1, entries: [...unique.values()] };
   }
 
-  function saveTracked(store) {
-    store.updatedAt = new Date().toISOString();
-    write(A.tracked, store);
+  function watchedStore() {
+    const raw = read(A.watched, {});
+    const source = Array.isArray(raw) ? raw : Array.isArray(raw?.entries) ? raw.entries : [];
+    const unique = new Map();
+    for (const candidate of source) {
+      const itemId = Number(candidate?.itemId ?? candidate?.id) > 0 ? Number(candidate.itemId ?? candidate.id) : null;
+      const itemName = clean(candidate?.itemName ?? candidate?.name);
+      if (!itemName) continue;
+      unique.set(itemKey(itemId, itemName), {
+        itemId,
+        itemName,
+        addedAt: candidate?.addedAt || new Date().toISOString(),
+        source: clean(candidate?.source) || 'manual',
+      });
+    }
+    return { schema: 'tornscripture-imm-watched-items', schemaVersion: 1, entries: [...unique.values()] };
+  }
+
+  function emitWatchUpdate() {
     try {
-      window.dispatchEvent(new CustomEvent('tsimm:tracked-items-updated', { detail: store }));
+      window.dispatchEvent(new CustomEvent('tsimm:watchlists-updated'));
     } catch {}
   }
 
-  function isTracked(store, trader, item) {
-    return store.entries.some((entry) =>
-      (entry.traderId ? entry.traderId === trader.id : key(entry.traderName) === trader.n)
-      && itemKey(entry.itemId, entry.itemName) === itemKey(item.id, item.name));
+  function saveFavorites(store) {
+    store.updatedAt = new Date().toISOString();
+    write(A.favorites, store);
+    emitWatchUpdate();
   }
 
-  function toggleTrack(trader, item) {
-    const store = trackedStore();
-    const index = store.entries.findIndex((entry) =>
-      (entry.traderId ? entry.traderId === trader.id : key(entry.traderName) === trader.n)
-      && itemKey(entry.itemId, entry.itemName) === itemKey(item.id, item.name));
+  function saveWatched(store) {
+    store.updatedAt = new Date().toISOString();
+    write(A.watched, store);
+    emitWatchUpdate();
+  }
+
+  function migrateLegacyTracking() {
+    const previous = read(A.migration, null);
+    if (previous?.completed) return previous;
+    const legacy = legacyEntries();
+    const favorites = favoriteStore();
+    const watched = watchedStore();
+    const favoriteKeys = new Set(favorites.entries.map((entry) => entry.traderId || `name:${key(entry.traderName)}`));
+    const watchedKeys = new Set(watched.entries.map((entry) => itemKey(entry.itemId, entry.itemName)));
+    let favoritesAdded = 0;
+    let itemsAdded = 0;
+    for (const entry of legacy) {
+      const traderId = clean(entry.traderId);
+      const traderName = clean(entry.traderName);
+      const traderToken = traderId || `name:${key(traderName)}`;
+      if ((traderId || traderName) && !favoriteKeys.has(traderToken)) {
+        favorites.entries.push({ traderId, traderName, addedAt: entry.markedAt || new Date().toISOString() });
+        favoriteKeys.add(traderToken);
+        favoritesAdded += 1;
+      }
+      const itemId = Number(entry.itemId) > 0 ? Number(entry.itemId) : null;
+      const itemName = clean(entry.itemName);
+      const token = itemName ? itemKey(itemId, itemName) : '';
+      if (token && !watchedKeys.has(token)) {
+        watched.entries.push({ itemId, itemName, addedAt: entry.markedAt || new Date().toISOString(), source: 'legacy-pair' });
+        watchedKeys.add(token);
+        itemsAdded += 1;
+      }
+    }
+    if (favoritesAdded) saveFavorites(favorites);
+    if (itemsAdded) saveWatched(watched);
+    const result = {
+      completed: true,
+      migratedAt: new Date().toISOString(),
+      legacyCount: legacy.length,
+      favoritesAdded,
+      itemsAdded,
+    };
+    write(A.migration, result);
+    return result;
+  }
+
+  function favoriteMatches(entry, trader) {
+    return entry.traderId ? entry.traderId === trader.id : key(entry.traderName) === trader.n;
+  }
+
+  function isFavorite(store, trader) {
+    return store.entries.some((entry) => favoriteMatches(entry, trader));
+  }
+
+  function toggleFavorite(trader) {
+    const store = favoriteStore();
+    const index = store.entries.findIndex((entry) => favoriteMatches(entry, trader));
     if (index >= 0) store.entries.splice(index, 1);
-    else store.entries.push({
-      traderId: trader.id,
-      traderName: trader.name,
-      itemId: item.id,
-      itemName: item.name,
-      markedAt: new Date().toISOString(),
-      markedPrice: item.price,
-      markedCapturedAt: trader.captured,
-      sourceUrl: trader.url,
-    });
-    saveTracked(store);
+    else store.entries.push({ traderId: trader.id, traderName: trader.name, addedAt: new Date().toISOString() });
+    saveFavorites(store);
     scheduleTorn();
   }
 
-  let activeTrader = '', selectedDeal = null, tornTimer = 0, ownMutation = false;
+  function isWatched(store, item) {
+    const token = itemKey(item.id, item.name);
+    return store.entries.some((entry) => itemKey(entry.itemId, entry.itemName) === token);
+  }
+
+  function toggleWatched(item, source = 'manual') {
+    const store = watchedStore();
+    const token = itemKey(item.id, item.name);
+    const index = store.entries.findIndex((entry) => itemKey(entry.itemId, entry.itemName) === token);
+    if (index >= 0) store.entries.splice(index, 1);
+    else store.entries.push({ itemId: item.id, itemName: item.name, addedAt: new Date().toISOString(), source });
+    saveWatched(store);
+    scheduleTorn();
+  }
+
+  let activeTrader = '';
+  let selectedDeal = null;
+  let tornTimer = 0;
+  let ownMutation = false;
 
   function reportTrader(traders) {
     const overlay = document.getElementById(A.deals);
@@ -520,15 +321,17 @@
   }
 
   function selectDeal(row) {
-    const overlay = document.getElementById(A.deals), trader = reportTrader(normTraders()), deal = dealFromRow(row, trader);
+    const overlay = document.getElementById(A.deals);
+    const trader = reportTrader(normTraders());
+    const deal = dealFromRow(row, trader);
     if (!overlay || !deal) return;
     selectedDeal = deal;
-    overlay.querySelectorAll('.tsimm-track-selected').forEach((element) => element.classList.remove('tsimm-track-selected'));
-    row.classList.add('tsimm-track-selected');
-    renderTrackDock();
+    overlay.querySelectorAll('.tsimm-watch-selected').forEach((element) => element.classList.remove('tsimm-watch-selected'));
+    row.classList.add('tsimm-watch-selected');
+    renderWatchDock();
   }
 
-  function renderTrackDock() {
+  function renderWatchDock() {
     const overlay = document.getElementById(A.deals);
     let dock = document.getElementById(A.dock);
     if (!overlay) {
@@ -552,96 +355,53 @@
       document.body.appendChild(dock);
     }
     if (!selectedDeal) {
-      dock.innerHTML = '<div class="track-copy"><small>TRACK TARGET</small><strong>TAP AN ITEM ROW</strong><span>Select a trader item to mark it.</span></div><button type="button" disabled>SELECT ITEM</button>';
+      dock.innerHTML = '<div class="watch-copy"><small>WATCH TARGET</small><strong>TAP AN ITEM ROW</strong><span>Select an item to watch across favorite traders.</span></div><button type="button" disabled>☆ TRADER</button><button type="button" disabled>☆ ITEM</button>';
       return;
     }
-    const tracked = isTracked(trackedStore(), selectedDeal.trader, selectedDeal.item);
-    dock.innerHTML = `<div class="track-copy"><small>TRACK TARGET · ${esc(selectedDeal.trader.name)}</small><strong>${esc(selectedDeal.item.name)}</strong><span>Trader pays ${cash(selectedDeal.item.price)} · tap another row to change</span></div><button type="button" class="${tracked ? 'on' : ''}" data-track-dock-toggle>${tracked ? '✓ TRACKED' : '+ TRACK'}</button>`;
+    const favorite = isFavorite(favoriteStore(), selectedDeal.trader);
+    const watched = isWatched(watchedStore(), selectedDeal.item);
+    dock.innerHTML = `<div class="watch-copy"><small>ITEM-CENTRIC WATCH · ${esc(selectedDeal.trader.name)}</small><strong>${esc(selectedDeal.item.name)}</strong><span>This trader pays ${cash(selectedDeal.item.price)} · compare with every favorite</span></div><button type="button" class="${favorite ? 'on' : ''}" data-watch-favorite-toggle>${favorite ? '★ TRADER' : '☆ TRADER'}</button><button type="button" class="${watched ? 'on' : ''}" data-watch-item-toggle>${watched ? '★ WATCHED' : '☆ WATCH'}</button>`;
     const selectedKey = itemKey(selectedDeal.item.id, selectedDeal.item.name);
     overlay.querySelectorAll('.td-row').forEach((row) => {
       const deal = dealFromRow(row, trader);
-      row.classList.toggle('tsimm-track-selected', Boolean(deal && itemKey(deal.item.id, deal.item.name) === selectedKey));
+      row.classList.toggle('tsimm-watch-selected', Boolean(deal && itemKey(deal.item.id, deal.item.name) === selectedKey));
     });
   }
 
-  function resolvedTracked() {
-    const traders = normTraders(), store = trackedStore();
-    const settings = { freshAgeHours: 72, actionableAgeHours: 168, ...read(A.overlaySettings, {}) };
-    const groups = new Map();
-    for (const tracked of store.entries) {
-      const trader = traders.find((candidate) => tracked.traderId
-        ? candidate.id === tracked.traderId
-        : candidate.n === key(tracked.traderName));
-      const item = trader?.items.find((candidate) => tracked.itemId
-        ? candidate.id === tracked.itemId
-        : candidate.n === key(tracked.itemName));
-      const captured = trader?.captured || tracked.markedCapturedAt;
-      const capturedMs = Date.parse(captured || '');
-      const ageHours = Number.isFinite(capturedMs) ? Math.max(0, Date.now() - capturedMs) / 3600000 : Infinity;
-      const status = !trader || !item || !item.price
-        ? 'missing'
-        : ageHours <= Number(settings.freshAgeHours || 72)
-          ? 'fresh'
-          : ageHours <= Number(settings.actionableAgeHours || 168)
-            ? 'stale'
-            : 'outdated';
-      const entry = {
-        ...tracked,
-        traderName: trader?.name || tracked.traderName,
-        price: item?.price || tracked.markedPrice,
-        captured,
-        status,
-      };
-      const groupKey = itemKey(tracked.itemId, tracked.itemName);
-      if (!groups.has(groupKey)) groups.set(groupKey, []);
-      groups.get(groupKey).push(entry);
-    }
-    const rank = { fresh: 0, stale: 1, outdated: 2, missing: 3 };
-    for (const entries of groups.values()) {
-      entries.sort((a, b) => rank[a.status] - rank[b.status] || b.price - a.price);
-    }
-    return groups;
-  }
-
-  function marketPage() {
-    return /itemmarket|sid=ItemMarket/i.test(`${location.pathname}${location.search}${location.hash}`)
-      || Boolean(document.querySelector('.tsimm-listing-mark,.tsimm-category-mark'));
-  }
-
   function idFrom(value) {
-    const match = String(value || '').match(/[?&#](?:itemID|itemId|item_id|item|ID)=(\d+)/i)
-      || String(value || '').match(/\/(?:items?|item)\/(\d+)/i)
-      || String(value || '').match(/\bitem(?:id)?[=/](\d+)/i);
-    return Number(match?.[1]) || null;
+    const text = String(value || '');
+    for (const pattern of [/[?&#](?:itemID|itemId|item_id|ID|id)=(\d+)/i, /\bitem(?:ID)?[=:/_-](\d+)\b/i]) {
+      const match = text.match(pattern);
+      if (Number(match?.[1]) > 0) return Number(match[1]);
+    }
+    return null;
   }
 
   function visible(element) {
     if (!(element instanceof Element)) return false;
-    const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
     return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
   }
 
-  function ownText(element) {
-    if (!(element instanceof Element)) return '';
-    return clean([...element.childNodes]
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .map((node) => node.textContent)
-      .join(' '));
-  }
-
-  function currentTrackedGroup(groups) {
+  function currentMarketItem() {
+    if (!marketPage()) return null;
+    const values = catalog();
     const urlId = idFrom(location.href);
-    if (urlId && groups.has(`id:${urlId}`)) return [`id:${urlId}`, groups.get(`id:${urlId}`)];
-    const byName = new Map();
-    for (const [groupKey, list] of groups) {
-      const itemName = clean(list?.[0]?.itemName);
-      if (itemName) byName.set(key(itemName), [groupKey, list]);
-    }
+    if (urlId && values.id[String(urlId)]) return values.id[String(urlId)];
     const selectors = 'h1,h2,h3,h4,[role="heading"],[class*="title"],[class*="name"],strong,span,div';
     for (const element of document.querySelectorAll(selectors)) {
-      if (!visible(element)
-        || element.closest(`#${A.deals},#${A.dock},#${A.caption},[data-tsimm-track-profit],.tsimm-listing-mark`)) continue;
-      const match = byName.get(key(element.textContent));
+      if (!visible(element) || element.closest(`#${A.deals},#${A.dock},#${A.panel},.tsimm-listing-mark`)) continue;
+      const match = values.name[key(element.textContent)];
+      if (match) return match;
+    }
+    const known = new Map();
+    for (const trader of normTraders()) {
+      for (const item of trader.items) known.set(item.n, item);
+    }
+    for (const element of document.querySelectorAll(selectors)) {
+      if (!visible(element) || element.closest(`#${A.deals},#${A.dock},#${A.panel},.tsimm-listing-mark`)) continue;
+      const match = known.get(key(element.textContent));
       if (match) return match;
     }
     return null;
@@ -655,7 +415,7 @@
     for (const element of document.querySelectorAll(selectors)) {
       if (!visible(element)
         || key(element.textContent) !== wanted
-        || element.closest(`#${A.deals},#${A.dock},#${A.caption},.tsimm-listing-mark,[data-tsimm-track-profit]`)) continue;
+        || element.closest(`#${A.deals},#${A.dock},#${A.panel},.tsimm-listing-mark`)) continue;
       if (/^(H1|H2|H3|H4)$/i.test(element.tagName)
         || element.matches('[role="heading"],[class*="title"],[class*="name"]')) preferred.push(element);
       else fallback.push(element);
@@ -663,9 +423,110 @@
     return preferred[0] || fallback[0] || null;
   }
 
+  function statusForCapture(captured, settings) {
+    const capturedTime = Date.parse(captured || '');
+    if (!Number.isFinite(capturedTime)) return 'missing';
+    const ageHours = Math.max(0, (Date.now() - capturedTime) / 3600000);
+    if (ageHours <= settings.freshAgeHours) return 'fresh';
+    if (ageHours <= settings.actionableAgeHours) return 'stale';
+    return 'outdated';
+  }
+
+  function exitsForItem(item) {
+    const traders = normTraders();
+    const favorites = favoriteStore();
+    const settings = { freshAgeHours: 72, actionableAgeHours: 168, ...read(A.overlaySettings, {}) };
+    const exits = [];
+    for (const trader of traders) {
+      if (!isFavorite(favorites, trader)) continue;
+      const priceItem = trader.items.find((candidate) =>
+        (item.id && candidate.id === item.id) || candidate.n === key(item.name));
+      if (!priceItem?.price) continue;
+      exits.push({
+        traderId: trader.id,
+        traderName: trader.name,
+        itemId: priceItem.id || item.id,
+        itemName: priceItem.name || item.name,
+        price: priceItem.price,
+        captured: trader.captured,
+        status: statusForCapture(trader.captured, settings),
+      });
+    }
+    const rank = { fresh: 0, stale: 1, outdated: 2, missing: 3 };
+    exits.sort((left, right) => {
+      const statusDifference = rank[left.status] - rank[right.status];
+      if (statusDifference) return statusDifference;
+      const priceDifference = right.price - left.price;
+      if (priceDifference) return priceDifference;
+      return Date.parse(right.captured || '') - Date.parse(left.captured || '');
+    });
+    return exits;
+  }
+
+  function bestExit(exits) {
+    return exits.find((entry) => entry.status === 'fresh')
+      || exits.find((entry) => entry.status === 'stale')
+      || exits.find((entry) => entry.status === 'outdated')
+      || exits[0]
+      || null;
+  }
+
+  function panelAnchor(itemName) {
+    const title = findTitleElement(itemName);
+    if (!title) return null;
+    const closest = title.closest('[class*="header"],[class*="title"]');
+    return closest && closest !== title ? closest : title.parentElement || title;
+  }
+
+  function renderWatchPanel(item, exits) {
+    const anchor = panelAnchor(item.name);
+    if (!anchor) return null;
+    let panel = document.getElementById(A.panel);
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = A.panel;
+    }
+    if (panel.previousElementSibling !== anchor) anchor.insertAdjacentElement('afterend', panel);
+    const watched = isWatched(watchedStore(), item);
+    const favorites = favoriteStore().entries.length;
+    const best = bestExit(exits);
+    if (!watched) {
+      panel.className = 'idle';
+      panel.innerHTML = `<div class="watch-copy"><strong>☆ NOT WATCHED · ${esc(item.name)}</strong><span>Watch this item across your favorite traders.</span></div><button type="button" data-market-watch-toggle>+ WATCH</button>`;
+      return panel;
+    }
+    if (!favorites) {
+      panel.className = 'missing';
+      panel.innerHTML = `<div class="watch-copy"><strong>★ WATCHED · NO FAVORITE TRADERS</strong><span>Star traders in the Trader Book or Deals report.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      return panel;
+    }
+    if (!best) {
+      panel.className = 'missing';
+      panel.innerHTML = `<div class="watch-copy"><strong>★ WATCHED · NO CAPTURED EXIT</strong><span>${favorites.toLocaleString()} favorite trader${favorites === 1 ? '' : 's'} · none currently list this item.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      return panel;
+    }
+    panel.className = best.status;
+    if (best.status === 'fresh') {
+      panel.innerHTML = `<div class="watch-copy"><strong>★ BEST EXIT · ${esc(best.traderName)} pays ${esc(cash(best.price))} · ${esc(ageText(best.captured))} old</strong><span>${exits.length.toLocaleString()} captured favorite${exits.length === 1 ? '' : 's'} · buy below ${esc(cash(best.price))}</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+    } else if (best.status === 'stale') {
+      panel.innerHTML = `<div class="watch-copy"><strong>⌛ WATCHED REFERENCE · ${esc(best.traderName)} paid ${esc(cash(best.price))}</strong><span>${esc(ageText(best.captured))} old · recapture before buying · no signal</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+    } else {
+      panel.innerHTML = `<div class="watch-copy"><strong>⚠ WATCHED PRICE OUTDATED · ${esc(best.traderName)}</strong><span>Last paid ${esc(cash(best.price))} · recapture before buying.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+    }
+    return panel;
+  }
+
+  function ownText(element) {
+    if (!(element instanceof Element)) return '';
+    return clean([...element.childNodes]
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent)
+      .join(' '));
+  }
+
   function listingPrice(row) {
     const candidates = [...row.querySelectorAll('span,div,p,strong,b')]
-      .filter((element) => !element.closest('[data-tsimm-track-profit],.tsimm-tmo-badge,.tsimm-margin-badge'));
+      .filter((element) => !element.closest('[data-tsimm-watch-profit],.tsimm-margin-badge'));
     for (const element of candidates) {
       const text = ownText(element);
       if (!/^\$[\d,.]+$/.test(text)) continue;
@@ -684,153 +545,83 @@
   }
 
   function cleanupMarket() {
-    document.querySelectorAll('.tsimm-track-inline[data-tsimm-track-original-html]').forEach((line) => {
-      line.innerHTML = line.dataset.tsimmTrackOriginalHtml || '';
-      line.classList.remove('tsimm-track-inline');
-      delete line.dataset.tsimmTrackOriginalHtml;
-      line.closest('.tsimm-margin-badge')?.classList.remove('tsimm-track-inline-badge');
+    document.querySelectorAll('.tsimm-watch-inline[data-tsimm-watch-original-html]').forEach((line) => {
+      line.innerHTML = line.dataset.tsimmWatchOriginalHtml || '';
+      line.classList.remove('tsimm-watch-inline');
+      delete line.dataset.tsimmWatchOriginalHtml;
+      line.closest('.tsimm-margin-badge')?.classList.remove('tsimm-watch-inline-badge');
     });
-    document.querySelectorAll('[data-tsimm-tracked], [data-tsimm-track-profit]').forEach((element) => element.remove());
-    const caption = document.getElementById(A.caption);
-    const captionAnchor = caption?.parentElement;
-    caption?.remove();
-    if (captionAnchor?.dataset?.tsimmTrackCaptionAnchor === '1') {
-      captionAnchor.classList.remove('tsimm-track-caption-anchor');
-      delete captionAnchor.dataset.tsimmTrackCaptionAnchor;
-    }
-    document.querySelectorAll('[data-tsimm-track-caption-anchor="1"]').forEach((anchor) => {
-      anchor.classList.remove('tsimm-track-caption-anchor');
-      delete anchor.dataset.tsimmTrackCaptionAnchor;
-    });
-    document.querySelectorAll('.tsimm-tracked-buy-row,.tsimm-track-profitable,.tsimm-track-floor-row,.tsimm-track-format-row').forEach((row) => {
-      row.classList.remove('tsimm-tracked-buy-row', 'tsimm-track-profitable', 'tsimm-track-floor-row', 'tsimm-track-format-row');
-      delete row.dataset.tsimmTrackedToken;
+    document.querySelectorAll('[data-tsimm-watch-profit]').forEach((element) => element.remove());
+    document.querySelectorAll('.tsimm-watch-profitable,.tsimm-watch-floor-row,.tsimm-watch-format-row').forEach((row) => {
+      row.classList.remove('tsimm-watch-profitable', 'tsimm-watch-floor-row', 'tsimm-watch-format-row');
     });
   }
 
-  function placeCaption(caption, title) {
-    const closest = title.closest('[class*="header"],[class*="title"]');
-    const anchor = closest && closest !== title ? closest : title.parentElement || title;
-    if (!(anchor instanceof Element)) return;
-    document.querySelectorAll('[data-tsimm-track-caption-anchor="1"]').forEach((previous) => {
-      if (previous === anchor) return;
-      previous.classList.remove('tsimm-track-caption-anchor');
-      delete previous.dataset.tsimmTrackCaptionAnchor;
-    });
-    anchor.classList.add('tsimm-track-caption-anchor');
-    anchor.dataset.tsimmTrackCaptionAnchor = '1';
-    if (caption.parentElement !== anchor) anchor.appendChild(caption);
-    caption.classList.remove('stacked');
-    caption.style.position = 'absolute';
-    caption.style.top = '50%';
-    caption.style.transform = 'translateY(-50%)';
-    caption.style.right = '84px';
-    const anchorRect = anchor.getBoundingClientRect();
-    const titleRect = title.getBoundingClientRect();
-    const left = Math.max(8, Math.round(titleRect.right - anchorRect.left + 8));
-    caption.style.left = `${left}px`;
-    const available = anchorRect.width - left - 84;
-    if (available >= 150) return;
-    caption.classList.add('stacked');
-    caption.removeAttribute('style');
-    anchor.classList.remove('tsimm-track-caption-anchor');
-    delete anchor.dataset.tsimmTrackCaptionAnchor;
-    anchor.insertAdjacentElement('afterend', caption);
-  }
-
-  function renderCaption(entry, itemName, summary = null) {
-    const title = findTitleElement(itemName);
-    if (!title) return null;
-    let caption = document.getElementById(A.caption);
-    if (!caption) {
-      caption = document.createElement('div');
-      caption.id = A.caption;
-    }
-    caption.className = entry.status;
-    const age = ageText(entry.captured);
-    if (entry.status === 'fresh') {
-      const count = Math.max(0, Number(summary?.count) || 0);
-      const best = Math.max(0, Number(summary?.best) || 0);
-      caption.innerHTML = `<strong>📌 ${esc(entry.traderName)} pays ${esc(cash(entry.price))} · ${esc(age)} old</strong><span>${count.toLocaleString()} profitable${best > 0 ? ` · best +${esc(cash(best))} ea` : ''} · buy below ${esc(cash(entry.price))}</span>`;
-    } else if (entry.status === 'stale') {
-      caption.innerHTML = `<strong>⌛ TRACKED REFERENCE · ${esc(entry.traderName)}</strong><span>Last paid ${esc(cash(entry.price))} · ${esc(age)} old · no buy signal</span>`;
-    } else if (entry.status === 'outdated') {
-      caption.innerHTML = `<strong>⚠ TRACKED PRICE OUTDATED · ${esc(entry.traderName)}</strong><span>Last paid ${esc(cash(entry.price))} · recapture before buying</span>`;
-    } else {
-      caption.innerHTML = `<strong>⚠ TRACKED PRICE UNAVAILABLE · ${esc(entry.traderName)}</strong><span>Recapture this trader before buying</span>`;
-    }
-    placeCaption(caption, title);
-    return caption;
-  }
-
-  function addProfitMarker(row, trackedProfit, traderName = '') {
+  function addProfitMarker(row, traderProfit, traderName = '') {
     const badge = row.querySelector('.tsimm-margin-badge');
     const immProfit = signedEach(badge?.textContent);
     const traderLabel = clean(traderName).slice(0, 14) || 'trader';
     let label = '';
     let flip = false;
     if (Number.isFinite(immProfit) && immProfit < 0) {
-      label = `📌 ${traderLabel} FLIP +${cash(trackedProfit)}`;
+      label = `📌 ${traderLabel} FLIP +${cash(traderProfit)}`;
       flip = true;
     } else if (Number.isFinite(immProfit)) {
-      const extra = trackedProfit - immProfit;
+      const extra = traderProfit - immProfit;
       if (extra <= 0) return false;
       label = `📌 ${traderLabel} +${cash(extra)} better`;
     } else {
-      label = `📌 ${traderLabel} +${cash(trackedProfit)}`;
+      label = `📌 ${traderLabel} +${cash(traderProfit)}`;
     }
-
     const badgeLines = badge ? [...badge.querySelectorAll('span')] : [];
     const inlineLine = badgeLines.at(-1) || null;
     if (inlineLine) {
-      inlineLine.dataset.tsimmTrackOriginalHtml = inlineLine.innerHTML;
+      inlineLine.dataset.tsimmWatchOriginalHtml = inlineLine.innerHTML;
       inlineLine.textContent = label;
-      inlineLine.classList.add('tsimm-track-inline');
-      badge.classList.add('tsimm-track-inline-badge');
-      row.classList.add('tsimm-track-profitable');
+      inlineLine.classList.add('tsimm-watch-inline');
+      badge.classList.add('tsimm-watch-inline-badge');
+      row.classList.add('tsimm-watch-profitable');
       return true;
     }
-
     const marker = document.createElement('span');
-    marker.className = `tsimm-track-profit${flip ? ' flip' : ''}`;
-    marker.dataset.tsimmTrackProfit = '1';
-    marker.dataset.tsimmTrackTraderProfit = String(trackedProfit);
+    marker.className = `tsimm-watch-profit${flip ? ' flip' : ''}`;
+    marker.dataset.tsimmWatchProfit = '1';
     marker.textContent = label;
     row.appendChild(marker);
-    row.classList.add('tsimm-track-format-row', 'tsimm-track-profitable');
+    row.classList.add('tsimm-watch-format-row', 'tsimm-watch-profitable');
     return true;
   }
 
   function decorateMarket() {
     cleanupMarket();
-    if (!marketPage()) return;
-    const groups = resolvedTracked();
-    if (!groups.size) return;
-    const match = currentTrackedGroup(groups);
-    if (!match?.[1]?.length) return;
-    const entry = match[1][0], itemName = clean(entry.itemName);
-    if (entry.status !== 'fresh') {
-      renderCaption(entry, itemName);
+    if (!marketPage()) {
+      document.getElementById(A.panel)?.remove();
       return;
     }
-
+    const item = currentMarketItem();
+    if (!item) {
+      document.getElementById(A.panel)?.remove();
+      return;
+    }
+    const watched = isWatched(watchedStore(), item);
+    const exits = watched ? exitsForItem(item) : [];
+    const best = bestExit(exits);
+    renderWatchPanel(item, exits);
+    if (!watched || !best || best.status !== 'fresh') return;
     const rows = [...document.querySelectorAll('.tsimm-listing-mark')];
-    let sawProfit = false, floorPlaced = false, count = 0, best = 0;
+    let sawProfit = false;
+    let floorPlaced = false;
     for (const row of rows) {
       const price = listingPrice(row);
-      const trackedProfit = price > 0 ? entry.price - price : 0;
-      const profitable = trackedProfit > 0;
-      if (profitable) {
+      const traderProfit = price > 0 ? best.price - price : 0;
+      if (traderProfit > 0) {
         sawProfit = true;
-        count += 1;
-        best = Math.max(best, trackedProfit);
-        addProfitMarker(row, trackedProfit, entry.traderName);
+        addProfitMarker(row, traderProfit, best.traderName);
       } else if (sawProfit && !floorPlaced && price > 0) {
-        row.classList.add('tsimm-track-floor-row');
+        row.classList.add('tsimm-watch-floor-row');
         floorPlaced = true;
       }
     }
-    renderCaption(entry, itemName, { count, best });
   }
 
   function cardTrader(card, traders) {
@@ -848,58 +639,29 @@
     return traders.find((candidate) => candidate.n === name) || null;
   }
 
-  function openRecapture(trader) {
-    const now = Date.now();
-    write(A.pending, {
-      traderId: trader.id,
-      userId: trader.uid,
-      name: trader.name,
-      armedAt: now,
-      expiresAt: now + 3600000,
-    });
-    const current = bridge();
-    const previousWindowName = clean(current?.previousWindowName
-      || (String(window.name).startsWith(A.bridge) ? '' : String(window.name).slice(0, 4096)));
-    window.name = A.bridge + JSON.stringify({
-      version: 1,
-      type: 'request',
-      trader: {
-        traderId: trader.id,
-        userId: trader.uid,
-        name: trader.name,
-        profileUrl: clean(trader.raw.profileUrl),
-        tradeUrl: clean(trader.raw.tradeUrl),
-        bannerUrl: clean(trader.raw.bannerUrl),
-      },
-      returnUrl: 'https://www.torn.com/page.php?sid=ItemMarket',
-      expiresAt: now + 900000,
-      autoReturn: true,
-      previousWindowName,
-    });
-    location.href = trader.url;
-  }
-
   function decorateBook() {
     const book = document.getElementById('tornscripture-imm-traders');
     if (!book) return;
     const traders = normTraders();
+    const favorites = favoriteStore();
     for (const card of book.querySelectorAll('.tsimm-trader-card')) {
       const trader = cardTrader(card, traders);
-      let button = card.querySelector('[data-tx-recapture]');
-      if (!trader || !isTX(trader.url) || coreOwnsTX()) {
+      let button = card.querySelector('[data-watch-favorite-book]');
+      if (!trader) {
         button?.remove();
         continue;
       }
       if (!button) {
         button = document.createElement('button');
         button.type = 'button';
-        button.dataset.txRecapture = '1';
-        button.className = 'tsimm-tx-recapture';
-        button.textContent = 'Open & recapture';
+        button.dataset.watchFavoriteBook = '1';
+        button.className = 'tsimm-favorite-trader-btn';
         const actions = card.querySelector('.tsimm-trader-actions') || card;
-        const edit = actions.querySelector('[data-tsimm-action="trader-edit"]');
-        edit ? actions.insertBefore(button, edit) : actions.appendChild(button);
+        actions.prepend(button);
       }
+      const favorite = isFavorite(favorites, trader);
+      button.classList.toggle('on', favorite);
+      button.textContent = favorite ? '★ FAVORITE' : '☆ FAVORITE';
       button.dataset.trader = trader.id;
     }
   }
@@ -911,7 +673,7 @@
       for (const [name, task] of [
         ['style', injectStyle],
         ['book', decorateBook],
-        ['dock', renderTrackDock],
+        ['dock', renderWatchDock],
         ['market', decorateMarket],
       ]) {
         try {
@@ -924,9 +686,8 @@
     }, 100);
   }
 
-  function tornBoot() {
-    if (!coreOwnsTX() && importTX()) return;
-    notice();
+  function boot() {
+    migrateLegacyTracking();
     const start = () => {
       if (!document.body) return setTimeout(start, 60);
       injectStyle();
@@ -942,36 +703,45 @@
           const row = rowButton.closest('.td-row');
           if (row) selectDeal(row);
         }
-        const dockButton = event.target.closest?.('[data-track-dock-toggle]');
-        if (dockButton) {
+        const favoriteDock = event.target.closest?.('[data-watch-favorite-toggle]');
+        if (favoriteDock && selectedDeal) {
           event.preventDefault();
           event.stopImmediatePropagation();
-          if (selectedDeal) {
-            toggleTrack(selectedDeal.trader, selectedDeal.item);
-            renderTrackDock();
-          }
+          toggleFavorite(selectedDeal.trader);
           return;
         }
-        const recapture = event.target.closest?.('[data-tx-recapture]');
-        if (recapture) {
+        const itemDock = event.target.closest?.('[data-watch-item-toggle]');
+        if (itemDock && selectedDeal) {
           event.preventDefault();
-          event.stopPropagation();
-          const trader = normTraders().find((candidate) => candidate.id === clean(recapture.dataset.trader));
-          if (trader) openRecapture(trader);
+          event.stopImmediatePropagation();
+          toggleWatched(selectedDeal.item, 'deals');
+          return;
+        }
+        const favoriteBook = event.target.closest?.('[data-watch-favorite-book]');
+        if (favoriteBook) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          const trader = normTraders().find((candidate) => candidate.id === clean(favoriteBook.dataset.trader));
+          if (trader) toggleFavorite(trader);
+          return;
+        }
+        const marketWatch = event.target.closest?.('[data-market-watch-toggle]');
+        if (marketWatch) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          const item = currentMarketItem();
+          if (item) toggleWatched(item, 'market');
         }
       }, true);
       new MutationObserver(() => {
         if (!ownMutation) scheduleTorn();
       }).observe(document.body, { childList: true, subtree: true });
-      window.addEventListener('tsimm:tracked-items-updated', scheduleTorn);
+      window.addEventListener('tsimm:watchlists-updated', scheduleTorn);
       setInterval(scheduleTorn, 1500);
       scheduleTorn();
     };
     start();
   }
 
-  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    if (isTorn()) setTimeout(tornBoot, 140);
-    else setTimeout(() => { if (!coreOwnsTX()) txBoot(); }, 260);
-  }
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') boot();
 })();
