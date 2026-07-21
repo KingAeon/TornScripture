@@ -1,0 +1,52 @@
+name: Validate core watchlist migration
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/patch-core-watchlists-v094.py
+      - TornScripture-Item-Market-Margin.user.js
+      - TornScripture-IMM-Trader-Extensions.user.js
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Move watchlists into core
+        run: python tools/patch-core-watchlists-v094.py
+
+      - name: Validate JavaScript syntax
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          node --check TornScripture-IMM-Trader-Extensions.user.js
+
+      - name: Validate ownership markers
+        run: |
+          grep -q "@version      0.9.4" TornScripture-Item-Market-Margin.user.js
+          grep -q "__TSIMM_CORE_WATCHLISTS__" TornScripture-Item-Market-Margin.user.js
+          grep -q "ITEM-CENTRIC WATCHLIST MODULE" TornScripture-Item-Market-Margin.user.js
+          grep -q "@version      0.2.2" TornScripture-IMM-Trader-Extensions.user.js
+          grep -q "dormant: true" TornScripture-IMM-Trader-Extensions.user.js
+          if grep -q "function toggleFavorite" TornScripture-IMM-Trader-Extensions.user.js; then exit 1; fi
+
+      - name: Commit validated migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-Item-Market-Margin.user.js TornScripture-IMM-Trader-Extensions.user.js
+          if git diff --cached --quiet; then
+            echo "No userscript changes to commit."
+          else
+            git commit -m "Move watchlist ownership into IMM core"
+            git push origin HEAD:${GITHUB_HEAD_REF}
+          fi
