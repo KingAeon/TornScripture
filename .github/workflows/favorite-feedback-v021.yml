@@ -31,7 +31,8 @@ jobs:
         run: |
           grep -q "@version      0.2.1" TornScripture-IMM-Trader-Extensions.user.js
           grep -q "function showFavoriteToast" TornScripture-IMM-Trader-Extensions.user.js
-          grep -q "Added.*to favorites" TornScripture-IMM-Trader-Extensions.user.js
+          grep -q "function applyFavoriteButtonState" TornScripture-IMM-Trader-Extensions.user.js
+          grep -q "aria-pressed" TornScripture-IMM-Trader-Extensions.user.js
 
       - name: Commit validated userscript
         run: |
