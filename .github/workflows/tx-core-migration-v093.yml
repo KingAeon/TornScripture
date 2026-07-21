@@ -1,0 +1,49 @@
+name: Migrate TornExchange capture to IMM core
+
+on:
+  push:
+    branches:
+      - agent/tx-core-migration-v0.9.3
+    paths:
+      - tools/patch-tx-core-migration-v093.py
+      - .github/workflows/tx-core-migration-v093.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/tx-core-migration-v0.9.3
+          fetch-depth: 0
+
+      - name: Patch migration
+        run: python tools/patch-tx-core-migration-v093.py
+
+      - name: Validate userscripts
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          node --check TornScripture-IMM-Trader-Extensions.user.js
+
+      - name: Validate ownership markers
+        run: |
+          grep -q "@version      0.9.3" TornScripture-Item-Market-Margin.user.js
+          grep -q "initializeTornExchangePriceCapture" TornScripture-Item-Market-Margin.user.js
+          grep -q "@version      0.1.11" TornScripture-IMM-Trader-Extensions.user.js
+          grep -q "coreOwnsTX" TornScripture-IMM-Trader-Extensions.user.js
+
+      - name: Commit validated migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-Item-Market-Margin.user.js TornScripture-IMM-Trader-Extensions.user.js
+          if git diff --cached --quiet; then
+            echo "No userscript changes to commit."
+          else
+            git commit -m "Move TornExchange capture ownership into IMM core"
+            git push origin HEAD:agent/tx-core-migration-v0.9.3
+          fi
