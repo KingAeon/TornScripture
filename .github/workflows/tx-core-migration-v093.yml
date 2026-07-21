@@ -8,12 +8,14 @@ on:
       - agent/tx-core-migration-v093-run
     paths:
       - tools/patch-tx-core-migration-v093.py
+      - tools/run-patch-tx-core-migration-v093.py
       - .github/workflows/tx-core-migration-v093.yml
   pull_request:
     branches:
       - main
     paths:
       - tools/patch-tx-core-migration-v093.py
+      - tools/run-patch-tx-core-migration-v093.py
       - TornScripture-Item-Market-Margin.user.js
       - TornScripture-IMM-Trader-Extensions.user.js
   issues:
@@ -35,7 +37,7 @@ jobs:
           fetch-depth: 0
 
       - name: Patch migration
-        run: python tools/patch-tx-core-migration-v093.py
+        run: python tools/run-patch-tx-core-migration-v093.py
 
       - name: Validate userscripts
         run: |
