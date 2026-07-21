@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.2
-// @description  Item-market and overseas profit overlays with NPC buyback flips, TornW3B pricelist capture, purchase history, trade verification, and receipt audits.
+// @version      0.9.3
+// @description  Item-market and overseas profit overlays with NPC buyback flips, TornW3B and TornExchange pricelist capture, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
 // @match        https://www.weav3r.dev/pricelist/*
+// @match        https://tornexchange.com/prices/*
+// @match        https://www.tornexchange.com/prices/*
 // @grant        none
 // @run-at       document-start
 // @license      MIT
@@ -17,6 +19,10 @@
 
 (() => {
   'use strict';
+
+  if (typeof window !== 'undefined') {
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.3' });
+  }
 
 
   const EARLY_CAPTURE = Object.freeze({
@@ -164,6 +170,7 @@
     const compact = earlyDecodeBase64Url(encoded);
     const items = earlyCaptureItems(compact);
     if (!compact || !items.length) return false;
+    const provider = earlyClean(compact.p).toLowerCase() === 'tornexchange' ? 'tornexchange' : 'weav3r';
 
     const pending = earlyLoadJson(EARLY_CAPTURE.pendingKey, null);
     const identity = compact.t && typeof compact.t === 'object' ? compact.t : {};
@@ -187,7 +194,7 @@
         profileUrl: earlyClean(identity.profileUrl),
         tradeUrl: earlyClean(identity.tradeUrl),
         bannerUrl: earlyClean(identity.bannerUrl),
-        captureSource: 'weav3r-pricelist',
+        captureSource: `${provider}-pricelist`,
         pricePageItems: [],
         createdAt: new Date().toISOString(),
       });
@@ -207,13 +214,13 @@
         : earlyClean(trader.previousPricePageUrl),
       pricePageUrl: sourceUrl || earlyClean(trader.pricePageUrl),
       pricePageTitle: earlyClean(compact.l || trader.pricePageTitle).slice(0, 160),
-      pricePageProvider: 'weav3r',
+      pricePageProvider: provider,
       pricePageItems: items,
       pricePageCapturedAt: compact.c || now,
       pricePageLastCheckedAt: now,
       pricePageCaptureCount: Math.max(0, Math.floor(Number(trader.pricePageCaptureCount) || 0)) + 1,
       pricePageLastChangedCount: changes,
-      pricePageLastResult: 'weav3r-pricelist:core-preflight',
+      pricePageLastResult: `${provider}-pricelist:core-preflight`,
       updatedAt: now,
     };
 
@@ -255,7 +262,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.2
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.3
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -270,7 +277,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.2',
+    version: '0.9.3',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -282,6 +289,8 @@
     ledgerOverlayId: 'tornscripture-imm-ledger',
     traderOverlayId: 'tornscripture-imm-traders',
     receiptAuditOverlayId: 'tornscripture-imm-receipt-audit',
+    tornExchangePanelId: 'tsimm-tx-panel',
+    tornExchangeStyleId: 'tsimm-tx-core-style',
     apiKeyStorageKey: 'tornscripture-imm-api-key-v1',
     sharedApiKeyStorageKey: 'tornscripture-ish-api-key-v1',
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
@@ -348,6 +357,10 @@
     weav3rCaptureTimer: null,
     weav3rObserver: null,
     weav3rAutoReturnTimer: null,
+    tornExchangeCapturePreview: null,
+    tornExchangeCaptureTimer: null,
+    tornExchangeObserver: null,
+    tornExchangeAutoReturnTimer: null,
     ledgerUi: {
       view: 'holdings',
       search: '',
@@ -657,8 +670,32 @@
     }
   }
 
+  function isTornExchangePriceListUrl(value = location.href) {
+    const normalized = normalizeHttpUrl(value);
+    if (!normalized) return false;
+    try {
+      const url = new URL(normalized);
+      return /^(?:www\.)?tornexchange\.com$/i.test(url.hostname)
+        && /^\/prices\/[^/]+\/?$/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  function cleanSupportedPricePageUrl(value = location.href) {
+    const normalized = cleanWeav3rPriceListUrl(value);
+    if (!normalized) return '';
+    try {
+      const url = new URL(normalized);
+      if (isTornExchangePriceListUrl(url.href)) url.hash = '';
+      return url.href;
+    } catch {
+      return normalized;
+    }
+  }
+
   function isSupportedPricePageUrl(value) {
-    return isTornPageUrl(value) || isWeav3rPriceListUrl(value);
+    return isTornPageUrl(value) || isWeav3rPriceListUrl(value) || isTornExchangePriceListUrl(value);
   }
 
   function compactTraderCaptureIdentity(trader) {
@@ -677,7 +714,7 @@
       version: 1,
       type: 'request',
       trader: compactTraderCaptureIdentity(trader),
-      sourceUrl: cleanWeav3rPriceListUrl(sourceUrl),
+      sourceUrl: cleanSupportedPricePageUrl(sourceUrl),
       returnUrl: normalizeHttpUrl(location.href) || 'https://www.torn.com/index.php',
       requestedAt: Date.now(),
       expiresAt: Date.now() + (15 * 60 * 1000),
@@ -802,8 +839,9 @@
   function compactPriceCaptureResult(payload) {
     return {
       v: 1,
+      p: normalizeWhitespace(payload.provider || payload.sourceType || 'weav3r').toLowerCase(),
       t: compactTraderCaptureIdentity(payload.trader),
-      u: cleanWeav3rPriceListUrl(payload.sourceUrl),
+      u: cleanSupportedPricePageUrl(payload.sourceUrl),
       l: normalizeWhitespace(payload.title).slice(0, 160),
       c: payload.capturedAt || new Date().toISOString(),
       i: (payload.items || []).map((item) => {
@@ -830,6 +868,7 @@
     }).filter(Boolean);
     return {
       trader: compact.t || {},
+      provider: normalizeWhitespace(compact.p || 'weav3r').toLowerCase(),
       sourceUrl: normalizeHttpUrl(compact.u),
       title: normalizeWhitespace(compact.l),
       capturedAt: compact.c || null,
@@ -878,6 +917,7 @@
     const imported = priceCaptureResultFromCurrentUrl() || fromWindow;
     if (!imported?.items?.length) return null;
     const identity = imported.trader || {};
+    const provider = imported.provider === 'tornexchange' ? 'tornexchange' : 'weav3r';
     let trader = state.traders.find((entry) =>
       (identity.traderId && entry.id === identity.traderId)
       || (identity.userId && entry.userId === Number(identity.userId))
@@ -891,16 +931,16 @@
         profileUrl: identity.profileUrl,
         tradeUrl: identity.tradeUrl,
         bannerUrl: identity.bannerUrl,
-        captureSource: 'weav3r-pricelist',
+        captureSource: `${provider}-pricelist`,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }));
     }
     const result = saveTraderPriceCapture(trader, {
       url: imported.sourceUrl,
-      title: imported.title || `${trader.name}'s TornW3B pricelist`,
+      title: imported.title || `${trader.name}'s ${provider === 'tornexchange' ? 'TornExchange' : 'TornW3B'} pricelist`,
       items: imported.items,
-      sourceType: 'weav3r-pricelist',
+      sourceType: `${provider}-pricelist`,
       automatic: true,
     });
     const pending = activePendingTraderCapture();
@@ -919,6 +959,7 @@
     const items = captureWeav3rPriceItems();
     const result = {
       trader: { ...identity, traderId: identity.traderId || request?.trader?.traderId || '' },
+      provider: 'weav3r',
       sourceUrl: cleanWeav3rPriceListUrl(location.href),
       title: document.title,
       items,
@@ -1029,6 +1070,212 @@
     renderWeav3rCapturePanel();
     scheduleWeav3rCaptureScan(700);
     setTimeout(() => scheduleWeav3rCaptureScan(1800), 1800);
+  }
+
+
+  function tornExchangeCaptureRequest() {
+    const bridged = readPriceBridgeWindowName();
+    return bridged?.type === 'request' ? bridged : null;
+  }
+
+  function tornExchangePageName() {
+    const headings = [...document.querySelectorAll('h1,h2,h3,[role="heading"]')]
+      .map((element) => normalizeWhitespace(element.textContent));
+    for (const heading of headings) {
+      const match = heading.match(/^(.+?)(?:[’']s)\s+(?:Trading|Price)\s+List/i);
+      if (match?.[1]) return normalizeWhitespace(match[1]);
+    }
+    const titleMatch = normalizeWhitespace(document.title).match(/^(.+?)(?:[’']s)\s+(?:Trading|Price)\s+List/i);
+    if (titleMatch?.[1]) return normalizeWhitespace(titleMatch[1]);
+    return normalizeWhitespace(decodeURIComponent(location.pathname).match(/^\/prices\/([^/]+)/i)?.[1]) || 'TornExchange trader';
+  }
+
+  function tornExchangePageUpdated() {
+    return normalizeWhitespace(String(document.body?.innerText || '').match(/Prices\s+last\s+updated\s*:\s*([^\n\r]+)/i)?.[1]).slice(0, 120);
+  }
+
+  function tornExchangeCellPrice(value) {
+    const text = normalizeWhitespace(value);
+    if (!/\d/.test(text)) return null;
+    const number = Number(text.replace(/[^\d.-]/g, ''));
+    return Number.isFinite(number) && number > 0 ? number : null;
+  }
+
+  function tornExchangeRowItemId(row) {
+    for (const element of row.querySelectorAll('[href],[src],[data-item-id],[data-itemid],[data-id]')) {
+      for (const value of [
+        element.getAttribute('href'), element.getAttribute('src'), element.getAttribute('data-item-id'),
+        element.getAttribute('data-itemid'), element.getAttribute('data-id'),
+      ].filter(Boolean)) {
+        const match = String(value).match(/[?&#](?:itemID|itemId|item_id|ID|id)=(\d+)/i)
+          || String(value).match(/\/(?:images\/)?items?\/(\d+)(?:\/|\.|$)/i);
+        if (Number(match?.[1]) > 0) return Number(match[1]);
+      }
+    }
+    return null;
+  }
+
+  function captureTornExchangePriceItems() {
+    const found = new Map();
+    for (const table of document.querySelectorAll('table')) {
+      const headingRow = table.querySelector('thead tr') || table.querySelector('tr');
+      const headings = [...(headingRow?.querySelectorAll('th,td') || [])].map((element) => normalizeName(element.textContent));
+      const nameIndex = headings.findIndex((heading) => heading === 'item name' || heading === 'item');
+      const priceIndex = headings.findIndex((heading) => heading.includes('buy price') || heading === 'price');
+      const rows = table.querySelectorAll('tbody tr').length ? table.querySelectorAll('tbody tr') : table.querySelectorAll('tr');
+      for (const row of rows) {
+        if (row === headingRow) continue;
+        const cells = [...row.children].filter((element) => /^(?:TH|TD)$/i.test(element.tagName));
+        if (cells.length < 2) continue;
+        let selectedPriceIndex = priceIndex;
+        if (selectedPriceIndex < 0 || !tornExchangeCellPrice(cells[selectedPriceIndex]?.textContent)) {
+          for (let index = cells.length - 1; index >= 0; index -= 1) {
+            if (tornExchangeCellPrice(cells[index].textContent)) {
+              selectedPriceIndex = index;
+              break;
+            }
+          }
+        }
+        const unitPrice = tornExchangeCellPrice(cells[selectedPriceIndex]?.textContent);
+        if (!unitPrice) continue;
+        let itemName = normalizeWhitespace(cells[nameIndex]?.textContent);
+        if (!itemName || /^(?:image|item|item name|buy price|price)$/i.test(itemName) || tornExchangeCellPrice(itemName)) {
+          itemName = cells.map((cell, index) => ({ index, text: normalizeWhitespace(cell.textContent) }))
+            .filter((entry) => entry.index !== selectedPriceIndex && entry.text && !tornExchangeCellPrice(entry.text) && !/^image$/i.test(entry.text))
+            .sort((left, right) => right.text.length - left.text.length)[0]?.text || '';
+        }
+        if (!itemName) continue;
+        const itemId = tornExchangeRowItemId(row);
+        const item = normalizeTraderPriceItem({ itemId, itemName, unitPrice });
+        if (!item) continue;
+        const itemKey = traderPriceItemKey(item);
+        const previous = found.get(itemKey);
+        if (!previous || unitPrice > previous.unitPrice) found.set(itemKey, item);
+      }
+    }
+    return [...found.values()].sort((left, right) => left.itemName.localeCompare(right.itemName));
+  }
+
+  function tornExchangeTraderIdentity() {
+    const request = tornExchangeCaptureRequest();
+    const requested = request?.trader || {};
+    const pageName = tornExchangePageName();
+    return {
+      traderId: normalizeWhitespace(requested.traderId),
+      userId: Math.max(0, Math.floor(Number(requested.userId) || 0)) || null,
+      name: pageName || normalizeWhitespace(requested.name) || 'TornExchange trader',
+      profileUrl: normalizeHttpUrl(requested.profileUrl),
+      tradeUrl: normalizeHttpUrl(requested.tradeUrl),
+      bannerUrl: normalizeHttpUrl(requested.bannerUrl),
+    };
+  }
+
+  function createTornExchangeCaptureResult() {
+    const request = tornExchangeCaptureRequest();
+    const identity = tornExchangeTraderIdentity();
+    const items = captureTornExchangePriceItems();
+    const result = {
+      trader: { ...identity, traderId: identity.traderId || request?.trader?.traderId || '' },
+      provider: 'tornexchange',
+      sourceUrl: cleanSupportedPricePageUrl(location.origin + location.pathname),
+      title: `${tornExchangePageName()} TornExchange prices`,
+      items,
+      capturedAt: new Date().toISOString(),
+    };
+    state.tornExchangeCapturePreview = result;
+    writePriceBridgeWindowName({
+      version: 1,
+      type: 'result',
+      compact: compactPriceCaptureResult(result),
+      returnUrl: request?.returnUrl || 'https://www.torn.com/page.php?sid=ItemMarket',
+      expiresAt: Date.now() + (20 * 60 * 1000),
+    });
+    return { result, request };
+  }
+
+  function goBackToTornWithTornExchangeCapture({ automatic = false } = {}) {
+    const { result, request } = createTornExchangeCaptureResult();
+    renderTornExchangeCapturePanel();
+    if (!result.items.length) return null;
+    const armedName = normalizeWhitespace(request?.trader?.name);
+    if (armedName && normalizeName(armedName) !== normalizeName(result.trader.name)
+      && !confirm(`IMM is armed for ${armedName}, but this page belongs to ${result.trader.name}.\n\nSave these prices to ${armedName}?`)) return null;
+    if (armedName) result.trader.name = armedName;
+    const returnUrl = returnUrlWithPriceCapture(
+      result,
+      request?.returnUrl || 'https://www.torn.com/page.php?sid=ItemMarket',
+    );
+    clearTimeout(state.tornExchangeAutoReturnTimer);
+    state.tornExchangeAutoReturnTimer = setTimeout(() => window.location.assign(returnUrl), automatic ? 900 : 300);
+    return result;
+  }
+
+  function injectTornExchangeStyles() {
+    if (!document.head || document.getElementById(APP.tornExchangeStyleId)) return;
+    const style = document.createElement('style');
+    style.id = APP.tornExchangeStyleId;
+    style.textContent = `
+      #${APP.tornExchangePanelId}{position:fixed;right:10px;bottom:10px;z-index:2147483646;width:min(360px,calc(100vw - 20px));overflow:hidden;border:1px solid #3bd35d;border-radius:9px;background:#020704;color:#aaff83;box-shadow:0 14px 40px #000c;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      #${APP.tornExchangePanelId} *{box-sizing:border-box}#${APP.tornExchangePanelId} .txh{display:flex;padding:9px 10px;border-bottom:1px solid #1d6b2d;background:#041108}#${APP.tornExchangePanelId} .txh strong{flex:1}#${APP.tornExchangePanelId} .txb{display:grid;gap:7px;padding:10px}#${APP.tornExchangePanelId} .txg{display:grid;grid-template-columns:1fr auto;gap:4px 8px}#${APP.tornExchangePanelId} .txg b{text-align:right}#${APP.tornExchangePanelId} .txw{padding:7px;border:1px solid #9a6d1f;border-radius:5px;background:#241a05;color:#ffd166}#${APP.tornExchangePanelId} .txa{display:grid;grid-template-columns:1fr 1.7fr;gap:6px}#${APP.tornExchangePanelId} button{border:1px solid #2c843d;border-radius:5px;background:#06170a;color:#b6ff9d;padding:8px;font:700 10px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function renderTornExchangeCapturePanel() {
+    injectTornExchangeStyles();
+    let panel = document.getElementById(APP.tornExchangePanelId);
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = APP.tornExchangePanelId;
+      document.body.appendChild(panel);
+    }
+    const items = state.tornExchangeCapturePreview?.items || captureTornExchangePriceItems();
+    const name = tornExchangePageName();
+    const updated = tornExchangePageUpdated();
+    const request = tornExchangeCaptureRequest();
+    const armed = normalizeWhitespace(request?.trader?.name);
+    const mismatch = armed && normalizeName(armed) !== normalizeName(name);
+    panel.innerHTML = `<div class="txh"><strong>&gt; TORNEXCHANGE_CAPTURE</strong><span>core v${escapeHtml(APP.version)}</span></div><div class="txb"><div class="txg"><span>PAGE</span><b>${escapeHtml(name)}</b><span>PRICES</span><b>${formatInteger(items.length)}</b><span>UPDATED</span><b>${escapeHtml(updated || 'Unknown')}</b><span>TARGET</span><b>${escapeHtml(armed || name)}</b></div>${mismatch ? `<div class="txw">ARMED FOR ${escapeHtml(armed)} · PAGE IS ${escapeHtml(name)}</div>` : ''}<div class="txa"><button data-tsimm-tx-action="scan">RESCAN</button><button data-tsimm-tx-action="save" ${items.length ? '' : 'disabled'}>CAPTURE & RETURN</button></div></div>`;
+  }
+
+  function scheduleTornExchangeCaptureScan(delay = 350) {
+    clearTimeout(state.tornExchangeCaptureTimer);
+    state.tornExchangeCaptureTimer = setTimeout(() => {
+      state.tornExchangeCaptureTimer = null;
+      state.tornExchangeCapturePreview = {
+        trader: tornExchangeTraderIdentity(),
+        provider: 'tornexchange',
+        sourceUrl: cleanSupportedPricePageUrl(location.origin + location.pathname),
+        title: `${tornExchangePageName()} TornExchange prices`,
+        items: captureTornExchangePriceItems(),
+      };
+      renderTornExchangeCapturePanel();
+      const request = tornExchangeCaptureRequest();
+      if (request?.autoReturn && state.tornExchangeCapturePreview.items.length
+        && readPriceBridgeWindowName()?.type !== 'result') {
+        goBackToTornWithTornExchangeCapture({ automatic: true });
+      }
+    }, Math.max(0, Number(delay) || 0));
+  }
+
+  function initializeTornExchangePriceCapture() {
+    injectTornExchangeStyles();
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-tsimm-tx-action]');
+      if (!button) return;
+      const action = button.dataset.tsimmTxAction;
+      if (action === 'scan') scheduleTornExchangeCaptureScan(20);
+      else if (action === 'save') goBackToTornWithTornExchangeCapture({ automatic: false });
+    });
+    state.tornExchangeObserver = new MutationObserver((records) => {
+      const panel = document.getElementById(APP.tornExchangePanelId);
+      if (panel && records.every((record) => panel.contains(record.target))) return;
+      scheduleTornExchangeCaptureScan(180);
+    });
+    state.tornExchangeObserver.observe(document.body, { childList: true, subtree: true });
+    renderTornExchangeCapturePanel();
+    scheduleTornExchangeCaptureScan(650);
+    setTimeout(() => scheduleTornExchangeCaptureScan(20), 1600);
   }
 
   function normalizePriceRecaptureRequest(candidate) {
@@ -1260,6 +1507,12 @@
       const request = priceCaptureRequestForTrader(trader, trader.pricePageUrl);
       writePriceBridgeWindowName(request);
       window.location.assign(weav3rUrlWithCaptureRequest(trader.pricePageUrl, request));
+      return;
+    }
+    if (isTornExchangePriceListUrl(trader.pricePageUrl)) {
+      const request = priceCaptureRequestForTrader(trader, trader.pricePageUrl);
+      writePriceBridgeWindowName(request);
+      window.location.assign(cleanSupportedPricePageUrl(trader.pricePageUrl));
       return;
     }
     if (!isTornPageUrl(trader.pricePageUrl)) {
@@ -5998,6 +6251,10 @@
   function initialize() {
     if (state.initialized || !document.body) return;
     state.initialized = true;
+    if (isTornExchangePriceListUrl(location.href)) {
+      initializeTornExchangePriceCapture();
+      return;
+    }
     if (isWeav3rPriceListUrl(location.href)) {
       initializeWeav3rPriceCapture();
       return;

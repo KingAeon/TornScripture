@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - IMM Trader Extensions
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.10
+// @version      0.1.11
 // @description  Adds TornExchange capture, a persistent Deals tracking dock, and compact tracked-exit margin prompts on Item Market listings.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -20,7 +20,7 @@
   'use strict';
 
   const A = Object.freeze({
-    v: '0.1.10',
+    v: '0.1.11',
     bridge: 'TSIMM_PRICE_BRIDGE:',
     traders: 'tornscripture-imm-traders-v1',
     pending: 'tornscripture-imm-pending-trader-capture-v1',
@@ -87,6 +87,7 @@
     return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
   };
   const isTorn = () => /^(?:www\.)?torn\.com$/i.test(location.hostname);
+  const coreOwnsTX = () => Boolean(window.__TSIMM_CORE_TX_CAPTURE__);
   const isTX = (value = location.href) => {
     const normalized = http(value);
     if (!normalized) return false;
@@ -885,7 +886,7 @@
     for (const card of book.querySelectorAll('.tsimm-trader-card')) {
       const trader = cardTrader(card, traders);
       let button = card.querySelector('[data-tx-recapture]');
-      if (!trader || !isTX(trader.url)) {
+      if (!trader || !isTX(trader.url) || coreOwnsTX()) {
         button?.remove();
         continue;
       }
@@ -924,7 +925,7 @@
   }
 
   function tornBoot() {
-    if (importTX()) return;
+    if (!coreOwnsTX() && importTX()) return;
     notice();
     const start = () => {
       if (!document.body) return setTimeout(start, 60);
@@ -970,6 +971,7 @@
   }
 
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    isTorn() ? tornBoot() : txBoot();
+    if (isTorn()) setTimeout(tornBoot, 140);
+    else setTimeout(() => { if (!coreOwnsTX()) txBoot(); }, 260);
   }
 })();
