@@ -4051,7 +4051,7 @@
     const surfaceText = normalizeWhitespace(surface?.innerText || surface?.textContent || '');
     for (const pattern of [
       /\bmax(?:imum)?\D{0,18}([\d,]+)/i,
-      /\b(?:available|stock|quantity|qty)\D{0,18}([\d,]+)/i,
+      /\b(?:available|stock)\D{0,18}([\d,]+)/i,
       /\bup to\D{0,12}([\d,]+)/i,
     ]) {
       const value = Math.max(0, Math.floor(parseNumber(surfaceText.match(pattern)?.[1]) || 0));
