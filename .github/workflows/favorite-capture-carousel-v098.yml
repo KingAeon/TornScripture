@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'tools/patch-favorite-capture-carousel-v098.py'
+      - 'tools/patch-favorite-carousel-layout-v098.py'
       - 'TornScripture-Item-Market-Margin.user.js'
 
 permissions:
@@ -20,6 +21,8 @@ jobs:
           fetch-depth: 0
       - name: Apply carousel patch
         run: python3 tools/patch-favorite-capture-carousel-v098.py
+      - name: Apply full-width layout
+        run: python3 tools/patch-favorite-carousel-layout-v098.py
       - name: Validate JavaScript syntax
         run: node --check TornScripture-Item-Market-Margin.user.js
       - name: Validate carousel markers
@@ -28,6 +31,7 @@ jobs:
           grep -q 'function startFavoriteCaptureCarousel' TornScripture-Item-Market-Margin.user.js
           grep -q 'function continueFavoriteCaptureCarousel' TornScripture-Item-Market-Margin.user.js
           grep -q 'REFRESH FAVORITES' TornScripture-Item-Market-Margin.user.js
+          grep -q 'grid-column:1/-1' TornScripture-Item-Market-Margin.user.js
       - name: Commit validated userscript
         run: |
           if git diff --quiet -- TornScripture-Item-Market-Margin.user.js; then
