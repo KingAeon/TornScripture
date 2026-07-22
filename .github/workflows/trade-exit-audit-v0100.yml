@@ -1,0 +1,54 @@
+name: Add IMM Trade Exit Audit v0.10.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'tools/patch-trade-exit-audit-v0100.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply Trade Exit Audit patch
+        run: python3 tools/patch-trade-exit-audit-v0100.py
+
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate audit markers
+        run: |
+          grep -q '// @version      0.10.0' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function buildTradeExitAudit' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function tradeExitAuditHtml' TornScripture-Item-Market-Margin.user.js
+          grep -q 'NPC BETTER' TornScripture-Item-Market-Margin.user.js
+          grep -q 'BETTER ELSEWHERE' TornScripture-Item-Market-Margin.user.js
+          grep -q 'SELL HERE' TornScripture-Item-Market-Margin.user.js
+
+      - name: Verify protected MAX code was not modified
+        run: |
+          if git diff --unified=0 -- TornScripture-Item-Market-Margin.user.js | grep -E '^[+-].*(quickMax|Quick MAX|Override MAX|handleQuickMax)'; then
+            echo 'Protected MAX code changed unexpectedly.'
+            exit 1
+          fi
+
+      - name: Remove temporary patch files
+        run: rm -f tools/patch-trade-exit-audit-v0100.py .github/workflows/trade-exit-audit-v0100.yml
+
+      - name: Commit validated feature
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add Trade Exit Audit'
+          git push origin HEAD:main
