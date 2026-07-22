@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'tools/patch-trade-exit-audit-v0100.py'
+      - '.github/validation/trade-exit-audit-trigger.txt'
 
 permissions:
   contents: read
