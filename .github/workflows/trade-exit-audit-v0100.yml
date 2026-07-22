@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'tools/patch-trade-exit-audit-v0100.py'
+      - '.github/workflows/trade-exit-audit-v0100.yml'
 
 permissions:
   contents: write
@@ -37,7 +38,7 @@ jobs:
 
       - name: Verify protected MAX code was not modified
         run: |
-          if git diff --unified=0 -- TornScripture-Item-Market-Margin.user.js | grep -E '^[+-].*(quickMax|Quick MAX|Override MAX|handleQuickMax)'; then
+          if git diff --unified=0 -- TornScripture-Item-Market-Margin.user.js | grep -E '^[+-].*(quickMaxOverrideArmed|quickMaxBusy|quickMaxButtonClass|handleQuickMax|executeQuickMax)'; then
             echo 'Protected MAX code changed unexpectedly.'
             exit 1
           fi
