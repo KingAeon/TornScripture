@@ -17,8 +17,17 @@ def replace_once(old: str, new: str, label: str) -> None:
 
 replace_once("// @version      0.9.5", "// @version      0.9.6", "metadata version")
 replace_once("ITEM MARKET MARGIN v0.9.5", "ITEM MARKET MARGIN v0.9.6", "header version")
-for label in ("core TX capability", "core watchlist capability", "app version"):
-    replace_once("version: '0.9.5'", "version: '0.9.6'", label)
+replace_once(
+    "window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.5' });",
+    "window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.6' });",
+    "core TX capability",
+)
+replace_once(
+    "window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.5' });",
+    "window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.6' });",
+    "core watchlist capability",
+)
+replace_once("    version: '0.9.5',", "    version: '0.9.6',", "app version")
 
 old_helpers = '''  function quickMaxYesButton() {
     const controls = [...document.querySelectorAll('button,a,[role="button"],input[type="button"],input[type="submit"],span,div')]
