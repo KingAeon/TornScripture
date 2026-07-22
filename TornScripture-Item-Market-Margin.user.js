@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.9
+// @version      0.9.10
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.9' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.9' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.10' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.10' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.9
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.10
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -280,7 +280,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.9',
+    version: '0.9.10',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -6003,6 +6003,13 @@
         </div>
       </div>
     `;
+    setTimeout(() => {
+      try {
+        window.__TSIMM_WATCHLIST_API__?.decorateBook?.();
+      } catch (error) {
+        console.error('[TornScripture IMM] Favorite Trader Book decoration failed:', error);
+      }
+    }, 0);
   }
 
   function openTraders() {
@@ -6509,6 +6516,21 @@
         clearPendingTraderCapture('Trader price capture cleared.');
       } else if (action === 'trader-open-recapture') {
         requestTraderPriceRecapture(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-toggle-favorite') {
+        const result = window.__TSIMM_WATCHLIST_API__?.toggleFavoriteById?.(button.dataset.tsimmTraderId);
+        if (!result?.available) toast('Favorite trader controls are not ready. Refresh Torn and try again.');
+        else {
+          toast(`${result.favorite ? 'Added' : 'Removed'} ${result.traderName} ${result.favorite ? 'to' : 'from'} favorites.`);
+          renderTraders();
+        }
+      } else if (action === 'traders-refresh-favorites') {
+        if (!window.__TSIMM_WATCHLIST_API__?.startFavoriteCaptureCarousel?.()) {
+          window.__TSIMM_WATCHLIST_API__ || toast('Favorite trader controls are not ready. Refresh Torn and try again.');
+        }
+      } else if (action === 'traders-continue-favorites') {
+        window.__TSIMM_WATCHLIST_API__?.launchFavoriteCaptureCarousel?.();
+      } else if (action === 'traders-cancel-favorites') {
+        window.__TSIMM_WATCHLIST_API__?.cancelFavoriteCaptureCarousel?.();
       } else if (action === 'trader-add') {
         const trader = promptTrader();
         if (trader) { upsertTrader(trader); toast(`Saved trader ${trader.name}.`); }
@@ -6787,7 +6809,7 @@
    * Storage keys intentionally remain unchanged so existing favorites and
    * watched items continue without conversion or data loss.
    */
-  if (/^(?:www\.)?torn\.com$/i.test(location.hostname)) {
+  if (!isWeav3rPriceListUrl(location.href) && !isTornExchangePriceListUrl(location.href)) {
 (() => {
   'use strict';
 
@@ -7303,12 +7325,12 @@
       const current = queue.entries[queue.cursor] || null;
       const done = Math.min(queue.cursor, queue.entries.length);
       bar.className = 'active';
-      bar.innerHTML = `<div class="carousel-copy"><strong>↻ FAVORITE REFRESH · ${done}/${queue.entries.length} captured</strong><span>${current ? `Next: ${esc(current.traderName)}` : 'Finishing carousel'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume>${queue.status === 'launched' ? 'RETRY' : 'CONTINUE'}</button><button type="button" class="cancel" data-watch-carousel-cancel>CANCEL</button></div>`;
+      bar.innerHTML = `<div class="carousel-copy"><strong>↻ FAVORITE REFRESH · ${done}/${queue.entries.length} captured</strong><span>${current ? `Next: ${esc(current.traderName)}` : 'Finishing carousel'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume data-tsimm-action="traders-continue-favorites">${queue.status === 'launched' ? 'RETRY' : 'CONTINUE'}</button><button type="button" class="cancel" data-watch-carousel-cancel data-tsimm-action="traders-cancel-favorites">CANCEL</button></div>`;
       return;
     }
     bar.className = '';
     const skippedText = selection.skipped ? ` · ${selection.skipped} unsupported` : '';
-    bar.innerHTML = `<div class="carousel-copy"><strong>↻ REFRESH FAVORITE PRICE LISTS</strong><span>${selection.ready.length} ready of ${selection.favoriteCount} favorite${selection.favoriteCount === 1 ? '' : 's'}${skippedText}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-start ${selection.ready.length ? '' : 'disabled'}>REFRESH FAVORITES</button></div>`;
+    bar.innerHTML = `<div class="carousel-copy"><strong>↻ REFRESH FAVORITE PRICE LISTS</strong><span>${selection.ready.length} ready of ${selection.favoriteCount} favorite${selection.favoriteCount === 1 ? '' : 's'}${skippedText}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-start data-tsimm-action="traders-refresh-favorites" ${selection.ready.length ? '' : 'disabled'}>REFRESH FAVORITES</button></div>`;
   }
 
   function isWatched(store, item) {
@@ -7687,6 +7709,7 @@
         button = document.createElement('button');
         button.type = 'button';
         button.dataset.watchFavoriteBook = '1';
+        button.dataset.tsimmAction = 'trader-toggle-favorite';
         button.className = 'tsimm-favorite-trader-btn';
         const actions = card.querySelector('.tsimm-trader-actions') || card;
         actions.prepend(button);
@@ -7694,6 +7717,7 @@
       const favorite = isFavorite(favorites, trader);
       applyFavoriteButtonState(button, favorite, 'book');
       button.dataset.trader = trader.id;
+      button.dataset.tsimmTraderId = trader.id;
     }
   }
 
@@ -7802,7 +7826,38 @@
     start();
   }
 
-  if (typeof window !== 'undefined' && typeof document !== 'undefined') boot();
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    window.__TSIMM_WATCHLIST_API__ = {
+      version: APP.version,
+      decorateBook,
+      startFavoriteCaptureCarousel,
+      launchFavoriteCaptureCarousel,
+      cancelFavoriteCaptureCarousel,
+      toggleFavoriteById(traderId) {
+        const trader = normTraders().find((candidate) => candidate.id === clean(traderId));
+        if (!trader) return { available: false, favorite: false, traderName: '' };
+        const favorite = toggleFavorite(trader);
+        scheduleTorn();
+        return { available: true, favorite, traderName: trader.name };
+      },
+      status() {
+        return { ready: true, version: APP.version, hostname: location.hostname };
+      },
+    };
+    try {
+      boot();
+    } catch (error) {
+      console.error('[TornScripture IMM] Favorite watchlist boot failed:', error);
+      setTimeout(() => {
+        try {
+          injectStyle();
+          scheduleTorn();
+        } catch (retryError) {
+          console.error('[TornScripture IMM] Favorite watchlist fallback failed:', retryError);
+        }
+      }, 120);
+    }
+  }
 })();
   }
 
