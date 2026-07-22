@@ -18,8 +18,8 @@ if text == original:
     raise SystemExit('version replacement made no changes')
 
 replace_once(
-    "    showTradeExitAudit: true,\n    showClosedLedgerLots: true,",
-    "    showTradeExitAudit: true,\n    tradeExitMinimumSwitchGain: 0,\n    showClosedLedgerLots: true,",
+    "    showTradeExitAudit: true,\n    tradeExitShowAllItems: false,\n    showClosedLedgerLots: true,",
+    "    showTradeExitAudit: true,\n    tradeExitShowAllItems: false,\n    tradeExitMinimumSwitchGain: 0,\n    showClosedLedgerLots: true,",
     'default switch threshold',
 )
 
