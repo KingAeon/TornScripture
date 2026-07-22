@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.8
+// @version      0.9.9
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.8' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.8' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.9' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.9' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.8
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.9
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -280,7 +280,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.8',
+    version: '0.9.9',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -6822,6 +6822,24 @@
   const write = (storageKey, value) => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const loadSessionJson = (storageKey, fallback) => {
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      if (!raw) return fallback === undefined ? undefined : clone(fallback);
+      return JSON.parse(raw);
+    } catch {
+      return fallback === undefined ? undefined : clone(fallback);
+    }
+  };
+  const saveSessionJson = (storageKey, value) => {
+    try {
+      if (value === null || value === undefined) sessionStorage.removeItem(storageKey);
+      else sessionStorage.setItem(storageKey, JSON.stringify(value));
       return true;
     } catch {
       return false;
