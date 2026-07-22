@@ -1,0 +1,31 @@
+name: Validate IMM favorite runtime v0.9.10
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'tools/patch-favorite-runtime-v0910.py'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out proposed change
+        uses: actions/checkout@v4
+
+      - name: Apply favorite runtime patch
+        run: python3 tools/patch-favorite-runtime-v0910.py
+
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate runtime markers
+        run: |
+          grep -q '// @version      0.9.10' TornScripture-Item-Market-Margin.user.js
+          grep -q 'window.__TSIMM_WATCHLIST_API__' TornScripture-Item-Market-Margin.user.js
+          grep -q 'data-tsimm-action="trader-toggle-favorite"' TornScripture-Item-Market-Margin.user.js
+          grep -q 'data-tsimm-action="traders-refresh-favorites"' TornScripture-Item-Market-Margin.user.js
