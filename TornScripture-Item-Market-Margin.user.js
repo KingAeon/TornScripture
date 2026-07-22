@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.10.2
+// @version      0.10.3
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.2' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.2' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.3' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.3' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.2
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.3
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -281,7 +281,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.10.2',
+    version: '0.10.3',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -3391,6 +3391,7 @@
   function clearTradeAnnotations() {
     document.querySelectorAll(`.${APP.tradeBadgeClass}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${APP.tradeItemMark}`).forEach((element) => element.classList.remove(APP.tradeItemMark));
+    document.querySelectorAll('[data-tsimm-trade-route-alert]').forEach((element) => element.remove());
     document.querySelectorAll('[data-tsimm-trade-exit-status],[data-tsimm-trade-exit-token]').forEach((element) => {
       delete element.dataset.tsimmTradeExitStatus;
       delete element.dataset.tsimmTradeExitToken;
@@ -3786,14 +3787,57 @@
       const badge = annotationRow.querySelector(`.${APP.tradeBadgeClass}`);
       if (!badge) continue;
       badge.classList.add(`tsimm-trade-exit-badge-${auditItem.status}`);
+      const majorSwitchGain = auditItem.status === 'better-elsewhere' && Number(auditItem.deltaTotal) > 0
+        ? Number(auditItem.deltaTotal)
+        : 0;
+      if (majorSwitchGain) badge.classList.add('tsimm-trade-exit-badge-major');
       const route = auditItem.status === 'close-enough' && auditItem.ignoredGainTotal > 0
         ? `Ignored +${escapeHtml(formatMoney(auditItem.ignoredGainTotal))} total · keep here`
         : auditItem.recommendedEach > 0
           ? `${escapeHtml(auditItem.recommendedSource)} ${escapeHtml(formatMoney(auditItem.recommendedEach))} ea`
           : 'No actionable exit';
-      badge.innerHTML = `<strong>${escapeHtml(auditItem.verdict)}</strong>`
+      const verdict = majorSwitchGain
+        ? `${auditItem.verdict} · +${formatMoney(majorSwitchGain)} TOTAL`
+        : auditItem.verdict;
+      badge.innerHTML = `<strong>${escapeHtml(verdict)}</strong>`
         + `<span>${route} · Ⓣ ${escapeHtml(formatMoney(auditItem.targetEach * auditItem.quantity))}</span>`;
     }
+  }
+
+  function applyTradeExitMainPageAlert(mySide, audit) {
+    document.querySelectorAll('[data-tsimm-trade-route-alert]').forEach((element) => element.remove());
+    if (state.settings.showTradeExitAudit === false || !(mySide?.element instanceof Element) || !audit?.items?.length) return;
+
+    const routes = audit.items
+      .filter((item) => item.status === 'better-elsewhere' && Number(item.deltaTotal) > 0)
+      .sort((left, right) => Number(right.deltaTotal) - Number(left.deltaTotal));
+    if (!routes.length) return;
+
+    const totalGain = routes.reduce((sum, item) => sum + Number(item.deltaTotal || 0), 0);
+    const alert = document.createElement('section');
+    alert.className = 'tsimm-trade-route-alert';
+    alert.dataset.tsimmTradeRouteAlert = 'true';
+    alert.dataset.tsimmGenerated = 'true';
+    const routeLines = routes.slice(0, 3).map((item) =>
+      `<span><strong>${escapeHtml(item.itemName)}</strong> +${escapeHtml(formatMoney(item.deltaTotal))} → ${escapeHtml(item.recommendedSource)}</span>`
+    ).join('');
+    const remainder = routes.length > 3
+      ? `<span class="tsimm-trade-route-more">+${formatInteger(routes.length - 3)} more worthwhile route${routes.length - 3 === 1 ? '' : 's'}</span>`
+      : '';
+    alert.innerHTML = `
+      <div class="tsimm-trade-route-alert-head">
+        <strong>🧭 ${formatInteger(routes.length)} worthwhile trader switch${routes.length === 1 ? '' : 'es'}</strong>
+        <b>+${escapeHtml(formatMoney(totalGain))} total</b>
+      </div>
+      <div class="tsimm-trade-route-alert-list">${routeLines}${remainder}</div>
+    `;
+
+    const headingSelector = '.title-black,[role="heading"],h2,h3,h4,h5,[class*="title___"],[class*="header___"]';
+    const heading = mySide.element.matches?.(headingSelector)
+      ? mySide.element
+      : [...mySide.element.querySelectorAll(headingSelector)].find((element) => visibleElement(element));
+    if (heading) heading.insertAdjacentElement('afterend', alert);
+    else mySide.element.prepend(alert);
   }
 
   function tradeExitRemoveControlLabel(element) {
@@ -3959,6 +4003,7 @@
     stats.tradeUnmatched = unmatched;
     stats.tradeExitAudit = buildTradeExitAudit(stats);
     applyTradeExitAuditBadges(matched, stats.tradeExitAudit);
+    applyTradeExitMainPageAlert(mySide, stats.tradeExitAudit);
 
     if (!parsed.length) {
       stats.tradeStatus = 'empty';
@@ -6669,6 +6714,8 @@
       .tsimm-trade-exit-stale-price{border-color:#9a6d1f}.tsimm-trade-exit-stale-price .tsimm-trade-exit-row-head strong{color:#ffd166}
       .tsimm-trade-exit-unknown{border-color:#5d6268}.tsimm-trade-exit-unknown .tsimm-trade-exit-row-head strong{color:#b7bdc2}
       .tsimm-trade-exit-badge-sell-here{border-color:#44d88b!important;color:#8cf0b5!important}.tsimm-trade-exit-badge-better-elsewhere{border-color:#bd6cff!important;color:#e0b2ff!important}.tsimm-trade-exit-badge-close-enough{border-color:#5ea879!important;color:#a7e6bd!important}.tsimm-trade-exit-badge-npc-better{border-color:#58bfff!important;color:#a7ddff!important}.tsimm-trade-exit-badge-stale-price{border-color:#d3a13c!important;color:#ffd982!important}.tsimm-trade-exit-badge-unknown{border-color:#707780!important;color:#c1c6cc!important}
+      .tsimm-trade-exit-badge-major{background:#281735!important;box-shadow:0 0 0 1px #bd6cff66,0 3px 10px #0009!important}.tsimm-trade-exit-badge-major strong{color:#f0c8ff!important;font-size:10px!important}
+      .tsimm-trade-route-alert{position:relative;z-index:8;display:grid;gap:5px;margin:6px;padding:7px;border:1px solid #9a62c7;border-radius:8px;background:linear-gradient(135deg,#291735,#1d1928);color:#f5eaff;box-shadow:0 3px 12px #0008;font:700 10px/1.25 Arial,sans-serif;pointer-events:none}.tsimm-trade-route-alert-head{display:flex;align-items:center;justify-content:space-between;gap:7px}.tsimm-trade-route-alert-head strong{min-width:0}.tsimm-trade-route-alert-head b{color:#f0c8ff;white-space:nowrap;font-size:11px}.tsimm-trade-route-alert-list{display:grid;gap:2px;color:#d9c9e8;font-size:9px}.tsimm-trade-route-alert-list span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-route-alert-list strong{color:#fff}.tsimm-trade-route-more{color:#ad9bbd!important}
       .tsimm-controls select{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}
       .tsimm-pending-card{margin:7px 0;padding:8px;border:1px solid #c48b35;border-radius:8px;background:#2b2418;display:grid;gap:3px}.tsimm-pending-card>strong{color:#ffd184}.tsimm-pending-card>span{color:#f2e8d5}.tsimm-pending-card>small{color:#c9baa0}.tsimm-pending-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-pending-card button{flex:1;border:1px solid #725f3d;border-radius:6px;background:#3b3020;color:#fff;padding:5px;font-weight:700}
       .tsimm-trader-capture-card{margin:7px 0;padding:8px;border:1px solid #3b8fc2;border-radius:8px;background:#172833;display:grid;gap:3px}.tsimm-trader-capture-card>strong{color:#83d1ff}.tsimm-trader-capture-card>span{color:#d9f1ff}.tsimm-trader-capture-card>small{color:#9fbfce}.tsimm-trader-capture-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-trader-capture-card button{flex:1;border:1px solid #376b89;border-radius:6px;background:#1e4359;color:#fff;padding:5px;font-weight:700}
