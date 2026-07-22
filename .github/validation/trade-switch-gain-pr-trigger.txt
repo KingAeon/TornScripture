@@ -1,2 +1,2 @@
 Run read-only validation for IMM v0.10.2 switch-gain threshold patch.
-Diagnostic rerun 2.
+Diagnostic rerun 3 after settings anchor fix.
