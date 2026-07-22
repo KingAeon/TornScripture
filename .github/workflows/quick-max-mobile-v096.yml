@@ -1,0 +1,40 @@
+name: Validate Quick MAX mobile v0.9.6
+
+on:
+  pull_request:
+    paths:
+      - 'tools/patch-quick-max-mobile-v096.py'
+      - 'TornScripture-Item-Market-Margin.user.js'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out mobile hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/quick-max-mobile-v0.9.6
+          fetch-depth: 0
+      - name: Apply mobile Quick MAX hotfix
+        run: python3 tools/patch-quick-max-mobile-v096.py
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-Item-Market-Margin.user.js
+      - name: Validate hotfix markers
+        run: |
+          grep -q '// @version      0.9.6' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function quickMaxConfirmationAction' TornScripture-Item-Market-Margin.user.js
+          grep -q 'Torn opened a verified purchase confirmation' TornScripture-Item-Market-Margin.user.js
+      - name: Commit validated userscript
+        run: |
+          if git diff --quiet -- TornScripture-Item-Market-Margin.user.js; then
+            echo 'No userscript changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git commit -m 'Support Torn mobile direct purchase confirmations'
+          git push origin HEAD:agent/quick-max-mobile-v0.9.6
