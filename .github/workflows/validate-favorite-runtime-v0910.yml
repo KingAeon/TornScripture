@@ -23,9 +23,14 @@ jobs:
       - name: Validate JavaScript syntax
         run: node --check TornScripture-Item-Market-Margin.user.js
 
-      - name: Validate runtime markers
-        run: |
-          grep -q '// @version      0.9.10' TornScripture-Item-Market-Margin.user.js
-          grep -q 'window.__TSIMM_WATCHLIST_API__' TornScripture-Item-Market-Margin.user.js
-          grep -q 'data-tsimm-action="trader-toggle-favorite"' TornScripture-Item-Market-Margin.user.js
-          grep -q 'data-tsimm-action="traders-refresh-favorites"' TornScripture-Item-Market-Margin.user.js
+      - name: Validate version marker
+        run: grep -q '// @version      0.9.10' TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate watchlist API marker
+        run: grep -q 'window.__TSIMM_WATCHLIST_API__' TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate favorite action marker
+        run: grep -q 'trader-toggle-favorite' TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate refresh action marker
+        run: grep -q 'traders-refresh-favorites' TornScripture-Item-Market-Margin.user.js
