@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.5
+// @version      0.9.6
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.5' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.5' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.6' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.6' });
   }
 
 
@@ -263,7 +263,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.5
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.6
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -279,7 +279,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.5',
+    version: '0.9.6',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4114,6 +4114,45 @@
     return controls.find((element) => Boolean(purchaseConfirmationFromClick(element))) || null;
   }
 
+  function quickMaxConfirmationAction(surface = null) {
+    const roots = surface instanceof Element ? [surface] : [];
+    if (!roots.length) {
+      roots.push(...document.querySelectorAll('[role="dialog"],[aria-modal="true"],[class*="dialog" i],[class*="modal" i],[class*="popup" i],[class*="confirm" i]'));
+    }
+    for (const root of roots) {
+      if (!(root instanceof Element) || !visibleElement(root)) continue;
+      const parsed = parsePurchaseConfirmationText(root.innerText || root.textContent || '');
+      if (!parsed) continue;
+      const controls = [...root.querySelectorAll('button,a,[role="button"],input[type="button"],input[type="submit"],span,div')]
+        .filter((element) =>
+          visibleElement(element)
+          && !element.disabled
+          && !element.closest(`#${APP.panelId},[data-tsimm-generated]`)
+        );
+      const button = controls.find((element) => /^yes$/i.test(normalizeWhitespace(element.textContent || element.value)))
+        || controls.find((element) => /^(?:buy|purchase|confirm|continue)(?:\b|$)/i.test(quickMaxInteractiveLabel(element)))
+        || controls.find((element) => /\b(?:buy now|complete purchase|confirm purchase)\b/i.test(quickMaxInteractiveLabel(element)));
+      if (button) return { button, parsed, surface: root };
+    }
+    return null;
+  }
+
+  function quickMaxVerifyConfirmation(parsed, candidate, maximum) {
+    if (!parsed) throw new Error('Torn confirmation could not be verified.');
+    if (parsed.quantity <= 0 || parsed.quantity > maximum) {
+      throw new Error(`Torn confirmation quantity ${parsed.quantity} exceeded the armed MAX ${maximum}.`);
+    }
+    const expectedName = quickMaxSyntheticPurchase(candidate, maximum).itemName;
+    if (expectedName && normalizeName(parsed.itemName) !== normalizeName(expectedName)) {
+      throw new Error('Torn confirmation item did not match the selected listing.');
+    }
+    const expectedTotal = Number(candidate.price) * Number(parsed.quantity);
+    if (expectedTotal > 0 && Math.abs(parsed.totalCost - expectedTotal) > Math.max(1, parsed.quantity)) {
+      throw new Error('Torn confirmation total did not match the selected listing price.');
+    }
+    return parsed;
+  }
+
   function waitForQuickMax(getter, timeoutMs = 1800, intervalMs = 35) {
     const started = Date.now();
     return new Promise((resolve) => {
@@ -4223,8 +4262,21 @@
         buyControl.click();
         const surface = await waitForQuickMax(() => quickMaxPurchaseSurface(), 1800);
         if (!surface) throw new Error('Torn did not open a recognizable purchase dialog.');
+        const directConfirmation = quickMaxConfirmationAction(surface);
+        if (directConfirmation) {
+          const parsed = quickMaxVerifyConfirmation(directConfirmation.parsed, candidate, maximum);
+          if (!override) {
+            toast(`Torn opened a verified purchase confirmation for ${formatInteger(parsed.quantity)}. Review it and submit when ready.`);
+            return;
+          }
+          beginPendingPurchase(parsed);
+          pendingId = state.pendingPurchase?.id || '';
+          directConfirmation.button.click();
+          toast(`Override MAX submitted ${formatInteger(parsed.quantity)}× ${parsed.itemName}.`);
+          return;
+        }
         const dialogInput = quickMaxQuantityInput(surface);
-        if (!dialogInput) throw new Error('Torn opened a purchase dialog without a quantity field.');
+        if (!dialogInput) throw new Error('Torn opened a purchase dialog without a quantity field or verified confirmation.');
         maximum = quickMaxMaximum(candidate, dialogInput, surface);
         if (!quickMaxSetInput(dialogInput, maximum)) throw new Error('Torn rejected the MAX quantity field update.');
         if (!override) {
@@ -4238,22 +4290,10 @@
         primary.click();
       }
 
-      const yesButton = await waitForQuickMax(() => quickMaxYesButton(), 1600);
-      if (yesButton) {
-        const parsed = purchaseConfirmationFromClick(yesButton);
-        if (!parsed) throw new Error('Torn confirmation could not be verified.');
-        if (parsed.quantity <= 0 || parsed.quantity > maximum) {
-          throw new Error(`Torn confirmation quantity ${parsed.quantity} exceeded the armed MAX ${maximum}.`);
-        }
-        const expectedName = quickMaxSyntheticPurchase(candidate, maximum).itemName;
-        if (expectedName && normalizeName(parsed.itemName) !== normalizeName(expectedName)) {
-          throw new Error('Torn confirmation item did not match the selected listing.');
-        }
-        const expectedTotal = Number(candidate.price) * Number(parsed.quantity);
-        if (expectedTotal > 0 && Math.abs(parsed.totalCost - expectedTotal) > Math.max(1, parsed.quantity)) {
-          throw new Error('Torn confirmation total did not match the selected listing price.');
-        }
-        yesButton.click();
+      const confirmation = await waitForQuickMax(() => quickMaxConfirmationAction(), 1600);
+      if (confirmation) {
+        const parsed = quickMaxVerifyConfirmation(confirmation.parsed, candidate, maximum);
+        confirmation.button.click();
         toast(`Override MAX submitted ${formatInteger(parsed.quantity)}× ${parsed.itemName}.`);
       } else {
         toast(`Override MAX submitted up to ${formatInteger(maximum)}. Waiting for Torn's response.`);
