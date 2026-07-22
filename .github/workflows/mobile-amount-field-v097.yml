@@ -1,0 +1,41 @@
+name: Validate mobile amount field v0.9.7
+
+on:
+  pull_request:
+    paths:
+      - 'tools/patch-mobile-amount-field-v097.py'
+      - 'TornScripture-Item-Market-Margin.user.js'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out mobile amount branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/mobile-amount-field-v0.9.7
+          fetch-depth: 0
+      - name: Apply mobile amount patch
+        run: python3 tools/patch-mobile-amount-field-v097.py
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-Item-Market-Margin.user.js
+      - name: Validate mobile amount markers
+        run: |
+          grep -q '// @version      0.9.7' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function quickMaxQuantityValue' TornScripture-Item-Market-Margin.user.js
+          grep -q 'input\[type="text"\]' TornScripture-Item-Market-Margin.user.js
+          grep -q 'Torn reverted the MAX quantity field update' TornScripture-Item-Market-Margin.user.js
+      - name: Commit validated userscript
+        run: |
+          if git diff --quiet -- TornScripture-Item-Market-Margin.user.js; then
+            echo 'No userscript changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git commit -m 'Support Torn mobile amount fields'
+          git push origin HEAD:agent/mobile-amount-field-v0.9.7
