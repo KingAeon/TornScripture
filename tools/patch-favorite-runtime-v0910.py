@@ -1,6 +1,6 @@
 from pathlib import Path
 
-# Pull-request validation trigger for the IMM favorite runtime patch.
+# Second pull-request validation trigger for the IMM favorite runtime patch.
 path = Path("TornScripture-Item-Market-Margin.user.js")
 text = path.read_text(encoding="utf-8")
 original = text
