@@ -1,0 +1,44 @@
+name: Fix IMM watch panel on item grids v0.9.11
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'tools/patch-watch-panel-grid-v0911.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply focused watch panel fix
+        run: python3 tools/patch-watch-panel-grid-v0911.py
+
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate hotfix markers
+        run: |
+          grep -q '// @version      0.9.11' TornScripture-Item-Market-Margin.user.js
+          grep -q 'const singleItemMarketPage' TornScripture-Item-Market-Margin.user.js
+          grep -q 'if (!singleItemMarketPage()) return null;' TornScripture-Item-Market-Margin.user.js
+
+      - name: Remove temporary patch files
+        run: rm -f tools/patch-watch-panel-grid-v0911.py .github/workflows/watch-panel-grid-v0911.yml
+
+      - name: Commit validated hotfix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Fix watch panel appearing on item grids'
+          git push origin HEAD:main
