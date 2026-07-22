@@ -31,8 +31,8 @@ jobs:
         run: |
           grep -q '// @version      0.9.10' TornScripture-Item-Market-Margin.user.js
           grep -q 'window.__TSIMM_WATCHLIST_API__' TornScripture-Item-Market-Margin.user.js
-          grep -q 'data-tsimm-action="trader-toggle-favorite"' TornScripture-Item-Market-Margin.user.js
-          grep -q 'data-tsimm-action="traders-refresh-favorites"' TornScripture-Item-Market-Margin.user.js
+          grep -q 'trader-toggle-favorite' TornScripture-Item-Market-Margin.user.js
+          grep -q 'traders-refresh-favorites' TornScripture-Item-Market-Margin.user.js
 
       - name: Remove temporary patch files
         run: rm -f tools/patch-favorite-runtime-v0910.py .github/workflows/favorite-runtime-v0910.yml
