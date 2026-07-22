@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'tools/patch-trade-switch-gain-v0102.py'
+      - '.github/validation/trade-switch-gain-trigger.txt'
 
 permissions:
   contents: write
@@ -42,7 +43,7 @@ jobs:
           fi
 
       - name: Remove temporary patch files
-        run: rm -f tools/patch-trade-switch-gain-v0102.py .github/workflows/trade-switch-gain-v0102.yml
+        run: rm -f tools/patch-trade-switch-gain-v0102.py .github/workflows/trade-switch-gain-v0102.yml .github/validation/trade-switch-gain-trigger.txt
 
       - name: Commit validated feature
         run: |
