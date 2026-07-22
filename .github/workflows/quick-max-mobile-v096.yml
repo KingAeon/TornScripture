@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'tools/patch-quick-max-mobile-v096.py'
+      - 'tools/tighten-quick-max-mobile-v096.py'
       - 'TornScripture-Item-Market-Margin.user.js'
 
 permissions:
@@ -20,6 +21,8 @@ jobs:
           fetch-depth: 0
       - name: Apply mobile Quick MAX hotfix
         run: python3 tools/patch-quick-max-mobile-v096.py
+      - name: Require exact MAX confirmation
+        run: python3 tools/tighten-quick-max-mobile-v096.py
       - name: Validate JavaScript syntax
         run: node --check TornScripture-Item-Market-Margin.user.js
       - name: Validate hotfix markers
@@ -27,6 +30,7 @@ jobs:
           grep -q '// @version      0.9.6' TornScripture-Item-Market-Margin.user.js
           grep -q 'function quickMaxConfirmationAction' TornScripture-Item-Market-Margin.user.js
           grep -q 'Torn opened a verified purchase confirmation' TornScripture-Item-Market-Margin.user.js
+          grep -q 'did not match the armed MAX' TornScripture-Item-Market-Margin.user.js
       - name: Commit validated userscript
         run: |
           if git diff --quiet -- TornScripture-Item-Market-Margin.user.js; then
