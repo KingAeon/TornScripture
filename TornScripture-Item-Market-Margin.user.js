@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.11
-// @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
+// @version      0.10.0
+// @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.11' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.11' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.0' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.11
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -274,13 +274,14 @@
    * - Normal purchase capture begins after the user presses Torn's confirmation button.
    * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
+   * - Trade Exit Audit is read-only: it compares live trade cash, captured trader prices, favorite traders, NPC buyback, and the 99% target without changing the trade.
    * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, or sells items.
    */
 
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.11',
+    version: '0.10.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -332,6 +333,7 @@
     showLossesDuringTesting: true,
     tradeSidePreference: 'auto',
     showTradeItemBreakdown: true,
+    showTradeExitAudit: true,
     showClosedLedgerLots: true,
     ledgerShowSoldPurchases: true,
     overseasLoadLimit: 21,
@@ -2093,6 +2095,7 @@
       tradeSaleRecordId: null,
       tradeItems: [],
       tradeUnmatched: [],
+      tradeExitAudit: null,
       notes: [],
     };
   }
@@ -3431,6 +3434,325 @@
     return { name, userId, profileUrl, bannerUrl };
   }
 
+  const TRADE_EXIT_FAVORITES_STORAGE_KEY = 'tornscripture-imm-favorite-traders-v1';
+  const TRADE_EXIT_SETTINGS_STORAGE_KEY = 'tornscripture-imm-trader-market-overlay-settings-v1';
+
+  function tradeExitFavoriteRefs() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(TRADE_EXIT_FAVORITES_STORAGE_KEY) || 'null');
+      const source = Array.isArray(raw) ? raw : Array.isArray(raw?.entries) ? raw.entries : [];
+      return source.map((entry) => ({
+        traderId: normalizeWhitespace(entry?.traderId ?? entry?.id),
+        traderName: normalizeWhitespace(entry?.traderName ?? entry?.name),
+      })).filter((entry) => entry.traderId || entry.traderName);
+    } catch {
+      return [];
+    }
+  }
+
+  function tradeExitTraderIsFavorite(trader, refs) {
+    if (!trader) return false;
+    return refs.some((entry) =>
+      (entry.traderId && entry.traderId === trader.id)
+      || (entry.traderName && normalizeName(entry.traderName) === trader.normalizedName)
+    );
+  }
+
+  function tradeExitFreshness(capturedAt) {
+    const settings = loadJson(TRADE_EXIT_SETTINGS_STORAGE_KEY, {});
+    const freshHours = Math.max(1, Number(settings.freshAgeHours) || 72);
+    const actionableHours = Math.max(freshHours, Number(settings.actionableAgeHours) || 168);
+    const capturedTime = Date.parse(capturedAt || '');
+    if (!Number.isFinite(capturedTime)) {
+      return { status: 'missing', ageMs: null, ageLabel: 'unknown age' };
+    }
+    const ageMs = Math.max(0, Date.now() - capturedTime);
+    const ageMinutes = Math.floor(ageMs / 60000);
+    const ageLabel = ageMinutes < 60
+      ? `${ageMinutes}m old`
+      : ageMinutes < 2880
+        ? `${Math.floor(ageMinutes / 60)}h old`
+        : `${Math.floor(ageMinutes / 1440)}d old`;
+    if (ageMs <= freshHours * 3600000) return { status: 'fresh', ageMs, ageLabel };
+    if (ageMs <= actionableHours * 3600000) return { status: 'stale', ageMs, ageLabel };
+    return { status: 'outdated', ageMs, ageLabel };
+  }
+
+  function tradeExitQuoteForTrader(trader, item) {
+    if (!trader || !item) return null;
+    const itemName = normalizeName(item.name ?? item.itemName);
+    const itemId = Number(item.itemId) > 0 ? Number(item.itemId) : null;
+    const capturedItem = (trader.pricePageItems || []).find((candidate) =>
+      (itemId && Number(candidate.itemId) > 0 && Number(candidate.itemId) === itemId)
+      || normalizeName(candidate.itemName) === itemName
+    );
+    if (!capturedItem || Number(capturedItem.unitPrice) <= 0) return null;
+    const capturedAt = trader.pricePageLastCheckedAt || trader.pricePageCapturedAt || null;
+    return {
+      traderId: trader.id,
+      traderName: trader.name,
+      unitPrice: Number(capturedItem.unitPrice),
+      capturedAt,
+      freshness: tradeExitFreshness(capturedAt),
+      source: 'captured price list',
+    };
+  }
+
+  function currentTradeTrader(stats) {
+    const counterpartyId = Number(stats?.tradeCounterpartyId) > 0 ? Number(stats.tradeCounterpartyId) : null;
+    const counterpartyName = normalizeName(stats?.tradeCounterparty);
+    return state.traders.find((trader) =>
+      (counterpartyId && Number(trader.userId) === counterpartyId)
+      || (counterpartyName && trader.normalizedName === counterpartyName)
+    ) || null;
+  }
+
+  function tradeExitVerdictLabel(status) {
+    return {
+      'sell-here': '✓ SELL HERE',
+      'better-elsewhere': '↑ BETTER ELSEWHERE',
+      'npc-better': '🏪 NPC BETTER',
+      'stale-price': '⌛ STALE PRICE',
+      unknown: '? UNKNOWN',
+    }[status] || '? UNKNOWN';
+  }
+
+  function tradeExitItemToken(item) {
+    return Number(item?.itemId) > 0
+      ? `id:${Number(item.itemId)}`
+      : `name:${normalizeName(item?.name ?? item?.itemName)}`;
+  }
+
+  function buildTradeExitAudit(stats) {
+    const items = Array.isArray(stats?.tradeItems) ? stats.tradeItems : [];
+    const favoriteRefs = tradeExitFavoriteRefs();
+    const favoriteTraders = state.traders.filter((trader) => tradeExitTraderIsFavorite(trader, favoriteRefs));
+    const currentTrader = currentTradeTrader(stats);
+    const currentToken = currentTrader
+      ? (currentTrader.userId ? `uid:${currentTrader.userId}` : `name:${currentTrader.normalizedName}`)
+      : '';
+    const otherFavorites = favoriteTraders.filter((trader) => {
+      const token = trader.userId ? `uid:${trader.userId}` : `name:${trader.normalizedName}`;
+      return !currentToken || token !== currentToken;
+    });
+    const liveSingleItem = items.length === 1
+      && Number.isFinite(stats?.tradeNetCash)
+      && Number(items[0]?.quantity) > 0;
+    const auditItems = [];
+    let actionableTypes = 0;
+    let currentCoverage = 0;
+    let currentFreshCoverage = 0;
+    let bestKnownTotal = 0;
+    let currentCapturedTotal = 0;
+    let sellHereCount = 0;
+    let betterElsewhereCount = 0;
+    let npcBetterCount = 0;
+    let staleCount = 0;
+    let unknownCount = 0;
+
+    for (const item of items) {
+      const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+      const catalog = catalogItemFor(item.name, item.itemId);
+      const targetEach = Math.max(0, Number(item.targetEach) || traderPayout(catalog?.marketPrice || item.marketPrice));
+      const npcEach = Math.max(0, Number(catalog?.sellPrice) || 0);
+      const capturedCurrent = tradeExitQuoteForTrader(currentTrader, item);
+      const liveCurrent = liveSingleItem
+        ? {
+            traderId: currentTrader?.id || '',
+            traderName: stats.tradeCounterparty || currentTrader?.name || 'Current trade',
+            unitPrice: Math.max(0, Number(stats.tradeNetCash) / quantity),
+            capturedAt: new Date().toISOString(),
+            freshness: { status: 'fresh', ageMs: 0, ageLabel: 'live now' },
+            source: 'live trade cash',
+          }
+        : null;
+      const currentQuote = liveCurrent || capturedCurrent;
+      if (currentQuote) {
+        currentCoverage += 1;
+        currentCapturedTotal += currentQuote.unitPrice * quantity;
+        if (currentQuote.freshness.status === 'fresh') currentFreshCoverage += 1;
+      }
+
+      const favoriteQuotes = otherFavorites
+        .map((trader) => tradeExitQuoteForTrader(trader, item))
+        .filter(Boolean)
+        .sort((left, right) =>
+          Number(right.unitPrice) - Number(left.unitPrice)
+          || Number(left.freshness.ageMs ?? Number.MAX_SAFE_INTEGER) - Number(right.freshness.ageMs ?? Number.MAX_SAFE_INTEGER)
+        );
+      const bestFreshFavorite = favoriteQuotes.find((quote) => quote.freshness.status === 'fresh') || null;
+      const bestStaleFavorite = favoriteQuotes.find((quote) => quote.freshness.status !== 'fresh') || null;
+      const currentFresh = currentQuote?.freshness.status === 'fresh' ? currentQuote : null;
+      const currentReference = Number(currentQuote?.unitPrice) || 0;
+      const favoriteFreshPrice = Number(bestFreshFavorite?.unitPrice) || 0;
+      const highestFreshAlternative = Math.max(favoriteFreshPrice, npcEach);
+
+      let status = 'unknown';
+      let recommendedEach = 0;
+      let recommendedSource = '';
+      let recommendedTraderId = '';
+      let recommendedFreshness = null;
+
+      if (currentFresh) {
+        if (npcEach > currentFresh.unitPrice && npcEach >= favoriteFreshPrice) {
+          status = 'npc-better';
+          recommendedEach = npcEach;
+          recommendedSource = 'Torn NPC buyback';
+        } else if (bestFreshFavorite && bestFreshFavorite.unitPrice > currentFresh.unitPrice && bestFreshFavorite.unitPrice >= npcEach) {
+          status = 'better-elsewhere';
+          recommendedEach = bestFreshFavorite.unitPrice;
+          recommendedSource = bestFreshFavorite.traderName;
+          recommendedTraderId = bestFreshFavorite.traderId;
+          recommendedFreshness = bestFreshFavorite.freshness;
+        } else {
+          status = 'sell-here';
+          recommendedEach = currentFresh.unitPrice;
+          recommendedSource = currentFresh.source === 'live trade cash'
+            ? `${currentFresh.traderName} live offer`
+            : currentFresh.traderName;
+          recommendedTraderId = currentFresh.traderId;
+          recommendedFreshness = currentFresh.freshness;
+        }
+      } else if (npcEach > Math.max(currentReference, favoriteFreshPrice)) {
+        status = 'npc-better';
+        recommendedEach = npcEach;
+        recommendedSource = 'Torn NPC buyback';
+      } else if (bestFreshFavorite && bestFreshFavorite.unitPrice > currentReference) {
+        status = 'better-elsewhere';
+        recommendedEach = bestFreshFavorite.unitPrice;
+        recommendedSource = bestFreshFavorite.traderName;
+        recommendedTraderId = bestFreshFavorite.traderId;
+        recommendedFreshness = bestFreshFavorite.freshness;
+      } else if (currentQuote || bestStaleFavorite) {
+        const staleReference = [currentQuote, bestStaleFavorite]
+          .filter(Boolean)
+          .sort((left, right) => Number(right.unitPrice) - Number(left.unitPrice))[0];
+        status = 'stale-price';
+        recommendedEach = Number(staleReference?.unitPrice) || 0;
+        recommendedSource = staleReference?.traderName || 'Captured trader';
+        recommendedTraderId = staleReference?.traderId || '';
+        recommendedFreshness = staleReference?.freshness || null;
+      } else if (npcEach > 0) {
+        status = 'npc-better';
+        recommendedEach = npcEach;
+        recommendedSource = 'Torn NPC buyback';
+      }
+
+      const actionable = ['sell-here', 'better-elsewhere', 'npc-better'].includes(status) && recommendedEach > 0;
+      if (actionable) {
+        actionableTypes += 1;
+        bestKnownTotal += recommendedEach * quantity;
+      }
+      if (status === 'sell-here') sellHereCount += 1;
+      else if (status === 'better-elsewhere') betterElsewhereCount += 1;
+      else if (status === 'npc-better') npcBetterCount += 1;
+      else if (status === 'stale-price') staleCount += 1;
+      else unknownCount += 1;
+
+      const deltaEach = recommendedEach > 0 && currentQuote
+        ? recommendedEach - currentQuote.unitPrice
+        : null;
+      const targetGapEach = currentQuote
+        ? currentQuote.unitPrice - targetEach
+        : null;
+      auditItems.push({
+        token: tradeExitItemToken(item),
+        itemId: item.itemId || catalog?.id || null,
+        itemName: item.name,
+        quantity,
+        targetEach,
+        npcEach,
+        currentQuote,
+        bestFreshFavorite,
+        bestStaleFavorite,
+        status,
+        verdict: tradeExitVerdictLabel(status),
+        actionable,
+        recommendedEach,
+        recommendedTotal: recommendedEach * quantity,
+        recommendedSource,
+        recommendedTraderId,
+        recommendedFreshness,
+        deltaEach,
+        deltaTotal: deltaEach === null ? null : deltaEach * quantity,
+        targetGapEach,
+        highestFreshAlternative,
+      });
+    }
+
+    const totalTypes = items.length;
+    const fullCoverage = totalTypes > 0
+      && actionableTypes === totalTypes
+      && Number(stats?.tradeUnmatchedItems || 0) === 0;
+    const netCash = Number.isFinite(stats?.tradeNetCash) ? Number(stats.tradeNetCash) : null;
+    const offerVsBest = fullCoverage && netCash !== null ? netCash - bestKnownTotal : null;
+    const potentialLeftBehind = offerVsBest === null ? null : Math.max(0, -offerVsBest);
+    const overallStatus = betterElsewhereCount + npcBetterCount > 0
+      ? 'review'
+      : staleCount > 0
+        ? 'stale'
+        : unknownCount > 0
+          ? 'unknown'
+          : totalTypes > 0
+            ? 'sell-here'
+            : 'empty';
+    const overallLabel = {
+      review: `${betterElsewhereCount + npcBetterCount} route${betterElsewhereCount + npcBetterCount === 1 ? '' : 's'} to review`,
+      stale: 'Refresh captured prices',
+      unknown: 'Incomplete exit coverage',
+      'sell-here': 'Current route wins',
+      empty: 'No items to audit',
+    }[overallStatus];
+
+    return {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      counterparty: stats?.tradeCounterparty || currentTrader?.name || '',
+      currentTraderId: currentTrader?.id || '',
+      currentTraderName: currentTrader?.name || stats?.tradeCounterparty || '',
+      favoriteTraderCount: favoriteTraders.length,
+      totalTypes,
+      actionableTypes,
+      currentCoverage,
+      currentFreshCoverage,
+      bestKnownTotal,
+      currentCapturedTotal,
+      fullCoverage,
+      netCash,
+      offerVsBest,
+      potentialLeftBehind,
+      sellHereCount,
+      betterElsewhereCount,
+      npcBetterCount,
+      staleCount,
+      unknownCount,
+      overallStatus,
+      overallLabel,
+      items: auditItems,
+    };
+  }
+
+  function applyTradeExitAuditBadges(matched, audit) {
+    if (!audit?.items?.length) return;
+    const byToken = new Map(audit.items.map((item) => [item.token, item]));
+    for (const item of matched || []) {
+      const annotationRow = item?.annotationRow === null ? null : (item?.annotationRow || item?.row);
+      if (!annotationRow) continue;
+      const auditItem = byToken.get(tradeExitItemToken({
+        itemId: item.catalog?.id || item.itemId,
+        name: item.catalog?.name || item.name,
+      }));
+      const badge = annotationRow.querySelector(`.${APP.tradeBadgeClass}`);
+      if (!auditItem || !badge) continue;
+      badge.classList.add(`tsimm-trade-exit-badge-${auditItem.status}`);
+      const route = auditItem.recommendedEach > 0
+        ? `${escapeHtml(auditItem.recommendedSource)} ${escapeHtml(formatMoney(auditItem.recommendedEach))} ea`
+        : 'No actionable exit';
+      badge.innerHTML = `<strong>${escapeHtml(auditItem.verdict)}</strong>`
+        + `<span>${route} · Ⓣ ${escapeHtml(formatMoney(auditItem.targetEach * auditItem.quantity))}</span>`;
+    }
+  }
+
   function scanTrade(stats) {
     const sides = tradeSideCandidates();
     stats.tradeSideCandidates = sides.length;
@@ -3510,6 +3832,8 @@
       targetTotal: traderPayout(item.catalog.marketPrice) * item.quantity,
     }));
     stats.tradeUnmatched = unmatched;
+    stats.tradeExitAudit = buildTradeExitAudit(stats);
+    applyTradeExitAuditBadges(matched, stats.tradeExitAudit);
 
     if (!parsed.length) {
       stats.tradeStatus = 'empty';
@@ -6125,6 +6449,7 @@
         npcBuybackFormula: 'catalog.sell_price - listingPrice',
         manifestFormula: 'sum(floor(itemMarketValue * 0.99) * quantity)',
         tradeDifferenceFormula: 'otherSideCash - mySideCash - manifestTarget',
+        tradeExitAuditFormula: 'best fresh concrete exit per item (current trader, favorite trader, or NPC) minus live net cash',
       },
       lastScan: state.lastScan,
       traders: state.traders.map((trader) => ({ ...trader, stats: traderStats(trader) })),
@@ -6205,6 +6530,17 @@
       .tsimm-trade-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}.tsimm-trade-title strong{font-size:13px}.tsimm-trade-title span{font-size:10px;text-transform:uppercase;letter-spacing:.04em}
       .tsimm-trade-grid{display:grid;grid-template-columns:1fr auto;gap:4px 8px;align-items:center}.tsimm-trade-grid span{color:#bfb7c8}.tsimm-trade-grid strong{text-align:right}.tsimm-trade-diff-good{color:#63df9f}.tsimm-trade-diff-loss{color:#ff7c85}.tsimm-trade-diff-pending{color:#d6a0ff}
       .tsimm-trade-items{margin-top:7px;padding-top:6px;border-top:1px solid #47404f;max-height:118px;overflow:auto}.tsimm-trade-item-line{display:grid;grid-template-columns:1fr auto;gap:6px;padding:2px 0;font-size:10px}.tsimm-trade-item-line span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-unmatched{color:#ff9ba2}.tsimm-trade-record{width:100%;margin-top:7px;border:1px solid #4b9d70;border-radius:7px;background:#215b3b;color:#eafff2;padding:7px;font-weight:800}
+      .tsimm-trade-exit-audit{margin-top:8px;padding-top:7px;border-top:1px solid #514a59;display:grid;gap:6px}
+      .tsimm-trade-exit-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.tsimm-trade-exit-head strong{color:#d9c9e8;font-size:11px}.tsimm-trade-exit-head span{font-size:9px;color:#aaa1b7;text-align:right}
+      .tsimm-trade-exit-summary{display:grid;grid-template-columns:1fr auto;gap:3px 8px;padding:6px;border:1px solid #494250;border-radius:7px;background:#1d1a22}.tsimm-trade-exit-summary span{color:#aaa1b7}.tsimm-trade-exit-summary strong{text-align:right}
+      .tsimm-trade-exit-list{display:grid;gap:5px;max-height:210px;overflow:auto;padding-right:2px}
+      .tsimm-trade-exit-row{display:grid;gap:3px;padding:6px;border:1px solid #4c4653;border-radius:7px;background:#1d1a21}.tsimm-trade-exit-row-head,.tsimm-trade-exit-route{display:flex;align-items:center;justify-content:space-between;gap:7px}.tsimm-trade-exit-row-head strong{font-size:9px}.tsimm-trade-exit-row-head span,.tsimm-trade-exit-route span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-exit-route{font-size:10px}.tsimm-trade-exit-row small{color:#aaa1b7;font-size:8px;line-height:1.25}
+      .tsimm-trade-exit-sell-here{border-color:#3d9162}.tsimm-trade-exit-sell-here .tsimm-trade-exit-row-head strong{color:#70e6a2}
+      .tsimm-trade-exit-better-elsewhere{border-color:#7d59a4}.tsimm-trade-exit-better-elsewhere .tsimm-trade-exit-row-head strong{color:#d7a4ff}
+      .tsimm-trade-exit-npc-better{border-color:#3b8fc2}.tsimm-trade-exit-npc-better .tsimm-trade-exit-row-head strong{color:#83d1ff}
+      .tsimm-trade-exit-stale-price{border-color:#9a6d1f}.tsimm-trade-exit-stale-price .tsimm-trade-exit-row-head strong{color:#ffd166}
+      .tsimm-trade-exit-unknown{border-color:#5d6268}.tsimm-trade-exit-unknown .tsimm-trade-exit-row-head strong{color:#b7bdc2}
+      .tsimm-trade-exit-badge-sell-here{border-color:#44d88b!important;color:#8cf0b5!important}.tsimm-trade-exit-badge-better-elsewhere{border-color:#bd6cff!important;color:#e0b2ff!important}.tsimm-trade-exit-badge-npc-better{border-color:#58bfff!important;color:#a7ddff!important}.tsimm-trade-exit-badge-stale-price{border-color:#d3a13c!important;color:#ffd982!important}.tsimm-trade-exit-badge-unknown{border-color:#707780!important;color:#c1c6cc!important}
       .tsimm-controls select{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}
       .tsimm-pending-card{margin:7px 0;padding:8px;border:1px solid #c48b35;border-radius:8px;background:#2b2418;display:grid;gap:3px}.tsimm-pending-card>strong{color:#ffd184}.tsimm-pending-card>span{color:#f2e8d5}.tsimm-pending-card>small{color:#c9baa0}.tsimm-pending-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-pending-card button{flex:1;border:1px solid #725f3d;border-radius:6px;background:#3b3020;color:#fff;padding:5px;font-weight:700}
       .tsimm-trader-capture-card{margin:7px 0;padding:8px;border:1px solid #3b8fc2;border-radius:8px;background:#172833;display:grid;gap:3px}.tsimm-trader-capture-card>strong{color:#83d1ff}.tsimm-trader-capture-card>span{color:#d9f1ff}.tsimm-trader-capture-card>small{color:#9fbfce}.tsimm-trader-capture-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-trader-capture-card button{flex:1;border:1px solid #376b89;border-radius:6px;background:#1e4359;color:#fff;padding:5px;font-weight:700}
@@ -6260,6 +6596,70 @@
           <span>Cargo expected profit</span><strong class="${cargoProfitClass}">${escapeHtml(cargoProfitText)}</strong>
         </div>
         ${planLines ? `<div class="tsimm-overseas-plan">${planLines}</div>` : ''}
+      </div>
+    `;
+  }
+
+  function tradeExitAuditHtml(stats) {
+    const audit = stats?.tradeExitAudit;
+    if (!state.settings.showTradeExitAudit || !audit || stats.pageType !== 'trade') return '';
+    const bestTotalText = audit.fullCoverage
+      ? formatMoney(audit.bestKnownTotal)
+      : `${formatInteger(audit.actionableTypes)}/${formatInteger(audit.totalTypes)} types covered`;
+    const potentialText = audit.potentialLeftBehind === null
+      ? 'Incomplete'
+      : audit.potentialLeftBehind > 0
+        ? `+${formatMoney(audit.potentialLeftBehind)} available`
+        : 'No known loss';
+    const potentialClass = audit.potentialLeftBehind > 0
+      ? 'tsimm-trade-diff-loss'
+      : audit.potentialLeftBehind === null
+        ? 'tsimm-trade-diff-pending'
+        : 'tsimm-trade-diff-good';
+    const offerVsBestText = audit.offerVsBest === null
+      ? 'Incomplete'
+      : `${audit.offerVsBest >= 0 ? '+' : ''}${formatMoney(audit.offerVsBest)}`;
+    const offerVsBestClass = audit.offerVsBest === null
+      ? 'tsimm-trade-diff-pending'
+      : audit.offerVsBest >= 0
+        ? 'tsimm-trade-diff-good'
+        : 'tsimm-trade-diff-loss';
+    const rows = audit.items.map((item) => {
+      const hereText = item.currentQuote
+        ? `${formatMoney(item.currentQuote.unitPrice)}${item.currentQuote.freshness.status === 'fresh' ? '' : ' stale'}`
+        : '?';
+      const favoriteText = item.bestFreshFavorite
+        ? `${item.bestFreshFavorite.traderName} ${formatMoney(item.bestFreshFavorite.unitPrice)}`
+        : item.bestStaleFavorite
+          ? `${item.bestStaleFavorite.traderName} ${formatMoney(item.bestStaleFavorite.unitPrice)} stale`
+          : 'none';
+      const npcText = item.npcEach > 0 ? formatMoney(item.npcEach) : 'none';
+      const routeValue = item.recommendedEach > 0 ? `${formatMoney(item.recommendedEach)} ea` : 'No price';
+      const routeAge = item.recommendedFreshness?.ageLabel ? ` · ${item.recommendedFreshness.ageLabel}` : '';
+      const deltaText = item.deltaTotal === null
+        ? ''
+        : item.deltaTotal > 0
+          ? ` · +${formatMoney(item.deltaTotal)} vs here`
+          : item.deltaTotal < 0
+            ? ` · ${formatMoney(item.deltaTotal)} vs here`
+            : ' · tied with here';
+      return `<div class="tsimm-trade-exit-row tsimm-trade-exit-${escapeHtml(item.status)}">`
+        + `<div class="tsimm-trade-exit-row-head"><strong>${escapeHtml(item.verdict)}</strong><span>${escapeHtml(item.itemName)} × ${formatInteger(item.quantity)}</span></div>`
+        + `<div class="tsimm-trade-exit-route"><span>${escapeHtml(item.recommendedSource || 'No actionable route')}${escapeHtml(routeAge)}</span><strong>${escapeHtml(routeValue)}</strong></div>`
+        + `<small>Here ${escapeHtml(hereText)} · Favorite ${escapeHtml(favoriteText)} · NPC ${escapeHtml(npcText)} · 99% ${escapeHtml(formatMoney(item.targetEach))}${escapeHtml(deltaText)}</small>`
+        + `</div>`;
+    }).join('');
+    return `
+      <div class="tsimm-trade-exit-audit">
+        <div class="tsimm-trade-exit-head"><strong>🧭 Trade Exit Audit</strong><span>${escapeHtml(audit.overallLabel)}</span></div>
+        <div class="tsimm-trade-exit-summary">
+          <span>Current trader price coverage</span><strong>${formatInteger(audit.currentFreshCoverage)}/${formatInteger(audit.totalTypes)} fresh</strong>
+          <span>Best known concrete exit</span><strong>${escapeHtml(bestTotalText)}</strong>
+          <span>Live cash vs best route</span><strong class="${offerVsBestClass}">${escapeHtml(offerVsBestText)}</strong>
+          <span>Potential left behind</span><strong class="${potentialClass}">${escapeHtml(potentialText)}</strong>
+        </div>
+        ${rows ? `<div class="tsimm-trade-exit-list">${rows}</div>` : '<div class="tsimm-muted">Add items to your side of the trade to begin the audit.</div>'}
+        <div class="tsimm-muted">Fresh captured prices are actionable for 72h by default. Stale references never receive a sell recommendation.</div>
       </div>
     `;
   }
@@ -6327,6 +6727,7 @@
           <span>Ledger sale state</span><strong>${escapeHtml(saleStateText)}</strong>
         </div>
         ${itemLines ? `<div class="tsimm-trade-items">${itemLines}</div>` : ''}
+        ${tradeExitAuditHtml(stats)}
         ${canRecord
           ? `<button class="tsimm-trade-record" type="button" data-tsimm-action="trade-record-sale">Record completed sale</button>`
           : ''}
@@ -6411,6 +6812,7 @@
           <option value="right" ${state.settings.tradeSidePreference === 'right' ? 'selected' : ''}>Right</option>
         </select></div>
         <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showTradeItemBreakdown" ${state.settings.showTradeItemBreakdown ? 'checked' : ''}> Show per-item 99% totals</label>
+        <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showTradeExitAudit" ${state.settings.showTradeExitAudit !== false ? 'checked' : ''}> Show Trade Exit Audit</label>
         <div class="tsimm-muted">Side detection: ${escapeHtml(stats.tradeSideSource || 'not resolved')}</div>`
       : '';
     panel.innerHTML = `
@@ -6799,6 +7201,8 @@
       sortLedgerLots,
       ledgerSalePlan,
       recordTradeSale,
+      buildTradeExitAudit,
+      tradeExitAuditHtml,
       _state: state,
     };
   }
