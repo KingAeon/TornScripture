@@ -4139,8 +4139,8 @@
 
   function quickMaxVerifyConfirmation(parsed, candidate, maximum) {
     if (!parsed) throw new Error('Torn confirmation could not be verified.');
-    if (parsed.quantity <= 0 || parsed.quantity > maximum) {
-      throw new Error(`Torn confirmation quantity ${parsed.quantity} exceeded the armed MAX ${maximum}.`);
+    if (parsed.quantity <= 0 || parsed.quantity !== maximum) {
+      throw new Error(`Torn confirmation quantity ${parsed.quantity} did not match the armed MAX ${maximum}.`);
     }
     const expectedName = quickMaxSyntheticPurchase(candidate, maximum).itemName;
     if (expectedName && normalizeName(parsed.itemName) !== normalizeName(expectedName)) {
