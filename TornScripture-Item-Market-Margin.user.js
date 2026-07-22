@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.10.0
+// @version      0.10.1
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.1' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.1' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -274,14 +274,14 @@
    * - Normal purchase capture begins after the user presses Torn's confirmation button.
    * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
-   * - Trade Exit Audit is read-only: it compares live trade cash, captured trader prices, favorite traders, NPC buyback, and the 99% target without changing the trade.
-   * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, or sells items.
+   * - Trade Exit Audit comparisons are read-only. Bulk removal runs only after the user presses its button and confirms; it uses Torn's visible item-removal controls and never accepts or completes a trade.
+   * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, sells items, or completes trades.
    */
 
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.10.0',
+    version: '0.10.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -334,6 +334,7 @@
     tradeSidePreference: 'auto',
     showTradeItemBreakdown: true,
     showTradeExitAudit: true,
+    tradeExitShowAllItems: false,
     showClosedLedgerLots: true,
     ledgerShowSoldPurchases: true,
     overseasLoadLimit: 21,
@@ -350,6 +351,7 @@
     quickMaxOverrideArmed: false,
     quickMaxBusy: false,
     quickMaxLastActionAt: 0,
+    tradeExitRemoveBusy: false,
     recentPurchaseFingerprints: loadJson(APP.recentPurchaseFingerprintsStorageKey, []),
     lastScan: emptyScanStats(),
     syncing: false,
@@ -3388,6 +3390,10 @@
   function clearTradeAnnotations() {
     document.querySelectorAll(`.${APP.tradeBadgeClass}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${APP.tradeItemMark}`).forEach((element) => element.classList.remove(APP.tradeItemMark));
+    document.querySelectorAll('[data-tsimm-trade-exit-status],[data-tsimm-trade-exit-token]').forEach((element) => {
+      delete element.dataset.tsimmTradeExitStatus;
+      delete element.dataset.tsimmTradeExitToken;
+    });
   }
 
   function addTradeItemBadge(item) {
@@ -3742,14 +3748,99 @@
         itemId: item.catalog?.id || item.itemId,
         name: item.catalog?.name || item.name,
       }));
+      if (!auditItem) continue;
+      annotationRow.dataset.tsimmTradeExitStatus = auditItem.status;
+      annotationRow.dataset.tsimmTradeExitToken = auditItem.token;
       const badge = annotationRow.querySelector(`.${APP.tradeBadgeClass}`);
-      if (!auditItem || !badge) continue;
+      if (!badge) continue;
       badge.classList.add(`tsimm-trade-exit-badge-${auditItem.status}`);
       const route = auditItem.recommendedEach > 0
         ? `${escapeHtml(auditItem.recommendedSource)} ${escapeHtml(formatMoney(auditItem.recommendedEach))} ea`
         : 'No actionable exit';
       badge.innerHTML = `<strong>${escapeHtml(auditItem.verdict)}</strong>`
         + `<span>${route} · Ⓣ ${escapeHtml(formatMoney(auditItem.targetEach * auditItem.quantity))}</span>`;
+    }
+  }
+
+  function tradeExitRemoveControlLabel(element) {
+    if (!(element instanceof Element)) return '';
+    const childHints = [...element.querySelectorAll('[class],[aria-label],[title]')]
+      .slice(0, 16)
+      .map((child) => `${child.getAttribute('class') || ''} ${child.getAttribute('aria-label') || ''} ${child.getAttribute('title') || ''}`)
+      .join(' ');
+    return normalizeWhitespace([
+      element.textContent,
+      element.getAttribute('aria-label'),
+      element.getAttribute('title'),
+      element.getAttribute('name'),
+      element.getAttribute('value'),
+      element.getAttribute('class'),
+      childHints,
+    ].filter(Boolean).join(' '));
+  }
+
+  function tradeExitRemoveControl(row) {
+    if (!(row instanceof Element)) return null;
+    const controls = [...row.querySelectorAll('button,a,[role="button"],input[type="button"],input[type="submit"]')]
+      .filter((element) => visibleElement(element)
+        && !element.disabled
+        && !element.closest(`#${APP.panelId},[data-tsimm-generated]`));
+    return controls.find((element) => /\b(?:remove|delete|trash)\b/i.test(tradeExitRemoveControlLabel(element)))
+      || controls.find((element) => /(?:remove|delete|trash)/i.test(String(element.className || '')))
+      || null;
+  }
+
+  function tradeExitRowForToken(token) {
+    return [...document.querySelectorAll('[data-tsimm-trade-exit-token]')]
+      .find((row) => row.dataset.tsimmTradeExitToken === token) || null;
+  }
+
+  const tradeExitDelay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+  async function removeTradeExitItems(status = 'better-elsewhere') {
+    if (state.tradeExitRemoveBusy) return;
+    const audit = state.lastScan?.tradeExitAudit;
+    const targets = (audit?.items || []).filter((item) => item.status === status);
+    if (!targets.length) {
+      toast('No better-elsewhere items are currently in this trade.');
+      return;
+    }
+    const preview = targets.slice(0, 8).map((item) => `${item.itemName} × ${formatInteger(item.quantity)}`).join('\n');
+    const remainder = targets.length > 8 ? `\n…plus ${targets.length - 8} more` : '';
+    const accepted = confirm(
+      `Remove ${targets.length} better-elsewhere item type${targets.length === 1 ? '' : 's'} from your side of this trade?\n\n${preview}${remainder}\n\nIMM will press Torn's visible remove controls one at a time. It will not accept or complete the trade.`
+    );
+    if (!accepted) return;
+
+    state.tradeExitRemoveBusy = true;
+    renderPanel();
+    let removed = 0;
+    let unavailable = 0;
+    try {
+      for (const target of targets) {
+        const row = tradeExitRowForToken(target.token);
+        const control = tradeExitRemoveControl(row);
+        if (!row || !control) {
+          unavailable += 1;
+          continue;
+        }
+        const originalRow = row;
+        control.click();
+        await tradeExitDelay(550);
+        if (!originalRow.isConnected || !visibleElement(originalRow)) removed += 1;
+        else unavailable += 1;
+        scanPage();
+        await tradeExitDelay(120);
+      }
+    } finally {
+      state.tradeExitRemoveBusy = false;
+      scheduleScan(120);
+      renderPanel();
+    }
+    if (removed) {
+      toast(`Removed ${removed} better-elsewhere item type${removed === 1 ? '' : 's'}${unavailable ? ` · ${unavailable} still need manual removal` : ''}.`);
+    } else {
+      toast('Torn did not expose a usable remove control. Use the native trash icons for these rows.');
     }
   }
 
@@ -6502,12 +6593,12 @@
     const style = document.createElement('style');
     style.id = APP.styleId;
     style.textContent = `
-      #${APP.panelId}{position:fixed;right:8px;bottom:118px;width:min(292px,calc(100vw - 16px));z-index:2147483000;border:1px solid #58506b;border-radius:12px;background:#1d1b22;color:#f4f1f8;box-shadow:0 10px 30px #0009;font:12px/1.35 Arial,sans-serif;overflow:hidden}
+      #${APP.panelId}{position:fixed;right:8px;bottom:118px;width:min(292px,calc(100vw - 16px));max-height:calc(100vh - 134px);max-height:calc(100dvh - 134px);z-index:2147483000;display:flex;flex-direction:column;border:1px solid #58506b;border-radius:12px;background:#1d1b22;color:#f4f1f8;box-shadow:0 10px 30px #0009;font:12px/1.35 Arial,sans-serif;overflow:hidden}
       #${APP.panelId} *{box-sizing:border-box}
       #${APP.panelId}.tsimm-collapsed{width:auto}
       .tsimm-head{display:flex;align-items:center;gap:7px;padding:8px 9px;background:#292530;border-bottom:1px solid #4e475b}
       .tsimm-head strong{flex:1;font-size:13px}.tsimm-head small{color:#aaa1b7}.tsimm-head button,.tsimm-btn{border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:6px 8px;font-weight:700;cursor:pointer}
-      .tsimm-head button{padding:2px 7px}.tsimm-body{padding:9px}.tsimm-collapsed .tsimm-body,.tsimm-collapsed .tsimm-head small{display:none}
+      .tsimm-head{flex:0 0 auto}.tsimm-head button{padding:2px 7px}.tsimm-body{min-height:0;padding:9px;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}.tsimm-collapsed{max-height:none!important}.tsimm-collapsed .tsimm-body,.tsimm-collapsed .tsimm-head small{display:none}
       .tsimm-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
       .tsimm-actions{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}.tsimm-btn{flex:1;min-width:78px}.tsimm-btn-primary{background:#5b2b82;border-color:#8e55b9}.tsimm-btn-blue{background:#174f75!important;border-color:#3b8fc2!important;color:#eaf7ff!important}.tsimm-btn:disabled{opacity:.55;cursor:wait}
       .tsimm-controls{display:grid;grid-template-columns:1fr 72px;gap:5px;align-items:center;margin-top:6px}.tsimm-controls input{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}.tsimm-check{display:flex;align-items:center;gap:6px;margin-top:7px;color:#c9c2d0}
@@ -6533,7 +6624,8 @@
       .tsimm-trade-exit-audit{margin-top:8px;padding-top:7px;border-top:1px solid #514a59;display:grid;gap:6px}
       .tsimm-trade-exit-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.tsimm-trade-exit-head strong{color:#d9c9e8;font-size:11px}.tsimm-trade-exit-head span{font-size:9px;color:#aaa1b7;text-align:right}
       .tsimm-trade-exit-summary{display:grid;grid-template-columns:1fr auto;gap:3px 8px;padding:6px;border:1px solid #494250;border-radius:7px;background:#1d1a22}.tsimm-trade-exit-summary span{color:#aaa1b7}.tsimm-trade-exit-summary strong{text-align:right}
-      .tsimm-trade-exit-list{display:grid;gap:5px;max-height:210px;overflow:auto;padding-right:2px}
+      .tsimm-trade-exit-actions{display:flex;gap:5px;flex-wrap:wrap}.tsimm-trade-exit-actions button{flex:1;min-width:104px;border:1px solid #625a70;border-radius:6px;background:#332d3b;color:#f4f1f8;padding:6px;font-size:9px;font-weight:800}.tsimm-trade-exit-actions button.remove{border-color:#925264;background:#3a1821;color:#ffc5cf}.tsimm-trade-exit-actions button:disabled{opacity:.55;cursor:wait}
+      .tsimm-trade-exit-list{display:grid;gap:5px;max-height:min(210px,32dvh);overflow:auto;overscroll-behavior:contain;padding-right:2px}.tsimm-trade-exit-empty{padding:7px;border:1px dashed #514a59;border-radius:7px;color:#9fdcb8;text-align:center;font-size:9px}
       .tsimm-trade-exit-row{display:grid;gap:3px;padding:6px;border:1px solid #4c4653;border-radius:7px;background:#1d1a21}.tsimm-trade-exit-row-head,.tsimm-trade-exit-route{display:flex;align-items:center;justify-content:space-between;gap:7px}.tsimm-trade-exit-row-head strong{font-size:9px}.tsimm-trade-exit-row-head span,.tsimm-trade-exit-route span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-exit-route{font-size:10px}.tsimm-trade-exit-row small{color:#aaa1b7;font-size:8px;line-height:1.25}
       .tsimm-trade-exit-sell-here{border-color:#3d9162}.tsimm-trade-exit-sell-here .tsimm-trade-exit-row-head strong{color:#70e6a2}
       .tsimm-trade-exit-better-elsewhere{border-color:#7d59a4}.tsimm-trade-exit-better-elsewhere .tsimm-trade-exit-row-head strong{color:#d7a4ff}
@@ -6603,6 +6695,10 @@
   function tradeExitAuditHtml(stats) {
     const audit = stats?.tradeExitAudit;
     if (!state.settings.showTradeExitAudit || !audit || stats.pageType !== 'trade') return '';
+    const showAll = state.settings.tradeExitShowAllItems === true;
+    const problemItems = audit.items.filter((item) => item.status !== 'sell-here');
+    const visibleItems = showAll ? audit.items : problemItems;
+    const hiddenSellHere = showAll ? 0 : audit.sellHereCount;
     const bestTotalText = audit.fullCoverage
       ? formatMoney(audit.bestKnownTotal)
       : `${formatInteger(audit.actionableTypes)}/${formatInteger(audit.totalTypes)} types covered`;
@@ -6624,7 +6720,7 @@
       : audit.offerVsBest >= 0
         ? 'tsimm-trade-diff-good'
         : 'tsimm-trade-diff-loss';
-    const rows = audit.items.map((item) => {
+    const rows = visibleItems.map((item) => {
       const hereText = item.currentQuote
         ? `${formatMoney(item.currentQuote.unitPrice)}${item.currentQuote.freshness.status === 'fresh' ? '' : ' stale'}`
         : '?';
@@ -6649,17 +6745,27 @@
         + `<small>Here ${escapeHtml(hereText)} · Favorite ${escapeHtml(favoriteText)} · NPC ${escapeHtml(npcText)} · 99% ${escapeHtml(formatMoney(item.targetEach))}${escapeHtml(deltaText)}</small>`
         + `</div>`;
     }).join('');
+    const emptyText = audit.totalTypes
+      ? `${formatInteger(audit.sellHereCount)} item type${audit.sellHereCount === 1 ? '' : 's'} cleared to sell here. Use Show all to inspect them.`
+      : 'Add items to your side of the trade to begin the audit.';
+    const viewButton = audit.sellHereCount
+      ? `<button type="button" data-tsimm-action="trade-exit-toggle-all">${showAll ? `Problems only (${formatInteger(problemItems.length)})` : `Show all (${formatInteger(audit.totalTypes)})`}</button>`
+      : '';
+    const removeButton = audit.betterElsewhereCount
+      ? `<button class="remove" type="button" data-tsimm-action="trade-exit-remove-better" ${state.tradeExitRemoveBusy ? 'disabled' : ''}>${state.tradeExitRemoveBusy ? 'Removing…' : `Remove ${formatInteger(audit.betterElsewhereCount)} better elsewhere`}</button>`
+      : '';
     return `
       <div class="tsimm-trade-exit-audit">
-        <div class="tsimm-trade-exit-head"><strong>🧭 Trade Exit Audit</strong><span>${escapeHtml(audit.overallLabel)}</span></div>
+        <div class="tsimm-trade-exit-head"><strong>🧭 Trade Exit Audit</strong><span>${escapeHtml(audit.overallLabel)}${hiddenSellHere ? ` · ${formatInteger(hiddenSellHere)} safe hidden` : ''}</span></div>
         <div class="tsimm-trade-exit-summary">
           <span>Current trader price coverage</span><strong>${formatInteger(audit.currentFreshCoverage)}/${formatInteger(audit.totalTypes)} fresh</strong>
           <span>Best known concrete exit</span><strong>${escapeHtml(bestTotalText)}</strong>
           <span>Live cash vs best route</span><strong class="${offerVsBestClass}">${escapeHtml(offerVsBestText)}</strong>
           <span>Potential left behind</span><strong class="${potentialClass}">${escapeHtml(potentialText)}</strong>
         </div>
-        ${rows ? `<div class="tsimm-trade-exit-list">${rows}</div>` : '<div class="tsimm-muted">Add items to your side of the trade to begin the audit.</div>'}
-        <div class="tsimm-muted">Fresh captured prices are actionable for 72h by default. Stale references never receive a sell recommendation.</div>
+        ${(viewButton || removeButton) ? `<div class="tsimm-trade-exit-actions">${viewButton}${removeButton}</div>` : ''}
+        ${rows ? `<div class="tsimm-trade-exit-list">${rows}</div>` : `<div class="tsimm-trade-exit-empty">${escapeHtml(emptyText)}</div>`}
+        <div class="tsimm-muted">Problems-only view hides SELL HERE rows. Fresh captured prices remain actionable for 72h by default.</div>
       </div>
     `;
   }
@@ -6743,6 +6849,7 @@
       panel.id = APP.panelId;
       document.body.appendChild(panel);
     }
+    const previousBodyScroll = panel.querySelector('.tsimm-body')?.scrollTop || 0;
     panel.classList.toggle('tsimm-collapsed', Boolean(state.settings.collapsed));
     const stats = state.lastScan;
     const isTrade = stats.pageType === 'trade';
@@ -6847,6 +6954,8 @@
         ${notes}
       </div>
     `;
+    const nextBody = panel.querySelector('.tsimm-body');
+    if (nextBody && previousBodyScroll > 0) nextBody.scrollTop = previousBodyScroll;
   }
 
   function bindPanelEvents() {
@@ -6864,6 +6973,14 @@
         scanPage();
       } else if (action === 'diagnostics') {
         copyDiagnostics();
+      } else if (action === 'trade-exit-toggle-all') {
+        updateSetting('tradeExitShowAllItems', state.settings.tradeExitShowAllItems !== true);
+      } else if (action === 'trade-exit-remove-better') {
+        removeTradeExitItems('better-elsewhere').catch((error) => {
+          state.tradeExitRemoveBusy = false;
+          renderPanel();
+          toast(error?.message || 'Bulk trade removal failed.');
+        });
       } else if (action === 'trade-record-sale') {
         const stats = state.lastScan;
         const plan = ledgerSalePlan(stats);
