@@ -1,6 +1,6 @@
 from pathlib import Path
 
-# Workflow retrigger after the workflow file was already present on main.
+# Pull-request validation trigger for the IMM favorite runtime patch.
 path = Path("TornScripture-Item-Market-Margin.user.js")
 text = path.read_text(encoding="utf-8")
 original = text
