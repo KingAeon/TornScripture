@@ -1,0 +1,48 @@
+name: Validate Quick MAX v0.9.5
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - tools/patch-quick-max-v095.py
+      - TornScripture-Item-Market-Margin.user.js
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Quick MAX branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply Quick MAX patch
+        run: python tools/patch-quick-max-v095.py
+
+      - name: Validate JavaScript syntax
+        run: node --check TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate Quick MAX markers
+        run: |
+          grep -q "@version      0.9.5" TornScripture-Item-Market-Margin.user.js
+          grep -q "function runQuickMax" TornScripture-Item-Market-Margin.user.js
+          grep -q "data-tsimm-quick-max-override" TornScripture-Item-Market-Margin.user.js
+          grep -q "Override MAX submitted" TornScripture-Item-Market-Margin.user.js
+          grep -q "quickMaxOverrideArmed: false" TornScripture-Item-Market-Margin.user.js
+
+      - name: Commit validated userscript
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-Item-Market-Margin.user.js
+          if git diff --cached --quiet; then
+            echo "No userscript changes to commit."
+          else
+            git commit -m "Add safe and override Quick MAX"
+            git push origin HEAD:${GITHUB_HEAD_REF}
+          fi
