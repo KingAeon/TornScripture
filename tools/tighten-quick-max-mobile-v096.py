@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Final guard: a MAX purchase must confirm the exact detected listing quantity.
 path = Path("TornScripture-Item-Market-Margin.user.js")
 text = path.read_text(encoding="utf-8")
 old = '''    if (parsed.quantity <= 0 || parsed.quantity > maximum) {
