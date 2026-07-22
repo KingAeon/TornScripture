@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'tools/patch-trade-switch-gain-v0102.py'
+      - 'tools/run-trade-switch-gain-v0102.py'
       - '.github/validation/trade-switch-gain-trigger.txt'
 
 permissions:
@@ -22,7 +23,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply switch-gain threshold patch
-        run: python3 tools/patch-trade-switch-gain-v0102.py
+        run: python3 tools/run-trade-switch-gain-v0102.py
 
       - name: Validate JavaScript syntax
         run: node --check TornScripture-Item-Market-Margin.user.js
@@ -43,7 +44,7 @@ jobs:
           fi
 
       - name: Remove temporary patch files
-        run: rm -f tools/patch-trade-switch-gain-v0102.py .github/workflows/trade-switch-gain-v0102.yml .github/validation/trade-switch-gain-trigger.txt
+        run: rm -f tools/patch-trade-switch-gain-v0102.py tools/run-trade-switch-gain-v0102.py .github/workflows/trade-switch-gain-v0102.yml .github/workflows/validate-trade-switch-gain-v0102.yml .github/validation/trade-switch-gain-trigger.txt
 
       - name: Commit validated feature
         run: |
