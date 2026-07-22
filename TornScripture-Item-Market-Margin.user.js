@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.10.1
+// @version      0.10.2
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.1' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.1' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.2' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.2' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -281,7 +281,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.10.1',
+    version: '0.10.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -335,6 +335,7 @@
     showTradeItemBreakdown: true,
     showTradeExitAudit: true,
     tradeExitShowAllItems: false,
+    tradeExitMinimumSwitchGain: 0,
     showClosedLedgerLots: true,
     ledgerShowSoldPurchases: true,
     overseasLoadLimit: 21,
@@ -3517,6 +3518,7 @@
     return {
       'sell-here': '✓ SELL HERE',
       'better-elsewhere': '↑ BETTER ELSEWHERE',
+      'close-enough': '≈ CLOSE ENOUGH',
       'npc-better': '🏪 NPC BETTER',
       'stale-price': '⌛ STALE PRICE',
       unknown: '? UNKNOWN',
@@ -3552,9 +3554,11 @@
     let currentCapturedTotal = 0;
     let sellHereCount = 0;
     let betterElsewhereCount = 0;
+    let closeEnoughCount = 0;
     let npcBetterCount = 0;
     let staleCount = 0;
     let unknownCount = 0;
+    const minimumSwitchGain = Math.max(0, Number(state.settings.tradeExitMinimumSwitchGain) || 0);
 
     for (const item of items) {
       const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
@@ -3644,13 +3648,36 @@
         recommendedSource = 'Torn NPC buyback';
       }
 
-      const actionable = ['sell-here', 'better-elsewhere', 'npc-better'].includes(status) && recommendedEach > 0;
+      let ignoredAlternative = null;
+      let ignoredGainTotal = 0;
+      if (status === 'better-elsewhere' && currentQuote && minimumSwitchGain > 0) {
+        const candidateGainTotal = Math.max(0, (recommendedEach - currentQuote.unitPrice) * quantity);
+        if (candidateGainTotal > 0 && candidateGainTotal < minimumSwitchGain) {
+          ignoredAlternative = {
+            traderId: recommendedTraderId,
+            traderName: recommendedSource,
+            unitPrice: recommendedEach,
+            freshness: recommendedFreshness,
+          };
+          ignoredGainTotal = candidateGainTotal;
+          status = 'close-enough';
+          recommendedEach = currentQuote.unitPrice;
+          recommendedSource = currentQuote.source === 'live trade cash'
+            ? `${currentQuote.traderName} live offer`
+            : currentQuote.traderName;
+          recommendedTraderId = currentQuote.traderId;
+          recommendedFreshness = currentQuote.freshness;
+        }
+      }
+
+      const actionable = ['sell-here', 'better-elsewhere', 'close-enough', 'npc-better'].includes(status) && recommendedEach > 0;
       if (actionable) {
         actionableTypes += 1;
         bestKnownTotal += recommendedEach * quantity;
       }
       if (status === 'sell-here') sellHereCount += 1;
       else if (status === 'better-elsewhere') betterElsewhereCount += 1;
+      else if (status === 'close-enough') closeEnoughCount += 1;
       else if (status === 'npc-better') npcBetterCount += 1;
       else if (status === 'stale-price') staleCount += 1;
       else unknownCount += 1;
@@ -3679,6 +3706,8 @@
         recommendedSource,
         recommendedTraderId,
         recommendedFreshness,
+        ignoredAlternative,
+        ignoredGainTotal,
         deltaEach,
         deltaTotal: deltaEach === null ? null : deltaEach * quantity,
         targetGapEach,
@@ -3706,7 +3735,9 @@
       review: `${betterElsewhereCount + npcBetterCount} route${betterElsewhereCount + npcBetterCount === 1 ? '' : 's'} to review`,
       stale: 'Refresh captured prices',
       unknown: 'Incomplete exit coverage',
-      'sell-here': 'Current route wins',
+      'sell-here': closeEnoughCount
+        ? `${closeEnoughCount} small switch gain${closeEnoughCount === 1 ? '' : 's'} ignored`
+        : 'Current route wins',
       empty: 'No items to audit',
     }[overallStatus];
 
@@ -3729,6 +3760,7 @@
       potentialLeftBehind,
       sellHereCount,
       betterElsewhereCount,
+      closeEnoughCount,
       npcBetterCount,
       staleCount,
       unknownCount,
@@ -3754,9 +3786,11 @@
       const badge = annotationRow.querySelector(`.${APP.tradeBadgeClass}`);
       if (!badge) continue;
       badge.classList.add(`tsimm-trade-exit-badge-${auditItem.status}`);
-      const route = auditItem.recommendedEach > 0
-        ? `${escapeHtml(auditItem.recommendedSource)} ${escapeHtml(formatMoney(auditItem.recommendedEach))} ea`
-        : 'No actionable exit';
+      const route = auditItem.status === 'close-enough' && auditItem.ignoredGainTotal > 0
+        ? `Ignored +${escapeHtml(formatMoney(auditItem.ignoredGainTotal))} total · keep here`
+        : auditItem.recommendedEach > 0
+          ? `${escapeHtml(auditItem.recommendedSource)} ${escapeHtml(formatMoney(auditItem.recommendedEach))} ea`
+          : 'No actionable exit';
       badge.innerHTML = `<strong>${escapeHtml(auditItem.verdict)}</strong>`
         + `<span>${route} · Ⓣ ${escapeHtml(formatMoney(auditItem.targetEach * auditItem.quantity))}</span>`;
     }
@@ -6627,12 +6661,14 @@
       .tsimm-trade-exit-actions{display:flex;gap:5px;flex-wrap:wrap}.tsimm-trade-exit-actions button{flex:1;min-width:104px;border:1px solid #625a70;border-radius:6px;background:#332d3b;color:#f4f1f8;padding:6px;font-size:9px;font-weight:800}.tsimm-trade-exit-actions button.remove{border-color:#925264;background:#3a1821;color:#ffc5cf}.tsimm-trade-exit-actions button:disabled{opacity:.55;cursor:wait}
       .tsimm-trade-exit-list{display:grid;gap:5px;max-height:min(210px,32dvh);overflow:auto;overscroll-behavior:contain;padding-right:2px}.tsimm-trade-exit-empty{padding:7px;border:1px dashed #514a59;border-radius:7px;color:#9fdcb8;text-align:center;font-size:9px}
       .tsimm-trade-exit-row{display:grid;gap:3px;padding:6px;border:1px solid #4c4653;border-radius:7px;background:#1d1a21}.tsimm-trade-exit-row-head,.tsimm-trade-exit-route{display:flex;align-items:center;justify-content:space-between;gap:7px}.tsimm-trade-exit-row-head strong{font-size:9px}.tsimm-trade-exit-row-head span,.tsimm-trade-exit-route span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trade-exit-route{font-size:10px}.tsimm-trade-exit-row small{color:#aaa1b7;font-size:8px;line-height:1.25}
+      .tsimm-trade-exit-gain{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:3px 5px;border-radius:5px;background:#281b35;color:#e5c4ff;font-size:9px}.tsimm-trade-exit-gain strong{color:#f0c8ff}.tsimm-trade-exit-gain.ignored{background:#172820;color:#a9d9bc}.tsimm-trade-exit-gain.ignored strong{color:#b8ebca}
       .tsimm-trade-exit-sell-here{border-color:#3d9162}.tsimm-trade-exit-sell-here .tsimm-trade-exit-row-head strong{color:#70e6a2}
       .tsimm-trade-exit-better-elsewhere{border-color:#7d59a4}.tsimm-trade-exit-better-elsewhere .tsimm-trade-exit-row-head strong{color:#d7a4ff}
+      .tsimm-trade-exit-close-enough{border-color:#47785b}.tsimm-trade-exit-close-enough .tsimm-trade-exit-row-head strong{color:#91dbad}
       .tsimm-trade-exit-npc-better{border-color:#3b8fc2}.tsimm-trade-exit-npc-better .tsimm-trade-exit-row-head strong{color:#83d1ff}
       .tsimm-trade-exit-stale-price{border-color:#9a6d1f}.tsimm-trade-exit-stale-price .tsimm-trade-exit-row-head strong{color:#ffd166}
       .tsimm-trade-exit-unknown{border-color:#5d6268}.tsimm-trade-exit-unknown .tsimm-trade-exit-row-head strong{color:#b7bdc2}
-      .tsimm-trade-exit-badge-sell-here{border-color:#44d88b!important;color:#8cf0b5!important}.tsimm-trade-exit-badge-better-elsewhere{border-color:#bd6cff!important;color:#e0b2ff!important}.tsimm-trade-exit-badge-npc-better{border-color:#58bfff!important;color:#a7ddff!important}.tsimm-trade-exit-badge-stale-price{border-color:#d3a13c!important;color:#ffd982!important}.tsimm-trade-exit-badge-unknown{border-color:#707780!important;color:#c1c6cc!important}
+      .tsimm-trade-exit-badge-sell-here{border-color:#44d88b!important;color:#8cf0b5!important}.tsimm-trade-exit-badge-better-elsewhere{border-color:#bd6cff!important;color:#e0b2ff!important}.tsimm-trade-exit-badge-close-enough{border-color:#5ea879!important;color:#a7e6bd!important}.tsimm-trade-exit-badge-npc-better{border-color:#58bfff!important;color:#a7ddff!important}.tsimm-trade-exit-badge-stale-price{border-color:#d3a13c!important;color:#ffd982!important}.tsimm-trade-exit-badge-unknown{border-color:#707780!important;color:#c1c6cc!important}
       .tsimm-controls select{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}
       .tsimm-pending-card{margin:7px 0;padding:8px;border:1px solid #c48b35;border-radius:8px;background:#2b2418;display:grid;gap:3px}.tsimm-pending-card>strong{color:#ffd184}.tsimm-pending-card>span{color:#f2e8d5}.tsimm-pending-card>small{color:#c9baa0}.tsimm-pending-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-pending-card button{flex:1;border:1px solid #725f3d;border-radius:6px;background:#3b3020;color:#fff;padding:5px;font-weight:700}
       .tsimm-trader-capture-card{margin:7px 0;padding:8px;border:1px solid #3b8fc2;border-radius:8px;background:#172833;display:grid;gap:3px}.tsimm-trader-capture-card>strong{color:#83d1ff}.tsimm-trader-capture-card>span{color:#d9f1ff}.tsimm-trader-capture-card>small{color:#9fbfce}.tsimm-trader-capture-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-trader-capture-card button{flex:1;border:1px solid #376b89;border-radius:6px;background:#1e4359;color:#fff;padding:5px;font-weight:700}
@@ -6696,9 +6732,9 @@
     const audit = stats?.tradeExitAudit;
     if (!state.settings.showTradeExitAudit || !audit || stats.pageType !== 'trade') return '';
     const showAll = state.settings.tradeExitShowAllItems === true;
-    const problemItems = audit.items.filter((item) => item.status !== 'sell-here');
+    const problemItems = audit.items.filter((item) => !['sell-here', 'close-enough'].includes(item.status));
     const visibleItems = showAll ? audit.items : problemItems;
-    const hiddenSellHere = showAll ? 0 : audit.sellHereCount;
+    const hiddenSafeCount = showAll ? 0 : audit.sellHereCount + Number(audit.closeEnoughCount || 0);
     const bestTotalText = audit.fullCoverage
       ? formatMoney(audit.bestKnownTotal)
       : `${formatInteger(audit.actionableTypes)}/${formatInteger(audit.totalTypes)} types covered`;
@@ -6739,16 +6775,23 @@
           : item.deltaTotal < 0
             ? ` · ${formatMoney(item.deltaTotal)} vs here`
             : ' · tied with here';
+      const switchGainHtml = item.status === 'better-elsewhere' && Number(item.deltaTotal) > 0
+        ? `<div class="tsimm-trade-exit-gain"><span>Bulk switch gain</span><strong>+${escapeHtml(formatMoney(item.deltaTotal))} total</strong></div>`
+        : item.status === 'close-enough' && Number(item.ignoredGainTotal) > 0
+          ? `<div class="tsimm-trade-exit-gain ignored"><span>Ignored switch gain</span><strong>+${escapeHtml(formatMoney(item.ignoredGainTotal))} total</strong></div>`
+          : '';
       return `<div class="tsimm-trade-exit-row tsimm-trade-exit-${escapeHtml(item.status)}">`
         + `<div class="tsimm-trade-exit-row-head"><strong>${escapeHtml(item.verdict)}</strong><span>${escapeHtml(item.itemName)} × ${formatInteger(item.quantity)}</span></div>`
         + `<div class="tsimm-trade-exit-route"><span>${escapeHtml(item.recommendedSource || 'No actionable route')}${escapeHtml(routeAge)}</span><strong>${escapeHtml(routeValue)}</strong></div>`
+        + switchGainHtml
         + `<small>Here ${escapeHtml(hereText)} · Favorite ${escapeHtml(favoriteText)} · NPC ${escapeHtml(npcText)} · 99% ${escapeHtml(formatMoney(item.targetEach))}${escapeHtml(deltaText)}</small>`
         + `</div>`;
     }).join('');
+    const safeCount = audit.sellHereCount + Number(audit.closeEnoughCount || 0);
     const emptyText = audit.totalTypes
-      ? `${formatInteger(audit.sellHereCount)} item type${audit.sellHereCount === 1 ? '' : 's'} cleared to sell here. Use Show all to inspect them.`
+      ? `${formatInteger(safeCount)} item type${safeCount === 1 ? '' : 's'} cleared or below your switch threshold. Use Show all to inspect them.`
       : 'Add items to your side of the trade to begin the audit.';
-    const viewButton = audit.sellHereCount
+    const viewButton = safeCount
       ? `<button type="button" data-tsimm-action="trade-exit-toggle-all">${showAll ? `Problems only (${formatInteger(problemItems.length)})` : `Show all (${formatInteger(audit.totalTypes)})`}</button>`
       : '';
     const removeButton = audit.betterElsewhereCount
@@ -6756,7 +6799,7 @@
       : '';
     return `
       <div class="tsimm-trade-exit-audit">
-        <div class="tsimm-trade-exit-head"><strong>🧭 Trade Exit Audit</strong><span>${escapeHtml(audit.overallLabel)}${hiddenSellHere ? ` · ${formatInteger(hiddenSellHere)} safe hidden` : ''}</span></div>
+        <div class="tsimm-trade-exit-head"><strong>🧭 Trade Exit Audit</strong><span>${escapeHtml(audit.overallLabel)}${hiddenSafeCount ? ` · ${formatInteger(hiddenSafeCount)} safe hidden` : ''}</span></div>
         <div class="tsimm-trade-exit-summary">
           <span>Current trader price coverage</span><strong>${formatInteger(audit.currentFreshCoverage)}/${formatInteger(audit.totalTypes)} fresh</strong>
           <span>Best known concrete exit</span><strong>${escapeHtml(bestTotalText)}</strong>
@@ -6765,7 +6808,7 @@
         </div>
         ${(viewButton || removeButton) ? `<div class="tsimm-trade-exit-actions">${viewButton}${removeButton}</div>` : ''}
         ${rows ? `<div class="tsimm-trade-exit-list">${rows}</div>` : `<div class="tsimm-trade-exit-empty">${escapeHtml(emptyText)}</div>`}
-        <div class="tsimm-muted">Problems-only view hides SELL HERE rows. Fresh captured prices remain actionable for 72h by default.</div>
+        <div class="tsimm-muted">Problems-only view hides SELL HERE and CLOSE ENOUGH rows. Minimum switch gain: ${escapeHtml(formatMoney(state.settings.tradeExitMinimumSwitchGain || 0))}. Fresh prices remain actionable for 72h.</div>
       </div>
     `;
   }
@@ -6920,6 +6963,7 @@
         </select></div>
         <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showTradeItemBreakdown" ${state.settings.showTradeItemBreakdown ? 'checked' : ''}> Show per-item 99% totals</label>
         <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showTradeExitAudit" ${state.settings.showTradeExitAudit !== false ? 'checked' : ''}> Show Trade Exit Audit</label>
+        <div class="tsimm-controls"><label>Ignore switch gains under</label><input type="number" min="0" step="100" value="${escapeHtml(state.settings.tradeExitMinimumSwitchGain || 0)}" data-tsimm-setting="tradeExitMinimumSwitchGain"></div>
         <div class="tsimm-muted">Side detection: ${escapeHtml(stats.tradeSideSource || 'not resolved')}</div>`
       : '';
     panel.innerHTML = `
