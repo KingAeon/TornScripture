@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.4
-// @description  Item-market and overseas profit overlays with trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
+// @version      0.9.5
+// @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.4' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.4' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.5' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.5' });
   }
 
 
@@ -263,25 +263,28 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.4
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.5
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
    * - Torn catalog values are requested only when the user presses Sync values.
    * - The API key, catalog cache, pending purchase, purchase lots, sale history, trader book, favorite traders, watched items, and receipt audits remain in this browser's local storage.
    * - The key is sent only to Torn's official API.
-   * - Purchase capture begins only after the user presses Torn's normal confirmation button.
+   * - Normal purchase capture begins after the user presses Torn's confirmation button.
+   * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
-   * - The script never clicks Buy, submits purchases, lists items, or sells items.
+   * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, or sells items.
    */
 
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.4',
+    version: '0.9.5',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
+    quickMaxButtonClass: 'tsimm-quick-max',
+    quickMaxRowClass: 'tsimm-quick-max-row',
     categoryMark: 'tsimm-category-mark',
     listingMark: 'tsimm-listing-mark',
     overseasMark: 'tsimm-overseas-mark',
@@ -340,6 +343,9 @@
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
     purchaseSignals: [],
+    quickMaxOverrideArmed: false,
+    quickMaxBusy: false,
+    quickMaxLastActionAt: 0,
     recentPurchaseFingerprints: loadJson(APP.recentPurchaseFingerprintsStorageKey, []),
     lastScan: emptyScanStats(),
     syncing: false,
@@ -3815,6 +3821,8 @@
   }
 
   function clearMarketAnnotations() {
+    document.querySelectorAll('[data-tsimm-quick-max]').forEach((element) => element.remove());
+    document.querySelectorAll(`.${APP.quickMaxRowClass}`).forEach((element) => element.classList.remove(APP.quickMaxRowClass));
     document.querySelectorAll(`.${APP.badgeClass}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${APP.categoryMark}`).forEach((element) => clearTierMark(element, APP.categoryMark));
     document.querySelectorAll(`.${APP.listingMark}`).forEach((element) => clearTierMark(element, APP.listingMark));
@@ -3847,6 +3855,11 @@
   }
 
   function pruneMarketAnnotations(scanToken) {
+    document.querySelectorAll('[data-tsimm-quick-max]').forEach((button) => {
+      if (button.dataset.tsimmScanToken === scanToken) return;
+      button.closest(`.${APP.quickMaxRowClass}`)?.classList.remove(APP.quickMaxRowClass);
+      button.remove();
+    });
     document.querySelectorAll(`.${APP.badgeClass}`).forEach((badge) => {
       if (badge.dataset.tsimmScanToken === scanToken) return;
       badge.remove();
@@ -3951,10 +3964,323 @@
     }
   }
 
+
+  function quickMaxInteractiveLabel(element) {
+    if (!(element instanceof Element)) return '';
+    return normalizeWhitespace([
+      element.textContent,
+      element.getAttribute('aria-label'),
+      element.getAttribute('title'),
+      element.getAttribute('name'),
+      element.getAttribute('value'),
+      element.className,
+    ].filter(Boolean).join(' '));
+  }
+
+  function quickMaxBuyControl(row) {
+    if (!(row instanceof Element)) return null;
+    const controls = [...row.querySelectorAll('button,a,[role="button"],input[type="button"],input[type="submit"]')]
+      .filter((element) =>
+        visibleElement(element)
+        && !element.disabled
+        && !element.closest(`[data-tsimm-generated],#${APP.panelId}`)
+      );
+    return controls.find((element) => /\b(?:buy|purchase)\b/i.test(quickMaxInteractiveLabel(element)))
+      || controls.find((element) => /(?:buy|purchase)/i.test(String(element.className || '')))
+      || null;
+  }
+
+  function quickMaxQuantityInput(root) {
+    if (!(root instanceof Element || root instanceof Document)) return null;
+    const selectors = [
+      'input[type="number"]',
+      'input[inputmode="numeric"]',
+      'input[name*="quantity" i]',
+      'input[name*="amount" i]',
+      'input[id*="quantity" i]',
+      'input[id*="amount" i]',
+      'input[class*="quantity" i]',
+      'input[class*="amount" i]',
+    ].join(',');
+    const candidates = [...root.querySelectorAll(selectors)].filter((input) =>
+      input instanceof HTMLInputElement
+      && visibleElement(input)
+      && !input.disabled
+      && !input.readOnly
+      && !input.closest(`#${APP.panelId},[data-tsimm-generated]`)
+    );
+    return candidates.sort((left, right) => {
+      const leftLabel = quickMaxInteractiveLabel(left);
+      const rightLabel = quickMaxInteractiveLabel(right);
+      const leftScore = Number(/\b(?:quantity|qty|amount|how many)\b/i.test(leftLabel)) * 4
+        + Number(left.type === 'number') * 2
+        + Number(Boolean(left.max));
+      const rightScore = Number(/\b(?:quantity|qty|amount|how many)\b/i.test(rightLabel)) * 4
+        + Number(right.type === 'number') * 2
+        + Number(Boolean(right.max));
+      return rightScore - leftScore;
+    })[0] || null;
+  }
+
+  function quickMaxSetInput(input, quantity) {
+    if (!(input instanceof HTMLInputElement)) return false;
+    const value = String(Math.max(1, Math.floor(Number(quantity) || 1)));
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    if (descriptor?.set) descriptor.set.call(input, value);
+    else input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'End' }));
+    return Number(input.value) === Number(value);
+  }
+
+  function quickMaxMaximum(candidate, input = null, surface = null) {
+    const limits = [];
+    const listingQuantity = Math.max(0, Math.floor(Number(candidate?.quantity) || 0));
+    if (listingQuantity) limits.push(listingQuantity);
+    for (const raw of [
+      input?.max,
+      input?.getAttribute?.('data-max'),
+      input?.getAttribute?.('aria-valuemax'),
+      input?.dataset?.max,
+      input?.dataset?.maximum,
+    ]) {
+      const value = Math.max(0, Math.floor(parseNumber(raw) || 0));
+      if (value) limits.push(value);
+    }
+    const surfaceText = normalizeWhitespace(surface?.innerText || surface?.textContent || '');
+    for (const pattern of [
+      /\bmax(?:imum)?\D{0,18}([\d,]+)/i,
+      /\b(?:available|stock|quantity|qty)\D{0,18}([\d,]+)/i,
+      /\bup to\D{0,12}([\d,]+)/i,
+    ]) {
+      const value = Math.max(0, Math.floor(parseNumber(surfaceText.match(pattern)?.[1]) || 0));
+      if (value) limits.push(value);
+    }
+    return limits.length ? Math.max(1, Math.min(...limits)) : 1;
+  }
+
+  function quickMaxPurchaseSurface() {
+    const selectors = [
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+      '[class*="dialog" i]',
+      '[class*="modal" i]',
+      '[class*="popup" i]',
+      '[class*="confirm" i]',
+    ].join(',');
+    const candidates = [...new Set([...document.querySelectorAll(selectors)])].filter((element) => {
+      if (!visibleElement(element) || element.closest(`#${APP.panelId},[data-tsimm-generated]`)) return false;
+      const text = normalizeWhitespace(element.innerText || element.textContent);
+      if (!text || text.length > 5000) return false;
+      return Boolean(quickMaxQuantityInput(element))
+        || /\b(?:buy|purchase)\b/i.test(text)
+        || (/\bYes\b/i.test(text) && /\bNo\b/i.test(text));
+    });
+    return candidates.sort((left, right) => {
+      const leftInput = Number(Boolean(quickMaxQuantityInput(left)));
+      const rightInput = Number(Boolean(quickMaxQuantityInput(right)));
+      const leftYes = [...left.querySelectorAll('button,a,[role="button"],span,div')].find((element) =>
+        /^yes$/i.test(normalizeWhitespace(element.textContent))
+      );
+      const rightYes = [...right.querySelectorAll('button,a,[role="button"],span,div')].find((element) =>
+        /^yes$/i.test(normalizeWhitespace(element.textContent))
+      );
+      const leftConfirm = Number(Boolean(purchaseConfirmationFromClick(leftYes)));
+      const rightConfirm = Number(Boolean(purchaseConfirmationFromClick(rightYes)));
+      return rightConfirm - leftConfirm || rightInput - leftInput;
+    })[0] || null;
+  }
+
+  function quickMaxPrimaryAction(surface) {
+    if (!(surface instanceof Element)) return null;
+    const controls = [...surface.querySelectorAll('button,a,[role="button"],input[type="button"],input[type="submit"]')]
+      .filter((element) => visibleElement(element) && !element.disabled && !element.closest('[data-tsimm-generated]'));
+    return controls.find((element) => {
+      const label = quickMaxInteractiveLabel(element);
+      if (/^(?:yes|no|cancel|close|back)$/i.test(label)) return false;
+      return /^(?:buy|purchase|confirm|continue)(?:\b|$)/i.test(label)
+        || /\b(?:buy now|complete purchase|confirm purchase)\b/i.test(label);
+    }) || null;
+  }
+
+  function quickMaxYesButton() {
+    const controls = [...document.querySelectorAll('button,a,[role="button"],input[type="button"],input[type="submit"],span,div')]
+      .filter((element) =>
+        visibleElement(element)
+        && !element.closest(`#${APP.panelId},[data-tsimm-generated]`)
+        && /^yes$/i.test(normalizeWhitespace(element.textContent || element.value))
+      );
+    return controls.find((element) => Boolean(purchaseConfirmationFromClick(element))) || null;
+  }
+
+  function waitForQuickMax(getter, timeoutMs = 1800, intervalMs = 35) {
+    const started = Date.now();
+    return new Promise((resolve) => {
+      const check = () => {
+        const value = getter();
+        if (value || Date.now() - started >= timeoutMs) {
+          resolve(value || null);
+          return;
+        }
+        setTimeout(check, intervalMs);
+      };
+      check();
+    });
+  }
+
+  function quickMaxSyntheticPurchase(candidate, quantity) {
+    const resolution = resolveListingMarketValue();
+    const itemId = resolution.itemId || itemIdFromLocation();
+    const catalog = catalogItemFor(resolution.itemName, itemId);
+    const itemName = catalog?.name || resolution.itemName || listingItemNameFromPage() || 'Item Market purchase';
+    const totalCost = Number(candidate?.price || 0) * Number(quantity || 0);
+    return {
+      itemName,
+      quantity,
+      totalCost,
+      unitCost: Number(candidate?.price || 0),
+      confirmationText: `Quick MAX ${quantity} x ${itemName} for ${formatMoney(totalCost)}`,
+    };
+  }
+
+  function clearQuickMaxPendingSilently(pendingId) {
+    if (!pendingId || state.pendingPurchase?.id !== pendingId) return;
+    state.pendingPurchase = null;
+    savePendingPurchase();
+    renderPanel();
+  }
+
+  function quickMaxFailClosed(message, pendingId = '') {
+    clearQuickMaxPendingSilently(pendingId);
+    if (state.quickMaxOverrideArmed) {
+      state.quickMaxOverrideArmed = false;
+      renderPanel();
+      scheduleScan(20);
+    }
+    toast(`${message} Override MAX is off.`);
+  }
+
+  function decorateQuickMaxCandidate(candidate, scanToken) {
+    const row = candidate?.row;
+    if (!(row instanceof Element)) return;
+    const buyControl = quickMaxBuyControl(row);
+    let button = row.querySelector('[data-tsimm-quick-max]');
+    if (!buyControl) {
+      button?.remove();
+      row.classList.remove(APP.quickMaxRowClass);
+      return;
+    }
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.tsimmQuickMax = '1';
+      button.dataset.tsimmGenerated = 'true';
+      const parent = buyControl.parentElement || row;
+      parent.insertBefore(button, buyControl);
+    }
+    button.className = `${APP.quickMaxButtonClass}${state.quickMaxOverrideArmed ? ' armed' : ''}`;
+    button.textContent = state.quickMaxOverrideArmed ? '⚡ MAX' : 'MAX';
+    button.title = state.quickMaxOverrideArmed
+      ? 'Override MAX armed: fill and submit the maximum purchase'
+      : 'Fill the maximum quantity and stop before submission';
+    button.setAttribute('aria-label', button.title);
+    button.dataset.tsimmScanToken = scanToken;
+    button.disabled = Boolean(state.quickMaxBusy);
+    row.classList.add(APP.quickMaxRowClass);
+  }
+
+  async function runQuickMax(button) {
+    if (state.quickMaxBusy || !(button instanceof HTMLElement)) return;
+    const row = button.closest(`.${APP.listingMark}`) || button.closest('li,[class*="row"],[class*="listing"]');
+    const candidate = listingCandidates().find((entry) => entry.row === row);
+    const buyControl = quickMaxBuyControl(row);
+    if (!candidate || !buyControl) {
+      toast('Quick MAX could not resolve this listing. Refresh and try again.');
+      return;
+    }
+
+    const override = Boolean(state.quickMaxOverrideArmed);
+    state.quickMaxBusy = true;
+    state.quickMaxLastActionAt = Date.now();
+    scheduleScan(0);
+    let maximum = Math.max(1, Math.floor(Number(candidate.quantity) || 1));
+    let pendingId = '';
+
+    try {
+      const rowInput = quickMaxQuantityInput(row);
+      if (rowInput) {
+        maximum = quickMaxMaximum(candidate, rowInput, row);
+        if (!quickMaxSetInput(rowInput, maximum)) throw new Error('Torn rejected the MAX quantity field update.');
+        if (!override) {
+          toast(`MAX set to ${formatInteger(maximum)}. Press Torn's Buy button when ready.`);
+          return;
+        }
+        beginPendingPurchase(quickMaxSyntheticPurchase(candidate, maximum));
+        pendingId = state.pendingPurchase?.id || '';
+        buyControl.click();
+      } else {
+        buyControl.click();
+        const surface = await waitForQuickMax(() => quickMaxPurchaseSurface(), 1800);
+        if (!surface) throw new Error('Torn did not open a recognizable purchase dialog.');
+        const dialogInput = quickMaxQuantityInput(surface);
+        if (!dialogInput) throw new Error('Torn opened a purchase dialog without a quantity field.');
+        maximum = quickMaxMaximum(candidate, dialogInput, surface);
+        if (!quickMaxSetInput(dialogInput, maximum)) throw new Error('Torn rejected the MAX quantity field update.');
+        if (!override) {
+          toast(`MAX set to ${formatInteger(maximum)}. Review Torn's dialog and submit when ready.`);
+          return;
+        }
+        beginPendingPurchase(quickMaxSyntheticPurchase(candidate, maximum));
+        pendingId = state.pendingPurchase?.id || '';
+        const primary = quickMaxPrimaryAction(surface);
+        if (!primary) throw new Error('Torn did not expose a recognizable purchase button.');
+        primary.click();
+      }
+
+      const yesButton = await waitForQuickMax(() => quickMaxYesButton(), 1600);
+      if (yesButton) {
+        const parsed = purchaseConfirmationFromClick(yesButton);
+        if (!parsed) throw new Error('Torn confirmation could not be verified.');
+        if (parsed.quantity <= 0 || parsed.quantity > maximum) {
+          throw new Error(`Torn confirmation quantity ${parsed.quantity} exceeded the armed MAX ${maximum}.`);
+        }
+        const expectedName = quickMaxSyntheticPurchase(candidate, maximum).itemName;
+        if (expectedName && normalizeName(parsed.itemName) !== normalizeName(expectedName)) {
+          throw new Error('Torn confirmation item did not match the selected listing.');
+        }
+        const expectedTotal = Number(candidate.price) * Number(parsed.quantity);
+        if (expectedTotal > 0 && Math.abs(parsed.totalCost - expectedTotal) > Math.max(1, parsed.quantity)) {
+          throw new Error('Torn confirmation total did not match the selected listing price.');
+        }
+        yesButton.click();
+        toast(`Override MAX submitted ${formatInteger(parsed.quantity)}× ${parsed.itemName}.`);
+      } else {
+        toast(`Override MAX submitted up to ${formatInteger(maximum)}. Waiting for Torn's response.`);
+      }
+    } catch (error) {
+      if (override) quickMaxFailClosed(error?.message || 'Quick MAX stopped on an unrecognized purchase step.', pendingId);
+      else toast(error?.message || 'Quick MAX could not fill this purchase.');
+    } finally {
+      state.quickMaxBusy = false;
+      scheduleScan(60);
+    }
+  }
+
+  function handleQuickMaxClick(event) {
+    const button = event.target.closest?.('[data-tsimm-quick-max]');
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    runQuickMax(button);
+  }
+
   function scanListings(stats, scanToken) {
     const candidates = listingCandidates();
     stats.listingCandidates = candidates.length;
     if (!candidates.length) return;
+
+    for (const candidate of candidates) decorateQuickMaxCandidate(candidate, scanToken);
 
     const resolution = resolveListingMarketValue();
     stats.visibleMarketValue = resolution.visibleValue;
@@ -5690,6 +6016,12 @@
       cachedCatalogItems: catalogCount(),
       catalogUpdatedAt: state.catalog.updatedAt,
       settings: state.settings,
+      quickMax: {
+        overrideArmed: state.quickMaxOverrideArmed,
+        busy: state.quickMaxBusy,
+        lastActionAt: state.quickMaxLastActionAt || null,
+        visibleButtons: document.querySelectorAll('[data-tsimm-quick-max]').length,
+      },
       calculationPolicy: {
         traderPercent: TRADER_PERCENT,
         payoutFormula: 'floor(marketValue * 0.99)',
@@ -5765,6 +6097,8 @@
       .tsimm-badge-category{position:absolute;right:4px;top:4px;z-index:5;max-width:calc(100% - 8px)}
       .tsimm-badge-listing{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
       .tsimm-badge-overseas{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
+      .${APP.quickMaxButtonClass}{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:38px!important;min-height:28px!important;margin:0 5px!important;padding:4px 6px!important;border:1px solid #67d889!important;border-radius:6px!important;background:#0d3520!important;color:#c9ffda!important;font:900 9px/1 Arial,sans-serif!important;letter-spacing:.03em!important;box-shadow:0 2px 8px #0008!important;cursor:pointer!important}.${APP.quickMaxButtonClass}:disabled{opacity:.5!important;cursor:wait!important}.${APP.quickMaxButtonClass}.armed{border-color:#ff9b4a!important;background:#4b1d08!important;color:#ffe0be!important;box-shadow:0 0 0 1px #ff7a2f66,0 2px 10px #000a!important}
+      .tsimm-quick-max-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center;margin-top:7px;padding:7px;border:1px solid #45614f;border-radius:8px;background:#1d2921}.tsimm-quick-max-card strong{color:#a8f3bd}.tsimm-quick-max-card span{color:#aab8ae;font-size:10px}.tsimm-quick-max-card label{display:flex;align-items:center;gap:5px;font-weight:800;white-space:nowrap}.tsimm-quick-max-card.armed{border-color:#ff873b;background:#35180a}.tsimm-quick-max-card.armed strong,.tsimm-quick-max-card.armed label{color:#ffd1aa}
       .${APP.categoryMark}.tsimm-tier-npc{outline:2px solid #58bfff99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-gold{outline:2px solid #f4c95d99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
       .${APP.listingMark}.tsimm-tier-npc{box-shadow:inset 3px 0 #58bfff}.${APP.listingMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       .${APP.overseasMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.overseasMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.overseasMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.overseasMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
@@ -5919,6 +6253,7 @@
     const isOverseas = stats.pageType === 'overseas shop';
     const isPriceCapture = stats.pageType === 'price capture';
     const isMarketPage = isOverseas || stats.pageType === 'category' || stats.pageType.startsWith('item listings');
+    const isItemListings = stats.pageType.startsWith('item listings');
     const npcCount = stats.categoryNpc + stats.listingNpc;
     const goldCount = stats.categoryGold + stats.listingGold + stats.overseasGold;
     const goodCount = stats.categoryGood + stats.listingGood + stats.overseasGood;
@@ -5967,6 +6302,12 @@
         <div class="tsimm-controls"><label>Green minimum ROI %</label><input type="number" min="0" step="0.01" value="${escapeHtml(state.settings.minimumRoiPercent)}" data-tsimm-setting="minimumRoiPercent"></div>
         <label class="tsimm-check"><input type="checkbox" data-tsimm-setting="showLossesDuringTesting" ${state.settings.showLossesDuringTesting ? 'checked' : ''}> Show red non-profitable items</label>`
       : '';
+    const quickMaxControls = isItemListings
+      ? `<div class="tsimm-quick-max-card ${state.quickMaxOverrideArmed ? 'armed' : ''}">
+          <div><strong>${state.quickMaxOverrideArmed ? '⚡ OVERRIDE MAX ARMED' : 'Quick MAX safe mode'}</strong><span>${state.quickMaxOverrideArmed ? 'MAX buttons will submit Torn\'s native purchase flow.' : 'MAX fills the largest visible quantity and stops before submission.'}</span></div>
+          <label><input type="checkbox" data-tsimm-quick-max-override ${state.quickMaxOverrideArmed ? 'checked' : ''}> 1-tap</label>
+        </div>`
+      : '';
     const tradeControls = isTrade
       ? `<div class="tsimm-controls"><label>Your trade side</label><select data-tsimm-setting="tradeSidePreference">
           <option value="auto" ${state.settings.tradeSidePreference === 'auto' ? 'selected' : ''}>Auto detect</option>
@@ -6003,6 +6344,7 @@
           ${isTrade && stats.tradeCounterparty ? '<button class="tsimm-btn" type="button" data-tsimm-action="trader-save-current">Save trader</button>' : ''}
         </div>
         ${tradeControls}
+        ${quickMaxControls}
         ${marketControls}
         ${notes}
       </div>
@@ -6010,6 +6352,7 @@
   }
 
   function bindPanelEvents() {
+    document.addEventListener('click', handleQuickMaxClick, true);
     document.addEventListener('click', capturePurchaseIntentFromClick, true);
     document.addEventListener('click', (event) => {
       const button = event.target.closest(`[data-tsimm-action]`);
@@ -6126,6 +6469,19 @@
       }
     });
     document.addEventListener('change', (event) => {
+      const quickMaxOverride = event.target.closest('[data-tsimm-quick-max-override]');
+      if (quickMaxOverride) {
+        if (quickMaxOverride.checked) {
+          const accepted = confirm('Arm Override MAX for this page session?\n\nPressing an orange ⚡ MAX button will fill the maximum quantity and submit Torn\'s native purchase flow immediately.\n\nThe mode fails closed and disarms when Torn\'s dialog cannot be verified.');
+          state.quickMaxOverrideArmed = Boolean(accepted);
+        } else {
+          state.quickMaxOverrideArmed = false;
+        }
+        renderPanel();
+        scheduleScan(20);
+        toast(state.quickMaxOverrideArmed ? 'Override MAX armed for this page session.' : 'Override MAX is off.');
+        return;
+      }
       const soldToggle = event.target.closest('[data-tsimm-ledger-show-sold]');
       if (soldToggle) {
         state.ledgerUi.showSold = soldToggle.checked;
