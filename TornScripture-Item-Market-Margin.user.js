@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.10
+// @version      0.9.11
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.10' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.10' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.11' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.11' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.10
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.11
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -280,7 +280,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.10',
+    version: '0.9.11',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -6895,6 +6895,11 @@
   };
   const marketPage = () => /(?:sid=ItemMarket|itemmarket|item-market)/i.test(location.href)
     || Boolean(document.querySelector('.tsimm-listing-mark'));
+  const singleItemMarketPage = () => {
+    if (!marketPage()) return false;
+    if (idFrom(location.href)) return true;
+    return Boolean(document.querySelector('.tsimm-listing-mark'));
+  };
 
   function injectStyle() {
     if (!document.head) return;
@@ -7438,7 +7443,7 @@
   }
 
   function currentMarketItem() {
-    if (!marketPage()) return null;
+    if (!singleItemMarketPage()) return null;
     const values = catalog();
     const urlId = idFrom(location.href);
     if (urlId && values.id[String(urlId)]) return values.id[String(urlId)];
@@ -7647,7 +7652,7 @@
 
   function decorateMarket() {
     cleanupMarket();
-    if (!marketPage()) {
+    if (!singleItemMarketPage()) {
       document.getElementById(A.panel)?.remove();
       return;
     }
