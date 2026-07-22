@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.9.6
+// @version      0.9.7
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, best-exit prompts, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.6' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.6' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.9.7' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.9.7' });
   }
 
 
@@ -263,7 +263,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.6
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.9.7
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -279,7 +279,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.9.6',
+    version: '0.9.7',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -3990,48 +3990,91 @@
       || null;
   }
 
+  function quickMaxQuantityValue(control) {
+    if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+      return normalizeWhitespace(control.value);
+    }
+    if (!(control instanceof Element)) return '';
+    return normalizeWhitespace(
+      control.getAttribute('aria-valuenow')
+      || control.getAttribute('data-value')
+      || control.textContent
+      || ''
+    );
+  }
+
   function quickMaxQuantityInput(root) {
     if (!(root instanceof Element || root instanceof Document)) return null;
     const selectors = [
       'input[type="number"]',
+      'input[type="text"]',
+      'input:not([type])',
       'input[inputmode="numeric"]',
+      'input[inputmode="decimal"]',
       'input[name*="quantity" i]',
       'input[name*="amount" i]',
       'input[id*="quantity" i]',
       'input[id*="amount" i]',
       'input[class*="quantity" i]',
       'input[class*="amount" i]',
+      'textarea',
+      '[contenteditable="true"]',
+      '[role="spinbutton"]',
     ].join(',');
-    const candidates = [...root.querySelectorAll(selectors)].filter((input) =>
-      input instanceof HTMLInputElement
-      && visibleElement(input)
-      && !input.disabled
-      && !input.readOnly
-      && !input.closest(`#${APP.panelId},[data-tsimm-generated]`)
-    );
-    return candidates.sort((left, right) => {
-      const leftLabel = quickMaxInteractiveLabel(left);
-      const rightLabel = quickMaxInteractiveLabel(right);
-      const leftScore = Number(/\b(?:quantity|qty|amount|how many)\b/i.test(leftLabel)) * 4
-        + Number(left.type === 'number') * 2
-        + Number(Boolean(left.max));
-      const rightScore = Number(/\b(?:quantity|qty|amount|how many)\b/i.test(rightLabel)) * 4
-        + Number(right.type === 'number') * 2
-        + Number(Boolean(right.max));
-      return rightScore - leftScore;
-    })[0] || null;
+    const candidates = [...new Set([...root.querySelectorAll(selectors)])].filter((control) => {
+      if (!(control instanceof HTMLElement) || !visibleElement(control)) return false;
+      if (control.closest(`#${APP.panelId},[data-tsimm-generated]`)) return false;
+      if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+        if (control.disabled || control.readOnly) return false;
+      } else if (control.getAttribute('aria-disabled') === 'true') {
+        return false;
+      }
+      const value = quickMaxQuantityValue(control);
+      const label = quickMaxInteractiveLabel(control);
+      const context = normalizeWhitespace(control.parentElement?.innerText || control.parentElement?.textContent || '');
+      return /^\d[\d,]*$/.test(value)
+        || /\b(?:quantity|qty|amount|how many)\b/i.test(`${label} ${context}`);
+    });
+    const score = (control) => {
+      const label = quickMaxInteractiveLabel(control);
+      const context = normalizeWhitespace(control.parentElement?.innerText || control.parentElement?.textContent || '');
+      const value = quickMaxQuantityValue(control);
+      const inputType = control instanceof HTMLInputElement ? String(control.type || '').toLowerCase() : '';
+      return Number(/\b(?:quantity|qty|amount|how many)\b/i.test(`${label} ${context}`)) * 6
+        + Number(/^\d[\d,]*$/.test(value)) * 4
+        + Number(inputType === 'number') * 3
+        + Number(inputType === 'text' || control instanceof HTMLTextAreaElement) * 2
+        + Number(control.getAttribute('contenteditable') === 'true') * 2
+        + Number(control.getAttribute('role') === 'spinbutton') * 2
+        + Number(Boolean(control.getAttribute('max') || control.getAttribute('data-max') || control.getAttribute('aria-valuemax')));
+    };
+    return candidates.sort((left, right) => score(right) - score(left))[0] || null;
   }
 
-  function quickMaxSetInput(input, quantity) {
-    if (!(input instanceof HTMLInputElement)) return false;
+  function quickMaxSetInput(control, quantity) {
+    if (!(control instanceof HTMLElement)) return false;
     const value = String(Math.max(1, Math.floor(Number(quantity) || 1)));
-    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-    if (descriptor?.set) descriptor.set.call(input, value);
-    else input.value = value;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'End' }));
-    return Number(input.value) === Number(value);
+    control.focus?.();
+    if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) {
+      const prototype = control instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+      if (descriptor?.set) descriptor.set.call(control, value);
+      else control.value = value;
+    } else {
+      control.textContent = value;
+      if (control.getAttribute('role') === 'spinbutton') control.setAttribute('aria-valuenow', value);
+      if (control.hasAttribute('data-value')) control.setAttribute('data-value', value);
+    }
+    if (typeof InputEvent === 'function') {
+      control.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+    } else {
+      control.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    control.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'End' }));
+    return parseNumber(quickMaxQuantityValue(control)) === Number(value);
   }
 
   function quickMaxMaximum(candidate, input = null, surface = null) {
@@ -4251,6 +4294,8 @@
       if (rowInput) {
         maximum = quickMaxMaximum(candidate, rowInput, row);
         if (!quickMaxSetInput(rowInput, maximum)) throw new Error('Torn rejected the MAX quantity field update.');
+        const rowApplied = await waitForQuickMax(() => parseNumber(quickMaxQuantityValue(rowInput)) === maximum ? rowInput : null, 500);
+        if (!rowApplied) throw new Error('Torn reverted the MAX quantity field update.');
         if (!override) {
           toast(`MAX set to ${formatInteger(maximum)}. Press Torn's Buy button when ready.`);
           return;
@@ -4279,6 +4324,8 @@
         if (!dialogInput) throw new Error('Torn opened a purchase dialog without a quantity field or verified confirmation.');
         maximum = quickMaxMaximum(candidate, dialogInput, surface);
         if (!quickMaxSetInput(dialogInput, maximum)) throw new Error('Torn rejected the MAX quantity field update.');
+        const dialogApplied = await waitForQuickMax(() => parseNumber(quickMaxQuantityValue(dialogInput)) === maximum ? dialogInput : null, 500);
+        if (!dialogApplied) throw new Error('Torn reverted the MAX quantity field update.');
         if (!override) {
           toast(`MAX set to ${formatInteger(maximum)}. Review Torn's dialog and submit when ready.`);
           return;
