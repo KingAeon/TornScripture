@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.10.3
+// @version      0.10.4
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.3' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.3' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.4' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.4' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.3
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.4
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -281,7 +281,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.10.3',
+    version: '0.10.4',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4397,8 +4397,8 @@
     }
     const totalSign = margin.totalProfit > 0 ? '+' : '';
     return `<strong>${sign}${escapeHtml(formatMoney(margin.profitEach))} ea</strong>`
-      + `<span>${totalSign}${escapeHtml(formatMoney(margin.totalProfit))} lot · ${escapeHtml(formatPercent(margin.roiPercent))}</span>`
-      + `<span>${escapeHtml(auditLine)}</span>`;
+      + `<span class="tsimm-listing-lot">${totalSign}${escapeHtml(formatMoney(margin.totalProfit))} full lot</span>`
+      + `<span>${escapeHtml(formatPercent(margin.roiPercent))} ROI · Ⓣ ${escapeHtml(formatMoney(margin.payout))}</span>`;
   }
 
   function addBadge(target, margin, mode, highlightTarget = target, scanToken = '') {
@@ -6686,7 +6686,7 @@
       .${APP.badgeClass} span{font-size:8px;font-weight:600;opacity:.9}.tsimm-tier-npc{--tsimm-tier:#58bfff}.tsimm-tier-gold{--tsimm-tier:#f4c95d}.tsimm-tier-good{--tsimm-tier:#44d88b}.tsimm-tier-minor{--tsimm-tier:#bd6cff}.tsimm-tier-loss{--tsimm-tier:#ff626d}
       .${APP.badgeClass}.tsimm-tier-npc{color:#58bfff}.${APP.badgeClass}.tsimm-tier-gold{color:#f4c95d}.${APP.badgeClass}.tsimm-tier-good{color:#44d88b}.${APP.badgeClass}.tsimm-tier-minor{color:#bd6cff}.${APP.badgeClass}.tsimm-tier-loss{color:#ff626d}
       .tsimm-badge-category{position:absolute;right:4px;top:4px;z-index:5;max-width:calc(100% - 8px)}
-      .tsimm-badge-listing{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
+      .tsimm-badge-listing{display:flex!important;position:relative;z-index:3;min-width:0;max-width:100%;width:max-content;margin:3px 0 0!important;overflow:hidden;vertical-align:initial;white-space:normal}.tsimm-badge-listing strong,.tsimm-badge-listing span{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-badge-listing .tsimm-listing-lot{color:inherit;font-size:8px;font-weight:800;opacity:1}
       .tsimm-badge-overseas{display:inline-flex;margin-left:6px;vertical-align:middle;position:relative;z-index:3}
       .${APP.quickMaxButtonClass}{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:38px!important;min-height:28px!important;margin:0 5px!important;padding:4px 6px!important;border:1px solid #67d889!important;border-radius:6px!important;background:#0d3520!important;color:#c9ffda!important;font:900 9px/1 Arial,sans-serif!important;letter-spacing:.03em!important;box-shadow:0 2px 8px #0008!important;cursor:pointer!important}.${APP.quickMaxButtonClass}:disabled{opacity:.5!important;cursor:wait!important}.${APP.quickMaxButtonClass}.armed{border-color:#ff9b4a!important;background:#4b1d08!important;color:#ffe0be!important;box-shadow:0 0 0 1px #ff7a2f66,0 2px 10px #000a!important}
       .tsimm-quick-max-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;align-items:center;margin-top:7px;padding:7px;border:1px solid #45614f;border-radius:8px;background:#1d2921}.tsimm-quick-max-card strong{color:#a8f3bd}.tsimm-quick-max-card span{color:#aab8ae;font-size:10px}.tsimm-quick-max-card label{display:flex;align-items:center;gap:5px;font-weight:800;white-space:nowrap}.tsimm-quick-max-card.armed{border-color:#ff873b;background:#35180a}.tsimm-quick-max-card.armed strong,.tsimm-quick-max-card.armed label{color:#ffd1aa}
