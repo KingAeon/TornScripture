@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.10.6
+// @version      0.10.8
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.6' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.6' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.8' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.8' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.6
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.8
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -281,7 +281,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.10.6',
+    version: '0.10.8',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -7533,7 +7533,7 @@
       #${A.toast}{position:fixed;left:50%;top:max(70px,calc(env(safe-area-inset-top) + 62px));z-index:2147483647;max-width:min(360px,calc(100vw - 24px));padding:8px 11px;transform:translate(-50%,-8px);border:1px solid #73df83;border-radius:6px;background:#06170af5;color:#d2ffc0;box-shadow:0 8px 26px #000c;font:800 10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;opacity:0;pointer-events:none;transition:opacity .16s ease,transform .16s ease}#${A.toast}.show{transform:translate(-50%,0);opacity:1}
       #${A.panel}{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;align-items:center;box-sizing:border-box;margin:3px 5px;padding:5px 7px;border:1px solid #27863f;border-radius:5px;background:#041109f5;color:#9ff48e;box-shadow:none;font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${A.panel} .watch-copy{display:grid;min-width:0;gap:2px}#${A.panel} strong{overflow:hidden;color:#c7ffad;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} span{display:block;overflow:hidden;color:#72bd7d;font-size:7px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} button{min-height:28px;border:1px solid #58d76d;border-radius:4px;background:#082b10;color:#c5ffac;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.panel}.idle{border-color:#4d5960;background:#0a0d0ff5;color:#aeb8bd}#${A.panel}.idle strong,#${A.panel}.idle span{color:#aeb8bd}#${A.panel}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.panel}.stale strong,#${A.panel}.stale span{color:#ffd166}#${A.panel}.outdated,#${A.panel}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.panel}.outdated strong,#${A.panel}.outdated span,#${A.panel}.missing strong,#${A.panel}.missing span{color:#ff9ba3}
-      .tsimm-watch-inline-badge{min-width:0!important}.tsimm-watch-inline{display:block!important;max-width:100%!important;overflow:hidden!important;color:#baff9f!important;opacity:1!important;font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;text-overflow:ellipsis!important;white-space:nowrap!important}.tsimm-watch-format-row{position:relative!important}
+      .tsimm-watch-inline-badge{display:grid!important;gap:1px!important;min-width:0!important;max-width:100%!important;padding:2px 4px!important;overflow:hidden!important;box-sizing:border-box!important}.tsimm-watch-inline-badge strong,.tsimm-watch-inline-badge .tsimm-listing-lot{display:block!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;white-space:nowrap!important;text-overflow:clip!important}.tsimm-watch-inline-badge strong{font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline-badge .tsimm-listing-lot{font:800 7px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline{display:none!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit .tsimm-listing-lot{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-even,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even .tsimm-listing-lot{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-loss,.tsimm-watch-inline-badge.tsimm-watch-best-exit-loss strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-loss .tsimm-listing-lot{border-color:#ff626d!important;background:#2c0b0ef5!important;color:#ff7c85!important}.tsimm-watch-format-row{position:relative!important}
       .tsimm-watch-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:112px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}.tsimm-watch-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-watch-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-watch-floor-row{box-shadow:inset 0 2px #347c41!important}
     `;
   }
@@ -8236,6 +8236,22 @@
     });
   }
 
+  function compactWatchCash(value) {
+    const number = Number(value) || 0;
+    const amount = Math.abs(number);
+    const sign = number < 0 ? '-' : number > 0 ? '+' : '';
+    const compact = (divisor, suffix, decimals) => {
+      const rendered = (amount / divisor)
+        .toFixed(decimals)
+        .replace(/\.0+$|(\.[0-9]*[1-9])0+$/g, '$1');
+      return `${sign}$${rendered}${suffix}`;
+    };
+    if (amount >= 1_000_000_000) return compact(1_000_000_000, 'b', amount < 10_000_000_000 ? 1 : 0);
+    if (amount >= 1_000_000) return compact(1_000_000, 'm', amount < 10_000_000 ? 1 : 0);
+    if (amount >= 1_000) return compact(1_000, 'k', amount < 10_000 ? 1 : 0);
+    return `${sign}${cash(amount)}`;
+  }
+
   function addProfitMarker(row, traderProfit, traderName = '') {
     const badge = row.querySelector('.tsimm-margin-badge.tsimm-badge-listing')
       || row.querySelector('.tsimm-margin-badge');
@@ -8251,13 +8267,15 @@
     if (badge) {
       const quantity = Math.max(1, Math.floor(Number(badge.dataset.tsimmQuantity) || 1));
       const totalProfit = profitEach * quantity;
-      const eachText = profitEach === 0 ? '$0 BREAK EVEN' : `${signedCash(profitEach)} ea`;
-      const lotText = totalProfit === 0 ? '$0 full lot' : `${signedCash(totalProfit)} full lot`;
+      const eachText = profitEach === 0 ? '$0 EVEN' : `${signedCash(profitEach)} ea`;
+      const lotText = totalProfit === 0 ? 'lot $0' : `lot ${compactWatchCash(totalProfit)}`;
       if (!badge.dataset.tsimmWatchOriginalHtml) badge.dataset.tsimmWatchOriginalHtml = badge.innerHTML;
       badge.innerHTML = `<strong>${esc(eachText)}</strong>`
-        + `<span class="tsimm-listing-lot">${esc(lotText)}</span>`
-        + `<span class="tsimm-watch-inline">📌 ${esc(traderLabel)} best exit</span>`;
-      badge.classList.remove('tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss');
+        + `<span class="tsimm-listing-lot">${esc(lotText)}</span>`;
+      badge.classList.remove(
+        'tsimm-tier-npc', 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss',
+        'tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss',
+      );
       badge.classList.add('tsimm-watch-inline-badge', 'tsimm-watch-best-exit', stateClass);
       row.classList.toggle('tsimm-watch-profitable', profitEach > 0);
       return true;
@@ -8266,17 +8284,18 @@
     marker.className = `tsimm-watch-profit${profitEach > 0 ? ' flip' : ''}`;
     marker.dataset.tsimmWatchProfit = '1';
     marker.textContent = profitEach === 0
-      ? `📌 ${traderLabel} $0 BREAK EVEN`
-      : `📌 ${traderLabel} ${signedCash(profitEach)}`;
+      ? '$0 EVEN'
+      : `${compactWatchCash(profitEach)} ea`;
     if (profitEach === 0) {
-      marker.style.setProperty('border-color', '#f4c95d', 'important');
-      marker.style.setProperty('background', '#2b2208f5', 'important');
-      marker.style.setProperty('color', '#f4c95d', 'important');
+      marker.style.setProperty('border-color', '#52c7ea', 'important');
+      marker.style.setProperty('background', '#071f29f5', 'important');
+      marker.style.setProperty('color', '#8ee8ff', 'important');
     } else if (profitEach < 0) {
       marker.style.setProperty('border-color', '#ff626d', 'important');
       marker.style.setProperty('background', '#2c0b0ef5', 'important');
       marker.style.setProperty('color', '#ff7c85', 'important');
     }
+    marker.title = `${traderLabel} best exit`;
     row.appendChild(marker);
     row.classList.add('tsimm-watch-format-row');
     row.classList.toggle('tsimm-watch-profitable', profitEach > 0);
