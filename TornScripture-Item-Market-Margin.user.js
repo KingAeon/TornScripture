@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.10.9
+// @version      0.11.0
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.10.9' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.10.9' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.11.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.11.0' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.10.9
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.11.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -281,7 +281,7 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.10.9',
+    version: '0.11.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2380,7 +2380,12 @@
     const routeMatch = href.includes('shops.php')
       || href.includes('foreignshop')
       || href.includes('travelshop')
-      || href.includes('abroad');
+      || href.includes('abroad')
+      || href.includes('travel.php')
+      || href.includes('sid=shops')
+      || href.includes('sid=shop')
+      || href.includes('#/shops')
+      || href.includes('#/shop');
     const purchaseControls = Boolean(document.querySelector(
       'input[name="amount"],input[name*="buyAmount"],input[id^="item"],button[data-item],[data-item] input,'
       + 'a[href*="buy"],button[class*="buy"],[class*="buy"] button,[class*="cart"],[data-action*="buy"],'
@@ -2568,12 +2573,13 @@
   function overseasCandidates() {
     const candidates = [];
     const seen = new Set();
-    const priceElements = marketTextElements(/^\$[\d,.]+$/, 'span,div,p,strong,b,td');
+    const overseasPriceRegex = /^(?:(?:cost|price)\s*:?\s*)?\$[\d,.]+$/i;
+    const priceElements = marketTextElements(overseasPriceRegex, 'span,div,p,strong,b,td');
     for (const priceElement of priceElements) {
       const row = priceElement.closest(`.${APP.overseasMark}`) || overseasRowForPrice(priceElement);
       if (!row || seen.has(row)) continue;
       const priceText = normalizeWhitespace(ownText(priceElement) || priceElement.innerText || priceElement.textContent);
-      const price = parseNumber(priceText);
+      const price = parseNumber(priceText.match(/\$[\d,.]+/)?.[0] || priceText);
       if (!Number.isFinite(price) || price <= 0) continue;
       const itemId = itemIdFromCard(row);
       const name = overseasItemName(row, priceText);
@@ -4099,6 +4105,7 @@
   }
 
   function itemIdFromCard(card) {
+    if (!(card instanceof Element)) return null;
     const candidates = [
       ...card.querySelectorAll('[data-item-id],[data-itemid],[data-id],a[href],img[src]'),
       card,
@@ -4107,11 +4114,14 @@
       for (const value of [
         element.getAttribute?.('data-item-id'),
         element.getAttribute?.('data-itemid'),
+        element.getAttribute?.('data-id'),
         element.getAttribute?.('href'),
         element.getAttribute?.('src'),
       ]) {
-        const text = String(value || '');
-        const match = text.match(/(?:item(?:id|ID)?[=/]|items?\/)(\d{1,6})(?:\D|$)/);
+        const valueText = String(value || '');
+        const match = valueText.match(/[?&#](?:itemID|itemId|item_id|ID|id)=(\d{1,6})(?:\D|$)/i)
+          || valueText.match(/\/(?:images\/)?items?\/(\d{1,6})(?:\/|\.|$)/i)
+          || valueText.match(/(?:item(?:id|ID)?[=\/_-])(\d{1,6})(?:\D|$)/i);
         if (match) return Number(match[1]);
       }
     }
@@ -4123,27 +4133,69 @@
     return state.catalog.itemsByName?.[normalizeName(name)] || null;
   }
 
+  function catalogItemForCard(card, name = '', itemId = null) {
+    const direct = catalogItemFor(name, itemId);
+    if (direct || !(card instanceof Element)) return direct;
+
+    const labels = [
+      ...card.querySelectorAll('img[alt],img[title],[aria-label],[title],[data-item-name]'),
+    ].flatMap((element) => [
+      element.getAttribute?.('alt'),
+      element.getAttribute?.('title'),
+      element.getAttribute?.('aria-label'),
+      element.getAttribute?.('data-item-name'),
+    ]).map(normalizeWhitespace).filter(Boolean);
+    for (const label of labels) {
+      const match = catalogItemFor(label);
+      if (match) return match;
+    }
+
+    const cardName = ` ${normalizeName(card.innerText || card.textContent)} `;
+    if (!cardName.trim()) return null;
+    return Object.values(state.catalog.itemsByName || {})
+      .filter((item) => item?.normalizedName && cardName.includes(` ${item.normalizedName} `))
+      .sort((left, right) => right.normalizedName.length - left.normalizedName.length)[0]
+      || null;
+  }
+
   function categoryCandidates() {
     const candidates = [];
     const seen = new Set();
     const categoryPriceRegex = /^\$[\d,.]+\s*\([\d,]+\)$/;
-    const priceElements = marketTextElements(categoryPriceRegex);
-    for (const priceElement of priceElements) {
-      const priceText = normalizeWhitespace(ownText(priceElement) || priceElement.innerText || priceElement.textContent);
-      const match = priceText.match(/^\$([\d,.]+)\s*\(([\d,]+)\)$/);
-      if (!match) continue;
-      const card = priceElement.closest(`.${APP.categoryMark}`) || findCategoryCard(priceElement);
-      if (!card || seen.has(card)) continue;
+    const addCard = (card, priceElement = null) => {
+      if (!(card instanceof Element) || seen.has(card)) return;
+      const cardText = normalizeWhitespace(card.innerText || card.textContent);
+      if (!cardText || cardText.length > 280 || /\b(?:Owner|Qty|Buy|MAX)\b/i.test(cardText)) return;
+      const match = cardText.match(/\$([\d,.]+)\s*\(([\d,]+)\)/);
+      if (!match) return;
+      const exactPriceElement = priceElement || [...card.querySelectorAll('span,div,p,strong,b')]
+        .find((element) => categoryPriceRegex.test(normalizeWhitespace(ownText(element) || element.textContent)))
+        || card;
+      const priceText = normalizeWhitespace(ownText(exactPriceElement) || exactPriceElement.textContent || match[0]);
+      const name = extractCategoryName(card, priceText) || extractCategoryName(card, match[0]);
       seen.add(card);
-      const name = extractCategoryName(card, priceText);
       candidates.push({
         card,
-        priceElement,
+        priceElement: exactPriceElement,
         name,
         itemId: itemIdFromCard(card),
         lowestPrice: parseNumber(match[1]),
         marketQuantity: parseNumber(match[2]),
       });
+    };
+
+    const priceElements = marketTextElements(categoryPriceRegex);
+    for (const priceElement of priceElements) {
+      const card = priceElement.closest(`.${APP.categoryMark}`) || findCategoryCard(priceElement);
+      addCard(card, priceElement);
+    }
+
+    // TornPDA occasionally merges the title and price into one React text node.
+    // Image-first recovery keeps the multi-item grid working when there is no
+    // standalone price element for marketTextElements() to discover.
+    for (const image of document.querySelectorAll('img')) {
+      if (!visibleElement(image) || image.closest(`#${APP.panelId},[data-tsimm-generated]`)) continue;
+      addCard(findCategoryCard(image));
     }
     return candidates;
   }
@@ -4323,6 +4375,7 @@
     document.querySelectorAll(`.${APP.categoryMark}`).forEach((element) => clearTierMark(element, APP.categoryMark));
     document.querySelectorAll(`.${APP.listingMark}`).forEach((element) => clearTierMark(element, APP.listingMark));
     document.querySelectorAll(`.${APP.overseasMark}`).forEach((element) => clearTierMark(element, APP.overseasMark));
+    clearOverseasPlanAnnotations();
   }
 
   function clearAnnotations() {
@@ -4451,8 +4504,10 @@
     const candidates = categoryCandidates();
     stats.categoryCandidates = candidates.length;
     for (const candidate of candidates) {
-      const catalog = catalogItemFor(candidate.name, candidate.itemId);
+      const catalog = catalogItemForCard(candidate.card, candidate.name, candidate.itemId);
       if (!catalog || !candidate.lowestPrice) continue;
+      candidate.name = catalog.name;
+      candidate.itemId = candidate.itemId || catalog.id || null;
       const margin = marketAnalysisFor(candidate.lowestPrice, catalog, 1);
       addBadge(candidate.card, margin, 'category', candidate.card, scanToken);
       stats.categoryMatched += 1;
@@ -4891,6 +4946,84 @@
   }
 
 
+  function clearOverseasPlanAnnotations() {
+    document.querySelectorAll('[data-tsimm-overseas-plan-ui]').forEach((element) => element.remove());
+    document.querySelectorAll('.tsimm-overseas-planned').forEach((element) => {
+      element.classList.remove('tsimm-overseas-planned');
+      delete element.dataset.tsimmOverseasPlanRank;
+    });
+    document.querySelectorAll('.tsimm-overseas-buy-line').forEach((element) => element.remove());
+  }
+
+  function overseasPlanItemKey(item) {
+    const itemId = Number(item?.itemId || item?.catalog?.id) || 0;
+    return itemId > 0 ? `id:${itemId}` : `name:${normalizeName(item?.name || item?.catalog?.name)}`;
+  }
+
+  function applyOverseasPagePlan(candidates, priced, plan, stats, scanToken) {
+    clearOverseasPlanAnnotations();
+    const anchorRow = candidates[0]?.row || priced[0]?.row;
+    if (!(anchorRow instanceof Element)) return;
+
+    const plannedByItem = new Map((plan.items || []).map((item, index) => [
+      overseasPlanItemKey(item),
+      { ...item, rank: index + 1 },
+    ]));
+
+    for (const item of priced) {
+      const planned = plannedByItem.get(overseasPlanItemKey(item));
+      if (!planned || !(item.row instanceof Element)) continue;
+      item.row.classList.add('tsimm-overseas-planned');
+      item.row.dataset.tsimmOverseasPlanRank = String(planned.rank);
+      item.row.dataset.tsimmScanToken = scanToken;
+      const badge = directMarginBadge(item.priceElement, 'overseas');
+      if (badge) {
+        const line = document.createElement('span');
+        line.className = 'tsimm-overseas-buy-line';
+        line.dataset.tsimmOverseasPlanUi = 'true';
+        line.textContent = `#${planned.rank} BUY ${formatInteger(planned.quantity)} · +${formatMoney(planned.profit)} trip`;
+        badge.appendChild(line);
+        badge.classList.add('tsimm-overseas-planned-badge');
+      }
+    }
+
+    const card = document.createElement('section');
+    card.className = 'tsimm-overseas-page-plan';
+    card.dataset.tsimmOverseasPlanUi = 'true';
+    card.dataset.tsimmScanToken = scanToken;
+    const remaining = Math.max(0, Number(stats.overseasRemainingCapacity) || 0);
+    const planLines = (plan.items || []).slice(0, 5).map((item, index) =>
+      `<div><span><b>#${index + 1}</b> ${escapeHtml(item.name)} × ${formatInteger(item.quantity)} · +${escapeHtml(formatMoney(item.profitEach))} ea</span><strong>+${escapeHtml(formatMoney(item.profit))}</strong></div>`
+    ).join('');
+    const remainder = (plan.items || []).length > 5
+      ? `<small>+${formatInteger(plan.items.length - 5)} more planned item type${plan.items.length - 5 === 1 ? '' : 's'}</small>`
+      : '';
+    let message = '';
+    if (!remaining) message = 'Your configured travel load is already full.';
+    else if (!priced.length && candidates.length) message = 'Shop rows found, but none matched the cached catalog. Open IMM and press Sync values.';
+    else if (!(plan.items || []).length) message = 'No profitable 99% exit was found for the remaining slots.';
+    else message = `${formatInteger(plan.plannedQuantity)} of ${formatInteger(remaining)} open slots planned · cost ${formatMoney(plan.totalCost)} · return ${formatMoney(plan.traderReturn)}`;
+
+    card.innerHTML = `
+      <div class="tsimm-overseas-page-plan-head">
+        <strong>✈️ IMM BEST LOAD</strong>
+        <b>${plan.profit > 0 ? `+${escapeHtml(formatMoney(plan.profit))}` : escapeHtml(formatMoney(plan.profit))} trip profit</b>
+      </div>
+      <span>${escapeHtml(message)}</span>
+      ${planLines ? `<div class="tsimm-overseas-page-plan-list">${planLines}</div>${remainder}` : ''}
+    `;
+
+    let anchor = anchorRow;
+    if (anchorRow.tagName === 'TR') anchor = anchorRow.closest('table') || anchorRow;
+    else {
+      const list = anchorRow.closest('ul,ol,[class*="shop-list"],[class*="items-list"],[class*="stock"]');
+      if (list && list !== document.body) anchor = list;
+    }
+    if (anchor.parentElement) anchor.insertAdjacentElement('beforebegin', card);
+    else document.body.prepend(card);
+  }
+
+
   function scanOverseas(stats, scanToken) {
     const candidates = overseasCandidates();
     stats.overseasCandidates = candidates.length;
@@ -4906,12 +5039,18 @@
 
     const priced = [];
     for (const candidate of candidates) {
-      const catalog = catalogItemFor(candidate.name, candidate.itemId);
+      const catalog = catalogItemForCard(candidate.row, candidate.name, candidate.itemId);
       if (!catalog) continue;
       const visibleQuantity = Math.max(1, Math.floor(Number(candidate.availableQuantity) || 1));
       const margin = marginFor(candidate.price, catalog.marketPrice, visibleQuantity);
       addBadge(candidate.priceElement, margin, 'overseas', candidate.row, scanToken);
-      const item = { ...candidate, catalog, margin };
+      const item = {
+        ...candidate,
+        name: catalog.name,
+        itemId: candidate.itemId || catalog.id || null,
+        catalog,
+        margin,
+      };
       priced.push(item);
       stats.overseasMatched += 1;
       if (margin.tier === 'gold') stats.overseasGold += 1;
@@ -4929,6 +5068,7 @@
     stats.overseasPlanTraderReturn = plan.traderReturn;
     stats.overseasPlanProfit = plan.profit;
     stats.overseasPlanItems = plan.items;
+    applyOverseasPagePlan(candidates, priced, plan, stats, scanToken);
 
     const countryKey = normalizeName(stats.overseasCountry);
     const cargoLots = (state.ledger.lots || []).filter((lot) => {
@@ -6698,6 +6838,7 @@
       .${APP.listingMark}.tsimm-tier-npc{box-shadow:inset 3px 0 #58bfff}.${APP.listingMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       .${APP.overseasMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.overseasMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.overseasMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.overseasMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       .tsimm-overseas-card{margin:8px 0;padding:8px;border:1px solid #4d5967;border-radius:9px;background:#20272d}.tsimm-overseas-title{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-overseas-title strong{flex:1;color:#a7d9ff}.tsimm-overseas-title span{font-size:9px;color:#9eb2c2;text-transform:uppercase}.tsimm-overseas-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-overseas-grid span{color:#aebbc4}.tsimm-overseas-grid strong{text-align:right}.tsimm-overseas-profit{color:#63df9f}.tsimm-overseas-plan{margin-top:7px;padding-top:6px;border-top:1px solid #3e4a53;display:grid;gap:3px;max-height:110px;overflow:auto}.tsimm-overseas-plan>div{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:10px}.tsimm-overseas-plan span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c8d4dc}
+      .tsimm-overseas-page-plan{box-sizing:border-box;margin:7px 0;padding:8px;border:1px solid #54c8ed;border-radius:8px;background:#061b25f5;color:#ccefff;box-shadow:0 4px 14px #0009;font:700 10px/1.25 Arial,sans-serif}.tsimm-overseas-page-plan-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}.tsimm-overseas-page-plan-head strong{color:#8ee8ff}.tsimm-overseas-page-plan-head b{color:#68e69a}.tsimm-overseas-page-plan>span,.tsimm-overseas-page-plan>small{display:block;color:#9ebdca}.tsimm-overseas-page-plan-list{display:grid;gap:2px;margin-top:6px;padding-top:5px;border-top:1px solid #315365}.tsimm-overseas-page-plan-list>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.tsimm-overseas-page-plan-list span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-overseas-page-plan-list b{color:#8ee8ff}.tsimm-overseas-page-plan-list strong{color:#68e69a}.tsimm-overseas-planned{box-shadow:inset 3px 0 #54c8ed!important}.tsimm-overseas-planned-badge{border-color:#54c8ed!important}.tsimm-overseas-buy-line{color:#8ee8ff!important;font-weight:900!important;opacity:1!important}
       .${APP.tradeItemMark}{position:relative;min-height:38px}      .${APP.tradeBadgeClass}{display:inline-flex;flex-direction:column;gap:1px;margin:3px 0 3px 6px;padding:3px 5px;border:1px solid #bd6cff;border-radius:7px;background:#19171dcc;color:#d9a6ff;font:700 10px/1.15 Arial,sans-serif;vertical-align:middle;white-space:nowrap;pointer-events:none}
       .${APP.tradeBadgeClass} span{font-size:8px;font-weight:600;color:#c9c2d0}
       .tsimm-trade-card{margin:8px 0;padding:8px;border:1px solid #50485c;border-radius:9px;background:#242129}.tsimm-trade-card.tsimm-trade-good{border-color:#44d88b;color:#eafff2}.tsimm-trade-card.tsimm-trade-loss{border-color:#ff626d;color:#fff0f1}.tsimm-trade-card.tsimm-trade-pending,.tsimm-trade-card.tsimm-trade-incomplete{border-color:#bd6cff;color:#f4e8ff}
@@ -6750,8 +6891,8 @@
     const currentText = stats.overseasDetectedLoad === null
       ? `assumed 0/${formatInteger(stats.overseasLoadLimit)}`
       : `${formatInteger(stats.overseasDetectedLoad)}/${formatInteger(stats.overseasLoadLimit)}`;
-    const planLines = (stats.overseasPlanItems || []).map((item) =>
-      `<div><span>${escapeHtml(item.name)} × ${formatInteger(item.quantity)}</span><strong>+${escapeHtml(formatMoney(item.profit))}</strong></div>`
+    const planLines = (stats.overseasPlanItems || []).map((item, index) =>
+      `<div><span>#${index + 1} ${escapeHtml(item.name)} × ${formatInteger(item.quantity)} · +${escapeHtml(formatMoney(item.profitEach))} ea</span><strong>+${escapeHtml(formatMoney(item.profit))}</strong></div>`
     ).join('');
     const cargoProfitText = stats.overseasCargoQuantity > 0
       ? `${stats.overseasCargoProfit >= 0 ? '+' : ''}${formatMoney(stats.overseasCargoProfit)}`
