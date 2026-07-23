@@ -1,0 +1,39 @@
+name: Apply IMM v0.10.9 profit floor
+
+on:
+  push:
+    paths:
+      - scripts/apply_imm_v0109.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply focused patch
+        run: python scripts/apply_imm_v0109.py
+      - name: Validate JavaScript
+        run: node --check TornScripture-Item-Market-Margin.user.js
+      - name: Validate release shape
+        run: |
+          grep -q '@version      0.10.9' TornScripture-Item-Market-Margin.user.js
+          grep -q 'BREAK-EVEN LIMIT' TornScripture-Item-Market-Margin.user.js
+          grep -q 'tsimm-watch-hidden-loss' TornScripture-Item-Market-Margin.user.js
+          ! grep -q '@require' TornScripture-Item-Market-Margin.user.js
+          test "$(wc -c < TornScripture-Item-Market-Margin.user.js)" -gt 200000
+      - name: Commit release and cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f scripts/apply_imm_v0109.py .github/workflows/apply-imm-v0109.yml
+          git commit -m "Add watched-item profit floor in IMM v0.10.9"
+          git push
