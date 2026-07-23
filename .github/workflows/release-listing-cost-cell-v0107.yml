@@ -3,8 +3,6 @@ name: Release listing cost-cell badges v0.10.7
 on:
   workflow_dispatch:
   push:
-    paths:
-      - scripts/patch_listing_cost_cell_v0107.py
 
 permissions:
   contents: write
