@@ -1,0 +1,36 @@
+name: Release listing best-exit badges v0.10.5
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/patch_listing_best_exit_v0105.py
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply patch
+        run: python3 scripts/patch_listing_best_exit_v0105.py
+      - name: Validate JavaScript
+        run: node --check TornScripture-Item-Market-Margin.user.js
+      - name: Validate release markers
+        run: |
+          grep -q '@version      0.10.5' TornScripture-Item-Market-Margin.user.js
+          grep -q 'tsimm-watch-best-exit' TornScripture-Item-Market-Margin.user.js
+          grep -q 'best exit</span>' TornScripture-Item-Market-Margin.user.js
+          ! grep -q 'ROI · Ⓣ' TornScripture-Item-Market-Margin.user.js
+      - name: Commit release and clean scaffolding
+        run: |
+          rm -f scripts/patch_listing_best_exit_v0105.py .github/workflows/release-listing-best-exit-v0105.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Show actual best-exit profits in listing badges"
+          git push
