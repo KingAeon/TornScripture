@@ -1,0 +1,57 @@
+name: Release IMM v0.10.8 compact listing badges
+
+on:
+  push:
+    paths:
+      - scripts/patch_imm_v0108_compact_badges.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Preserve protected Quick MAX block
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('TornScripture-Item-Market-Margin.user.js').read_text(encoding='utf-8')
+          start = text.index('  function quickMaxInteractiveLabel')
+          end = text.index('  function scanListings', start)
+          Path('/tmp/quickmax-before.txt').write_text(text[start:end], encoding='utf-8')
+          PY
+      - name: Apply compact badge patch
+        run: python3 scripts/patch_imm_v0108_compact_badges.py
+      - name: Validate JavaScript and release markers
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          grep -q '@version      0.10.8' TornScripture-Item-Market-Margin.user.js
+          grep -q "version: '0.10.8'" TornScripture-Item-Market-Margin.user.js
+          grep -q 'compactWatchCash' TornScripture-Item-Market-Margin.user.js
+          grep -q '#52c7ea' TornScripture-Item-Market-Margin.user.js
+          ! grep -q '@require' TornScripture-Item-Market-Margin.user.js
+      - name: Verify protected Quick MAX block unchanged
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('TornScripture-Item-Market-Margin.user.js').read_text(encoding='utf-8')
+          start = text.index('  function quickMaxInteractiveLabel')
+          end = text.index('  function scanListings', start)
+          before = Path('/tmp/quickmax-before.txt').read_text(encoding='utf-8')
+          after = text[start:end]
+          if before != after:
+              raise SystemExit('Protected Quick MAX block changed')
+          PY
+      - name: Commit release and clean scaffolding
+        run: |
+          rm -f scripts/patch_imm_v0108_compact_badges.py .github/workflows/release-imm-v0108-compact-badges.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Compact watched listing badges in IMM v0.10.8"
+          git push
