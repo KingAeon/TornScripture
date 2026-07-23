@@ -150,3 +150,5 @@ replace_once(
 )
 
 path.write_text(text, encoding='utf-8')
+
+# release trigger
