@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.head_ref == 'fix/listing-cost-cell-v0107'
+    if: startsWith(github.head_ref, 'fix/listing-cost-cell-v0107')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
