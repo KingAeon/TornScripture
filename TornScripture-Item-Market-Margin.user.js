@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.12.1
+// @version      0.12.2
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.12.1' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.12.1' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.12.2' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.12.2' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.12.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.12.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.12.1',
+    version: '0.12.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -8647,6 +8647,18 @@
     return true;
   }
 
+  function validWatchListingRow(row) {
+    if (!(row instanceof Element) || !row.isConnected || !visible(row)) return false;
+    if (row.closest(`#${A.deals},#${A.dock},#${A.panel},[data-tsimm-generated],header,nav`)) return false;
+    const quickMax = row.querySelector('[data-tsimm-quick-max]');
+    const badge = row.querySelector('.tsimm-margin-badge.tsimm-badge-listing');
+    if (!quickMax || !badge) return false;
+    const quantity = Math.floor(Number(badge.dataset.tsimmQuantity) || 0);
+    if (quantity <= 0) return false;
+    const price = listingPrice(row);
+    return Number.isFinite(price) && price > 0;
+  }
+
   function decorateMarket() {
     cleanupMarket();
     if (!singleItemMarketPage()) {
@@ -8663,7 +8675,7 @@
     const best = bestExit(exits);
     renderWatchPanel(item, exits);
     if (!watched || !best || best.status !== 'fresh') return;
-    const rows = [...document.querySelectorAll('.tsimm-listing-mark')];
+    const rows = [...document.querySelectorAll('.tsimm-listing-mark')].filter(validWatchListingRow);
     let floorPlaced = false;
     for (const row of rows) {
       const price = listingPrice(row);
