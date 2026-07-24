@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.12.0
+// @version      0.12.1
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.12.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.12.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.12.1' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.12.1' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.12.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.12.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.12.0',
+    version: '0.12.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -8145,15 +8145,14 @@
 
   function cancelFavoriteCaptureCarousel() {
     const queue = activeFavoriteCaptureCarousel();
-    saveSessionJson(A.carouselSession, null);
-    scheduleTorn();
+    saveFavoriteCaptureCarousel(null);
     showFavoriteToast(queue ? `${captureQueueLabel(queue)} cancelled` : 'No trader capture queue is active');
   }
 
   function launchFavoriteCaptureCarousel() {
     const queue = activeFavoriteCaptureCarousel();
     if (!queue) {
-      showFavoriteToast('No favorite capture carousel is ready');
+      showFavoriteToast('No trader capture queue is ready');
       return false;
     }
     if (queue.cursor >= queue.entries.length) {
@@ -8185,7 +8184,7 @@
   function startFavoriteCaptureCarousel() {
     const existing = activeFavoriteCaptureCarousel();
     if (existing && existing.cursor < existing.entries.length) {
-      showFavoriteToast(`Favorite carousel already active: ${existing.cursor + 1}/${existing.entries.length}`);
+      showFavoriteToast(`${captureQueueLabel(existing)} already active: ${existing.cursor + 1}/${existing.entries.length}`);
       return false;
     }
     const selection = favoriteCaptureSelection();
