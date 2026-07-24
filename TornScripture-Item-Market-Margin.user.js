@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.12.2
+// @version      0.12.3
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.12.2' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.12.2' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.12.3' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.12.3' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.12.2
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.12.3
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.12.2',
+    version: '0.12.3',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4300,6 +4300,10 @@
     };
   }
 
+  function listingRowHasPurchaseControl(row) {
+    return Boolean(row instanceof Element && quickMaxBuyControl(row));
+  }
+
   function findListingRow(priceElement) {
     let node = priceElement;
     let best = null;
@@ -4313,6 +4317,7 @@
         .map((element) => ownText(element))
         .filter((value) => /^\d[\d,]*$/.test(value));
       if (!integerCells.length) continue;
+      if (!listingRowHasPurchaseControl(node)) continue;
       best = node;
       const parentText = normalizeWhitespace(node.parentElement?.innerText);
       if (countMatches(parentText, /\$[\d,.]+/g) > 1) break;
@@ -4346,7 +4351,13 @@
     const seen = new Set();
     const priceElements = marketTextElements(/^\$[\d,.]+$/);
     for (const priceElement of priceElements) {
-      const row = priceElement.closest(`.${APP.listingMark}`) || findListingRow(priceElement);
+      const markedRow = priceElement.closest(`.${APP.listingMark}`);
+      const markedRowValid = Boolean(markedRow && listingRowHasPurchaseControl(markedRow));
+      if (markedRow && !markedRowValid) {
+        directMarginBadge(priceElement, 'listing')?.remove();
+        clearTierMark(markedRow, APP.listingMark);
+      }
+      const row = markedRowValid ? markedRow : findListingRow(priceElement);
       if (!row || seen.has(row)) continue;
       const price = parseNumber(normalizeWhitespace(ownText(priceElement) || priceElement.innerText || priceElement.textContent));
       const quantity = extractListingQuantity(row, priceElement);
