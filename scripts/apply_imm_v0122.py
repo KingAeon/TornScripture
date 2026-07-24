@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Retriggered after the workflow was fully registered.
 path = Path('TornScripture-Item-Market-Margin.user.js')
 text = path.read_text(encoding='utf-8')
 original = text
