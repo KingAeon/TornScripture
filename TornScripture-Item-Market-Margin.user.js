@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.13.0
+// @version      0.13.1
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.13.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.13.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.13.1' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.13.1' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.13.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.13.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.13.0',
+    version: '0.13.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -307,6 +307,8 @@
     settingsStorageKey: 'tornscripture-imm-settings-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
     inventoryStorageKey: 'tornscripture-imm-inventory-v1',
+    apiKeyProfileStorageKey: 'tornscripture-imm-api-key-profile-v1',
+    inventoryReconcileIntentStorageKey: 'tornscripture-imm-inventory-reconcile-intent-v1',
     tradersStorageKey: 'tornscripture-imm-traders-v1',
     pendingTraderCaptureStorageKey: 'tornscripture-imm-pending-trader-capture-v1',
     priceRecaptureSessionKey: 'tornscripture-imm-price-recapture-v1',
@@ -320,6 +322,9 @@
     catalogUrl: 'https://api.torn.com/v2/torn/items',
     inventoryUrl: 'https://api.torn.com/v2/user/inventory',
     inventoryItemMarketUrl: 'https://api.torn.com/v2/user/itemmarket',
+    keyInfoUrl: 'https://api.torn.com/v2/key/info',
+    keyBuilderUrl: 'https://www.torn.com/api.html',
+    inventoryPageUrl: 'https://www.torn.com/item.php',
     fastScanDelayMs: 35,
     settleScanDelayMs: 520,
     minimumScanIntervalMs: 90,
@@ -354,6 +359,7 @@
     catalog: mergeCatalogCaches(),
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
     inventory: normalizeInventoryCache(loadJson(APP.inventoryStorageKey, {})),
+    keyProfile: normalizeApiKeyProfile(loadJson(APP.apiKeyProfileStorageKey, {})),
     traders: normalizeTraders(loadJson(APP.tradersStorageKey, [])),
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
@@ -366,6 +372,7 @@
     lastScan: emptyScanStats(),
     syncing: false,
     inventorySyncing: false,
+    keyChecking: false,
     scanTimer: null,
     scanDueAt: 0,
     settleScanTimer: null,
@@ -1768,6 +1775,233 @@
     localStorage.setItem(APP.purchasePrivacyMigrationStorageKey, '1');
   }
 
+
+  function normalizeApiKeyProfile(raw) {
+    const endpoint = (candidate) => ({
+      ok: candidate?.ok === true,
+      checked: candidate?.checked === true,
+      message: normalizeWhitespace(candidate?.message),
+      count: Math.max(0, Math.floor(Number(candidate?.count) || 0)),
+    });
+    return {
+      schema: 'tornscripture-imm-api-key-profile',
+      schemaVersion: 1,
+      checkedAt: raw?.checkedAt || null,
+      accessType: normalizeWhitespace(raw?.accessType),
+      accessLevel: optionalFiniteNumber(raw?.accessLevel),
+      userId: Math.max(0, Math.floor(Number(raw?.userId) || 0)) || null,
+      lastError: normalizeWhitespace(raw?.lastError),
+      endpoints: {
+        keyInfo: endpoint(raw?.endpoints?.keyInfo),
+        inventory: endpoint(raw?.endpoints?.inventory),
+        itemmarket: endpoint(raw?.endpoints?.itemmarket),
+        catalog: endpoint(raw?.endpoints?.catalog),
+      },
+    };
+  }
+
+  function saveApiKeyProfile() {
+    state.keyProfile = normalizeApiKeyProfile(state.keyProfile);
+    saveJson(APP.apiKeyProfileStorageKey, state.keyProfile);
+  }
+
+  function clearApiKeyProfile() {
+    state.keyProfile = normalizeApiKeyProfile({});
+    saveApiKeyProfile();
+    renderLedger();
+    renderPanel();
+  }
+
+  function apiProbeCount(payload, kind) {
+    if (!payload || typeof payload !== 'object') return 0;
+    if (kind === 'inventory') {
+      const root = payload.inventory ?? payload.items ?? payload.data?.inventory;
+      return Array.isArray(root) ? root.length : inventoryEntriesFromPayload(payload, 'inventory').length;
+    }
+    if (kind === 'itemmarket') {
+      const root = payload.itemmarket ?? payload.listings ?? payload.data?.itemmarket;
+      return Array.isArray(root) ? root.length : inventoryEntriesFromPayload(payload, 'itemmarket').length;
+    }
+    if (kind === 'catalog') {
+      const root = payload.items ?? payload.data?.items;
+      return Array.isArray(root) ? root.length : 0;
+    }
+    return 1;
+  }
+
+  async function probeGoblinGodEndpoint(urlValue, kind, key) {
+    const url = new URL(urlValue);
+    url.searchParams.set('comment', 'TornScripture GOBLIN GOD key check');
+    if (kind === 'inventory') url.searchParams.set('limit', '1');
+    const response = await fetch(url.href, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `ApiKey ${key}`,
+      },
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error(`${kind} returned unreadable data (${response.status}).`);
+    }
+    if (!response.ok || payload?.error) throw new Error(apiErrorMessage(payload, response));
+    return payload;
+  }
+
+  function apiEndpointStatusHtml(name, label) {
+    const status = state.keyProfile?.endpoints?.[name] || {};
+    const icon = !status.checked ? '…' : status.ok ? '✓' : '✕';
+    const className = !status.checked ? 'unknown' : status.ok ? 'good' : 'bad';
+    const detail = status.message || (status.ok ? 'available' : 'not checked');
+    return `<div class="tsimm-key-endpoint ${className}"><strong>${icon} ${escapeHtml(label)}</strong><span>${escapeHtml(detail)}</span></div>`;
+  }
+
+  function apiKeyProfileHtml(compact = false) {
+    const profile = state.keyProfile || normalizeApiKeyProfile({});
+    const checked = profile.checkedAt ? relativeAge(profile.checkedAt) : 'never';
+    const type = profile.accessType || (profile.accessLevel !== null ? `level ${profile.accessLevel}` : 'unknown');
+    return `
+      <section class="tsimm-key-profile ${compact ? 'compact' : ''}">
+        <div class="tsimm-key-profile-head">
+          <div><strong>🔑 GOBLIN GOD KEY</strong><span>${escapeHtml(type)} · checked ${escapeHtml(checked)}</span></div>
+          <b>${state.keyChecking ? 'CHECKING…' : (profile.endpoints.inventory.ok ? 'READY' : 'SETUP')}</b>
+        </div>
+        <div class="tsimm-key-endpoints">
+          ${apiEndpointStatusHtml('keyInfo', 'Key identity')}
+          ${apiEndpointStatusHtml('inventory', 'Your inventory')}
+          ${apiEndpointStatusHtml('itemmarket', 'Your listings')}
+          ${apiEndpointStatusHtml('catalog', 'Torn item catalog')}
+        </div>
+        ${compact ? '' : `<div class="tsimm-key-guide">Create one custom key named <strong>GOBLIN GOD</strong> with <strong>user → inventory</strong>, <strong>user → itemmarket</strong>, and <strong>torn → items</strong>. Paste it only inside TornPDA. It is stored locally and sent only to Torn's official API.</div>`}
+        <div class="tsimm-key-actions">
+          <button type="button" data-tsimm-action="api-key-builder">Open Torn key builder</button>
+          <button type="button" data-tsimm-action="api-key-set">Paste / replace key</button>
+          <button type="button" data-tsimm-action="api-key-check" ${state.keyChecking ? 'disabled' : ''}>${state.keyChecking ? 'Checking…' : 'Check permissions'}</button>
+        </div>
+        ${profile.lastError ? `<small class="tsimm-key-error">${escapeHtml(profile.lastError)}</small>` : ''}
+      </section>
+    `;
+  }
+
+  async function inspectGoblinGodKey({ syncAfter = false } = {}) {
+    if (state.keyChecking) return false;
+    const key = currentApiKey();
+    if (!key) {
+      toast('Paste the dedicated GOBLIN GOD API key first.');
+      setApiKey();
+      clearApiKeyProfile();
+      return false;
+    }
+
+    state.keyChecking = true;
+    renderLedger();
+    renderPanel();
+    const endpoints = {};
+    let keyInfoPayload = null;
+    let lastError = '';
+    const probes = [
+      ['keyInfo', 'Key identity', APP.keyInfoUrl, 'keyInfo'],
+      ['inventory', 'Inventory', APP.inventoryUrl, 'inventory'],
+      ['itemmarket', 'Item Market listings', APP.inventoryItemMarketUrl, 'itemmarket'],
+      ['catalog', 'Torn item catalog', APP.catalogUrl, 'catalog'],
+    ];
+
+    try {
+      for (const [name, label, url, kind] of probes) {
+        try {
+          const payload = await probeGoblinGodEndpoint(url, kind, key);
+          if (name === 'keyInfo') keyInfoPayload = payload;
+          endpoints[name] = {
+            ok: true,
+            checked: true,
+            count: apiProbeCount(payload, kind),
+            message: name === 'keyInfo' ? 'valid key' : 'selection available',
+          };
+        } catch (error) {
+          const message = normalizeWhitespace(error?.message || `${label} unavailable`);
+          endpoints[name] = { ok: false, checked: true, count: 0, message };
+          lastError ||= `${label}: ${message}`;
+        }
+      }
+
+      const access = keyInfoPayload?.access ?? keyInfoPayload?.info?.access ?? {};
+      const user = keyInfoPayload?.user ?? keyInfoPayload?.info?.user ?? {};
+      state.keyProfile = normalizeApiKeyProfile({
+        checkedAt: new Date().toISOString(),
+        accessType: access.type ?? access.name,
+        accessLevel: access.level,
+        userId: user.id ?? user.user_id,
+        lastError,
+        endpoints,
+      });
+      saveApiKeyProfile();
+      const ready = endpoints.inventory?.ok && endpoints.itemmarket?.ok && endpoints.catalog?.ok;
+      toast(ready
+        ? 'GOBLIN GOD key verified. Inventory, listings, and item catalog are available.'
+        : `Key checked. ${lastError || 'One or more required selections are unavailable.'}`);
+    } finally {
+      state.keyChecking = false;
+      renderLedger();
+      renderPanel();
+    }
+
+    if (syncAfter && state.keyProfile.endpoints.inventory.ok) {
+      await syncInventorySnapshot({ skipKeyCheck: true });
+    }
+    return state.keyProfile.endpoints.inventory.ok;
+  }
+
+  function openGoblinGodKeyBuilder() {
+    const opened = window.open(APP.keyBuilderUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) window.location.assign(APP.keyBuilderUrl);
+  }
+
+  function configureGoblinGodKey() {
+    setApiKey();
+    clearApiKeyProfile();
+    if (currentApiKey()) setTimeout(() => inspectGoblinGodKey(), 80);
+  }
+
+  function pageLooksLikeInventory() {
+    const href = String(location.href || '').toLowerCase();
+    if (href.includes('itemmarket') || href.includes('item-market') || href.includes('imarket')) return false;
+    if (href.includes('/item.php') || href.includes('sid=items') || href.includes('inventory')) return true;
+    const heading = normalizeWhitespace(document.querySelector('h1,h2,[role="heading"]')?.textContent);
+    return /^(?:items|inventory)$/i.test(heading);
+  }
+
+  function showInventoryReconciliation() {
+    openLedger();
+    state.ledgerUi.view = 'reconcile';
+    state.ledgerUi.search = '';
+    renderLedger();
+  }
+
+  function openInventoryAndReconcile() {
+    if (pageLooksLikeInventory()) {
+      showInventoryReconciliation();
+      return;
+    }
+    try { sessionStorage.setItem(APP.inventoryReconcileIntentStorageKey, '1'); } catch {}
+    window.location.assign(APP.inventoryPageUrl);
+  }
+
+  function maybeOpenInventoryReconcileIntent() {
+    if (!pageLooksLikeInventory()) return false;
+    let requested = false;
+    try {
+      requested = sessionStorage.getItem(APP.inventoryReconcileIntentStorageKey) === '1';
+      if (requested) sessionStorage.removeItem(APP.inventoryReconcileIntentStorageKey);
+    } catch {}
+    if (!requested) return false;
+    setTimeout(showInventoryReconciliation, 60);
+    return true;
+  }
+
   function inventoryKey(candidate) {
     const id = Number(candidate?.itemId ?? candidate?.id);
     if (id > 0) return `id:${id}`;
@@ -1836,6 +2070,7 @@
       if (entry) mergeInventory(found, entry);
       for (const [key, child] of Object.entries(value)) {
         if (!child || typeof child !== 'object' || /metadata|links|pagination/i.test(key)) continue;
+        if (entry && /^(?:item|itemDetails|item_details|bonuses)$/i.test(key)) continue;
         queue.push({ value: child, depth: depth + 1 });
       }
     }
@@ -1879,7 +2114,8 @@
   async function fetchInventorySelection(baseUrl, source, key) {
     const found = new Map();
     let url = new URL(baseUrl);
-    url.searchParams.set('limit', '250');
+    if (source === 'inventory') url.searchParams.set('limit', '250');
+    url.searchParams.set('comment', 'TornScripture GOBLIN GOD inventory reconciliation');
     for (let page = 0; url && page < 20; page += 1) {
       const response = await fetch(url.href, {
         headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
@@ -1897,14 +2133,19 @@
     return [...found.values()];
   }
 
-  async function syncInventorySnapshot() {
+  async function syncInventorySnapshot({ skipKeyCheck = false } = {}) {
     if (state.inventorySyncing) return;
     const key = currentApiKey();
     if (!key) {
-      toast('Set a Limited Access API key first.');
-      setApiKey();
+      toast('Paste the dedicated GOBLIN GOD API key first.');
+      configureGoblinGodKey();
       return;
     }
+    if (!skipKeyCheck && !state.keyProfile?.endpoints?.inventory?.ok) {
+      await inspectGoblinGodKey({ syncAfter: true });
+      return;
+    }
+
     state.inventorySyncing = true;
     renderLedger();
     try {
@@ -1930,10 +2171,15 @@
       const quantity = state.inventory.items.reduce((sum, item) => sum + Number(item.totalQuantity || 0), 0);
       toast(`Inventory snapshot saved: ${formatInteger(quantity)} items${itemMarketIncluded ? ' including active Item Market listings' : ''}.`);
     } catch (error) {
-      toast(error?.message || 'Inventory sync failed.');
+      const message = normalizeWhitespace(error?.message || 'Inventory sync failed.');
+      state.keyProfile.lastError = `Inventory: ${message}`;
+      state.keyProfile.endpoints.inventory = { ok: false, checked: true, count: 0, message };
+      saveApiKeyProfile();
+      toast(`Inventory API failed: ${message}`);
     } finally {
       state.inventorySyncing = false;
       renderLedger();
+      renderPanel();
     }
   }
 
@@ -2028,7 +2274,21 @@
       #${APP.ledgerOverlayId} .tsimm-reconcile-head span{font-size:8px;font-weight:800;text-transform:uppercase}
       #${APP.ledgerOverlayId} .tsimm-reconcile-grid{display:grid;grid-template-columns:1fr auto;gap:3px 10px;margin-top:6px;font-size:10px}
       #${APP.ledgerOverlayId} .tsimm-reconcile-grid strong{text-align:right}
-      @media(max-width:520px){#${APP.ledgerOverlayId} .tsimm-reconcile-counts{grid-template-columns:repeat(2,1fr)}}
+      #${APP.ledgerOverlayId} .tsimm-key-profile{margin:10px 12px;padding:9px;border:1px solid #555;border-radius:8px;background:#101010}
+      #${APP.ledgerOverlayId} .tsimm-key-profile-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+      #${APP.ledgerOverlayId} .tsimm-key-profile-head div strong,#${APP.ledgerOverlayId} .tsimm-key-profile-head div span{display:block}
+      #${APP.ledgerOverlayId} .tsimm-key-profile-head span{font-size:9px;color:#aaa}
+      #${APP.ledgerOverlayId} .tsimm-key-profile-head b{font-size:9px;color:#8de4ff}
+      #${APP.ledgerOverlayId} .tsimm-key-endpoints{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:8px}
+      #${APP.ledgerOverlayId} .tsimm-key-endpoint{padding:6px;border:1px solid #333;border-radius:6px;background:#171717}
+      #${APP.ledgerOverlayId} .tsimm-key-endpoint strong,#${APP.ledgerOverlayId} .tsimm-key-endpoint span{display:block}
+      #${APP.ledgerOverlayId} .tsimm-key-endpoint span{font-size:8px;color:#aaa;overflow-wrap:anywhere}
+      #${APP.ledgerOverlayId} .tsimm-key-endpoint.good{border-color:#287d47}
+      #${APP.ledgerOverlayId} .tsimm-key-endpoint.bad{border-color:#bd4b61}
+      #${APP.ledgerOverlayId} .tsimm-key-guide{margin-top:8px;font-size:9px;line-height:1.45;color:#ccc}
+      #${APP.ledgerOverlayId} .tsimm-key-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+      #${APP.ledgerOverlayId} .tsimm-key-error{display:block;margin-top:7px;color:#ff9aab}
+      @media(max-width:520px){#${APP.ledgerOverlayId} .tsimm-reconcile-counts,#${APP.ledgerOverlayId} .tsimm-key-endpoints{grid-template-columns:repeat(2,1fr)}}
     `;
     document.head.appendChild(style);
   }
@@ -2064,6 +2324,7 @@
       </article>
     `).join('');
     return `
+      ${apiKeyProfileHtml()}
       <div class="tsimm-reconcile-note">
         Read-only snapshot captured ${escapeHtml(age)}. It combines on-hand inventory with active Item Market listings when available.
         Missing items may still be in your Bazaar, display case, active trades, faction storage, company storage, or another off-inventory location.
@@ -5437,16 +5698,17 @@
     state.lastScanStartedAt = Date.now();
 
     const isProfile = pageLooksLikeProfile();
-    const isOverseas = !isProfile && pageLooksLikeOverseasShop();
-    const isItemMarket = !isOverseas && pageLooksLikeItemMarket();
-    const isTrade = !isProfile && !isOverseas && pageLooksLikeTrade();
+    const isInventory = !isProfile && pageLooksLikeInventory();
+    const isOverseas = !isProfile && !isInventory && pageLooksLikeOverseasShop();
+    const isItemMarket = !isInventory && !isOverseas && pageLooksLikeItemMarket();
+    const isTrade = !isProfile && !isInventory && !isOverseas && pageLooksLikeTrade();
     const hasPriceCaptureContext = Boolean(activePendingTraderCapture() || activePriceRecaptureRequest());
-    const isPriceCapturePage = !isItemMarket && !isTrade && !isProfile && !isOverseas && hasPriceCaptureContext;
-    if (!isItemMarket && !isTrade && !isProfile && !isOverseas && !isPriceCapturePage) {
+    const isPriceCapturePage = !isItemMarket && !isTrade && !isProfile && !isInventory && !isOverseas && hasPriceCaptureContext;
+    if (!isItemMarket && !isTrade && !isProfile && !isInventory && !isOverseas && !isPriceCapturePage) {
       clearAnnotations();
       document.getElementById(APP.panelId)?.remove();
       state.lastScan = emptyScanStats();
-      state.lastScan.notes.push('Waiting for the Item Market, overseas shop, Trade, player Profile, or an armed price-page capture.');
+      state.lastScan.notes.push('Waiting for Inventory, the Item Market, an overseas shop, Trade, player Profile, or an armed price-page capture.');
       return;
     }
 
@@ -5469,7 +5731,8 @@
 
     if (isTrade) scanTrade(stats);
     if (isProfile) scanProfile(stats);
-    stats.pageType = isProfile ? 'profile' : (isTrade ? 'trade' : (isOverseas ? 'overseas shop' : (isPriceCapturePage ? 'price capture' : detectPageType(stats))));
+    stats.pageType = isProfile ? 'profile' : (isInventory ? 'inventory' : (isTrade ? 'trade' : (isOverseas ? 'overseas shop' : (isPriceCapturePage ? 'price capture' : detectPageType(stats)))));
+    if (isInventory) stats.notes.push('Inventory page ready. Open Reconcile to check the dedicated API key and compare holdings.');
     if (isPriceCapturePage) stats.notes.push('Trader capture is armed. Use Capture this page after the pricing or receipt content finishes loading.');
     stats.scannedAt = new Date().toISOString();
     if (!catalogCount()) stats.notes.push('No catalog values cached. Press Sync values.');
@@ -5510,6 +5773,7 @@
       renderPanel();
     }
     maybeScheduleTraderPriceRecapture();
+    if (isInventory) maybeOpenInventoryReconcileIntent();
   }
 
   function pageLooksLikeItemMarket() {
@@ -7411,6 +7675,7 @@
     const stats = state.lastScan;
     const isTrade = stats.pageType === 'trade';
     const isProfile = stats.pageType === 'profile';
+    const isInventory = stats.pageType === 'inventory';
     const isOverseas = stats.pageType === 'overseas shop';
     const isPriceCapture = stats.pageType === 'price capture';
     const isMarketPage = isOverseas || stats.pageType === 'category' || stats.pageType.startsWith('item listings');
@@ -7439,7 +7704,13 @@
             <div class="tsimm-stat"><strong>${stats.profileBannerUrl ? '✓' : '—'}</strong><span>banner</span></div>
             <div class="tsimm-stat"><strong>${formatInteger(state.traders.length)}</strong><span>saved</span></div>
           </div>`
-        : isPriceCapture
+        : isInventory
+          ? `<div class="tsimm-status">
+              <div class="tsimm-stat"><strong>${formatInteger(state.inventory?.items?.length || 0)}</strong><span>API types</span></div>
+              <div class="tsimm-stat"><strong>${formatInteger(ledger.itemTypes || 0)}</strong><span>ledger types</span></div>
+              <div class="tsimm-stat"><strong class="${state.keyProfile?.endpoints?.inventory?.ok ? 'tsimm-good-text' : 'tsimm-loss-text'}">${state.keyProfile?.endpoints?.inventory?.ok ? '✓' : '?'}</strong><span>inventory key</span></div>
+            </div>`
+          : isPriceCapture
           ? (() => {
               const pending = activePendingTraderCapture();
               const trader = traderForPendingCapture(pending);
@@ -7491,6 +7762,7 @@
         <div class="tsimm-muted">Catalog: ${formatInteger(catalogCount())} values${catalogIsFresh() ? ' · fresh' : ''}</div>
         <div class="tsimm-muted">Ledger: ${formatInteger(ledger.lots)} open lots · ${formatMoney(ledger.invested)} invested · ${ledger.expectedProfit >= 0 ? '+' : ''}${formatMoney(ledger.expectedProfit)} expected · ${ledger.realizedProfit >= 0 ? '+' : ''}${formatMoney(ledger.realizedProfit)} realized</div>
         <div class="tsimm-note">Profit base: Ⓣ = floor(Ⓜ × 99%) per item · blue = NPC store payout above listing price</div>
+        ${isInventory ? apiKeyProfileHtml(true) : ''}
         ${pendingPurchaseHtml()}
         ${pendingTraderCaptureHtml()}
         ${overseasSummaryHtml(stats)}
@@ -7501,6 +7773,7 @@
           <button class="tsimm-btn" type="button" data-tsimm-action="scan">Scan page</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="diagnostics">Copy diagnostics</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="ledger-open">Ledger (${formatInteger(ledger.lots)})</button>
+          <button class="tsimm-btn tsimm-btn-blue" type="button" data-tsimm-action="inventory-open-reconcile">${isInventory ? 'Reconcile inventory' : 'Open Inventory & Reconcile'}</button>
           <button class="tsimm-btn" type="button" data-tsimm-action="traders-open">Traders (${formatInteger(state.traders.length)})</button>
           ${isProfile && stats.profileCaptureReady ? '<button class="tsimm-btn tsimm-btn-gold" type="button" data-tsimm-action="trader-capture-profile">Capture profile</button><button class="tsimm-btn tsimm-btn-blue" type="button" data-tsimm-action="trader-arm-current-profile">Arm price capture</button>' : ''}
           ${activePendingTraderCapture() ? '<button class="tsimm-btn tsimm-btn-blue" type="button" data-tsimm-action="trader-capture-current-page">Capture current page</button>' : ''}
@@ -7621,6 +7894,14 @@
         importTradersJson();
       } else if (action === 'inventory-sync') {
         syncInventorySnapshot();
+      } else if (action === 'inventory-open-reconcile') {
+        openInventoryAndReconcile();
+      } else if (action === 'api-key-builder') {
+        openGoblinGodKeyBuilder();
+      } else if (action === 'api-key-set') {
+        configureGoblinGodKey();
+      } else if (action === 'api-key-check') {
+        inspectGoblinGodKey();
       } else if (action === 'ledger-tab') {
         const view = button.dataset.tsimmLedgerView;
         if (['holdings', 'reconcile', 'history', 'sales'].includes(view)) {
@@ -7742,12 +8023,14 @@
     const overseasRoute = href.includes('shops.php') || href.includes('foreignshop') || href.includes('travelshop') || href.includes('abroad');
     const tradeRoute = href.includes('trade.php');
     const profileRoute = href.includes('profiles.php');
+    const inventoryRoute = href.includes('/item.php') || href.includes('sid=items') || href.includes('inventory');
     const added = [...(mutation.addedNodes || [])];
 
     if (mutation.type === 'characterData') {
       const text = normalizeWhitespace(mutation.target.textContent);
       if (!text) return false;
       if (marketRoute || overseasRoute) return /\$|\bvalue\b|\bqty\b|\bbuy\b|\bowner\b|\bstock\b|\bavailable\b|\bcapacity\b|\([\d,]+\)/i.test(text);
+      if (inventoryRoute) return /\bitems?\b|\binventory\b|\bquantity\b|\bcategory\b|\bactive\b/i.test(text);
       if (tradeRoute) return /\btrade\b|\bin trade\b|\bx\s*[\d,]+\b|\$[\d,]+/i.test(text);
       if (profileRoute) return /profile|level|rank|\[\d+\]/i.test(text);
       return false;
@@ -7761,6 +8044,11 @@
         return /\$[\d,.]+|\bItem Market\b|\bValue\b|\bQty\b|\bOwner\b|\bStock\b|\bAvailable\b|\bCapacity\b/i.test(text)
           || Boolean(element?.matches('li,[class*="row"],[class*="item"],[class*="market"]'))
           || Boolean(element?.querySelector?.('[class*="price"],li,img'));
+      }
+      if (inventoryRoute) {
+        return /\bitems?\b|\binventory\b|\bquantity\b|\bcategory\b/i.test(text)
+          || Boolean(element?.matches('li,[class*="item"],[class*="inventory"],[data-item]'))
+          || Boolean(element?.querySelector?.('img,[data-item]'));
       }
       if (tradeRoute) {
         return /\btrade\b|\bin trade\b|\bx\s*[\d,]+\b|\$[\d,]+/i.test(text)
