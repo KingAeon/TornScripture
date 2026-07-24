@@ -1,1 +1,2 @@
 Release GOBLIN GOD IMM v0.12.2 listing-row containment.
+Retrigger after workflow registration.
