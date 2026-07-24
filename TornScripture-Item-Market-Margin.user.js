@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.11.0
+// @version      0.12.0
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.11.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.11.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.12.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.12.0' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.11.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.12.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -281,7 +281,9 @@
   const APP = Object.freeze({
     name: 'Item Market Margin',
     shortName: 'IMM',
-    version: '0.11.0',
+    brandName: 'GOBLIN GOD',
+    brandSubtitle: 'IMM engine',
+    version: '0.12.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -307,6 +309,7 @@
     pendingTraderCaptureStorageKey: 'tornscripture-imm-pending-trader-capture-v1',
     priceRecaptureSessionKey: 'tornscripture-imm-price-recapture-v1',
     favoriteRecaptureCarouselSessionKey: 'tornscripture-imm-favorite-recapture-carousel-v1',
+    traderRecaptureResultStorageKey: 'tornscripture-imm-trader-recapture-result-v1',
     priceBridgeWindowNamePrefix: 'TSIMM_PRICE_BRIDGE:',
     priceImportQueryKey: 'tsimmPriceImport',
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
@@ -1020,8 +1023,8 @@
     const count = preview.items?.length || 0;
     panel.innerHTML = `
       <div class="tsimm-head">
-        <strong>📈 ${escapeHtml(APP.shortName)}</strong>
-        <small>v${escapeHtml(APP.version)} · TornW3B pricelist</small>
+        <strong>🧌 ${escapeHtml(APP.brandName)}</strong>
+        <small>${escapeHtml(APP.brandSubtitle)} v${escapeHtml(APP.version)} · TornW3B pricelist</small>
         <button type="button" data-tsimm-weav3r-action="toggle">${state.settings.collapsed ? '+' : '−'}</button>
       </div>
       <div class="tsimm-body">
@@ -6285,7 +6288,7 @@
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
-          <div><strong>📒 IMM Purchase Ledger</strong><small>What you obtained, what it cost, and what it can earn · schema v4</small></div>
+          <div><strong>📒 GOBLIN GOD Ledger</strong><small>What you obtained, what it cost, and what it can earn · schema v4</small></div>
           <button type="button" data-tsimm-action="ledger-close">×</button>
         </div>
         <div class="tsimm-ledger-summary">
@@ -6622,7 +6625,7 @@
     overlay.innerHTML = `
       <div class="tsimm-trader-shell">
         <div class="tsimm-ledger-head">
-          <div><strong>🤝 IMM Trader Book</strong><small>Fast links, ratings, notes, and local sale history</small></div>
+          <div><strong>🤝 GOBLIN GOD Trader Book</strong><small>Fast links, ratings, notes, and local sale history</small></div>
           <button type="button" data-tsimm-action="traders-close">×</button>
         </div>
         <div class="tsimm-trader-top">
@@ -7160,8 +7163,8 @@
       : '';
     panel.innerHTML = `
       <div class="tsimm-head">
-        <strong>📈 ${escapeHtml(APP.shortName)}</strong>
-        <small>v${escapeHtml(APP.version)} · ${escapeHtml(stats.pageType)}</small>
+        <strong>🧌 ${escapeHtml(APP.brandName)}</strong>
+        <small>${escapeHtml(APP.brandSubtitle)} v${escapeHtml(APP.version)} · ${escapeHtml(stats.pageType)}</small>
         <button type="button" data-tsimm-action="toggle">${state.settings.collapsed ? '+' : '−'}</button>
       </div>
       <div class="tsimm-body">
@@ -7586,7 +7589,9 @@
     panel: 'tsimm-watch-panel',
     toast: 'tsimm-watch-toast',
     carousel: 'tsimm-favorite-capture-carousel',
+    bulkDialog: 'tsimm-trader-refresh-dialog',
     carouselSession: APP.favoriteRecaptureCarouselSessionKey,
+    carouselResult: APP.traderRecaptureResultStorageKey,
   });
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -7671,6 +7676,8 @@
       #${A.dock} .watch-copy{display:grid;min-width:0;gap:2px}#${A.dock} small{color:#5ea66a;font-size:7px;letter-spacing:.08em}#${A.dock} strong{overflow:hidden;color:#c1ff9d;font-size:11px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} span{overflow:hidden;color:#70b87b;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.dock} button{min-height:36px;border:1px solid #58d76d;border-radius:5px;background:#082b10;color:#c5ffac;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.dock} button.on{border-color:#9dff7c;background:#16461e;color:#e1ffd2}.tsimm-watch-selected{outline:1px solid #9dff7c!important;outline-offset:-2px!important}
       .tsimm-favorite-trader-btn{border:1px solid #72622a!important;border-radius:5px!important;background:#171407!important;color:#d9bf55!important;padding:7px 8px!important;font:800 9px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-favorite-trader-btn.on{border-color:#d7b943!important;background:#332a08!important;color:#ffe47b!important}
       #${A.carousel}{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 8px;align-items:center;box-sizing:border-box;margin:6px 8px;padding:7px 8px;border:1px solid #3879a4;border-radius:7px;background:#06141df2;color:#b8e6ff;font:800 9px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.carousel}.active{border-color:#58d76d;background:#071b0cf2;color:#caffb5}#${A.carousel} .carousel-copy{display:grid;min-width:0;gap:2px}#${A.carousel} strong,#${A.carousel} span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#${A.carousel} span{color:#78a9c7;font-size:7px}#${A.carousel}.active span{color:#75bd7e}#${A.carousel} .carousel-actions{display:flex;gap:4px}#${A.carousel} button{min-height:31px;border:1px solid #438bb9;border-radius:5px;background:#0b2b3d;color:#d4f2ff;padding:5px 7px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.carousel}.active button{border-color:#58d76d;background:#0b3213;color:#d5ffc2}#${A.carousel} button.cancel{border-color:#8f4850;background:#2a0b0f;color:#ffb2b8}#${A.carousel} button:disabled{opacity:.5}
+      #${A.carousel} .carousel-actions{flex-wrap:wrap;justify-content:flex-end}
+      #${A.bulkDialog}{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:16px;background:#000c;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.bulkDialog} *{box-sizing:border-box}#${A.bulkDialog} .refresh-shell{width:min(410px,100%);overflow:hidden;border:1px solid #68e879;border-radius:10px;background:#07110af7;color:#d8ffd0;box-shadow:0 18px 55px #000;padding:12px}#${A.bulkDialog} .refresh-head{display:flex;align-items:center;gap:8px;margin-bottom:9px}#${A.bulkDialog} .refresh-head strong{flex:1;color:#baff9f;font-size:13px;letter-spacing:.05em}#${A.bulkDialog} .refresh-head button{border:0;background:transparent;color:#8ab18d;font-size:18px}#${A.bulkDialog} .refresh-grid{display:grid;grid-template-columns:1fr auto;gap:4px 9px;padding:8px;border:1px solid #294c30;border-radius:7px;background:#091b0e}#${A.bulkDialog} .refresh-grid span{color:#82a889;font-size:9px}#${A.bulkDialog} .refresh-grid strong{text-align:right;color:#d5ffca;font-size:10px}#${A.bulkDialog} .refresh-note{margin:9px 1px;color:#8fb696;font-size:9px;line-height:1.35}#${A.bulkDialog} .refresh-options{display:grid;gap:7px}#${A.bulkDialog} .refresh-option{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 9px;align-items:center;padding:9px;border:1px solid #36583d;border-radius:7px;background:#0b2211;color:#d1ffca;text-align:left}#${A.bulkDialog} .refresh-option strong{font-size:10px}#${A.bulkDialog} .refresh-option span{grid-column:1;color:#83a98a;font-size:8px}#${A.bulkDialog} .refresh-option button{grid-row:1/3;grid-column:2;min-height:38px;border:1px solid #58d76d;border-radius:6px;background:#16461e;color:#e1ffd2;padding:6px 9px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.bulkDialog} .refresh-option.all button{border-color:#438bb9;background:#0b2b3d;color:#d4f2ff}#${A.bulkDialog} button:disabled{opacity:.45}
       #${A.toast}{position:fixed;left:50%;top:max(70px,calc(env(safe-area-inset-top) + 62px));z-index:2147483647;max-width:min(360px,calc(100vw - 24px));padding:8px 11px;transform:translate(-50%,-8px);border:1px solid #73df83;border-radius:6px;background:#06170af5;color:#d2ffc0;box-shadow:0 8px 26px #000c;font:800 10px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;opacity:0;pointer-events:none;transition:opacity .16s ease,transform .16s ease}#${A.toast}.show{transform:translate(-50%,0);opacity:1}
       #${A.panel}{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;align-items:center;box-sizing:border-box;margin:3px 5px;padding:5px 7px;border:1px solid #27863f;border-radius:5px;background:#041109f5;color:#9ff48e;box-shadow:none;font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${A.panel} .watch-copy{display:grid;min-width:0;gap:2px}#${A.panel} strong{overflow:hidden;color:#c7ffad;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} span{display:block;overflow:hidden;color:#72bd7d;font-size:7px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} button{min-height:28px;border:1px solid #58d76d;border-radius:4px;background:#082b10;color:#c5ffac;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.panel}.idle{border-color:#4d5960;background:#0a0d0ff5;color:#aeb8bd}#${A.panel}.idle strong,#${A.panel}.idle span{color:#aeb8bd}#${A.panel}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.panel}.stale strong,#${A.panel}.stale span{color:#ffd166}#${A.panel}.outdated,#${A.panel}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.panel}.outdated strong,#${A.panel}.outdated span,#${A.panel}.missing strong,#${A.panel}.missing span{color:#ff9ba3}
@@ -7904,8 +7911,9 @@
     const expiresAt = Number(candidate.expiresAt) || 0;
     if (!entries.length || (expiresAt && expiresAt <= Date.now())) return null;
     return {
-      schemaVersion: 1,
-      id: clean(candidate.id) || createId('favorite-recapture'),
+      schemaVersion: 2,
+      mode: ['favorite', 'stale', 'all', 'retry'].includes(clean(candidate.mode)) ? clean(candidate.mode) : 'favorite',
+      id: clean(candidate.id) || createId('trader-recapture'),
       entries,
       cursor: Math.max(0, Math.min(entries.length, Math.floor(Number(candidate.cursor) || 0))),
       completed: Array.isArray(candidate.completed) ? candidate.completed.map(clean).filter(Boolean) : [],
@@ -7917,19 +7925,33 @@
       returnUrl: clean(candidate.returnUrl),
       startedAt: Number(candidate.startedAt) || Date.now(),
       launchedAt: Number(candidate.launchedAt) || 0,
-      expiresAt: expiresAt || Date.now() + (45 * 60 * 1000),
+      expiresAt: expiresAt || Date.now() + (12 * 60 * 60 * 1000),
       lastError: clean(candidate.lastError),
     };
   }
 
   function activeFavoriteCaptureCarousel() {
-    const queue = normalizeFavoriteCaptureCarousel(loadSessionJson(A.carouselSession, null));
-    if (!queue) saveSessionJson(A.carouselSession, null);
+    const persisted = read(A.carouselSession, null);
+    const legacy = loadSessionJson(A.carouselSession, null);
+    const queue = normalizeFavoriteCaptureCarousel(persisted || legacy);
+    if (legacy && !persisted && queue) {
+      write(A.carouselSession, queue);
+      saveSessionJson(A.carouselSession, null);
+    }
+    if (!queue) {
+      try { localStorage.removeItem(A.carouselSession); } catch {}
+      saveSessionJson(A.carouselSession, null);
+    }
     return queue;
   }
 
   function saveFavoriteCaptureCarousel(queue) {
-    saveSessionJson(A.carouselSession, queue ? normalizeFavoriteCaptureCarousel(queue) : null);
+    const normalized = queue ? normalizeFavoriteCaptureCarousel(queue) : null;
+    try {
+      if (normalized) write(A.carouselSession, normalized);
+      else localStorage.removeItem(A.carouselSession);
+    } catch {}
+    saveSessionJson(A.carouselSession, null);
     scheduleTorn();
   }
 
@@ -7950,20 +7972,182 @@
     return { ready, skipped, favoriteCount: favorites.entries.length };
   }
 
+  const TRADER_CAPTURE_FRESH_MS = 72 * 60 * 60 * 1000;
+  let traderRefreshDialogOpen = false;
+
+  function captureQueueLabel(queueOrMode) {
+    const mode = typeof queueOrMode === 'string' ? queueOrMode : clean(queueOrMode?.mode);
+    if (mode === 'all') return 'ALL TRADER REFRESH';
+    if (mode === 'stale') return 'STALE TRADER REFRESH';
+    if (mode === 'retry') return 'FAILED TRADER RETRY';
+    return 'FAVORITE REFRESH';
+  }
+
+  function traderCaptureFresh(trader) {
+    const captured = Date.parse(trader?.captured || '');
+    return Number.isFinite(captured) && Date.now() - captured <= TRADER_CAPTURE_FRESH_MS;
+  }
+
+  function savedTraderCaptureSelection(traders = normTraders()) {
+    const eligible = [];
+    const stale = [];
+    const fresh = [];
+    const unsupported = [];
+    for (const trader of traders) {
+      if (!trader.url || (!isWeav3rPriceListUrl(trader.url) && !isTornExchangePriceListUrl(trader.url))) {
+        unsupported.push(trader);
+        continue;
+      }
+      eligible.push(trader);
+      if (traderCaptureFresh(trader)) fresh.push(trader);
+      else stale.push(trader);
+    }
+    return { total: traders.length, eligible, stale, fresh, unsupported };
+  }
+
+  function lastCaptureRefreshResult() {
+    const result = read(A.carouselResult, null);
+    if (!result || typeof result !== 'object') return null;
+    const finishedAt = Number(result.finishedAt) || 0;
+    if (finishedAt && Date.now() - finishedAt > 7 * 24 * 60 * 60 * 1000) {
+      try { localStorage.removeItem(A.carouselResult); } catch {}
+      return null;
+    }
+    return {
+      mode: clean(result.mode) || 'all',
+      completed: Array.isArray(result.completed) ? result.completed.map(clean).filter(Boolean) : [],
+      failed: Array.isArray(result.failed) ? result.failed.map(clean).filter(Boolean) : [],
+      skipped: Math.max(0, Math.floor(Number(result.skipped) || 0)),
+      finishedAt,
+    };
+  }
+
+  function saveCaptureRefreshResult(result) {
+    try {
+      if (result) write(A.carouselResult, result);
+      else localStorage.removeItem(A.carouselResult);
+    } catch {}
+    scheduleTorn();
+  }
+
+  function closeTraderRefreshDialog() {
+    traderRefreshDialogOpen = false;
+    document.getElementById(A.bulkDialog)?.remove();
+    scheduleTorn();
+  }
+
+  function openTraderRefreshDialog() {
+    traderRefreshDialogOpen = true;
+    scheduleTorn();
+  }
+
+  function renderTraderRefreshDialog(selection = savedTraderCaptureSelection()) {
+    let dialog = document.getElementById(A.bulkDialog);
+    if (!traderRefreshDialogOpen) {
+      dialog?.remove();
+      return;
+    }
+    if (!dialog) {
+      dialog = document.createElement('section');
+      dialog.id = A.bulkDialog;
+      dialog.dataset.tsimmGenerated = 'true';
+      document.body.appendChild(dialog);
+    }
+    dialog.innerHTML = `<div class="refresh-shell"><div class="refresh-head"><strong>🧌 GOBLIN GOD PRICE CENSUS</strong><button type="button" data-watch-bulk-cancel aria-label="Close">×</button></div><div class="refresh-grid"><span>Saved traders</span><strong>${selection.total}</strong><span>Supported price pages</span><strong>${selection.eligible.length}</strong><span>Stale or missing</span><strong>${selection.stale.length}</strong><span>Fresh within 72h</span><strong>${selection.fresh.length}</strong><span>Unsupported / manual</span><strong>${selection.unsupported.length}</strong></div><div class="refresh-note">Old captures are preserved until a replacement succeeds. The queue returns to Torn after each supported price page and can resume after an app restart.</div><div class="refresh-options"><div class="refresh-option"><strong>Stale or missing only</strong><span>Recommended default. Skips traders whose captured prices are already fresh.</span><button type="button" data-watch-bulk-start="stale" ${selection.stale.length ? '' : 'disabled'}>START ${selection.stale.length}</button></div><div class="refresh-option all"><strong>Every eligible trader</strong><span>Refreshes fresh, stale, and missing captures in one complete sweep.</span><button type="button" data-watch-bulk-start="all" ${selection.eligible.length ? '' : 'disabled'}>START ${selection.eligible.length}</button></div></div></div>`;
+  }
+
+  function startSavedTraderCaptureCarousel(mode = 'stale', explicitTraders = null) {
+    const existing = activeFavoriteCaptureCarousel();
+    if (existing && existing.cursor < existing.entries.length) {
+      showFavoriteToast(`${captureQueueLabel(existing)} already active: ${existing.cursor + 1}/${existing.entries.length}`);
+      return false;
+    }
+    const selection = savedTraderCaptureSelection();
+    const ready = Array.isArray(explicitTraders)
+      ? explicitTraders
+      : mode === 'all'
+        ? selection.eligible
+        : selection.stale;
+    const unique = [...new Map(ready.map((trader) => [trader.id, trader])).values()]
+      .filter((trader) => trader?.id && trader?.url && (isWeav3rPriceListUrl(trader.url) || isTornExchangePriceListUrl(trader.url)));
+    if (!unique.length) {
+      showFavoriteToast(mode === 'stale' ? 'All supported trader prices are already fresh' : 'No eligible trader price pages are available');
+      return false;
+    }
+    const queue = normalizeFavoriteCaptureCarousel({
+      id: createId(`${mode}-trader-recapture`),
+      mode,
+      entries: unique.map((trader) => ({ traderId: trader.id, traderName: trader.name, pricePageUrl: trader.url })),
+      cursor: 0,
+      completed: [],
+      failed: [],
+      skipped: mode === 'retry' ? 0 : selection.unsupported.length,
+      status: 'ready',
+      returnUrl: normalizeHttpUrl(location.href),
+      startedAt: Date.now(),
+      expiresAt: Date.now() + (12 * 60 * 60 * 1000),
+    });
+    saveCaptureRefreshResult(null);
+    saveFavoriteCaptureCarousel(queue);
+    closeTraderRefreshDialog();
+    showFavoriteToast(`${captureQueueLabel(queue)} armed: ${queue.entries.length} trader${queue.entries.length === 1 ? '' : 's'}`);
+    setTimeout(launchFavoriteCaptureCarousel, 450);
+    return true;
+  }
+
+  function retryFailedTraderCaptureCarousel() {
+    const result = lastCaptureRefreshResult();
+    if (!result?.failed?.length) {
+      showFavoriteToast('No failed trader captures are waiting');
+      return false;
+    }
+    const failed = new Set(result.failed.map(key));
+    const traders = normTraders().filter((trader) => failed.has(key(trader.name))
+      && trader.url
+      && (isWeav3rPriceListUrl(trader.url) || isTornExchangePriceListUrl(trader.url)));
+    return startSavedTraderCaptureCarousel('retry', traders);
+  }
+
+  function skipCurrentCaptureCarousel() {
+    const queue = activeFavoriteCaptureCarousel();
+    if (!queue || queue.cursor >= queue.entries.length) {
+      showFavoriteToast('No active trader capture is available to skip');
+      return false;
+    }
+    const current = queue.entries[queue.cursor];
+    if (!queue.failed.includes(current.traderName)) queue.failed.push(current.traderName);
+    queue.cursor += 1;
+    queue.status = queue.cursor >= queue.entries.length ? 'complete' : 'ready';
+    queue.currentTraderId = '';
+    queue.currentTraderName = '';
+    queue.lastError = `${current.traderName} skipped; previous captured prices were preserved.`;
+    saveFavoriteCaptureCarousel(queue);
+    if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue);
+    else setTimeout(launchFavoriteCaptureCarousel, 350);
+    return true;
+  }
+
   function finishFavoriteCaptureCarousel(queue, message = '') {
     const completed = queue?.completed?.length || 0;
     const failed = queue?.failed?.length || 0;
     const skipped = queue?.skipped || 0;
-    saveSessionJson(A.carouselSession, null);
-    scheduleTorn();
-    showFavoriteToast(message || `Favorite refresh finished: ${completed} captured${failed ? ` · ${failed} failed` : ''}${skipped ? ` · ${skipped} skipped` : ''}`);
+    const label = captureQueueLabel(queue);
+    saveCaptureRefreshResult({
+      mode: queue?.mode || 'favorite',
+      completed: [...(queue?.completed || [])],
+      failed: [...(queue?.failed || [])],
+      skipped,
+      finishedAt: Date.now(),
+    });
+    saveFavoriteCaptureCarousel(null);
+    showFavoriteToast(message || `${label} finished: ${completed} captured${failed ? ` · ${failed} failed` : ''}${skipped ? ` · ${skipped} unsupported` : ''}`);
   }
 
   function cancelFavoriteCaptureCarousel() {
     const queue = activeFavoriteCaptureCarousel();
     saveSessionJson(A.carouselSession, null);
     scheduleTorn();
-    showFavoriteToast(queue ? 'Favorite capture carousel cancelled' : 'No favorite capture carousel is active');
+    showFavoriteToast(queue ? `${captureQueueLabel(queue)} cancelled` : 'No trader capture queue is active');
   }
 
   function launchFavoriteCaptureCarousel() {
@@ -7993,7 +8177,7 @@
     queue.launchedAt = Date.now();
     queue.lastError = '';
     saveFavoriteCaptureCarousel(queue);
-    showFavoriteToast(`Refreshing ${queue.cursor + 1}/${queue.entries.length}: ${current.traderName}`);
+    showFavoriteToast(`${captureQueueLabel(queue)} ${queue.cursor + 1}/${queue.entries.length}: ${current.traderName}`);
     setTimeout(() => requestTraderPriceRecapture(current.traderId), 180);
     return true;
   }
@@ -8015,6 +8199,7 @@
     }
     const queue = normalizeFavoriteCaptureCarousel({
       id: createId('favorite-recapture'),
+      mode: 'favorite',
       entries: selection.ready.map((trader) => ({
         traderId: trader.id,
         traderName: trader.name,
@@ -8027,8 +8212,9 @@
       status: 'ready',
       returnUrl: normalizeHttpUrl(location.href),
       startedAt: Date.now(),
-      expiresAt: Date.now() + (45 * 60 * 1000),
+      expiresAt: Date.now() + (12 * 60 * 60 * 1000),
     });
+    saveCaptureRefreshResult(null);
     saveFavoriteCaptureCarousel(queue);
     showFavoriteToast(`Favorite carousel armed: ${queue.entries.length} trader${queue.entries.length === 1 ? '' : 's'}`);
     setTimeout(launchFavoriteCaptureCarousel, 450);
@@ -8062,7 +8248,7 @@
     queue.lastError = '';
     saveFavoriteCaptureCarousel(queue);
     if (queue.cursor >= queue.entries.length) {
-      finishFavoriteCaptureCarousel(queue, `Favorite refresh complete: ${queue.completed.length} captured${queue.skipped ? ` · ${queue.skipped} skipped` : ''}`);
+      finishFavoriteCaptureCarousel(queue);
       return true;
     }
     const next = queue.entries[queue.cursor];
@@ -8073,8 +8259,10 @@
 
   function renderFavoriteCaptureCarousel(book, traders, favorites) {
     if (!(book instanceof Element)) return;
-    const selection = favoriteCaptureSelection(traders, favorites);
+    const favoriteSelection = favoriteCaptureSelection(traders, favorites);
+    const traderSelection = savedTraderCaptureSelection(traders);
     const queue = activeFavoriteCaptureCarousel();
+    renderTraderRefreshDialog(traderSelection);
     let bar = book.querySelector(`#${A.carousel}`);
     if (!bar) {
       bar = document.createElement('section');
@@ -8086,13 +8274,18 @@
     if (queue) {
       const current = queue.entries[queue.cursor] || null;
       const done = Math.min(queue.cursor, queue.entries.length);
+      const label = captureQueueLabel(queue);
       bar.className = 'active';
-      bar.innerHTML = `<div class="carousel-copy"><strong>↻ FAVORITE REFRESH · ${done}/${queue.entries.length} captured</strong><span>${current ? `Next: ${esc(current.traderName)}` : 'Finishing carousel'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume data-tsimm-action="traders-continue-favorites">${queue.status === 'launched' ? 'RETRY' : 'CONTINUE'}</button><button type="button" class="cancel" data-watch-carousel-cancel data-tsimm-action="traders-cancel-favorites">CANCEL</button></div>`;
+      bar.innerHTML = `<div class="carousel-copy"><strong>↻ ${esc(label)} · ${done}/${queue.entries.length} captured</strong><span>${current ? `${queue.status === 'launched' ? 'Waiting on' : 'Next'}: ${esc(current.traderName)}` : 'Finishing queue'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume>${queue.status === 'launched' ? 'RETRY' : 'CONTINUE'}</button>${current ? '<button type="button" data-watch-carousel-skip>SKIP</button>' : ''}<button type="button" class="cancel" data-watch-carousel-cancel>CANCEL</button></div>`;
       return;
     }
     bar.className = '';
-    const skippedText = selection.skipped ? ` · ${selection.skipped} unsupported` : '';
-    bar.innerHTML = `<div class="carousel-copy"><strong>↻ REFRESH FAVORITE PRICE LISTS</strong><span>${selection.ready.length} ready of ${selection.favoriteCount} favorite${selection.favoriteCount === 1 ? '' : 's'}${skippedText}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-start data-tsimm-action="traders-refresh-favorites" ${selection.ready.length ? '' : 'disabled'}>REFRESH FAVORITES</button></div>`;
+    const favoriteSkipped = favoriteSelection.skipped ? ` · ${favoriteSelection.skipped} unsupported` : '';
+    const result = lastCaptureRefreshResult();
+    const resultText = result
+      ? ` · last ${captureQueueLabel(result).toLowerCase()}: ${result.completed.length} captured${result.failed.length ? `, ${result.failed.length} failed` : ''}`
+      : '';
+    bar.innerHTML = `<div class="carousel-copy"><strong>↻ TRADER PRICE CONTROL</strong><span>${favoriteSelection.ready.length}/${favoriteSelection.favoriteCount} favorites ready${favoriteSkipped} · ${traderSelection.stale.length} stale/missing · ${traderSelection.fresh.length} fresh · ${traderSelection.unsupported.length} manual${esc(resultText)}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-start ${favoriteSelection.ready.length ? '' : 'disabled'}>FAVORITES</button><button type="button" data-watch-bulk-open ${traderSelection.eligible.length ? '' : 'disabled'}>PRICE CHECK TRADERS</button>${result?.failed?.length ? `<button type="button" data-watch-bulk-retry>RETRY FAILURES (${result.failed.length})</button>` : ''}</div>`;
   }
 
   function isWatched(store, item) {
@@ -8556,6 +8749,41 @@
       if (!document.body) return setTimeout(start, 60);
       injectStyle();
       document.addEventListener('click', (event) => {
+        const bulkOpen = event.target.closest?.('[data-watch-bulk-open]');
+        if (bulkOpen) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          openTraderRefreshDialog();
+          return;
+        }
+        const bulkStart = event.target.closest?.('[data-watch-bulk-start]');
+        if (bulkStart) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          startSavedTraderCaptureCarousel(clean(bulkStart.dataset.watchBulkStart) === 'all' ? 'all' : 'stale');
+          return;
+        }
+        const bulkCancel = event.target.closest?.('[data-watch-bulk-cancel]');
+        if (bulkCancel) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          closeTraderRefreshDialog();
+          return;
+        }
+        const bulkRetry = event.target.closest?.('[data-watch-bulk-retry]');
+        if (bulkRetry) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          retryFailedTraderCaptureCarousel();
+          return;
+        }
+        const carouselSkip = event.target.closest?.('[data-watch-carousel-skip]');
+        if (carouselSkip) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          skipCurrentCaptureCarousel();
+          return;
+        }
         const carouselStart = event.target.closest?.('[data-watch-carousel-start]');
         if (carouselStart) {
           event.preventDefault();
@@ -8642,6 +8870,10 @@
       startFavoriteCaptureCarousel,
       launchFavoriteCaptureCarousel,
       cancelFavoriteCaptureCarousel,
+      openTraderRefreshDialog,
+      startSavedTraderCaptureCarousel,
+      retryFailedTraderCaptureCarousel,
+      skipCurrentCaptureCarousel,
       toggleFavoriteById(traderId) {
         const trader = normTraders().find((candidate) => candidate.id === clean(traderId));
         if (!trader) return { available: false, favorite: false, traderName: '' };
