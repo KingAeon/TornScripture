@@ -1,0 +1,38 @@
+name: Apply IMM v0.12.1 queue cancel fix
+
+on:
+  push:
+    paths:
+      - scripts/apply_imm_v0121.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply focused patch
+        run: python scripts/apply_imm_v0121.py
+      - name: Validate JavaScript
+        run: node --check TornScripture-Item-Market-Margin.user.js
+      - name: Validate queue cancellation
+        run: |
+          grep -q '@version      0.12.1' TornScripture-Item-Market-Margin.user.js
+          grep -q 'saveFavoriteCaptureCarousel(null);' TornScripture-Item-Market-Margin.user.js
+          grep -q "brandName: 'GOBLIN GOD'" TornScripture-Item-Market-Margin.user.js
+          ! grep -q '@require' TornScripture-Item-Market-Margin.user.js
+      - name: Commit release and cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f scripts/apply_imm_v0121.py .github/workflows/apply-imm-v0121.yml
+          git commit -m "Fix persistent trader refresh cancellation in IMM v0.12.1"
+          git push
