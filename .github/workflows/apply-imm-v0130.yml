@@ -1,0 +1,42 @@
+name: Apply GOBLIN GOD v0.13.0 ledger reconciliation
+
+on:
+  push:
+    paths:
+      - scripts/apply_imm_v0130.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply ledger reconciliation patch
+        run: python scripts/apply_imm_v0130.py
+      - name: Validate JavaScript
+        run: node --check TornScripture-Item-Market-Margin.user.js
+      - name: Validate release boundaries
+        run: |
+          grep -q '@version      0.13.0' TornScripture-Item-Market-Margin.user.js
+          grep -q "inventoryUrl: 'https://api.torn.com/v2/user/inventory'" TornScripture-Item-Market-Margin.user.js
+          grep -q 'function syncInventorySnapshot()' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function ledgerReconciliationRows()' TornScripture-Item-Market-Margin.user.js
+          grep -q 'BEST RUN' TornScripture-Item-Market-Margin.user.js
+          grep -q "brandName: 'GOBLIN GOD'" TornScripture-Item-Market-Margin.user.js
+          grep -q 'function listingRowHasPurchaseControl(row)' TornScripture-Item-Market-Margin.user.js
+          ! grep -q '@require' TornScripture-Item-Market-Margin.user.js
+      - name: Commit release and cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f scripts/apply_imm_v0130.py .github/workflows/apply-imm-v0130.yml
+          git commit -m "Add ledger reconciliation in GOBLIN GOD v0.13.0"
+          git push
