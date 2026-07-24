@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - scripts/apply_imm_v0131.py
+  pull_request:
+    paths:
+      - scripts/apply_imm_v0131.py
 
 permissions:
   contents: write
@@ -15,6 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
@@ -38,4 +42,4 @@ jobs:
           git add TornScripture-Item-Market-Margin.user.js
           git rm -f scripts/apply_imm_v0131.py .github/workflows/apply-imm-v0131-api-first.yml
           git commit -m "Add API-first inventory key profile in GOBLIN GOD v0.13.1"
-          git push
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
