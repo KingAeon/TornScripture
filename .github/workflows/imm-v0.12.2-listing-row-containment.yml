@@ -1,0 +1,102 @@
+name: Release IMM v0.12.2 listing-row containment
+
+on:
+  push:
+    paths:
+      - '.github/imm-v0.12.2-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch watched listing containment
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('TornScripture-Item-Market-Margin.user.js')
+          text = path.read_text(encoding='utf-8')
+          original = text
+
+          if '// @version      0.12.1' not in text:
+              raise SystemExit('Expected IMM v0.12.1 header was not found')
+          if '@require' in text:
+              raise SystemExit('Refusing to patch a wrapper userscript')
+
+          anchor = '''  function decorateMarket() {
+            cleanupMarket();
+          '''
+          containment = '''  function validWatchListingRow(row) {
+            if (!(row instanceof Element) || !row.isConnected || !visible(row)) return false;
+            if (row.closest(`#${A.deals},#${A.dock},#${A.panel},[data-tsimm-generated],header,nav`)) return false;
+            const quickMax = row.querySelector('[data-tsimm-quick-max]');
+            const badge = row.querySelector('.tsimm-margin-badge.tsimm-badge-listing');
+            if (!quickMax || !badge) return false;
+            const quantity = Math.floor(Number(badge.dataset.tsimmQuantity) || 0);
+            if (quantity <= 0) return false;
+            const price = listingPrice(row);
+            return Number.isFinite(price) && price > 0;
+          }
+
+          function decorateMarket() {
+            cleanupMarket();
+          '''
+          if anchor not in text:
+              raise SystemExit('decorateMarket anchor was not found')
+          text = text.replace(anchor, containment, 1)
+
+          old_rows = "    const rows = [...document.querySelectorAll('.tsimm-listing-mark')];"
+          new_rows = "    const rows = [...document.querySelectorAll('.tsimm-listing-mark')].filter(validWatchListingRow);"
+          if old_rows not in text:
+              raise SystemExit('Watched listing row selector was not found')
+          text = text.replace(old_rows, new_rows, 1)
+
+          text = text.replace('0.12.1', '0.12.2')
+
+          required = [
+              '// @version      0.12.2',
+              "version: '0.12.2'",
+              'function validWatchListingRow(row)',
+              "row.querySelector('[data-tsimm-quick-max]')",
+              "row.querySelector('.tsimm-margin-badge.tsimm-badge-listing')",
+              '.filter(validWatchListingRow)',
+          ]
+          for token in required:
+              if token not in text:
+                  raise SystemExit(f'Missing required release token: {token}')
+
+          if text.count('function validWatchListingRow(row)') != 1:
+              raise SystemExit('Containment guard was inserted more than once')
+          if text.count("const rows = [...document.querySelectorAll('.tsimm-listing-mark')].filter(validWatchListingRow);") != 1:
+              raise SystemExit('Unexpected watched listing selector count')
+          if '@require' in text:
+              raise SystemExit('Release became a wrapper unexpectedly')
+          if len(text) < len(original):
+              raise SystemExit('Unexpected source shrinkage')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate JavaScript
+        run: node --check TornScripture-Item-Market-Margin.user.js
+
+      - name: Commit release
+        shell: bash
+        run: |
+          if git diff --quiet -- TornScripture-Item-Market-Margin.user.js; then
+            echo 'No userscript changes produced'
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git commit -m 'Contain watched listing badges in IMM v0.12.2'
+          git push
