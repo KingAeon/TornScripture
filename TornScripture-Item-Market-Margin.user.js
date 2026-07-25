@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.15.0
-// @description  Item-market and overseas profit overlays with Quick MAX, curated high-turnover watchlists, trader capture, Trade Exit Audit, purchase history, trade verification, and receipt audits.
+// @version      0.16.0
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, local market-velocity learning, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.15.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.15.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.16.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.16.0' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.15.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.16.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.15.0',
+    version: '0.16.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -8631,6 +8631,7 @@
     carousel: 'tsimm-favorite-capture-carousel',
     bulkDialog: 'tsimm-trader-refresh-dialog',
     turnoverPanel: 'tsimm-turnover-preset-panel',
+    turnoverHistory: 'tornscripture-imm-turnover-history-v1',
     carouselSession: APP.favoriteRecaptureCarouselSessionKey,
     carouselResult: APP.traderRecaptureResultStorageKey,
   });
@@ -8690,6 +8691,24 @@
       ]),
     }),
   ]);
+
+
+  const TURNOVER_CAPTURE_RULES = Object.freeze({
+    schemaVersion: 1,
+    settleMs: 1200,
+    changedMinimumGapMs: 15 * 1000,
+    heartbeatMs: 5 * 60 * 1000,
+    maximumPairGapMs: 30 * 60 * 1000,
+    retentionMs: 14 * 24 * 60 * 60 * 1000,
+    maxSnapshotsPerItem: 72,
+    maxItems: 80,
+    maxVisibleListings: 30,
+  });
+  const turnoverCaptureState = {
+    itemToken: '',
+    signature: '',
+    stableSince: 0,
+  };
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const read = (storageKey, fallback) => {
@@ -8786,6 +8805,9 @@
       #${A.turnoverPanel} .turnover-head{display:grid;gap:2px}#${A.turnoverPanel} .turnover-head strong{color:#ffe8a3;font-size:11px;letter-spacing:.04em}#${A.turnoverPanel} .turnover-head span{color:#bfa969;font-size:8px;font-weight:700}
       #${A.turnoverPanel} .turnover-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}#${A.turnoverPanel} button{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;min-height:36px;border:1px solid #826923;border-radius:6px;background:#2a2008;color:#ffe8a3;padding:6px 7px;text-align:left;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.turnoverPanel} button small{color:#ad985a;font-size:7px}#${A.turnoverPanel} button.complete{border-color:#4ea966;background:#0b2b13;color:#bdffae}#${A.turnoverPanel} button.all{grid-column:1/-1;border-color:#5a8aa6;background:#0a2230;color:#c8efff}#${A.turnoverPanel} button:disabled{opacity:.65}
       .tsimm-turnover-chip{display:inline-flex!important;align-items:center!important;margin-right:4px!important;padding:1px 4px!important;border:1px solid #b78c2d!important;border-radius:999px!important;background:#2a1f07!important;color:#ffe28a!important;font:900 7px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;vertical-align:1px!important;white-space:nowrap!important}
+
+      #${A.turnoverPanel} .velocity-board{display:grid;gap:4px;padding-top:7px;border-top:1px solid #5d4a19}#${A.turnoverPanel} .velocity-board-head{display:flex;justify-content:space-between;gap:8px;color:#ffe8a3;font-size:9px}#${A.turnoverPanel} .velocity-board-head span{color:#ad985a;font-size:7px}#${A.turnoverPanel} .velocity-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:5px 6px;border:1px solid #4f4527;border-radius:5px;background:#17140a}#${A.turnoverPanel} .velocity-row strong{overflow:hidden;color:#f4e5ac;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.turnoverPanel} .velocity-row b{color:#9fe8ff;font-size:8px}#${A.turnoverPanel} .velocity-row span{grid-column:1/-1;color:#958a62;font-size:7px}#${A.turnoverPanel} .velocity-empty{padding:6px;border:1px dashed #5d542f;border-radius:5px;color:#a89c70;font-size:8px;font-weight:700}
+      #${A.panel} .tsimm-market-velocity{display:block!important;margin-top:1px!important;color:#8fcce0!important;font-size:7px!important;font-weight:900!important;letter-spacing:.01em!important}#${A.panel} .tsimm-market-velocity.learning{color:#a7afb4!important}#${A.panel} .tsimm-market-velocity.slow{color:#8fa4ad!important}#${A.panel} .tsimm-market-velocity.steady{color:#8edcf2!important}#${A.panel} .tsimm-market-velocity.fast{color:#95efaa!important}#${A.panel} .tsimm-market-velocity.frenzy{color:#ffe07b!important;text-shadow:0 0 8px #d6a72d55}
       @media(max-width:430px){#${A.turnoverPanel} .turnover-actions{grid-template-columns:1fr}#${A.turnoverPanel} button.all{grid-column:auto}}
     `;
   }
@@ -8968,6 +8990,271 @@
       ? `Added ${added} ${label} target${added === 1 ? '' : 's'}`
       : `${label} already fully watched`);
     return { added, total, presets: presets.length };
+  }
+
+
+  function turnoverTextHash(value) {
+    let hash = 2166136261;
+    const input = String(value || '');
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function turnoverHistoryStore() {
+    const raw = read(A.turnoverHistory, {});
+    const source = raw?.items && typeof raw.items === 'object' ? raw.items : {};
+    const cutoff = Date.now() - TURNOVER_CAPTURE_RULES.retentionMs;
+    const items = {};
+    for (const [token, candidate] of Object.entries(source)) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const itemId = Number(candidate.itemId) > 0 ? Number(candidate.itemId) : null;
+      const itemName = clean(candidate.itemName);
+      if (!itemName) continue;
+      const snapshots = (Array.isArray(candidate.snapshots) ? candidate.snapshots : [])
+        .map((snapshot) => {
+          const at = Date.parse(snapshot?.at || '');
+          if (!Number.isFinite(at) || at < cutoff) return null;
+          const listings = (Array.isArray(snapshot?.listings) ? snapshot.listings : [])
+            .map((listing) => ({
+              key: clean(listing?.key),
+              owner: clean(listing?.owner),
+              price: Math.max(0, Math.round(Number(listing?.price) || 0)),
+              quantity: Math.max(0, Math.floor(Number(listing?.quantity) || 0)),
+            }))
+            .filter((listing) => listing.key && listing.price > 0 && listing.quantity > 0)
+            .slice(0, TURNOVER_CAPTURE_RULES.maxVisibleListings);
+          if (!listings.length) return null;
+          return {
+            at: new Date(at).toISOString(),
+            signature: clean(snapshot?.signature) || listings.map((listing) => `${listing.key}:${listing.quantity}`).join('|'),
+            listings,
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => Date.parse(left.at) - Date.parse(right.at))
+        .slice(-TURNOVER_CAPTURE_RULES.maxSnapshotsPerItem);
+      if (!snapshots.length) continue;
+      items[token] = {
+        itemId,
+        itemName,
+        firstSeenAt: candidate.firstSeenAt || snapshots[0].at,
+        lastSeenAt: snapshots[snapshots.length - 1].at,
+        snapshots,
+      };
+    }
+    return {
+      schema: 'tornscripture-imm-turnover-history',
+      schemaVersion: TURNOVER_CAPTURE_RULES.schemaVersion,
+      updatedAt: raw?.updatedAt || null,
+      items,
+    };
+  }
+
+  function saveTurnoverHistory(store) {
+    const entries = Object.entries(store.items || {})
+      .sort((left, right) => Date.parse(right[1]?.lastSeenAt || '') - Date.parse(left[1]?.lastSeenAt || ''))
+      .slice(0, TURNOVER_CAPTURE_RULES.maxItems);
+    store.items = Object.fromEntries(entries);
+    store.updatedAt = new Date().toISOString();
+    write(A.turnoverHistory, store);
+  }
+
+  function turnoverRecordForItem(store, item) {
+    const token = itemKey(item?.id ?? item?.itemId, item?.name ?? item?.itemName);
+    if (store.items?.[token]) return { token, record: store.items[token] };
+    const wantedId = Number(item?.id ?? item?.itemId) > 0 ? Number(item.id ?? item.itemId) : null;
+    const wantedName = key(item?.name ?? item?.itemName);
+    const match = Object.entries(store.items || {}).find(([, record]) =>
+      (wantedId && Number(record?.itemId) === wantedId)
+      || (wantedName && key(record?.itemName) === wantedName));
+    return match ? { token: match[0], record: match[1] } : { token, record: null };
+  }
+
+  function turnoverListingOwner(row, index) {
+    const profile = row.querySelector('a[href*="profiles.php?XID="],a[href*="profiles.php?id=" i]');
+    const href = String(profile?.getAttribute('href') || profile?.href || '');
+    const userId = Number(href.match(/[?&](?:XID|id)=(\d+)/i)?.[1]) || null;
+    if (userId) return `uid:${userId}`;
+    const profileName = clean(profile?.textContent || profile?.getAttribute('title') || profile?.getAttribute('aria-label'));
+    if (profileName) return `name:${key(profileName)}`;
+    const ownerLike = [...row.querySelectorAll('[class*="owner" i],[class*="seller" i],[class*="name" i],a')]
+      .map((element) => clean(element.textContent || element.getAttribute('title') || element.getAttribute('aria-label')))
+      .find((label) => label && label.length <= 40 && !/^(?:buy|max|purchase|qty|quantity)$/i.test(label));
+    if (ownerLike) return `name:${key(ownerLike)}`;
+    const stableText = clean(row.innerText || row.textContent)
+      .replace(/\$[\d,.]+/g, '')
+      .replace(/\b[\d,]+\b/g, '')
+      .replace(/\b(?:buy|max|purchase|qty|quantity)\b/gi, '');
+    return `row:${turnoverTextHash(stableText || String(index))}`;
+  }
+
+  function turnoverVisibleListings() {
+    return [...document.querySelectorAll('.tsimm-listing-mark')]
+      .filter(validWatchListingRow)
+      .slice(0, TURNOVER_CAPTURE_RULES.maxVisibleListings)
+      .map((row, index) => {
+        const badge = row.querySelector('.tsimm-margin-badge.tsimm-badge-listing');
+        const price = Math.max(0, Math.round(listingPrice(row) || 0));
+        const quantity = Math.max(0, Math.floor(Number(badge?.dataset?.tsimmQuantity) || 0));
+        const owner = turnoverListingOwner(row, index);
+        return price > 0 && quantity > 0
+          ? { key: `${owner}@${price}`, owner, price, quantity }
+          : null;
+      })
+      .filter(Boolean);
+  }
+
+  function turnoverProfileFromRecord(record) {
+    const snapshots = Array.isArray(record?.snapshots) ? record.snapshots : [];
+    let observedMs = 0;
+    let windows = 0;
+    let quantityDropUnits = 0;
+    let removedListingUnits = 0;
+    let quantityDropEvents = 0;
+    let removedListings = 0;
+    let newListings = 0;
+    for (let index = 1; index < snapshots.length; index += 1) {
+      const previous = snapshots[index - 1];
+      const current = snapshots[index];
+      const gap = Date.parse(current.at) - Date.parse(previous.at);
+      if (!Number.isFinite(gap) || gap < 5000 || gap > TURNOVER_CAPTURE_RULES.maximumPairGapMs) continue;
+      observedMs += gap;
+      windows += 1;
+      const before = new Map(previous.listings.map((listing) => [listing.key, listing]));
+      const after = new Map(current.listings.map((listing) => [listing.key, listing]));
+      for (const [listingKey, listing] of before) {
+        const next = after.get(listingKey);
+        if (!next) {
+          removedListings += 1;
+          removedListingUnits += Number(listing.quantity) || 0;
+          continue;
+        }
+        const decrease = Math.max(0, Number(listing.quantity || 0) - Number(next.quantity || 0));
+        if (decrease > 0) {
+          quantityDropEvents += 1;
+          quantityDropUnits += decrease;
+        }
+      }
+      for (const listingKey of after.keys()) {
+        if (!before.has(listingKey)) newListings += 1;
+      }
+    }
+    const observedHours = observedMs / 3600000;
+    const weightedUnits = quantityDropUnits + removedListingUnits * 0.35;
+    const signalUnitsPerHour = observedHours > 0 ? weightedUnits / observedHours : 0;
+    const movementEvents = quantityDropEvents + removedListings;
+    const eventsPerHour = observedHours > 0 ? movementEvents / observedHours : 0;
+    const unitScore = Math.min(70, Math.log10(1 + signalUnitsPerHour) / Math.log10(1001) * 70);
+    const eventScore = Math.min(30, Math.log10(1 + eventsPerHour) / Math.log10(21) * 30);
+    const score = Math.max(0, Math.min(100, Math.round(unitScore + eventScore)));
+    const confidence = Math.max(0, Math.min(100, Math.round(
+      Math.min(1, windows / 12) * 55
+      + Math.min(1, observedMs / (2 * 3600000)) * 30
+      + Math.min(1, snapshots.length / 20) * 15
+    )));
+    let band = 'learning';
+    if (snapshots.length >= 3 && confidence >= 20) {
+      if (score >= 75) band = 'frenzy';
+      else if (score >= 55) band = 'fast';
+      else if (score >= 30) band = 'steady';
+      else band = 'slow';
+    }
+    const labels = { learning: 'LEARNING', slow: 'SLOW', steady: 'STEADY', fast: 'FAST', frenzy: 'FRENZY' };
+    return {
+      itemId: Number(record?.itemId) || null,
+      itemName: clean(record?.itemName),
+      snapshots: snapshots.length,
+      windows,
+      observedMinutes: Math.round(observedMs / 60000),
+      quantityDropUnits,
+      removedListingUnits,
+      quantityDropEvents,
+      removedListings,
+      newListings,
+      signalUnitsPerHour,
+      eventsPerHour,
+      score,
+      confidence,
+      band,
+      label: labels[band],
+      rank: score * (0.35 + confidence / 100 * 0.65),
+      lastSeenAt: record?.lastSeenAt || snapshots[snapshots.length - 1]?.at || null,
+    };
+  }
+
+  function turnoverVelocityForItem(item) {
+    const store = turnoverHistoryStore();
+    const found = turnoverRecordForItem(store, item);
+    return found.record
+      ? turnoverProfileFromRecord(found.record)
+      : turnoverProfileFromRecord({ itemId: item?.id || null, itemName: item?.name || '', snapshots: [] });
+  }
+
+  function turnoverLeaderboard(limit = 6) {
+    const store = turnoverHistoryStore();
+    return Object.values(store.items || {})
+      .map(turnoverProfileFromRecord)
+      .filter((profile) => profile.snapshots >= 2)
+      .sort((left, right) => right.rank - left.rank
+        || right.confidence - left.confidence
+        || right.snapshots - left.snapshots
+        || left.itemName.localeCompare(right.itemName))
+      .slice(0, Math.max(1, Math.floor(Number(limit) || 6)));
+  }
+
+  function maybeCaptureTurnoverSnapshot(item) {
+    const listings = turnoverVisibleListings();
+    const profile = () => turnoverVelocityForItem(item);
+    if (!listings.length) return profile();
+    const itemToken = itemKey(item?.id, item?.name);
+    const signature = listings.map((listing) => `${listing.key}:${listing.quantity}`).join('|');
+    const now = Date.now();
+    if (turnoverCaptureState.itemToken !== itemToken || turnoverCaptureState.signature !== signature) {
+      turnoverCaptureState.itemToken = itemToken;
+      turnoverCaptureState.signature = signature;
+      turnoverCaptureState.stableSince = now;
+      return profile();
+    }
+    if (now - turnoverCaptureState.stableSince < TURNOVER_CAPTURE_RULES.settleMs) return profile();
+
+    const store = turnoverHistoryStore();
+    const found = turnoverRecordForItem(store, item);
+    const record = found.record || {
+      itemId: Number(item?.id) || null,
+      itemName: clean(item?.name),
+      firstSeenAt: new Date(now).toISOString(),
+      lastSeenAt: null,
+      snapshots: [],
+    };
+    const last = record.snapshots[record.snapshots.length - 1] || null;
+    const lastAt = Date.parse(last?.at || '') || 0;
+    const gap = now - lastAt;
+    const changed = !last || last.signature !== signature;
+    if (last && ((!changed && gap < TURNOVER_CAPTURE_RULES.heartbeatMs)
+      || (changed && gap < TURNOVER_CAPTURE_RULES.changedMinimumGapMs))) return turnoverProfileFromRecord(record);
+
+    const capturedAt = new Date(now).toISOString();
+    record.itemId = Number(item?.id) || record.itemId || null;
+    record.itemName = clean(item?.name) || record.itemName;
+    record.lastSeenAt = capturedAt;
+    record.snapshots.push({ at: capturedAt, signature, listings });
+    record.snapshots = record.snapshots.slice(-TURNOVER_CAPTURE_RULES.maxSnapshotsPerItem);
+    store.items[found.token || itemToken] = record;
+    saveTurnoverHistory(store);
+    return turnoverProfileFromRecord(record);
+  }
+
+  function turnoverVelocityHtml(item) {
+    const profile = turnoverVelocityForItem(item);
+    const title = 'Visible listing movement only; removals can include sales, repricing, or delisting.';
+    if (profile.snapshots < 3 || profile.band === 'learning') {
+      return `<span class="tsimm-market-velocity learning" title="${esc(title)}">◌ VELOCITY LEARNING · ${profile.snapshots}/3 snapshots · ${profile.windows} usable comparison${profile.windows === 1 ? '' : 's'}</span>`;
+    }
+    const rate = Math.round(profile.signalUnitsPerHour).toLocaleString();
+    return `<span class="tsimm-market-velocity ${esc(profile.band)}" title="${esc(title)}">⚡ ${esc(profile.label)} · score ${profile.score}/100 · ~${rate} units/hr signal · ${profile.confidence}% confidence</span>`;
   }
 
   function emitWatchUpdate() {
@@ -9455,7 +9742,15 @@
     }
     const watchedTotal = [...union.values()].filter((item) => store.entries.some((entry) => watchEntryMatchesItem(entry, item))).length;
     const allComplete = watchedTotal === union.size;
-    panel.innerHTML = `<div class="turnover-head"><strong>⚡ HIGH-TURNOVER TARGET LIBRARY</strong><span>Seed repeat-use items into the existing watch system. Your manual watches stay untouched.</span></div><div class="turnover-actions">${buttons}<button type="button" class="all ${allComplete ? 'complete' : ''}" data-watch-turnover-preset="all" ${allComplete ? 'disabled' : ''}><span>＋</span><strong>ADD EVERY PRESET<small>Broad scan list; profit rules still decide what is worth buying.</small></strong><span>${watchedTotal}/${union.size}</span></button></div>`;
+    const leaders = turnoverLeaderboard(6);
+    const leaderRows = leaders.map((profile) => {
+      const rate = Math.round(profile.signalUnitsPerHour).toLocaleString();
+      return `<div class="velocity-row"><strong>${esc(profile.itemName)}</strong><b>${esc(profile.label)} ${profile.score}</b><span>~${rate} units/hr signal · ${profile.confidence}% confidence · ${profile.snapshots} snapshots</span></div>`;
+    }).join('');
+    const velocityBoard = leaders.length
+      ? leaderRows
+      : '<div class="velocity-empty">Browse individual Item Market pages. GOBLIN GOD will begin learning visible listing movement locally after stable snapshots.</div>';
+    panel.innerHTML = `<div class="turnover-head"><strong>⚡ HIGH-TURNOVER TARGET LIBRARY</strong><span>Seed repeat-use items into the existing watch system. Your manual watches stay untouched.</span></div><div class="turnover-actions">${buttons}<button type="button" class="all ${allComplete ? 'complete' : ''}" data-watch-turnover-preset="all" ${allComplete ? 'disabled' : ''}><span>＋</span><strong>ADD EVERY PRESET<small>Broad scan list; profit rules still decide what is worth buying.</small></strong><span>${watchedTotal}/${union.size}</span></button></div><div class="velocity-board"><div class="velocity-board-head"><strong>LOCAL VELOCITY LEADERS</strong><span>movement signals, not confirmed sales</span></div>${velocityBoard}</div>`;
   }
 
   function renderFavoriteCaptureCarousel(book, traders, favorites) {
@@ -9701,28 +9996,29 @@
     const turnoverBadge = turnover
       ? `<b class="tsimm-turnover-chip" title="${esc(turnover.description)}">${esc(turnover.icon)} ${esc(turnover.tier)} · ${esc(turnover.label)}</b>`
       : '';
+    const velocity = turnoverVelocityHtml(item);
     if (!watched) {
       panel.className = 'idle';
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}☆ NOT WATCHED · ${esc(item.name)}</strong><span>Watch this item across your favorite traders.</span></div><button type="button" data-market-watch-toggle>+ WATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}☆ NOT WATCHED · ${esc(item.name)}</strong><span>Watch this item across your favorite traders.</span>${velocity}</div><button type="button" data-market-watch-toggle>+ WATCH</button>`;
       return panel;
     }
     if (!favorites) {
       panel.className = 'missing';
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ WATCHED · NO FAVORITE TRADERS</strong><span>Star traders in the Trader Book or Deals report.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ WATCHED · NO FAVORITE TRADERS</strong><span>Star traders in the Trader Book or Deals report.</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
       return panel;
     }
     if (!best) {
       panel.className = 'missing';
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ WATCHED · NO CAPTURED EXIT</strong><span>${favorites.toLocaleString()} favorite trader${favorites === 1 ? '' : 's'} · none currently list this item.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ WATCHED · NO CAPTURED EXIT</strong><span>${favorites.toLocaleString()} favorite trader${favorites === 1 ? '' : 's'} · none currently list this item.</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
       return panel;
     }
     panel.className = best.status;
     if (best.status === 'fresh') {
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ BEST EXIT · ${esc(best.traderName)} pays ${esc(cash(best.price))} · ${esc(ageText(best.captured))} old</strong><span>${exits.length.toLocaleString()} captured favorite${exits.length === 1 ? '' : 's'} · buy below ${esc(cash(best.price))}</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ BEST EXIT · ${esc(best.traderName)} pays ${esc(cash(best.price))} · ${esc(ageText(best.captured))} old</strong><span>${exits.length.toLocaleString()} captured favorite${exits.length === 1 ? '' : 's'} · buy below ${esc(cash(best.price))}</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     } else if (best.status === 'stale') {
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⌛ WATCHED REFERENCE · ${esc(best.traderName)} paid ${esc(cash(best.price))}</strong><span>${esc(ageText(best.captured))} old · recapture before buying · no signal</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⌛ WATCHED REFERENCE · ${esc(best.traderName)} paid ${esc(cash(best.price))}</strong><span>${esc(ageText(best.captured))} old · recapture before buying · no signal</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     } else {
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⚠ WATCHED PRICE OUTDATED · ${esc(best.traderName)}</strong><span>Last paid ${esc(cash(best.price))} · recapture before buying.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⚠ WATCHED PRICE OUTDATED · ${esc(best.traderName)}</strong><span>Last paid ${esc(cash(best.price))} · recapture before buying.</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     }
     return panel;
   }
@@ -9874,6 +10170,7 @@
       document.getElementById(A.panel)?.remove();
       return;
     }
+    maybeCaptureTurnoverSnapshot(item);
     const watched = isWatched(watchedStore(), item);
     const exits = watched ? exitsForItem(item) : [];
     const best = bestExit(exits);
@@ -10099,6 +10396,9 @@
       skipCurrentCaptureCarousel,
       addTurnoverPreset,
       turnoverProfilesForItem,
+      turnoverVelocityForItem,
+      turnoverLeaderboard,
+      maybeCaptureTurnoverSnapshot,
       toggleFavoriteById(traderId) {
         const trader = normTraders().find((candidate) => candidate.id === clean(traderId));
         if (!trader) return { available: false, favorite: false, traderName: '' };
