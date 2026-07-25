@@ -51,6 +51,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add TornScripture-Item-Market-Margin.user.js
-          git rm -f scripts/apply_imm_v0150_turnover_watchlists.py scripts/trigger_imm_v0150.txt .github/workflows/apply-imm-v0150-turnover-watchlists.yml .github/workflows/apply-imm-v0150-pr-release.yml
+          git rm -f scripts/apply_imm_v0150_turnover_watchlists.py .github/workflows/apply-imm-v0150-turnover-watchlists.yml .github/workflows/apply-imm-v0150-pr-release.yml
           git commit -m 'Add high-turnover target library in GOBLIN GOD v0.15.0'
           git push origin HEAD:main
