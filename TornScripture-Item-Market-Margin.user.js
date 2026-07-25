@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.14.0
-// @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
+// @version      0.15.0
+// @description  Item-market and overseas profit overlays with Quick MAX, curated high-turnover watchlists, trader capture, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.14.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.14.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.15.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.15.0' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.14.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.15.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.14.0',
+    version: '0.15.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -8630,9 +8630,66 @@
     toast: 'tsimm-watch-toast',
     carousel: 'tsimm-favorite-capture-carousel',
     bulkDialog: 'tsimm-trader-refresh-dialog',
+    turnoverPanel: 'tsimm-turnover-preset-panel',
     carouselSession: APP.favoriteRecaptureCarouselSessionKey,
     carouselResult: APP.traderRecaptureResultStorageKey,
   });
+
+  const HIGH_TURNOVER_PRESETS = Object.freeze([
+    Object.freeze({
+      id: 'war-recovery',
+      icon: '✚',
+      tier: 'A',
+      label: 'WAR RECOVERY',
+      description: 'Repeat-use medical supplies for wars, chains, and hospital exits.',
+      items: Object.freeze([
+        'Blood Bag : A+', 'Blood Bag : A-', 'Blood Bag : B+', 'Blood Bag : B-',
+        'Blood Bag : AB+', 'Blood Bag : AB-', 'Blood Bag : O+', 'Blood Bag : O-',
+        'Morphine', 'First Aid Kit', 'Small First Aid Kit', 'Empty Blood Bag',
+        'Box of Medical Supplies',
+      ]),
+    }),
+    Object.freeze({
+      id: 'combat-temps',
+      icon: '☄',
+      tier: 'A',
+      label: 'COMBAT TEMPS',
+      description: 'Disposable combat and mission items with recurring war demand.',
+      items: Object.freeze([
+        'Smoke Grenade', 'Flash Grenade', 'Pepper Spray', 'Tear Gas',
+        'Concussion Grenade', 'Grenade', 'HEG', 'Molotov Cocktail',
+      ]),
+    }),
+    Object.freeze({
+      id: 'museum-sets',
+      icon: '♜',
+      tier: 'B',
+      label: 'MUSEUM SETS',
+      description: 'Plushies and flowers continually absorbed by Museum set exchanges.',
+      items: Object.freeze([
+        'Camel Plushie', 'Chamois Plushie', 'Jaguar Plushie', 'Kitten Plushie',
+        'Lion Plushie', 'Monkey Plushie', 'Nessie Plushie', 'Panda Plushie',
+        'Red Fox Plushie', 'Sheep Plushie', 'Stingray Plushie', 'Teddy Bear Plushie',
+        'Wolverine Plushie', 'African Violet', 'Banana Orchid', 'Ceibo Flower',
+        'Cherry Blossom', 'Crocus', 'Dahlia', 'Edelweiss', 'Heather', 'Orchid',
+        'Peony', 'Tribulus Omanense',
+      ]),
+    }),
+    Object.freeze({
+      id: 'energy-gym',
+      icon: '⚡',
+      tier: 'S',
+      label: 'ENERGY & GYM',
+      description: 'Very liquid energy and happy consumables; expect fierce competition.',
+      items: Object.freeze([
+        'Xanax', 'LSD', 'Ecstasy', 'Feathery Hotel Coupon', 'Erotic DVD',
+        'Can of Goose Juice', 'Can of Damp Valley', 'Can of Crocozade',
+        'Can of Munster', 'Can of Santa Shooters', 'Can of Red Cow',
+        'Can of Rockstar Rudolph', 'Can of Taurine Elite', 'Can of X-MASS',
+        'Six-Pack of Energy Drink',
+      ]),
+    }),
+  ]);
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const read = (storageKey, fallback) => {
@@ -8723,6 +8780,13 @@
       #${A.panel} .watch-copy{display:grid;min-width:0;gap:2px}#${A.panel} strong{overflow:hidden;color:#c7ffad;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} span{display:block;overflow:hidden;color:#72bd7d;font-size:7px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} button{min-height:28px;border:1px solid #58d76d;border-radius:4px;background:#082b10;color:#c5ffac;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.panel}.idle{border-color:#4d5960;background:#0a0d0ff5;color:#aeb8bd}#${A.panel}.idle strong,#${A.panel}.idle span{color:#aeb8bd}#${A.panel}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.panel}.stale strong,#${A.panel}.stale span{color:#ffd166}#${A.panel}.outdated,#${A.panel}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.panel}.outdated strong,#${A.panel}.outdated span,#${A.panel}.missing strong,#${A.panel}.missing span{color:#ff9ba3}
       .tsimm-watch-inline-badge{display:grid!important;gap:1px!important;min-width:0!important;max-width:100%!important;padding:2px 4px!important;overflow:hidden!important;box-sizing:border-box!important}.tsimm-watch-inline-badge strong,.tsimm-watch-inline-badge .tsimm-listing-lot{display:block!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;white-space:nowrap!important;text-overflow:clip!important}.tsimm-watch-inline-badge strong{font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline-badge .tsimm-listing-lot{font:800 7px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline{display:none!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit .tsimm-listing-lot{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-even,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even .tsimm-listing-lot,.tsimm-watch-inline-badge.tsimm-watch-floor-badge,.tsimm-watch-inline-badge.tsimm-watch-floor-badge strong,.tsimm-watch-inline-badge.tsimm-watch-floor-badge .tsimm-listing-lot{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}.tsimm-watch-hidden-loss{display:none!important}.tsimm-watch-format-row{position:relative!important}
       .tsimm-watch-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:112px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}.tsimm-watch-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-watch-profit.floor{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}.tsimm-watch-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-watch-floor-row{box-shadow:inset 0 2px #52c7ea!important}
+    `;
+    style.textContent += `
+      #${A.turnoverPanel}{display:grid;gap:7px;box-sizing:border-box;margin:6px 8px;padding:9px;border:1px solid #9d7627;border-radius:8px;background:#171105f4;color:#ffe28a;font:800 9px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      #${A.turnoverPanel} .turnover-head{display:grid;gap:2px}#${A.turnoverPanel} .turnover-head strong{color:#ffe8a3;font-size:11px;letter-spacing:.04em}#${A.turnoverPanel} .turnover-head span{color:#bfa969;font-size:8px;font-weight:700}
+      #${A.turnoverPanel} .turnover-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}#${A.turnoverPanel} button{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;min-height:36px;border:1px solid #826923;border-radius:6px;background:#2a2008;color:#ffe8a3;padding:6px 7px;text-align:left;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.turnoverPanel} button small{color:#ad985a;font-size:7px}#${A.turnoverPanel} button.complete{border-color:#4ea966;background:#0b2b13;color:#bdffae}#${A.turnoverPanel} button.all{grid-column:1/-1;border-color:#5a8aa6;background:#0a2230;color:#c8efff}#${A.turnoverPanel} button:disabled{opacity:.65}
+      .tsimm-turnover-chip{display:inline-flex!important;align-items:center!important;margin-right:4px!important;padding:1px 4px!important;border:1px solid #b78c2d!important;border-radius:999px!important;background:#2a1f07!important;color:#ffe28a!important;font:900 7px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;vertical-align:1px!important;white-space:nowrap!important}
+      @media(max-width:430px){#${A.turnoverPanel} .turnover-actions{grid-template-columns:1fr}#${A.turnoverPanel} button.all{grid-column:auto}}
     `;
   }
 
@@ -8827,9 +8891,83 @@
         itemName,
         addedAt: candidate?.addedAt || new Date().toISOString(),
         source: clean(candidate?.source) || 'manual',
+        turnoverPreset: clean(candidate?.turnoverPreset),
+        turnoverTier: clean(candidate?.turnoverTier),
+        turnoverReason: clean(candidate?.turnoverReason),
       });
     }
     return { schema: 'tornscripture-imm-watched-items', schemaVersion: 1, entries: [...unique.values()] };
+  }
+
+  function watchEntryMatchesItem(entry, item) {
+    const entryId = Number(entry?.itemId) > 0 ? Number(entry.itemId) : null;
+    const itemId = Number(item?.id ?? item?.itemId) > 0 ? Number(item.id ?? item.itemId) : null;
+    if (entryId && itemId && entryId === itemId) return true;
+    return Boolean(key(entry?.itemName ?? entry?.name)
+      && key(entry?.itemName ?? entry?.name) === key(item?.name ?? item?.itemName));
+  }
+
+  function turnoverPresetById(presetId) {
+    return HIGH_TURNOVER_PRESETS.find((preset) => preset.id === clean(presetId)) || null;
+  }
+
+  function turnoverProfilesForItem(item) {
+    const wanted = key(item?.name ?? item?.itemName);
+    if (!wanted) return [];
+    return HIGH_TURNOVER_PRESETS.filter((preset) => preset.items.some((name) => key(name) === wanted));
+  }
+
+  function resolvedTurnoverItems(preset) {
+    const values = catalog();
+    return preset.items.map((name) => {
+      const resolved = values.name[key(name)] || null;
+      return {
+        id: resolved?.id || null,
+        name: resolved?.name || name,
+        n: key(resolved?.name || name),
+      };
+    });
+  }
+
+  function turnoverPresetStats(preset, store = watchedStore()) {
+    const items = resolvedTurnoverItems(preset);
+    const watched = items.filter((item) => store.entries.some((entry) => watchEntryMatchesItem(entry, item))).length;
+    return { watched, total: items.length, complete: watched === items.length };
+  }
+
+  function addTurnoverPreset(presetId) {
+    const presets = clean(presetId) === 'all'
+      ? HIGH_TURNOVER_PRESETS
+      : [turnoverPresetById(presetId)].filter(Boolean);
+    if (!presets.length) return { added: 0, total: 0, presets: 0 };
+    const store = watchedStore();
+    let added = 0;
+    let total = 0;
+    for (const preset of presets) {
+      for (const item of resolvedTurnoverItems(preset)) {
+        total += 1;
+        if (store.entries.some((entry) => watchEntryMatchesItem(entry, item))) continue;
+        store.entries.push({
+          itemId: item.id,
+          itemName: item.name,
+          addedAt: new Date().toISOString(),
+          source: `turnover:${preset.id}`,
+          turnoverPreset: preset.id,
+          turnoverTier: preset.tier,
+          turnoverReason: preset.description,
+        });
+        added += 1;
+      }
+    }
+    if (added) saveWatched(store);
+    scheduleTorn();
+    const label = presets.length === HIGH_TURNOVER_PRESETS.length
+      ? 'all high-turnover presets'
+      : presets[0].label.toLowerCase();
+    showFavoriteToast(added
+      ? `Added ${added} ${label} target${added === 1 ? '' : 's'}`
+      : `${label} already fully watched`);
+    return { added, total, presets: presets.length };
   }
 
   function emitWatchUpdate() {
@@ -9296,6 +9434,30 @@
     return true;
   }
 
+  function renderTurnoverPresetPanel(book) {
+    if (!(book instanceof Element)) return;
+    let panel = book.querySelector(`#${A.turnoverPanel}`);
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = A.turnoverPanel;
+      const firstCard = book.querySelector('.tsimm-trader-card');
+      if (firstCard) firstCard.before(panel);
+      else book.appendChild(panel);
+    }
+    const store = watchedStore();
+    const buttons = HIGH_TURNOVER_PRESETS.map((preset) => {
+      const stats = turnoverPresetStats(preset, store);
+      return `<button type="button" class="${stats.complete ? 'complete' : ''}" data-watch-turnover-preset="${esc(preset.id)}" ${stats.complete ? 'disabled' : ''}><span>${esc(preset.icon)}</span><strong>${esc(preset.tier)} · ${esc(preset.label)}<small>${esc(preset.description)}</small></strong><span>${stats.watched}/${stats.total}</span></button>`;
+    }).join('');
+    const union = new Map();
+    for (const preset of HIGH_TURNOVER_PRESETS) {
+      for (const item of resolvedTurnoverItems(preset)) union.set(item.n, item);
+    }
+    const watchedTotal = [...union.values()].filter((item) => store.entries.some((entry) => watchEntryMatchesItem(entry, item))).length;
+    const allComplete = watchedTotal === union.size;
+    panel.innerHTML = `<div class="turnover-head"><strong>⚡ HIGH-TURNOVER TARGET LIBRARY</strong><span>Seed repeat-use items into the existing watch system. Your manual watches stay untouched.</span></div><div class="turnover-actions">${buttons}<button type="button" class="all ${allComplete ? 'complete' : ''}" data-watch-turnover-preset="all" ${allComplete ? 'disabled' : ''}><span>＋</span><strong>ADD EVERY PRESET<small>Broad scan list; profit rules still decide what is worth buying.</small></strong><span>${watchedTotal}/${union.size}</span></button></div>`;
+  }
+
   function renderFavoriteCaptureCarousel(book, traders, favorites) {
     if (!(book instanceof Element)) return;
     const favoriteSelection = favoriteCaptureSelection(traders, favorites);
@@ -9328,14 +9490,12 @@
   }
 
   function isWatched(store, item) {
-    const token = itemKey(item.id, item.name);
-    return store.entries.some((entry) => itemKey(entry.itemId, entry.itemName) === token);
+    return store.entries.some((entry) => watchEntryMatchesItem(entry, item));
   }
 
   function toggleWatched(item, source = 'manual') {
     const store = watchedStore();
-    const token = itemKey(item.id, item.name);
-    const index = store.entries.findIndex((entry) => itemKey(entry.itemId, entry.itemName) === token);
+    const index = store.entries.findIndex((entry) => watchEntryMatchesItem(entry, item));
     if (index >= 0) store.entries.splice(index, 1);
     else store.entries.push({ itemId: item.id, itemName: item.name, addedAt: new Date().toISOString(), source });
     saveWatched(store);
@@ -9537,28 +9697,32 @@
     const watched = isWatched(watchedStore(), item);
     const favorites = favoriteStore().entries.length;
     const best = bestExit(exits);
+    const turnover = turnoverProfilesForItem(item)[0] || null;
+    const turnoverBadge = turnover
+      ? `<b class="tsimm-turnover-chip" title="${esc(turnover.description)}">${esc(turnover.icon)} ${esc(turnover.tier)} · ${esc(turnover.label)}</b>`
+      : '';
     if (!watched) {
       panel.className = 'idle';
-      panel.innerHTML = `<div class="watch-copy"><strong>☆ NOT WATCHED · ${esc(item.name)}</strong><span>Watch this item across your favorite traders.</span></div><button type="button" data-market-watch-toggle>+ WATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}☆ NOT WATCHED · ${esc(item.name)}</strong><span>Watch this item across your favorite traders.</span></div><button type="button" data-market-watch-toggle>+ WATCH</button>`;
       return panel;
     }
     if (!favorites) {
       panel.className = 'missing';
-      panel.innerHTML = `<div class="watch-copy"><strong>★ WATCHED · NO FAVORITE TRADERS</strong><span>Star traders in the Trader Book or Deals report.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ WATCHED · NO FAVORITE TRADERS</strong><span>Star traders in the Trader Book or Deals report.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
       return panel;
     }
     if (!best) {
       panel.className = 'missing';
-      panel.innerHTML = `<div class="watch-copy"><strong>★ WATCHED · NO CAPTURED EXIT</strong><span>${favorites.toLocaleString()} favorite trader${favorites === 1 ? '' : 's'} · none currently list this item.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ WATCHED · NO CAPTURED EXIT</strong><span>${favorites.toLocaleString()} favorite trader${favorites === 1 ? '' : 's'} · none currently list this item.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
       return panel;
     }
     panel.className = best.status;
     if (best.status === 'fresh') {
-      panel.innerHTML = `<div class="watch-copy"><strong>★ BEST EXIT · ${esc(best.traderName)} pays ${esc(cash(best.price))} · ${esc(ageText(best.captured))} old</strong><span>${exits.length.toLocaleString()} captured favorite${exits.length === 1 ? '' : 's'} · buy below ${esc(cash(best.price))}</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ BEST EXIT · ${esc(best.traderName)} pays ${esc(cash(best.price))} · ${esc(ageText(best.captured))} old</strong><span>${exits.length.toLocaleString()} captured favorite${exits.length === 1 ? '' : 's'} · buy below ${esc(cash(best.price))}</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     } else if (best.status === 'stale') {
-      panel.innerHTML = `<div class="watch-copy"><strong>⌛ WATCHED REFERENCE · ${esc(best.traderName)} paid ${esc(cash(best.price))}</strong><span>${esc(ageText(best.captured))} old · recapture before buying · no signal</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⌛ WATCHED REFERENCE · ${esc(best.traderName)} paid ${esc(cash(best.price))}</strong><span>${esc(ageText(best.captured))} old · recapture before buying · no signal</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     } else {
-      panel.innerHTML = `<div class="watch-copy"><strong>⚠ WATCHED PRICE OUTDATED · ${esc(best.traderName)}</strong><span>Last paid ${esc(cash(best.price))} · recapture before buying.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⚠ WATCHED PRICE OUTDATED · ${esc(best.traderName)}</strong><span>Last paid ${esc(cash(best.price))} · recapture before buying.</span></div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     }
     return panel;
   }
@@ -9750,6 +9914,7 @@
     if (!book) return;
     const traders = normTraders();
     const favorites = favoriteStore();
+    renderTurnoverPresetPanel(book);
     renderFavoriteCaptureCarousel(book, traders, favorites);
     for (const card of book.querySelectorAll('.tsimm-trader-card')) {
       const trader = cardTrader(card, traders);
@@ -9800,6 +9965,13 @@
       if (!document.body) return setTimeout(start, 60);
       injectStyle();
       document.addEventListener('click', (event) => {
+        const turnoverPreset = event.target.closest?.('[data-watch-turnover-preset]');
+        if (turnoverPreset) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          addTurnoverPreset(clean(turnoverPreset.dataset.watchTurnoverPreset));
+          return;
+        }
         const bulkOpen = event.target.closest?.('[data-watch-bulk-open]');
         if (bulkOpen) {
           event.preventDefault();
@@ -9925,6 +10097,8 @@
       startSavedTraderCaptureCarousel,
       retryFailedTraderCaptureCarousel,
       skipCurrentCaptureCarousel,
+      addTurnoverPreset,
+      turnoverProfilesForItem,
       toggleFavoriteById(traderId) {
         const trader = normTraders().find((candidate) => candidate.id === clean(traderId));
         if (!trader) return { available: false, favorite: false, traderName: '' };
