@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.13.1
+// @version      0.13.2
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.13.1' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.13.1' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.13.2' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.13.2' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.13.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.13.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.13.1',
+    version: '0.13.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2287,6 +2287,7 @@
       #${APP.ledgerOverlayId} .tsimm-key-endpoint.bad{border-color:#bd4b61}
       #${APP.ledgerOverlayId} .tsimm-key-guide{margin-top:8px;font-size:9px;line-height:1.45;color:#ccc}
       #${APP.ledgerOverlayId} .tsimm-key-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+      #${APP.ledgerOverlayId} .tsimm-key-actions button{flex:1;min-width:120px;border:1px solid #3b8fc2;border-radius:6px;background:#173d56;color:#eaf7ff;padding:7px;font-size:9px;font-weight:800}
       #${APP.ledgerOverlayId} .tsimm-key-error{display:block;margin-top:7px;color:#ff9aab}
       @media(max-width:520px){#${APP.ledgerOverlayId} .tsimm-reconcile-counts,#${APP.ledgerOverlayId} .tsimm-key-endpoints{grid-template-columns:repeat(2,1fr)}}
     `;
@@ -6891,7 +6892,8 @@
           <div><strong>📒 GOBLIN GOD Ledger</strong><small>What you obtained, what it cost, and what it can earn · schema v4</small></div>
           <button type="button" data-tsimm-action="ledger-close">×</button>
         </div>
-        <div class="tsimm-ledger-summary">
+        <div class="tsimm-ledger-scroll">
+          <div class="tsimm-ledger-summary">
           <div><strong>${formatInteger(summary.lots)}</strong><span>open lots</span></div>
           <div><strong>${formatInteger(summary.remainingQuantity)}</strong><span>on hand</span></div>
           <div><strong>${formatMoney(summary.invested)}</strong><span>invested</span></div>
@@ -6933,6 +6935,7 @@
             <div class="tsimm-ledger-section-title">Sale history</div>
             <div class="tsimm-ledger-sales">${sales.length ? sales.map(ledgerSaleHtml).join('') : '<div class="tsimm-ledger-empty">No recorded sales yet.</div>'}</div>
           `}
+        </div>
       </div>
     `;
   }
@@ -6946,7 +6949,9 @@
       overlay = document.createElement('div');
       overlay.id = APP.ledgerOverlayId;
       overlay.dataset.tsimmGenerated = 'true';
-      document.body.appendChild(overlay);
+      (document.documentElement || document.body).appendChild(overlay);
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
     }
     renderLedger();
   }
@@ -7470,8 +7475,10 @@
       .tsimm-controls select{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}
       .tsimm-pending-card{margin:7px 0;padding:8px;border:1px solid #c48b35;border-radius:8px;background:#2b2418;display:grid;gap:3px}.tsimm-pending-card>strong{color:#ffd184}.tsimm-pending-card>span{color:#f2e8d5}.tsimm-pending-card>small{color:#c9baa0}.tsimm-pending-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-pending-card button{flex:1;border:1px solid #725f3d;border-radius:6px;background:#3b3020;color:#fff;padding:5px;font-weight:700}
       .tsimm-trader-capture-card{margin:7px 0;padding:8px;border:1px solid #3b8fc2;border-radius:8px;background:#172833;display:grid;gap:3px}.tsimm-trader-capture-card>strong{color:#83d1ff}.tsimm-trader-capture-card>span{color:#d9f1ff}.tsimm-trader-capture-card>small{color:#9fbfce}.tsimm-trader-capture-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-trader-capture-card button{flex:1;border:1px solid #376b89;border-radius:6px;background:#1e4359;color:#fff;padding:5px;font-weight:700}
-      #${APP.ledgerOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
-      .tsimm-ledger-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #655d70;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
+      #${APP.ledgerOverlayId}{position:fixed;inset:0;z-index:2147483647;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8;pointer-events:auto!important;isolation:isolate;overscroll-behavior:contain}
+      .tsimm-ledger-shell{position:relative;z-index:1;width:min(620px,100%);max-height:94vh;max-height:94dvh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #655d70;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden;pointer-events:auto!important}
+      .tsimm-ledger-scroll{min-height:0;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;pointer-events:auto!important}
+      #${APP.ledgerOverlayId} button,#${APP.ledgerOverlayId} input,#${APP.ledgerOverlayId} select,#${APP.ledgerOverlayId} textarea{pointer-events:auto!important;touch-action:manipulation}
       .tsimm-ledger-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#282330;border-bottom:1px solid #4f4759}.tsimm-ledger-head>div{display:grid;gap:1px;flex:1}.tsimm-ledger-head strong{font-size:14px}.tsimm-ledger-head small{color:#aaa1b7}.tsimm-ledger-head>button{border:1px solid #655d70;border-radius:7px;background:#393341;color:#fff;width:30px;height:30px;font-size:19px}
       .tsimm-ledger-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:5px;padding:8px}.tsimm-ledger-summary>div{display:grid;text-align:center;padding:7px 3px;border:1px solid #494250;border-radius:8px;background:#24212a}.tsimm-ledger-summary strong{font-size:12px}.tsimm-ledger-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}
       .tsimm-ledger-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.tsimm-ledger-actions button{flex:1;min-width:105px;border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:7px;font-weight:700}.tsimm-ledger-actions button:first-child{background:#5b2b82;border-color:#8e55b9}
@@ -7795,6 +7802,8 @@
     document.addEventListener('click', (event) => {
       const button = event.target.closest(`[data-tsimm-action]`);
       if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
       const action = button.dataset.tsimmAction;
       if (action === 'toggle') {
         updateSetting('collapsed', !state.settings.collapsed);
@@ -7938,7 +7947,7 @@
       } else if (action === 'pending-discard') {
         discardPendingPurchase();
       }
-    });
+    }, true);
     document.addEventListener('change', (event) => {
       const quickMaxOverride = event.target.closest('[data-tsimm-quick-max-override]');
       if (quickMaxOverride) {
