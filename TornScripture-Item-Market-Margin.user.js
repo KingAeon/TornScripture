@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.13.3
+// @version      0.13.2
 // @description  Item-market and overseas profit overlays with Quick MAX, trader capture, favorite watchlists, Trade Exit Audit, purchase history, trade verification, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.13.3' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.13.3' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.13.2' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.13.2' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.13.3
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.13.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -283,7 +283,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.13.3',
+    version: '0.13.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -337,12 +337,6 @@
 
   const PDA_API_KEY = '###PDA-APIKEY###';
   const TRADER_PERCENT = 99;
-  const INVENTORY_API_CATEGORIES = Object.freeze([
-    'Collectible', 'Clothing', 'Other', 'Tool', 'Melee', 'Defensive', 'Material', 'Car',
-    'Primary', 'Secondary', 'Book', 'Special', 'Supply Pack', 'Temporary', 'Enhancer',
-    'Artifact', 'Flower', 'Booster', 'Medical', 'Candy', 'Jewelry', 'Alcohol', 'Plushie',
-    'Drug', 'Energy Drink',
-  ]);
 
   const DEFAULT_SETTINGS = Object.freeze({
     collapsed: false,
@@ -1836,17 +1830,9 @@
   }
 
   async function probeGoblinGodEndpoint(urlValue, kind, key) {
-    if (kind === 'inventory') {
-      const result = await fetchInventoryWithFallback(key, { probeOnly: true });
-      return {
-        inventory: result.items,
-        _tsimmInventoryMode: result.mode,
-        _tsimmInventoryCategories: result.categoriesFetched,
-      };
-    }
-
     const url = new URL(urlValue);
     url.searchParams.set('comment', 'TornScripture GOBLIN GOD key check');
+    if (kind === 'inventory') url.searchParams.set('limit', '1');
     const response = await fetch(url.href, {
       method: 'GET',
       headers: {
@@ -1933,11 +1919,7 @@
             ok: true,
             checked: true,
             count: apiProbeCount(payload, kind),
-            message: name === 'keyInfo'
-              ? 'valid key'
-              : name === 'inventory' && payload?._tsimmInventoryMode === 'category-fallback'
-                ? 'selection available via category fallback'
-                : 'selection available',
+            message: name === 'keyInfo' ? 'valid key' : 'selection available',
           };
         } catch (error) {
           const message = normalizeWhitespace(error?.message || `${label} unavailable`);
@@ -2112,13 +2094,6 @@
       items: [...found.values()],
       itemMarketIncluded: Boolean(raw?.itemMarketIncluded),
       itemMarketError: normalizeWhitespace(raw?.itemMarketError),
-      captureMode: normalizeWhitespace(raw?.captureMode),
-      categoriesFetched: Array.isArray(raw?.categoriesFetched)
-        ? raw.categoriesFetched.map(normalizeWhitespace).filter(Boolean)
-        : [],
-      categoryErrors: Array.isArray(raw?.categoryErrors)
-        ? raw.categoryErrors.map(normalizeWhitespace).filter(Boolean)
-        : [],
     };
   }
 
@@ -2136,20 +2111,11 @@
     try { return new URL(value, currentUrl).href; } catch { return ''; }
   }
 
-  function inventoryCategoryError(error) {
-    return /(?:incorrect|invalid) category|category.{0,30}(?:incorrect|invalid)/i.test(
-      normalizeWhitespace(error?.message || error)
-    );
-  }
-
-  async function fetchInventorySelection(baseUrl, source, key, { category = '', clean = false } = {}) {
+  async function fetchInventorySelection(baseUrl, source, key) {
     const found = new Map();
     let url = new URL(baseUrl);
-    if (category) url.searchParams.set('cat', category);
-    if (!clean) {
-      if (source === 'inventory') url.searchParams.set('limit', '250');
-      url.searchParams.set('comment', 'TornScripture GOBLIN GOD inventory reconciliation');
-    }
+    if (source === 'inventory') url.searchParams.set('limit', '250');
+    url.searchParams.set('comment', 'TornScripture GOBLIN GOD inventory reconciliation');
     for (let page = 0; url && page < 20; page += 1) {
       const response = await fetch(url.href, {
         headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
@@ -2165,51 +2131,6 @@
       url = next ? new URL(next) : null;
     }
     return [...found.values()];
-  }
-
-  async function fetchInventoryWithFallback(key, { probeOnly = false } = {}) {
-    try {
-      const items = await fetchInventorySelection(APP.inventoryUrl, 'inventory', key, { clean: true });
-      return {
-        items,
-        mode: 'unfiltered',
-        categoriesFetched: [],
-        categoryErrors: [],
-      };
-    } catch (error) {
-      if (!inventoryCategoryError(error)) throw error;
-    }
-
-    const categories = probeOnly ? ['Other'] : INVENTORY_API_CATEGORIES;
-    const found = new Map();
-    const categoriesFetched = [];
-    const categoryErrors = [];
-    for (const category of categories) {
-      try {
-        const items = await fetchInventorySelection(APP.inventoryUrl, 'inventory', key, {
-          category,
-          clean: true,
-        });
-        items.forEach((item) => mergeInventory(found, item));
-        categoriesFetched.push(category);
-      } catch (error) {
-        categoryErrors.push(`${category}: ${normalizeWhitespace(error?.message || 'request failed')}`);
-      }
-    }
-
-    if (categoryErrors.length) {
-      throw new Error(`Inventory category fallback failed: ${categoryErrors.join(' · ')}`);
-    }
-    if (!categoriesFetched.length) {
-      throw new Error('Inventory category fallback did not complete any category requests.');
-    }
-
-    return {
-      items: [...found.values()],
-      mode: 'category-fallback',
-      categoriesFetched,
-      categoryErrors,
-    };
   }
 
   async function syncInventorySnapshot({ skipKeyCheck = false } = {}) {
@@ -2229,8 +2150,8 @@
     renderLedger();
     try {
       const found = new Map();
-      const inventoryResult = await fetchInventoryWithFallback(key);
-      inventoryResult.items.forEach((item) => mergeInventory(found, item));
+      (await fetchInventorySelection(APP.inventoryUrl, 'inventory', key))
+        .forEach((item) => mergeInventory(found, item));
       let itemMarketIncluded = false;
       let itemMarketError = '';
       try {
@@ -2245,26 +2166,10 @@
         items: [...found.values()],
         itemMarketIncluded,
         itemMarketError,
-        captureMode: inventoryResult.mode,
-        categoriesFetched: inventoryResult.categoriesFetched,
-        categoryErrors: inventoryResult.categoryErrors,
       });
       saveJson(APP.inventoryStorageKey, state.inventory);
-      state.keyProfile.lastError = itemMarketError ? `Item Market listings: ${itemMarketError}` : '';
-      state.keyProfile.endpoints.inventory = {
-        ok: true,
-        checked: true,
-        count: inventoryResult.items.length,
-        message: inventoryResult.mode === 'category-fallback'
-          ? `available via ${inventoryResult.categoriesFetched.length} categories`
-          : 'selection available',
-      };
-      saveApiKeyProfile();
       const quantity = state.inventory.items.reduce((sum, item) => sum + Number(item.totalQuantity || 0), 0);
-      const inventoryRoute = inventoryResult.mode === 'category-fallback'
-        ? ` via ${inventoryResult.categoriesFetched.length} inventory categories`
-        : ' via the complete inventory endpoint';
-      toast(`Inventory snapshot saved: ${formatInteger(quantity)} items${inventoryRoute}${itemMarketIncluded ? ', including active Item Market listings' : ''}.`);
+      toast(`Inventory snapshot saved: ${formatInteger(quantity)} items${itemMarketIncluded ? ' including active Item Market listings' : ''}.`);
     } catch (error) {
       const message = normalizeWhitespace(error?.message || 'Inventory sync failed.');
       state.keyProfile.lastError = `Inventory: ${message}`;
@@ -6977,13 +6882,8 @@
     const catalogFreshness = state.catalog.updatedAt
       ? `Current values synced ${relativeAge(state.catalog.updatedAt)}${catalogIsFresh() ? '' : ' · stale'}`
       : 'Current values have not been synced';
-    const inventoryCaptureNote = state.inventory?.captureMode === 'category-fallback'
-      ? ` · ${formatInteger(state.inventory.categoriesFetched?.length || 0)} categories`
-      : state.inventory?.captureMode === 'unfiltered'
-        ? ' · complete endpoint'
-        : '';
     const inventoryFreshness = state.inventory?.capturedAt
-      ? `Inventory synced ${relativeAge(state.inventory.capturedAt)}${inventorySnapshotFresh() ? '' : ' · stale'}${inventoryCaptureNote}`
+      ? `Inventory synced ${relativeAge(state.inventory.capturedAt)}${inventorySnapshotFresh() ? '' : ' · stale'}`
       : 'Inventory has not been synced';
     const showPurchaseControls = view === 'holdings' || view === 'history';
     overlay.innerHTML = `
