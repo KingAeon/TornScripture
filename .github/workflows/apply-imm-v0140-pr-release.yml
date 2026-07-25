@@ -19,6 +19,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      - name: Narrow duplicate settings anchor
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_imm_v0140_baseline_sell_priority.py')
+          text = path.read_text(encoding='utf-8')
+          old = """    count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one anchor, found {count}')
+              return text.replace(old, new, 1)
+          """
+          new = """    count = text.count(old)
+              if label == 'sell priority default threshold':
+                  if count < 1:
+                      raise SystemExit(f'{label}: anchor was not found')
+                  return text.replace(old, new, 1)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one anchor, found {count}')
+              return text.replace(old, new, 1)
+          """
+          if old not in text:
+              raise SystemExit('replace_once helper anchor was not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Apply focused release
         shell: bash
         run: |
