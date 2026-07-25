@@ -1,2 +1,0 @@
-Pineapple release trigger for GOBLIN GOD v0.14.0.
-Refs API retrigger.
