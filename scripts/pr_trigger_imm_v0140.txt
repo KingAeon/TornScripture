@@ -1,2 +1,3 @@
 Trigger the guarded GOBLIN GOD v0.14.0 release workflow.
 Capture patch diagnostics.
+Narrow duplicate settings anchor.
