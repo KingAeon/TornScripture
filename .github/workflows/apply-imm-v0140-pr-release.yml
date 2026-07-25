@@ -20,7 +20,19 @@ jobs:
         with:
           python-version: '3.x'
       - name: Apply focused release
-        run: python scripts/apply_imm_v0140_baseline_sell_priority.py
+        shell: bash
+        run: |
+          set +e
+          python scripts/apply_imm_v0140_baseline_sell_priority.py > /tmp/imm-v0140-patch.log 2>&1
+          status=$?
+          cat /tmp/imm-v0140-patch.log
+          exit $status
+      - name: Preserve patch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imm-v0140-patch-log
+          path: /tmp/imm-v0140-patch.log
       - name: Validate JavaScript
         run: node --check TornScripture-Item-Market-Margin.user.js
       - name: Validate release markers and protected systems
