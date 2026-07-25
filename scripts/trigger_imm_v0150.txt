@@ -1,1 +1,2 @@
 Trigger the guarded GOBLIN GOD v0.15.0 high-turnover target library release.
+Retry after safe main-branch cleanup fix.
