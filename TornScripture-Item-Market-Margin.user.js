@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.17.4
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, TornPDA Qty-row payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.17.5
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, direct TornPDA Qty-row payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.4' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.4' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.5' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.5' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.4
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.5
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.17.4',
+    version: '0.17.5',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4677,15 +4677,33 @@
   }
 
 
+  function pricedTradeDirectQtyElements(root = document) {
+    const scope = root instanceof Document
+      ? (root.body || root.documentElement)
+      : root instanceof Element ? root : null;
+    if (!scope) return [];
+    const ignored = `#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`;
+    const results = new Set();
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (!/^qty$/i.test(normalizeWhitespace(node.nodeValue))) continue;
+      const element = node.parentElement;
+      if (!element || !visibleElement(element) || element.closest(ignored)) continue;
+      results.add(element);
+    }
+    for (const element of scope.querySelectorAll('[class*="qty" i],[aria-label*="qty" i],[title*="qty" i]')) {
+      if (!visibleElement(element) || element.closest(ignored)) continue;
+      const label = pricedTradeControlLabel(element);
+      if (/\bqty\b/i.test(label) && label.length <= 80) results.add(element);
+    }
+    return [...results];
+  }
+
   function pricedTradeControlElements(root = document) {
     if (!(root instanceof Document || root instanceof Element)) return [];
-    const controls = [...root.querySelectorAll('button,a,[role="button"],input,select,label,[class*="qty" i]')];
-    for (const element of root.querySelectorAll('div,span')) {
-      if (!visibleElement(element)) continue;
-      const direct = normalizeWhitespace(ownText(element));
-      if (!/^qty$/i.test(direct)) continue;
-      controls.push(element);
-    }
+    const controls = [...root.querySelectorAll('button,a,[role="button"],input,select,label')];
+    controls.push(...pricedTradeDirectQtyElements(root));
     return [...new Set(controls)];
   }
 
@@ -4772,71 +4790,76 @@
     return null;
   }
 
+  function pricedTradeRowForControl(control, trader) {
+    if (!(control instanceof Element) || !trader) return null;
+    let fallback = null;
+    let node = control;
+    for (let depth = 0; node && depth < 9; depth += 1, node = node.parentElement) {
+      if (!(node instanceof Element) || node === document.body) continue;
+      if (node.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) continue;
+      if (node.classList.contains(APP.tradeItemMark) || node.closest(`.${APP.tradeItemMark}`)) break;
+      const text = normalizeWhitespace(node.innerText || node.textContent);
+      if (!text || text.length > 420) continue;
+      const item = pricedTradeItemForRow(node, trader);
+      if (!item || !pricedTradeNativeAddControl(node)) continue;
+      const qtyCount = pricedTradeDirectQtyElements(node).length;
+      const singleCount = [...node.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
+        .filter((input) => visibleElement(input) && !input.disabled).length;
+      if (qtyCount + singleCount !== 1) continue;
+      fallback = node;
+      if (text.length <= 240) return node;
+    }
+    return fallback;
+  }
+
   function pricedTradeCandidateRows(trader) {
     const rows = new Set();
-    const controls = pricedTradeControlElements(document)
-      .filter((control) =>
-        visibleElement(control)
-        && !control.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)
-      );
-    for (const control of controls) {
-      let node = control;
-      for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
-        if (!(node instanceof Element) || node === document.body) continue;
-        if (node.classList.contains(APP.tradeItemMark) || node.closest(`.${APP.tradeItemMark}`)) break;
-        const text = normalizeWhitespace(node.innerText || node.textContent);
-        if (!text || text.length > 650) continue;
-        const item = pricedTradeItemForRow(node, trader);
-        if (!item) continue;
-        if (!pricedTradeNativeAddControl(node)) continue;
-        rows.add(node);
-        break;
-      }
-    }
-    for (const row of document.querySelectorAll('li,[role="option"],[class*="item" i],[class*="inventory" i]')) {
-      if (!(row instanceof Element) || !visibleElement(row) || rows.has(row)) continue;
-      if (row.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) continue;
-      if (row.classList.contains(APP.tradeItemMark) || row.closest(`.${APP.tradeItemMark}`)) continue;
-      const text = normalizeWhitespace(row.innerText || row.textContent);
-      if (!text || text.length > 650 || !pricedTradeNativeAddControl(row)) continue;
-      if (pricedTradeItemForRow(row, trader)) rows.add(row);
+    const ignored = `#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`;
+    const qtyControls = pricedTradeDirectQtyElements(document);
+    const singleControls = [...document.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
+      .filter((control) => visibleElement(control) && !control.disabled && !control.closest(ignored));
+    for (const control of [...qtyControls, ...singleControls]) {
+      const row = pricedTradeRowForControl(control, trader);
+      if (row) rows.add(row);
     }
     return [...rows];
   }
 
-
   function pricedTradePickerEvidence() {
-    const ignored = `#${APP.panelId},#${APP.traderOverlayId},[data-tsimm-generated]`;
+    const ignored = `#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`;
     const bodyText = normalizeWhitespace(document.body?.innerText || document.body?.textContent || '');
     const headingPattern = /\bwhich items would you like to add to trade\??\b/i;
     const summaryPattern = /\byou are adding\s+[\d,]+\s+items?\s+across\s+[\d,]+\s+categor(?:y|ies)\b/i;
-    const controls = pricedTradeControlElements(document)
-      .filter((control) => visibleElement(control) && !control.closest(ignored));
-    const addControl = controls.find((control) => /\badd\s+to\s+trade\b/i.test(pricedTradeControlLabel(control))) || null;
-    const itemControls = controls.filter((control) => {
-      const label = pricedTradeControlLabel(control);
-      if (/\bqty\b/i.test(label)) return true;
-      return control instanceof HTMLInputElement
-        && ['checkbox', 'radio'].includes(String(control.type || '').toLowerCase());
-    });
-    const textEvidence = headingPattern.test(bodyText) || summaryPattern.test(bodyText);
-    const active = Boolean(addControl && itemControls.length && textEvidence);
+    const hasPickerText = headingPattern.test(bodyText) || summaryPattern.test(bodyText);
+    const hasAddText = /\badd\s+to\s+trade\b/i.test(bodyText);
+    const qtyControls = pricedTradeDirectQtyElements(document)
+      .filter((control) => !control.closest(ignored));
+    const singleControls = [...document.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
+      .filter((control) => visibleElement(control) && !control.disabled && !control.closest(ignored));
+    const itemControls = [...new Set([...qtyControls, ...singleControls])];
+    const active = Boolean(hasPickerText && hasAddText && itemControls.length);
     let surface = null;
     if (active) {
-      let node = addControl;
-      for (let depth = 0; node && depth < 12; depth += 1, node = node.parentElement) {
-        if (!(node instanceof Element) || node === document.body) continue;
-        const text = normalizeWhitespace(node.innerText || node.textContent);
-        if (!text || text.length > 30000) continue;
-        const containsItemControl = itemControls.some((control) => node.contains(control));
-        if (!containsItemControl) continue;
-        if (headingPattern.test(text) || summaryPattern.test(text)) {
+      const anchors = [...document.querySelectorAll('h1,h2,h3,h4,strong,b,p,span,div')]
+        .filter((element) => visibleElement(element) && !element.closest(ignored))
+        .filter((element) => {
+          const direct = normalizeWhitespace(ownText(element));
+          return headingPattern.test(direct) || summaryPattern.test(direct);
+        });
+      for (const anchor of anchors) {
+        let node = anchor;
+        for (let depth = 0; node && depth < 12; depth += 1, node = node.parentElement) {
+          if (!(node instanceof Element) || node === document.body) continue;
+          const text = normalizeWhitespace(node.innerText || node.textContent);
+          if (!text || text.length > 30000 || !/\badd\s+to\s+trade\b/i.test(text)) continue;
+          if (!itemControls.some((control) => node.contains(control))) continue;
           surface = node;
           break;
         }
+        if (surface) break;
       }
     }
-    return { active, surface, addControl, itemControls };
+    return { active, surface, addControl: null, itemControls };
   }
 
   function pricedTradeInventorySurface() {
