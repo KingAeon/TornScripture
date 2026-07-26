@@ -1,0 +1,71 @@
+name: PR release GOBLIN GOD v0.17.2
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: imm-v0172-pr-release
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.head_ref == 'imm-v0172-pr-trigger'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release patch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          path: release
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          path: target
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply focused hotfix
+        shell: bash
+        run: |
+          cp release/scripts/apply_imm_v0172_picker_handoff.py target/scripts/apply_imm_v0172_picker_handoff.py
+          cd target
+          python -m py_compile scripts/apply_imm_v0172_picker_handoff.py
+          python scripts/apply_imm_v0172_picker_handoff.py
+      - name: Validate JavaScript
+        working-directory: target
+        run: node --check TornScripture-Item-Market-Margin.user.js
+      - name: Validate picker handoff and protected systems
+        working-directory: target
+        shell: bash
+        run: |
+          grep -q '@version      0.17.2' TornScripture-Item-Market-Margin.user.js
+          grep -q "verificationSource: 'armed-picker'" TornScripture-Item-Market-Margin.user.js
+          grep -q 'const recentHandoff = Date.now()' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function pricedTradeInventorySurface' TornScripture-Item-Market-Margin.user.js
+          grep -q 'armed picker handoff' TornScripture-Item-Market-Margin.user.js
+          grep -q 'live counterparty verified' TornScripture-Item-Market-Margin.user.js
+          grep -q 'qty|quantity' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function startPricedTrade' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function pricedTradeVerification' TornScripture-Item-Market-Margin.user.js
+          grep -q 'data-tsimm-quick-max' TornScripture-Item-Market-Margin.user.js
+          grep -q 'OVERRIDE MAX ARMED' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function setCurrentInventoryBaseline' TornScripture-Item-Market-Margin.user.js
+          grep -q 'function sellPriorityAllowsSelling' TornScripture-Item-Market-Margin.user.js
+          ! grep -q '@require' TornScripture-Item-Market-Margin.user.js
+      - name: Commit clean hotfix to main
+        working-directory: target
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f scripts/apply_imm_v0172_picker_handoff.py .github/workflows/apply-imm-v0172-pr-release.yml
+          git commit -m 'Fix pre-trade picker verification in GOBLIN GOD v0.17.2'
+          git push origin HEAD:main
