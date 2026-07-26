@@ -1,0 +1,54 @@
+name: PR release GOBLIN GOD v0.18.7
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/trigger_imm_v0187.txt
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Apply bottom-lock scroll patch
+        run: python scripts/apply_imm_v0187_bottom_lock.py
+
+      - name: Validate JavaScript
+        run: node --check TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate bottom lock and protected systems
+        run: |
+          grep -F '// @version      0.18.7' TornScripture-Item-Market-Margin.user.js
+          grep -F "return { mode: 'bottom', bottomDistance }" TornScripture-Item-Market-Margin.user.js
+          grep -F "if (anchor.mode === 'bottom')" TornScripture-Item-Market-Margin.user.js
+          grep -F 'schedulePricedTradeRowRefresh' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradeRenderRowBadge' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradePickerObserver.observe(document.body' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradeBestTraderQuote' TornScripture-Item-Market-Margin.user.js
+          grep -F 'quickMaxOverrideArmed' TornScripture-Item-Market-Margin.user.js
+          grep -F 'buildTradeExitAudit' TornScripture-Item-Market-Margin.user.js
+          grep -F 'inventoryBaseline' TornScripture-Item-Market-Margin.user.js
+          grep -F 'sellPriority' TornScripture-Item-Market-Margin.user.js
+
+      - name: Commit clean hotfix to main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f scripts/apply_imm_v0187_bottom_lock.py .github/workflows/apply-imm-v0187-pr-release.yml
+          git rm --ignore-unmatch scripts/trigger_imm_v0187.txt
+          git commit -m 'Keep Priced Trade locked to the bottom'
+          git push origin main
