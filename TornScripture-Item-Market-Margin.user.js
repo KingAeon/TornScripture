@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.17.1
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, TornPDA priced-trade inventory badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.17.2
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, pre-trade picker payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.1' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.1' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.2' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.2' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.17.1',
+    version: '0.17.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4597,9 +4597,9 @@
 
   function pricedTradeVerification(stats) {
     const session = loadPricedTradeSession();
-    if (!session) return { status: 'inactive', session: null, trader: null, currentTrader: null };
+    if (!session) return { status: 'inactive', session: null, trader: null, currentTrader: null, verificationSource: '' };
     const trader = pricedTradeArmedTrader(session);
-    if (!trader) return { status: 'missing-trader', session, trader: null, currentTrader: null };
+    if (!trader) return { status: 'missing-trader', session, trader: null, currentTrader: null, verificationSource: '' };
     const currentTrader = currentTradeTrader(stats);
     const counterpartyId = Number(stats?.tradeCounterpartyId) > 0 ? Number(stats.tradeCounterpartyId) : null;
     const counterpartyName = normalizeName(stats?.tradeCounterparty);
@@ -4611,13 +4611,28 @@
     const nameMatches = Boolean(counterpartyName && trader.normalizedName === counterpartyName);
     const currentMatches = Boolean(currentTrader && currentTrader.id === trader.id);
     if (!counterpartyId && !counterpartyName && !currentTrader) {
-      return { status: 'waiting', session, trader, currentTrader: null };
+      const inventorySurface = pricedTradeInventorySurface();
+      const recentHandoff = Date.now() - Number(session.armedAt || 0) <= 15 * 60 * 1000;
+      const tradeRoute = /(?:^|\/)trade\.php$/i.test(location.pathname)
+        || /(?:^|\/)trade\.php(?:[?#]|$)/i.test(location.href);
+      if (inventorySurface && recentHandoff && tradeRoute) {
+        return {
+          status: 'verified',
+          session,
+          trader,
+          currentTrader: null,
+          verificationSource: 'armed-picker',
+        };
+      }
+      return { status: 'waiting', session, trader, currentTrader: null, verificationSource: '' };
     }
+    const verified = idMatches || nameMatches || currentMatches;
     return {
-      status: idMatches || nameMatches || currentMatches ? 'verified' : 'mismatch',
+      status: verified ? 'verified' : 'mismatch',
       session,
       trader,
       currentTrader,
+      verificationSource: verified ? 'live-counterparty' : 'live-mismatch',
     };
   }
 
@@ -4826,7 +4841,9 @@
           ? `⚠ PRICED TRADE MISMATCH`
           : `⚠ PRICED TRADE TRADER MISSING`;
     const detail = verification.status === 'verified'
-      ? `${formatInteger(priced)}/${formatInteger(decorated)} visible addable items priced · ${formatInteger(count)} captured prices · ${freshness.ageLabel}`
+      ? verification.verificationSource === 'armed-picker'
+        ? `${formatInteger(priced)}/${formatInteger(decorated)} visible addable items priced · armed picker handoff · ${formatInteger(count)} captured prices · ${freshness.ageLabel}`
+        : `${formatInteger(priced)}/${formatInteger(decorated)} visible addable items priced · live counterparty verified · ${formatInteger(count)} captured prices · ${freshness.ageLabel}`
       : verification.status === 'waiting'
         ? `${formatInteger(count)} captured prices ready · waiting for Torn to identify the other participant`
         : verification.status === 'mismatch'
