@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.17.0
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, local market-velocity learning, priced-trade inventory badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.17.1
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, TornPDA priced-trade inventory badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.1' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.1' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.17.0',
+    version: '0.17.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4627,7 +4627,7 @@
     style.id = PRICED_TRADE_STYLE_ID;
     style.textContent = `
       #${PRICED_TRADE_PANEL_ID}{position:fixed;left:50%;top:max(64px,calc(env(safe-area-inset-top) + 54px));z-index:2147483040;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center;width:min(560px,calc(100vw - 18px));padding:8px 10px;transform:translateX(-50%);border:1px solid #57d972;border-radius:9px;background:#07180cf5;color:#d6ffcd;box-shadow:0 10px 30px #000b;font:800 10px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-      #${PRICED_TRADE_PANEL_ID}.waiting{border-color:#4f9bc5;background:#071723f5;color:#c9ecff}#${PRICED_TRADE_PANEL_ID}.mismatch,#${PRICED_TRADE_PANEL_ID}.missing-trader{border-color:#cf5866;background:#250a0df5;color:#ffc2c8}
+      #${PRICED_TRADE_PANEL_ID}.inline{position:sticky;left:auto;top:0;z-index:40;width:auto;margin:0 0 6px;transform:none}#${PRICED_TRADE_PANEL_ID}.waiting{border-color:#4f9bc5;background:#071723f5;color:#c9ecff}#${PRICED_TRADE_PANEL_ID}.mismatch,#${PRICED_TRADE_PANEL_ID}.missing-trader{border-color:#cf5866;background:#250a0df5;color:#ffc2c8}
       #${PRICED_TRADE_PANEL_ID} strong,#${PRICED_TRADE_PANEL_ID} span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#${PRICED_TRADE_PANEL_ID} span{grid-column:1;color:#8fbd96;font-size:8px}#${PRICED_TRADE_PANEL_ID}.waiting span{color:#82b6d4}#${PRICED_TRADE_PANEL_ID}.mismatch span,#${PRICED_TRADE_PANEL_ID}.missing-trader span{color:#d89198}
       #${PRICED_TRADE_PANEL_ID} button{grid-row:1/3;grid-column:2;border:1px solid #75616a;border-radius:6px;background:#2a1c21;color:#ffd9df;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       .${PRICED_TRADE_ROW_CLASS}{position:relative!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
@@ -4674,8 +4674,8 @@
       const label = pricedTradeControlLabel(control);
       if (/\b(?:remove|delete|trash|withdraw)\b/i.test(label)) return false;
       if (control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(String(control.type || '').toLowerCase())) return true;
-      return /\b(?:add|select|choose|include)\b/i.test(label)
-        || /(?:add|select|choose|include|plus)/i.test(String(control.className || ''))
+      return /\b(?:add|select|choose|include|qty|quantity)\b/i.test(label)
+        || /(?:add|select|choose|include|qty|quantity|plus)/i.test(String(control.className || ''))
         || /^\s*\+\s*$/.test(label);
     }) || null;
   }
@@ -4773,16 +4773,47 @@
     return [...rows];
   }
 
+
+  function pricedTradeInventorySurface() {
+    const summaryPattern = /^You are adding\s+[\d,]+\s+items?\s+across\s+[\d,]+\s+categor(?:y|ies)/i;
+    const summaries = [...document.querySelectorAll('div,span,p,strong')]
+      .filter((element) => visibleElement(element)
+        && summaryPattern.test(normalizeWhitespace(ownText(element) || element.textContent))
+        && !element.closest(`#${APP.panelId},#${APP.traderOverlayId},[data-tsimm-generated]`));
+    for (const summary of summaries) {
+      let node = summary;
+      for (let depth = 0; node && depth < 9; depth += 1, node = node.parentElement) {
+        if (!(node instanceof Element) || node === document.body) continue;
+        const text = normalizeWhitespace(node.innerText || node.textContent);
+        if (!text || text.length > 30000 || !/\bADD TO TRADE\b/i.test(text)) continue;
+        const controls = [...node.querySelectorAll('button,a,[role="button"],input,label')]
+          .filter((control) => visibleElement(control)
+            && !control.closest(`#${APP.panelId},#${APP.traderOverlayId},[data-tsimm-generated]`));
+        const hasAddToTrade = controls.some((control) => /^add to trade$/i.test(pricedTradeControlLabel(control)));
+        const hasItemControls = controls.some((control) => /^qty$/i.test(pricedTradeControlLabel(control))
+          || (control instanceof HTMLInputElement
+            && ['checkbox', 'radio'].includes(String(control.type || '').toLowerCase())));
+        if (hasAddToTrade && hasItemControls) return node;
+      }
+    }
+    return null;
+  }
+
   function renderPricedTradePanel(verification, decorated = 0, priced = 0) {
     injectPricedTradeStyles();
+    const inventorySurface = pricedTradeInventorySurface();
     let panel = document.getElementById(PRICED_TRADE_PANEL_ID);
     if (!panel) {
       panel = document.createElement('section');
       panel.id = PRICED_TRADE_PANEL_ID;
       panel.dataset.tsimmGenerated = 'true';
+    }
+    if (inventorySurface) {
+      if (panel.parentElement !== inventorySurface) inventorySurface.prepend(panel);
+    } else if (panel.parentElement !== document.body) {
       document.body.appendChild(panel);
     }
-    panel.className = verification.status;
+    panel.className = `${verification.status}${inventorySurface ? ' inline' : ''}`;
     const trader = verification.trader;
     const count = trader?.pricePageItems?.length || 0;
     const capturedAt = trader?.pricePageLastCheckedAt || trader?.pricePageCapturedAt || null;
@@ -5270,6 +5301,11 @@
     if (sides.length < 2) {
       stats.tradeStatus = 'incomplete';
       stats.notes.push('Trade sides were not recognized. Copy diagnostics from the live trade page.');
+      const previous = state.lastScan;
+      const currentTradeId = tradeIdFromLocation() || null;
+      const sameTrade = previous?.pageType === 'trade'
+        && (!currentTradeId || !previous.tradeId || String(previous.tradeId) === String(currentTradeId));
+      if (sameTrade && loadPricedTradeSession()) applyPricedTradeInventoryBadges(previous);
       return;
     }
 
@@ -5290,6 +5326,11 @@
     if (!mySide || !otherSide) {
       stats.tradeStatus = 'incomplete';
       stats.notes.push('Could not determine both sides of the trade.');
+      const previous = state.lastScan;
+      const currentTradeId = tradeIdFromLocation() || null;
+      const sameTrade = previous?.pageType === 'trade'
+        && (!currentTradeId || !previous.tradeId || String(previous.tradeId) === String(currentTradeId));
+      if (sameTrade && loadPricedTradeSession()) applyPricedTradeInventoryBadges(previous);
       return;
     }
 
