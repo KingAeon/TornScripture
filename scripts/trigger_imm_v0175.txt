@@ -1,1 +1,1 @@
-Retrigger guarded GOBLIN GOD v0.17.5 direct Qty text-node release after patch matcher fix.
+Retrigger guarded GOBLIN GOD v0.17.5 after literal replacement fix.
