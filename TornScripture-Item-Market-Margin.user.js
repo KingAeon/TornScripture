@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.18.5
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, persistent auto-repainting quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.18.6
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, scroll-stable in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.5' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.5' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.6' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.6' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.5
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.6
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.18.5',
+    version: '0.18.6',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4460,6 +4460,9 @@
   let pricedTradePickerObserver = null;
   let pricedTradeObservedSurface = null;
   let pricedTradeRepaintSettleTimer = null;
+  let pricedTradeQuantityTimer = null;
+  let pricedTradePendingQuantityRow = null;
+  let pricedTradeLastInteractedRow = null;
 
   function tradeExitFavoriteRefs() {
     try {
@@ -4554,10 +4557,15 @@
     }
   }
 
+
   function clearPricedTradeSession(message = '') {
     savePricedTradeSession(null);
     clearTimeout(pricedTradeRepaintSettleTimer);
+    clearTimeout(pricedTradeQuantityTimer);
     pricedTradeRepaintSettleTimer = null;
+    pricedTradeQuantityTimer = null;
+    pricedTradePendingQuantityRow = null;
+    pricedTradeLastInteractedRow = null;
     clearPricedTradeAnnotations();
     syncPricedTradePickerObserver();
     if (message) toast(message);
@@ -4658,6 +4666,24 @@
     });
   }
 
+
+  function pricedTradeMutationRows(mutation) {
+    const rows = new Set();
+    const nodes = [
+      mutation.target,
+      ...(mutation.addedNodes || []),
+    ];
+    for (const node of nodes) {
+      const element = pricedTradeMutationElement(node);
+      if (!element || pricedTradeGeneratedMutationNode(element)) continue;
+      const row = element.matches?.(`.${PRICED_TRADE_ROW_CLASS}`)
+        ? element
+        : element.closest?.(`.${PRICED_TRADE_ROW_CLASS}`);
+      if (row instanceof Element && row.isConnected) rows.add(row);
+    }
+    return [...rows];
+  }
+
   function syncPricedTradePickerObserver() {
     const session = loadPricedTradeSession();
     if (!session || !document.body) {
@@ -4684,12 +4710,26 @@
         schedulePricedTradePickerRepaint(45);
         return;
       }
-      if (mutations.some((mutation) =>
-        pricedTradeMutationNeedsRepaint(mutation)
-        && pricedTradeMutationTouchesPicker(mutation, nextSurface, previousSurface)
-      )) {
-        schedulePricedTradePickerRepaint(70);
+
+      const rowUpdates = new Set();
+      let needsFullRepaint = false;
+      for (const mutation of mutations) {
+        if (!pricedTradeMutationNeedsRepaint(mutation)) continue;
+        const rows = pricedTradeMutationRows(mutation);
+        if (rows.length) {
+          rows.forEach((row) => rowUpdates.add(row));
+          continue;
+        }
+        if (pricedTradeMutationTouchesPicker(mutation, nextSurface, previousSurface)) {
+          needsFullRepaint = true;
+          break;
+        }
       }
+      if (needsFullRepaint) {
+        schedulePricedTradePickerRepaint(70);
+        return;
+      }
+      rowUpdates.forEach((row) => schedulePricedTradeRowRefresh(row, 100));
     });
     pricedTradePickerObserver.observe(document.body, {
       childList: true,
@@ -4709,6 +4749,16 @@
       && previousSurface.isConnected
       && previousSurface.contains(target);
     if (!picker.active && !insidePrevious) return;
+
+    const trader = pricedTradeArmedTrader();
+    const row = trader
+      ? (target.closest(`.${PRICED_TRADE_ROW_CLASS}`) || pricedTradeRowForControl(target, trader))
+      : null;
+    if (row instanceof Element && row.isConnected) {
+      pricedTradeLastInteractedRow = row;
+      schedulePricedTradeRowRefresh(row, 90);
+      return;
+    }
     schedulePricedTradePickerRepaint(80);
   }
 
@@ -4762,7 +4812,7 @@
       #${PRICED_TRADE_PANEL_ID} strong,#${PRICED_TRADE_PANEL_ID} span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#${PRICED_TRADE_PANEL_ID} span{grid-column:1;color:#8fbd96;font-size:8px}#${PRICED_TRADE_PANEL_ID}.waiting span{color:#82b6d4}#${PRICED_TRADE_PANEL_ID}.mismatch span,#${PRICED_TRADE_PANEL_ID}.missing-trader span{color:#d89198}
       #${PRICED_TRADE_PANEL_ID} button{grid-row:1/3;grid-column:2;border:1px solid #75616a;border-radius:6px;background:#2a1c21;color:#ffd9df;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       .${PRICED_TRADE_ROW_CLASS}{position:relative!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
-      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:max-content!important;max-width:min(210px,48vw)!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:none!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;min-height:52px!important;align-content:start!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:none!important;box-sizing:border-box!important}
       .${PRICED_TRADE_BADGE_CLASS} strong,.${PRICED_TRADE_BADGE_CLASS} span{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}.${PRICED_TRADE_BADGE_CLASS} span{color:#7ebd89!important;font-size:7px!important}
       .${PRICED_TRADE_BADGE_CLASS}.stale{border-color:#c59a39!important;background:#2a2008f2!important;color:#ffe09a!important}.${PRICED_TRADE_BADGE_CLASS}.stale span{color:#c5ad73!important}
       .${PRICED_TRADE_BADGE_CLASS}.outdated{border-color:#b65466!important;background:#270b10f2!important;color:#ffb0bc!important}.${PRICED_TRADE_BADGE_CLASS}.outdated span{color:#c98d96!important}
@@ -4779,13 +4829,10 @@
     document.head.appendChild(style);
   }
 
+
   function clearPricedTradeAnnotations() {
     document.getElementById(PRICED_TRADE_PANEL_ID)?.remove();
-    document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((element) => element.remove());
-    document.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`).forEach((element) => {
-      element.classList.remove(PRICED_TRADE_ROW_CLASS, 'fresh', 'stale', 'outdated', 'missing', 'decision-profit', 'decision-loss', 'decision-even', 'decision-partial', 'decision-unknown');
-      delete element.dataset.tsimmPricedTradeToken;
-    });
+    clearPricedTradeRowAnnotations();
   }
 
   function pricedTradeControlLabel(element) {
@@ -5261,15 +5308,176 @@
   }
 
 
+
+  function pricedTradeRowDecisionClasses() {
+    return [
+      'fresh', 'stale', 'outdated', 'missing',
+      'decision-profit', 'decision-loss', 'decision-even', 'decision-partial', 'decision-unknown',
+    ];
+  }
+
+  function pricedTradeRemoveRowAnnotation(row) {
+    if (!(row instanceof Element)) return;
+    row.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((badge) => badge.remove());
+    row.classList.remove(PRICED_TRADE_ROW_CLASS, ...pricedTradeRowDecisionClasses());
+    delete row.dataset.tsimmPricedTradeToken;
+  }
+
+  function clearPricedTradeRowAnnotations() {
+    document.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`).forEach(pricedTradeRemoveRowAnnotation);
+    document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((badge) => badge.remove());
+  }
+
+  function pricedTradeCaptureScrollAnchor(surface = pricedTradeInventorySurface()) {
+    const activeRow = document.activeElement instanceof Element
+      ? document.activeElement.closest(`.${PRICED_TRADE_ROW_CLASS}`)
+      : null;
+    const rows = surface instanceof Element
+      ? [...surface.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`)]
+      : [];
+    const row = activeRow?.isConnected
+      ? activeRow
+      : rows.find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          return rect.bottom > 0 && rect.top < window.innerHeight;
+        });
+    if (!(row instanceof Element) || !row.isConnected) return null;
+    return { row, top: row.getBoundingClientRect().top };
+  }
+
+  function pricedTradeRestoreScrollAnchor(anchor) {
+    if (!anchor?.row?.isConnected) return;
+    const delta = anchor.row.getBoundingClientRect().top - Number(anchor.top || 0);
+    if (Number.isFinite(delta) && Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+  }
+
+  function pricedTradeRenderRowBadge(row, trader, resolvedItem = null) {
+    if (!(row instanceof Element) || !row.isConnected || !trader) return null;
+    const item = resolvedItem || pricedTradeItemForRow(row, trader);
+    if (!item) return null;
+    const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
+    const quote = tradeExitQuoteForTrader(trader, { itemId: item.id, name: item.name });
+    const quantityDecision = pricedTradeQuantityDecision(row, item.name);
+    let badge = [...row.children].find((child) => child.classList?.contains(PRICED_TRADE_BADGE_CLASS))
+      || row.querySelector(`.${PRICED_TRADE_BADGE_CLASS}`);
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.dataset.tsimmGenerated = 'true';
+    }
+
+    row.classList.remove(...pricedTradeRowDecisionClasses());
+    row.classList.add(PRICED_TRADE_ROW_CLASS);
+    row.dataset.tsimmPricedTradeToken = token;
+
+    let badgeClasses = [PRICED_TRADE_BADGE_CLASS];
+    let badgeHtml = '';
+    if (quote) {
+      const freshness = quote.freshness || tradeExitFreshness(quote.capturedAt);
+      const status = freshness.status === 'fresh' ? 'fresh' : freshness.status;
+      row.classList.add(status);
+      const resolvedQuantity = Math.max(1, Math.floor(Number(quantityDecision.quantity) || 1));
+      const ledger = pricedTradeLedgerProjection(item, resolvedQuantity, quote.unitPrice);
+      const ledgerState = !ledger.trackedQuantity
+        ? 'unknown'
+        : ledger.profit > 0 ? 'profit' : ledger.profit < 0 ? 'loss' : 'even';
+      const decisionState = ledger.trackedQuantity && !ledger.fullCoverage ? 'partial' : ledgerState;
+      row.classList.add(`decision-${decisionState}`);
+      badgeClasses = [
+        PRICED_TRADE_BADGE_CLASS,
+        status,
+        `ledger-${ledgerState}`,
+        quantityDecision.selected ? 'quantity-selected' : 'quantity-preview',
+      ];
+      if (ledger.trackedQuantity && !ledger.fullCoverage) badgeClasses.push('ledger-partial');
+      const bestMatch = pricedTradeBestTraderQuote(item, trader);
+      const quantityLabel = quantityDecision.selected
+        ? `${formatInteger(resolvedQuantity)} SELECTED`
+        : `${formatInteger(resolvedQuantity)} AVAILABLE PREVIEW`;
+      badgeHtml = pricedTradeLedgerHtml(ledger, quote.unitPrice)
+        + pricedTradeBestMatchHtml(bestMatch, trader, quote, ledger)
+        + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`;
+    } else {
+      row.classList.add('missing');
+      badgeClasses = [PRICED_TRADE_BADGE_CLASS, 'missing'];
+      badgeHtml = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list</span>`;
+    }
+
+    const nextClassName = badgeClasses.join(' ');
+    if (badge.className !== nextClassName) badge.className = nextClassName;
+    if (badge.innerHTML !== badgeHtml) badge.innerHTML = badgeHtml;
+    if (badge.parentElement !== row) row.appendChild(badge);
+    return { row, item, token, priced: Boolean(quote) };
+  }
+
+  function schedulePricedTradeRowRefresh(row, delay = 180) {
+    if (!(row instanceof Element) || !row.isConnected || !loadPricedTradeSession()) return false;
+    pricedTradeLastInteractedRow = row;
+    pricedTradePendingQuantityRow = row;
+    clearTimeout(pricedTradeQuantityTimer);
+    pricedTradeQuantityTimer = setTimeout(() => {
+      pricedTradeQuantityTimer = null;
+      const pendingRow = pricedTradePendingQuantityRow;
+      pricedTradePendingQuantityRow = null;
+      if (!(pendingRow instanceof Element) || !pendingRow.isConnected) {
+        schedulePricedTradePickerRepaint(45);
+        return;
+      }
+      const verification = pricedTradeVerification(state.lastScan || {});
+      if (verification.status !== 'verified' || !verification.trader) {
+        scheduleScan(0);
+        return;
+      }
+      const anchor = pricedTradeCaptureScrollAnchor();
+      pricedTradeRenderRowBadge(pendingRow, verification.trader);
+      pricedTradeRestoreScrollAnchor(anchor);
+    }, Math.max(20, Number(delay) || 0));
+    return true;
+  }
+
+  function capturePricedTradeQuantityEvent(event, delay = 180) {
+    if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return false;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return false;
+    const role = String(target.getAttribute?.('role') || '').toLowerCase();
+    const type = String(target.getAttribute?.('type') || '').toLowerCase();
+    const label = pricedTradeControlLabel(target);
+    const quantityControl = ['checkbox', 'radio', 'number'].includes(type)
+      || role === 'spinbutton'
+      || target.getAttribute?.('contenteditable') === 'true'
+      || /\b(?:qty|quantity|amount)\b/i.test(label)
+      || /(?:qty|quantity|amount)/i.test(String(target.className || ''));
+    if (!quantityControl) return false;
+
+    const trader = pricedTradeArmedTrader();
+    if (!trader) return false;
+    let row = target.closest(`.${PRICED_TRADE_ROW_CLASS}`) || pricedTradeRowForControl(target, trader);
+    if (!(row instanceof Element) && pricedTradeLastInteractedRow?.isConnected) {
+      row = pricedTradeLastInteractedRow;
+    }
+    if (!(row instanceof Element) || !row.isConnected) return false;
+    const surface = pricedTradeInventorySurface();
+    if (surface instanceof Element && !surface.contains(row)) return false;
+    pricedTradeLastInteractedRow = row;
+    return schedulePricedTradeRowRefresh(row, delay);
+  }
+
   function applyPricedTradeInventoryBadges(stats) {
-    clearPricedTradeAnnotations();
     syncPricedTradePickerObserver();
     const verification = pricedTradeVerification(stats);
-    if (verification.status === 'inactive') return;
-    renderPricedTradePanel(verification);
-    if (verification.status !== 'verified' || !verification.trader) return;
+    if (verification.status === 'inactive') {
+      clearPricedTradeAnnotations();
+      return;
+    }
+    if (verification.status !== 'verified' || !verification.trader) {
+      clearPricedTradeRowAnnotations();
+      renderPricedTradePanel(verification);
+      return;
+    }
+
     injectPricedTradeStyles();
     const trader = verification.trader;
+    const anchor = pricedTradeCaptureScrollAnchor();
+    const activeRows = new Set();
     const seenTokens = new Set();
     let decorated = 0;
     let priced = 0;
@@ -5279,47 +5487,22 @@
       const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
       if (seenTokens.has(token)) continue;
       seenTokens.add(token);
+      activeRows.add(row);
+      const result = pricedTradeRenderRowBadge(row, trader, item);
+      if (!result) continue;
       decorated += 1;
-      const quote = tradeExitQuoteForTrader(trader, {
-        itemId: item.id,
-        name: item.name,
-      });
-      const quantityDecision = pricedTradeQuantityDecision(row, item.name);
-      const badge = document.createElement('span');
-      badge.className = PRICED_TRADE_BADGE_CLASS;
-      badge.dataset.tsimmGenerated = 'true';
-      row.dataset.tsimmPricedTradeToken = token;
-      row.classList.add(PRICED_TRADE_ROW_CLASS);
-      if (quote) {
-        priced += 1;
-        const freshness = quote.freshness || tradeExitFreshness(quote.capturedAt);
-        const status = freshness.status === 'fresh' ? 'fresh' : freshness.status;
-        row.classList.add(status);
-        badge.classList.add(status, quantityDecision.selected ? 'quantity-selected' : 'quantity-preview');
-        const resolvedQuantity = Math.max(1, Math.floor(Number(quantityDecision.quantity) || 1));
-        const ledger = pricedTradeLedgerProjection(item, resolvedQuantity, quote.unitPrice);
-        const ledgerState = !ledger.trackedQuantity
-          ? 'unknown'
-          : ledger.profit > 0 ? 'profit' : ledger.profit < 0 ? 'loss' : 'even';
-        const decisionState = ledger.trackedQuantity && !ledger.fullCoverage ? 'partial' : ledgerState;
-        row.classList.add(`decision-${decisionState}`);
-        badge.classList.add(`ledger-${ledgerState}`);
-        if (ledger.trackedQuantity && !ledger.fullCoverage) badge.classList.add('ledger-partial');
-        const bestMatch = pricedTradeBestTraderQuote(item, trader);
-        const quantityLabel = quantityDecision.selected
-          ? `${formatInteger(resolvedQuantity)} SELECTED`
-          : `${formatInteger(resolvedQuantity)} AVAILABLE PREVIEW`;
-        badge.innerHTML = pricedTradeLedgerHtml(ledger, quote.unitPrice)
-          + pricedTradeBestMatchHtml(bestMatch, trader, quote, ledger)
-          + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`;
-      } else {
-        row.classList.add('missing');
-        badge.classList.add('missing');
-        badge.innerHTML = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list</span>`;
-      }
-      row.appendChild(badge);
+      if (result.priced) priced += 1;
     }
+
+    document.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`).forEach((row) => {
+      if (!activeRows.has(row)) pricedTradeRemoveRowAnnotation(row);
+    });
+    document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((badge) => {
+      const row = badge.closest(`.${PRICED_TRADE_ROW_CLASS}`);
+      if (!row || !activeRows.has(row)) badge.remove();
+    });
     renderPricedTradePanel(verification, decorated, priced);
+    pricedTradeRestoreScrollAnchor(anchor);
     syncPricedTradePickerObserver();
   }
 
@@ -9202,6 +9385,7 @@
       }
     }, true);
     document.addEventListener('change', (event) => {
+      if (capturePricedTradeQuantityEvent(event, 60)) return;
       const quickMaxOverride = event.target.closest('[data-tsimm-quick-max-override]');
       if (quickMaxOverride) {
         if (quickMaxOverride.checked) {
@@ -9241,6 +9425,7 @@
       updateSetting(key, value);
     });
     document.addEventListener('input', (event) => {
+      if (capturePricedTradeQuantityEvent(event, 220)) return;
       const ledgerSearch = event.target.closest('[data-tsimm-ledger-search]');
       if (ledgerSearch) {
         const cursor = ledgerSearch.selectionStart ?? ledgerSearch.value.length;
