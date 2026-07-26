@@ -1,0 +1,57 @@
+name: PR release GOBLIN GOD v0.18.6
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/trigger_imm_v0186.txt
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Apply scroll-stability feature
+        run: python scripts/apply_imm_v0186_scroll_stability.py
+
+      - name: Validate JavaScript
+        run: node --check TornScripture-Item-Market-Margin.user.js
+
+      - name: Validate stability behavior and protected systems
+        run: |
+          grep -F '// @version      0.18.6' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradeRenderRowBadge' TornScripture-Item-Market-Margin.user.js
+          grep -F 'capturePricedTradeQuantityEvent' TornScripture-Item-Market-Margin.user.js
+          grep -F 'schedulePricedTradeRowRefresh' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradeCaptureScrollAnchor' TornScripture-Item-Market-Margin.user.js
+          grep -F 'window.scrollBy(0, delta)' TornScripture-Item-Market-Margin.user.js
+          grep -F 'AVAILABLE PREVIEW' TornScripture-Item-Market-Margin.user.js
+          grep -F 'SELECTED' TornScripture-Item-Market-Margin.user.js
+          grep -F 'width:min(210px,48vw)!important' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradePickerObserver.observe(document.body' TornScripture-Item-Market-Margin.user.js
+          grep -F 'quickMaxOverrideArmed' TornScripture-Item-Market-Margin.user.js
+          grep -F 'buildTradeExitAudit' TornScripture-Item-Market-Margin.user.js
+          grep -F 'inventoryBaseline' TornScripture-Item-Market-Margin.user.js
+          grep -F 'sellPriority' TornScripture-Item-Market-Margin.user.js
+
+      - name: Commit clean feature to main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f scripts/apply_imm_v0186_scroll_stability.py .github/workflows/apply-imm-v0186-pr-release.yml
+          git rm --ignore-unmatch scripts/trigger_imm_v0186.txt
+          git commit -m 'Stabilize Priced Trade quantity rendering'
+          git push origin main
