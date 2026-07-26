@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.17.6
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, TornPDA image-row payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.18.0
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, ledger-aware TornPDA payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.6' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.6' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.0' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.6
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.17.6',
+    version: '0.18.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4650,6 +4650,9 @@
       .${PRICED_TRADE_BADGE_CLASS}.stale{border-color:#c59a39!important;background:#2a2008f2!important;color:#ffe09a!important}.${PRICED_TRADE_BADGE_CLASS}.stale span{color:#c5ad73!important}
       .${PRICED_TRADE_BADGE_CLASS}.outdated{border-color:#b65466!important;background:#270b10f2!important;color:#ffb0bc!important}.${PRICED_TRADE_BADGE_CLASS}.outdated span{color:#c98d96!important}
       .${PRICED_TRADE_BADGE_CLASS}.missing{border-color:#65727a!important;background:#14191cf2!important;color:#c1cbd1!important}.${PRICED_TRADE_BADGE_CLASS}.missing span{color:#8d999f!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-ledger{margin-top:1px!important;padding-top:2px!important;border-top:1px solid #315d39!important;color:#b7c0b9!important;font-size:7px!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-ledger.profit{color:#83f19a!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-ledger.loss{color:#ff8f9d!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-ledger.even{color:#d8d8d8!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-ledger.partial{border-top-color:#9a7830!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-ledger.unknown{color:#9aa4aa!important;border-top-color:#566068!important}
       .tsimm-priced-trade-start{border-color:#47c968!important;background:#0d3818!important;color:#d4ffc8!important}
     `;
     document.head.appendChild(style);
@@ -4935,6 +4938,56 @@
     panel.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span><button type="button" data-tsimm-action="priced-trade-clear">CLEAR</button>`;
   }
 
+  function pricedTradeLedgerProjection(item, quantity, unitPrice) {
+    const requestedQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+    const matchingLots = (state.ledger.lots || [])
+      .filter((lot) => lotMatchesTradeItem(lot, { itemId: item.id, name: item.name }))
+      .sort((left, right) => Date.parse(left.capturedAt || '') - Date.parse(right.capturedAt || ''));
+    let remaining = requestedQuantity;
+    let trackedQuantity = 0;
+    let costBasis = 0;
+    for (const lot of matchingLots) {
+      if (remaining <= 0) break;
+      const available = Math.max(0, Math.floor(Number(lot.remainingQuantity) || 0));
+      if (!available) continue;
+      const allocated = Math.min(remaining, available);
+      trackedQuantity += allocated;
+      costBasis += allocated * Math.max(0, Number(lot.unitCost) || 0);
+      remaining -= allocated;
+    }
+    const payoutEach = Math.max(0, Number(unitPrice) || 0);
+    const proceeds = trackedQuantity * payoutEach;
+    const profit = proceeds - costBasis;
+    return {
+      requestedQuantity,
+      trackedQuantity,
+      untrackedQuantity: Math.max(0, requestedQuantity - trackedQuantity),
+      fullCoverage: trackedQuantity === requestedQuantity,
+      costBasis,
+      averageCost: trackedQuantity ? costBasis / trackedQuantity : null,
+      proceeds,
+      profit,
+      profitEach: trackedQuantity ? profit / trackedQuantity : null,
+    };
+  }
+
+  function pricedTradeLedgerHtml(projection) {
+    if (!projection?.trackedQuantity) {
+      return '<span class="tsimm-priced-trade-ledger unknown">LEDGER COST UNKNOWN · no open lot match</span>';
+    }
+    const status = projection.profit > 0 ? 'profit' : projection.profit < 0 ? 'loss' : 'even';
+    const eachSign = projection.profitEach > 0 ? '+' : projection.profitEach < 0 ? '-' : '';
+    const totalSign = projection.profit > 0 ? '+' : projection.profit < 0 ? '-' : '';
+    const coverage = projection.fullCoverage
+      ? 'LEDGER FULL'
+      : `LEDGER ${formatInteger(projection.trackedQuantity)}/${formatInteger(projection.requestedQuantity)} TRACKED`;
+    const totalLabel = projection.fullCoverage ? 'STACK' : 'TRACKED';
+    return `<span class="tsimm-priced-trade-ledger ${status}${projection.fullCoverage ? '' : ' partial'}">`
+      + `${escapeHtml(coverage)} · COST ${escapeHtml(formatMoney(projection.averageCost))} EA · `
+      + `${eachSign}${escapeHtml(formatMoney(Math.abs(projection.profitEach)))} EA · `
+      + `${totalSign}${escapeHtml(formatMoney(Math.abs(projection.profit)))} ${totalLabel}</span>`;
+  }
+
   function applyPricedTradeInventoryBadges(stats) {
     clearPricedTradeAnnotations();
     const verification = pricedTradeVerification(stats);
@@ -4943,11 +4996,15 @@
     if (verification.status !== 'verified' || !verification.trader) return;
     injectPricedTradeStyles();
     const trader = verification.trader;
+    const seenTokens = new Set();
     let decorated = 0;
     let priced = 0;
     for (const row of pricedTradeCandidateRows(trader)) {
       const item = pricedTradeItemForRow(row, trader);
       if (!item) continue;
+      const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
+      if (seenTokens.has(token)) continue;
+      seenTokens.add(token);
       decorated += 1;
       const quote = tradeExitQuoteForTrader(trader, {
         itemId: item.id,
@@ -4957,7 +5014,6 @@
       const badge = document.createElement('span');
       badge.className = PRICED_TRADE_BADGE_CLASS;
       badge.dataset.tsimmGenerated = 'true';
-      const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
       row.dataset.tsimmPricedTradeToken = token;
       row.classList.add(PRICED_TRADE_ROW_CLASS);
       if (quote) {
@@ -4966,9 +5022,12 @@
         const status = freshness.status === 'fresh' ? 'fresh' : freshness.status;
         row.classList.add(status);
         badge.classList.add(status);
-        const stack = quantity ? quote.unitPrice * quantity : null;
+        const resolvedQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+        const stack = quote.unitPrice * resolvedQuantity;
+        const ledger = pricedTradeLedgerProjection(item, resolvedQuantity, quote.unitPrice);
         badge.innerHTML = `<strong>${escapeHtml(trader.name)} PAYS ${escapeHtml(formatMoney(quote.unitPrice))} EA</strong>`
-          + `<span>${quantity ? `${escapeHtml(formatInteger(quantity))} available · stack ${escapeHtml(formatMoney(stack))}` : 'available quantity unresolved'} · ${escapeHtml(freshness.ageLabel)}</span>`;
+          + `<span>${escapeHtml(formatInteger(resolvedQuantity))} available · stack ${escapeHtml(formatMoney(stack))} · ${escapeHtml(freshness.ageLabel)}</span>`
+          + pricedTradeLedgerHtml(ledger);
       } else {
         row.classList.add('missing');
         badge.classList.add('missing');
