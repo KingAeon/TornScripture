@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.18.1
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, decision-first ledger trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.18.2
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.1' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.1' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.2' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.2' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.18.1',
+    version: '0.18.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4655,6 +4655,7 @@
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict{font-size:9px!important;line-height:1.15!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.profit{color:#83f19a!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.loss{color:#ff8f9d!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.even{color:#e0e0e0!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.unknown{color:#b3bec4!important}
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-comparison{margin-top:1px!important;padding-top:2px!important;border-top:1px solid #315d39!important;color:#d7ded9!important;font-size:7px!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-loss .tsimm-priced-trade-comparison{border-top-color:#74303a!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-partial .tsimm-priced-trade-comparison{border-top-color:#7c6125!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-unknown .tsimm-priced-trade-comparison{border-top-color:#566068!important}
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-meta{color:#87948c!important;font-size:7px!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best{margin-top:2px!important;padding-top:2px!important;border-top:1px solid #725d21!important;color:#ffd76f!important;font-size:8px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.better{color:#8edcff!important;border-top-color:#315f73!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.stale{color:#d7b66b!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best-detail{color:#83b7cc!important;font-size:7px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
       .${PRICED_TRADE_ROW_CLASS}.decision-profit{box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.decision-loss{box-shadow:inset 3px 0 #dc5568!important}.${PRICED_TRADE_ROW_CLASS}.decision-even{box-shadow:inset 3px 0 #8a9298!important}.${PRICED_TRADE_ROW_CLASS}.decision-partial{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.decision-unknown{box-shadow:inset 3px 0 #65727a!important}
       .tsimm-priced-trade-start{border-color:#47c968!important;background:#0d3818!important;color:#d4ffc8!important}
     `;
@@ -4994,6 +4995,61 @@
       + `<span class="tsimm-priced-trade-comparison">cost ${escapeHtml(formatMoney(projection.averageCost))} → pays ${escapeHtml(formatMoney(payoutEach))} · ${escapeHtml(coverage)}</span>`;
   }
 
+
+  function pricedTradeBestTraderQuote(item, currentTrader) {
+    if (!item || !currentTrader) return null;
+    const favoriteRefs = tradeExitFavoriteRefs();
+    const candidates = state.traders.filter((trader) =>
+      trader.id === currentTrader.id || tradeExitTraderIsFavorite(trader, favoriteRefs)
+    );
+    const seen = new Set();
+    const quotes = [];
+    for (const trader of candidates) {
+      if (!trader?.id || seen.has(trader.id)) continue;
+      seen.add(trader.id);
+      const quote = tradeExitQuoteForTrader(trader, { itemId: item.id, name: item.name });
+      if (!quote) continue;
+      const freshness = quote.freshness || tradeExitFreshness(quote.capturedAt);
+      if (freshness.status === 'missing') continue;
+      quotes.push({ trader, quote: { ...quote, freshness } });
+    }
+    const fresh = quotes.filter((entry) => entry.quote.freshness.status === 'fresh');
+    const pool = fresh.length ? fresh : quotes;
+    pool.sort((left, right) =>
+      Number(right.quote.unitPrice || 0) - Number(left.quote.unitPrice || 0)
+      || Number(right.trader.id === currentTrader.id) - Number(left.trader.id === currentTrader.id)
+      || Number(left.quote.freshness.ageMs ?? Number.MAX_SAFE_INTEGER) - Number(right.quote.freshness.ageMs ?? Number.MAX_SAFE_INTEGER)
+    );
+    if (!pool.length) return null;
+    return {
+      ...pool[0],
+      comparisonFreshness: fresh.length ? 'fresh' : 'stale',
+    };
+  }
+
+  function pricedTradeBestMatchHtml(bestMatch, currentTrader, currentQuote, projection) {
+    if (!bestMatch?.trader || !bestMatch?.quote || !currentTrader || !currentQuote) return '';
+    const stale = bestMatch.comparisonFreshness !== 'fresh';
+    const isCurrent = bestMatch.trader.id === currentTrader.id;
+    if (isCurrent) {
+      const label = stale ? '⌛ STALE TOP MATCH' : '★ TOP MATCH';
+      return `<strong class="tsimm-priced-trade-best${stale ? ' stale' : ''}">${escapeHtml(label)}</strong>`;
+    }
+    const knownCost = Boolean(projection?.trackedQuantity && Number.isFinite(Number(projection.averageCost)));
+    const bestProfitEach = knownCost ? Number(bestMatch.quote.unitPrice) - Number(projection.averageCost) : null;
+    const profitLabel = bestProfitEach === null
+      ? 'profit unknown'
+      : bestProfitEach > 0
+        ? `+${formatMoney(bestProfitEach)} EA`
+        : bestProfitEach < 0
+          ? `-${formatMoney(Math.abs(bestProfitEach))} EA`
+          : `${formatMoney(0)} EA`;
+    const gainEach = Math.max(0, Number(bestMatch.quote.unitPrice) - Number(currentQuote.unitPrice));
+    const prefix = stale ? '⌛ STALE BEST' : '↑ BEST';
+    return `<strong class="tsimm-priced-trade-best better${stale ? ' stale' : ''}">${escapeHtml(prefix)}: ${escapeHtml(bestMatch.trader.name)} · ${escapeHtml(profitLabel)}</strong>`
+      + `<span class="tsimm-priced-trade-best-detail">+${escapeHtml(formatMoney(gainEach))} ea over this trader</span>`;
+  }
+
   function applyPricedTradeInventoryBadges(stats) {
     clearPricedTradeAnnotations();
     const verification = pricedTradeVerification(stats);
@@ -5037,7 +5093,9 @@
         row.classList.add(`decision-${decisionState}`);
         badge.classList.add(`ledger-${ledgerState}`);
         if (ledger.trackedQuantity && !ledger.fullCoverage) badge.classList.add('ledger-partial');
+        const bestMatch = pricedTradeBestTraderQuote(item, trader);
         badge.innerHTML = pricedTradeLedgerHtml(ledger, quote.unitPrice)
+          + pricedTradeBestMatchHtml(bestMatch, trader, quote, ledger)
           + `<span class="tsimm-priced-trade-meta">${escapeHtml(trader.name)} · ${escapeHtml(formatInteger(resolvedQuantity))} available · ${escapeHtml(freshness.ageLabel)}</span>`;
       } else {
         row.classList.add('missing');
