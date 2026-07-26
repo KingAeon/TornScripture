@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.17.3
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, resilient pre-trade picker payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.17.4
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, TornPDA Qty-row payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.3' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.3' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.4' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.4' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.3
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.4
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.17.3',
+    version: '0.17.4',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4676,9 +4676,22 @@
     ].filter(Boolean).join(' '));
   }
 
+
+  function pricedTradeControlElements(root = document) {
+    if (!(root instanceof Document || root instanceof Element)) return [];
+    const controls = [...root.querySelectorAll('button,a,[role="button"],input,select,label,[class*="qty" i]')];
+    for (const element of root.querySelectorAll('div,span')) {
+      if (!visibleElement(element)) continue;
+      const direct = normalizeWhitespace(ownText(element));
+      if (!/^qty$/i.test(direct)) continue;
+      controls.push(element);
+    }
+    return [...new Set(controls)];
+  }
+
   function pricedTradeNativeAddControl(row) {
     if (!(row instanceof Element)) return null;
-    const controls = [...row.querySelectorAll('button,a,[role="button"],input,select,label')]
+    const controls = pricedTradeControlElements(row)
       .filter((control) =>
         visibleElement(control)
         && !control.disabled
@@ -4688,6 +4701,7 @@
       const label = pricedTradeControlLabel(control);
       if (/\b(?:remove|delete|trash|withdraw)\b/i.test(label)) return false;
       if (control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(String(control.type || '').toLowerCase())) return true;
+      if (/^qty$/i.test(normalizeWhitespace(ownText(control) || control.textContent))) return true;
       return /\b(?:add|select|choose|include|qty|quantity)\b/i.test(label)
         || /(?:add|select|choose|include|qty|quantity|plus)/i.test(String(control.className || ''))
         || /^\s*\+\s*$/.test(label);
@@ -4752,12 +4766,15 @@
       const quantity = parseNumber(text.match(pattern)?.[1]);
       if (Number.isFinite(quantity) && quantity > 0) return Math.max(1, Math.floor(quantity));
     }
+    const singleControl = [...row.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
+      .find((control) => visibleElement(control) && !control.disabled);
+    if (singleControl) return 1;
     return null;
   }
 
   function pricedTradeCandidateRows(trader) {
     const rows = new Set();
-    const controls = [...document.querySelectorAll('button,a,[role="button"],input,select,label')]
+    const controls = pricedTradeControlElements(document)
       .filter((control) =>
         visibleElement(control)
         && !control.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)
@@ -4793,7 +4810,7 @@
     const bodyText = normalizeWhitespace(document.body?.innerText || document.body?.textContent || '');
     const headingPattern = /\bwhich items would you like to add to trade\??\b/i;
     const summaryPattern = /\byou are adding\s+[\d,]+\s+items?\s+across\s+[\d,]+\s+categor(?:y|ies)\b/i;
-    const controls = [...document.querySelectorAll('button,a,[role="button"],input,label')]
+    const controls = pricedTradeControlElements(document)
       .filter((control) => visibleElement(control) && !control.closest(ignored));
     const addControl = controls.find((control) => /\badd\s+to\s+trade\b/i.test(pricedTradeControlLabel(control))) || null;
     const itemControls = controls.filter((control) => {
