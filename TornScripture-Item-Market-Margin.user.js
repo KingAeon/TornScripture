@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.18.2
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.18.3
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, auto-repainting decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.2' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.2' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.3' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.3' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.2
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.3
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.18.2',
+    version: '0.18.3',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4457,6 +4457,9 @@
   const PRICED_TRADE_BADGE_CLASS = 'tsimm-priced-trade-badge';
   const PRICED_TRADE_ROW_CLASS = 'tsimm-priced-trade-row';
   const PRICED_TRADE_TTL_MS = 12 * 60 * 60 * 1000;
+  let pricedTradePickerObserver = null;
+  let pricedTradeObservedSurface = null;
+  let pricedTradeRepaintSettleTimer = null;
 
   function tradeExitFavoriteRefs() {
     try {
@@ -4593,6 +4596,65 @@
     toast(`Priced Trade armed for ${trader.name}: ${formatInteger(priceCount)} captured prices.`);
     setTimeout(() => location.assign(trader.tradeUrl), 120);
     return true;
+  }
+
+  function pricedTradeMutationElement(node) {
+    if (node?.nodeType === Node.TEXT_NODE) return node.parentElement;
+    return node instanceof Element ? node : null;
+  }
+
+  function pricedTradeGeneratedMutationNode(node) {
+    const element = pricedTradeMutationElement(node);
+    return Boolean(element?.matches?.(`#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)
+      || element?.closest?.(`#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`));
+  }
+
+  function pricedTradeMutationNeedsRepaint(mutation) {
+    if (mutation.type === 'characterData') {
+      return !pricedTradeGeneratedMutationNode(mutation.target)
+        && Boolean(normalizeWhitespace(mutation.target?.textContent));
+    }
+    const changedNodes = [
+      ...(mutation.addedNodes || []),
+      ...(mutation.removedNodes || []),
+    ];
+    return changedNodes.some((node) => !pricedTradeGeneratedMutationNode(node));
+  }
+
+  function schedulePricedTradePickerRepaint(delay = 90) {
+    if (!loadPricedTradeSession()) return;
+    scheduleScan(delay);
+    clearTimeout(pricedTradeRepaintSettleTimer);
+    pricedTradeRepaintSettleTimer = setTimeout(() => {
+      pricedTradeRepaintSettleTimer = null;
+      if (loadPricedTradeSession()) scheduleScan(0);
+    }, 780);
+  }
+
+  function syncPricedTradePickerObserver() {
+    const surface = loadPricedTradeSession() ? pricedTradeInventorySurface() : null;
+    if (surface === pricedTradeObservedSurface && pricedTradePickerObserver) return;
+    pricedTradePickerObserver?.disconnect();
+    pricedTradePickerObserver = null;
+    pricedTradeObservedSurface = surface instanceof Element ? surface : null;
+    if (!pricedTradeObservedSurface) return;
+    pricedTradePickerObserver = new MutationObserver((mutations) => {
+      if (mutations.some(pricedTradeMutationNeedsRepaint)) schedulePricedTradePickerRepaint(70);
+    });
+    pricedTradePickerObserver.observe(pricedTradeObservedSurface, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  }
+
+  function capturePricedTradePickerInteraction(event) {
+    if (!loadPricedTradeSession()) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const surface = pricedTradeInventorySurface();
+    if (!target || !surface || !surface.contains(target)) return;
+    if (target.closest(`#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return;
+    schedulePricedTradePickerRepaint(80);
   }
 
   function pricedTradeVerification(stats) {
@@ -5052,6 +5114,7 @@
 
   function applyPricedTradeInventoryBadges(stats) {
     clearPricedTradeAnnotations();
+    syncPricedTradePickerObserver();
     const verification = pricedTradeVerification(stats);
     if (verification.status === 'inactive') return;
     renderPricedTradePanel(verification);
@@ -5105,6 +5168,7 @@
       row.appendChild(badge);
     }
     renderPricedTradePanel(verification, decorated, priced);
+    syncPricedTradePickerObserver();
   }
 
   function currentTradeTrader(stats) {
@@ -8814,6 +8878,7 @@
   function bindPanelEvents() {
     document.addEventListener('click', handleQuickMaxClick, true);
     document.addEventListener('click', capturePurchaseIntentFromClick, true);
+    document.addEventListener('click', capturePricedTradePickerInteraction, true);
     document.addEventListener('click', (event) => {
       const button = event.target.closest(`[data-tsimm-action]`);
       if (!button) return;
