@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.16.0
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, local market-velocity learning, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.17.0
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, local market-velocity learning, priced-trade inventory badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.16.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.16.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.0' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.16.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -275,6 +275,7 @@
    * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
    * - Trade Exit Audit comparisons are read-only. Bulk removal runs only after the user presses its button and confirms; it uses Torn's visible item-removal controls and never accepts or completes a trade.
+   * - Priced Trade stores an expiring trader handoff, verifies the live counterparty, and adds read-only payout badges beside Torn's native addable-item controls. It never adds an item or changes a trade.
    * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, sells items, or completes trades.
    */
 
@@ -283,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.16.0',
+    version: '0.17.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4394,6 +4395,7 @@
   }
 
   function clearTradeAnnotations() {
+    clearPricedTradeAnnotations();
     document.querySelectorAll(`.${APP.tradeBadgeClass}`).forEach((element) => element.remove());
     document.querySelectorAll(`.${APP.tradeItemMark}`).forEach((element) => element.classList.remove(APP.tradeItemMark));
     document.querySelectorAll('[data-tsimm-trade-route-alert]').forEach((element) => element.remove());
@@ -4449,6 +4451,12 @@
 
   const TRADE_EXIT_FAVORITES_STORAGE_KEY = 'tornscripture-imm-favorite-traders-v1';
   const TRADE_EXIT_SETTINGS_STORAGE_KEY = 'tornscripture-imm-trader-market-overlay-settings-v1';
+  const PRICED_TRADE_SESSION_KEY = 'tornscripture-imm-priced-trade-session-v1';
+  const PRICED_TRADE_STYLE_ID = 'tsimm-priced-trade-style';
+  const PRICED_TRADE_PANEL_ID = 'tsimm-priced-trade-panel';
+  const PRICED_TRADE_BADGE_CLASS = 'tsimm-priced-trade-badge';
+  const PRICED_TRADE_ROW_CLASS = 'tsimm-priced-trade-row';
+  const PRICED_TRADE_TTL_MS = 12 * 60 * 60 * 1000;
 
   function tradeExitFavoriteRefs() {
     try {
@@ -4509,6 +4517,335 @@
       freshness: tradeExitFreshness(capturedAt),
       source: 'captured price list',
     };
+  }
+
+
+  function loadPricedTradeSession() {
+    try {
+      const raw = JSON.parse(sessionStorage.getItem(PRICED_TRADE_SESSION_KEY) || 'null');
+      if (!raw || typeof raw !== 'object') return null;
+      if (!Number.isFinite(Number(raw.expiresAt)) || Number(raw.expiresAt) <= Date.now()) {
+        sessionStorage.removeItem(PRICED_TRADE_SESSION_KEY);
+        return null;
+      }
+      return {
+        traderId: normalizeWhitespace(raw.traderId),
+        traderName: normalizeWhitespace(raw.traderName),
+        userId: Number(raw.userId) > 0 ? Number(raw.userId) : null,
+        armedAt: Number(raw.armedAt) || Date.now(),
+        expiresAt: Number(raw.expiresAt),
+        tradeUrl: normalizeHttpUrl(raw.tradeUrl),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function savePricedTradeSession(session) {
+    try {
+      if (!session) sessionStorage.removeItem(PRICED_TRADE_SESSION_KEY);
+      else sessionStorage.setItem(PRICED_TRADE_SESSION_KEY, JSON.stringify(session));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function clearPricedTradeSession(message = '') {
+    savePricedTradeSession(null);
+    clearPricedTradeAnnotations();
+    if (message) toast(message);
+  }
+
+  function pricedTradeArmedTrader(session = loadPricedTradeSession()) {
+    if (!session) return null;
+    const wantedName = normalizeName(session.traderName);
+    return state.traders.find((trader) =>
+      (session.traderId && trader.id === session.traderId)
+      || (session.userId && Number(trader.userId) === Number(session.userId))
+      || (wantedName && trader.normalizedName === wantedName)
+    ) || null;
+  }
+
+  function startPricedTrade(trader) {
+    if (!trader?.tradeUrl) {
+      toast('This trader does not have a saved trade link.');
+      return false;
+    }
+    const priceCount = Array.isArray(trader.pricePageItems) ? trader.pricePageItems.length : 0;
+    if (!priceCount) {
+      toast(`${trader.name} has no captured prices yet.`);
+      return false;
+    }
+    const session = {
+      traderId: trader.id,
+      traderName: trader.name,
+      userId: Number(trader.userId) > 0 ? Number(trader.userId) : null,
+      armedAt: Date.now(),
+      expiresAt: Date.now() + PRICED_TRADE_TTL_MS,
+      tradeUrl: trader.tradeUrl,
+    };
+    if (!savePricedTradeSession(session)) {
+      toast('Priced Trade could not save its handoff in this tab.');
+      return false;
+    }
+    closeTraders();
+    toast(`Priced Trade armed for ${trader.name}: ${formatInteger(priceCount)} captured prices.`);
+    setTimeout(() => location.assign(trader.tradeUrl), 120);
+    return true;
+  }
+
+  function pricedTradeVerification(stats) {
+    const session = loadPricedTradeSession();
+    if (!session) return { status: 'inactive', session: null, trader: null, currentTrader: null };
+    const trader = pricedTradeArmedTrader(session);
+    if (!trader) return { status: 'missing-trader', session, trader: null, currentTrader: null };
+    const currentTrader = currentTradeTrader(stats);
+    const counterpartyId = Number(stats?.tradeCounterpartyId) > 0 ? Number(stats.tradeCounterpartyId) : null;
+    const counterpartyName = normalizeName(stats?.tradeCounterparty);
+    const idMatches = Boolean(
+      counterpartyId
+      && Number(trader.userId) > 0
+      && Number(trader.userId) === counterpartyId
+    );
+    const nameMatches = Boolean(counterpartyName && trader.normalizedName === counterpartyName);
+    const currentMatches = Boolean(currentTrader && currentTrader.id === trader.id);
+    if (!counterpartyId && !counterpartyName && !currentTrader) {
+      return { status: 'waiting', session, trader, currentTrader: null };
+    }
+    return {
+      status: idMatches || nameMatches || currentMatches ? 'verified' : 'mismatch',
+      session,
+      trader,
+      currentTrader,
+    };
+  }
+
+  function injectPricedTradeStyles() {
+    if (!document.head || document.getElementById(PRICED_TRADE_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = PRICED_TRADE_STYLE_ID;
+    style.textContent = `
+      #${PRICED_TRADE_PANEL_ID}{position:fixed;left:50%;top:max(64px,calc(env(safe-area-inset-top) + 54px));z-index:2147483040;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center;width:min(560px,calc(100vw - 18px));padding:8px 10px;transform:translateX(-50%);border:1px solid #57d972;border-radius:9px;background:#07180cf5;color:#d6ffcd;box-shadow:0 10px 30px #000b;font:800 10px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      #${PRICED_TRADE_PANEL_ID}.waiting{border-color:#4f9bc5;background:#071723f5;color:#c9ecff}#${PRICED_TRADE_PANEL_ID}.mismatch,#${PRICED_TRADE_PANEL_ID}.missing-trader{border-color:#cf5866;background:#250a0df5;color:#ffc2c8}
+      #${PRICED_TRADE_PANEL_ID} strong,#${PRICED_TRADE_PANEL_ID} span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#${PRICED_TRADE_PANEL_ID} span{grid-column:1;color:#8fbd96;font-size:8px}#${PRICED_TRADE_PANEL_ID}.waiting span{color:#82b6d4}#${PRICED_TRADE_PANEL_ID}.mismatch span,#${PRICED_TRADE_PANEL_ID}.missing-trader span{color:#d89198}
+      #${PRICED_TRADE_PANEL_ID} button{grid-row:1/3;grid-column:2;border:1px solid #75616a;border-radius:6px;background:#2a1c21;color:#ffd9df;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .${PRICED_TRADE_ROW_CLASS}{position:relative!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
+      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:max-content!important;max-width:min(210px,48vw)!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:none!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_BADGE_CLASS} strong,.${PRICED_TRADE_BADGE_CLASS} span{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}.${PRICED_TRADE_BADGE_CLASS} span{color:#7ebd89!important;font-size:7px!important}
+      .${PRICED_TRADE_BADGE_CLASS}.stale{border-color:#c59a39!important;background:#2a2008f2!important;color:#ffe09a!important}.${PRICED_TRADE_BADGE_CLASS}.stale span{color:#c5ad73!important}
+      .${PRICED_TRADE_BADGE_CLASS}.outdated{border-color:#b65466!important;background:#270b10f2!important;color:#ffb0bc!important}.${PRICED_TRADE_BADGE_CLASS}.outdated span{color:#c98d96!important}
+      .${PRICED_TRADE_BADGE_CLASS}.missing{border-color:#65727a!important;background:#14191cf2!important;color:#c1cbd1!important}.${PRICED_TRADE_BADGE_CLASS}.missing span{color:#8d999f!important}
+      .tsimm-priced-trade-start{border-color:#47c968!important;background:#0d3818!important;color:#d4ffc8!important}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function clearPricedTradeAnnotations() {
+    document.getElementById(PRICED_TRADE_PANEL_ID)?.remove();
+    document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((element) => element.remove());
+    document.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`).forEach((element) => {
+      element.classList.remove(PRICED_TRADE_ROW_CLASS, 'fresh', 'stale', 'outdated', 'missing');
+      delete element.dataset.tsimmPricedTradeToken;
+    });
+  }
+
+  function pricedTradeControlLabel(element) {
+    if (!(element instanceof Element)) return '';
+    return normalizeWhitespace([
+      element.textContent,
+      element.getAttribute('aria-label'),
+      element.getAttribute('title'),
+      element.getAttribute('name'),
+      element.getAttribute('value'),
+      element.getAttribute('class'),
+    ].filter(Boolean).join(' '));
+  }
+
+  function pricedTradeNativeAddControl(row) {
+    if (!(row instanceof Element)) return null;
+    const controls = [...row.querySelectorAll('button,a,[role="button"],input,select,label')]
+      .filter((control) =>
+        visibleElement(control)
+        && !control.disabled
+        && !control.closest(`#${APP.panelId},#${APP.traderOverlayId},[data-tsimm-generated]`)
+      );
+    return controls.find((control) => {
+      const label = pricedTradeControlLabel(control);
+      if (/\b(?:remove|delete|trash|withdraw)\b/i.test(label)) return false;
+      if (control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(String(control.type || '').toLowerCase())) return true;
+      return /\b(?:add|select|choose|include)\b/i.test(label)
+        || /(?:add|select|choose|include|plus)/i.test(String(control.className || ''))
+        || /^\s*\+\s*$/.test(label);
+    }) || null;
+  }
+
+  function pricedTradeItemForRow(row, trader) {
+    if (!(row instanceof Element) || !trader) return null;
+    const itemId = itemIdFromTradeRow(row);
+    const priceItems = Array.isArray(trader.pricePageItems) ? trader.pricePageItems : [];
+    if (itemId) {
+      const captured = priceItems.find((item) => Number(item.itemId) > 0 && Number(item.itemId) === itemId);
+      const catalog = catalogItemFor('', itemId);
+      if (captured || catalog) {
+        return {
+          id: catalog?.id || captured?.itemId || itemId,
+          name: catalog?.name || captured?.itemName || `Item ${itemId}`,
+        };
+      }
+    }
+    const labels = [
+      ...row.querySelectorAll('[data-item-name],img[alt],img[title],[aria-label],[title],strong,b,span,p'),
+    ].flatMap((element) => [
+      element.getAttribute?.('data-item-name'),
+      element.getAttribute?.('alt'),
+      element.getAttribute?.('title'),
+      element.getAttribute?.('aria-label'),
+      ownText(element),
+    ]).map(normalizeWhitespace).filter((label) => label && label.length <= 100);
+    for (const label of labels) {
+      const catalog = catalogItemFor(label);
+      if (catalog) return { id: catalog.id || null, name: catalog.name };
+      const captured = priceItems.find((item) => normalizeName(item.itemName) === normalizeName(label));
+      if (captured) return { id: captured.itemId || null, name: captured.itemName };
+    }
+    const haystack = ` ${normalizeName(row.innerText || row.textContent)} `;
+    const captured = priceItems
+      .filter((item) => item?.itemName)
+      .sort((left, right) => String(right.itemName).length - String(left.itemName).length)
+      .find((item) => haystack.includes(` ${normalizeName(item.itemName)} `));
+    if (captured) return { id: captured.itemId || null, name: captured.itemName };
+    const catalog = Object.values(state.catalog.itemsByName || {})
+      .filter((item) => item?.name && haystack.includes(` ${item.normalizedName} `))
+      .sort((left, right) => right.normalizedName.length - left.normalizedName.length)[0];
+    return catalog ? { id: catalog.id || null, name: catalog.name } : null;
+  }
+
+  function pricedTradeAvailableQuantity(row, itemName = '') {
+    if (!(row instanceof Element)) return null;
+    const limits = [...row.querySelectorAll('input,[role="spinbutton"]')].flatMap((input) => [
+      input.getAttribute('max'),
+      input.getAttribute('data-max'),
+      input.getAttribute('aria-valuemax'),
+    ]).map(parseNumber).filter((value) => Number.isFinite(value) && value > 0);
+    if (limits.length) return Math.max(1, Math.floor(Math.max(...limits)));
+    const text = normalizeWhitespace(row.innerText || row.textContent).replace(itemName, ' ');
+    for (const pattern of [
+      /\b(?:available|owned|quantity|qty|amount|stock)\D{0,16}([\d,]+)/i,
+      /(?:\bx|×)\s*([\d,]+)\b/i,
+      /\(([\d,]+)\)/,
+    ]) {
+      const quantity = parseNumber(text.match(pattern)?.[1]);
+      if (Number.isFinite(quantity) && quantity > 0) return Math.max(1, Math.floor(quantity));
+    }
+    return null;
+  }
+
+  function pricedTradeCandidateRows(trader) {
+    const rows = new Set();
+    const controls = [...document.querySelectorAll('button,a,[role="button"],input,select,label')]
+      .filter((control) =>
+        visibleElement(control)
+        && !control.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)
+      );
+    for (const control of controls) {
+      let node = control;
+      for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
+        if (!(node instanceof Element) || node === document.body) continue;
+        if (node.classList.contains(APP.tradeItemMark) || node.closest(`.${APP.tradeItemMark}`)) break;
+        const text = normalizeWhitespace(node.innerText || node.textContent);
+        if (!text || text.length > 650) continue;
+        const item = pricedTradeItemForRow(node, trader);
+        if (!item) continue;
+        if (!pricedTradeNativeAddControl(node)) continue;
+        rows.add(node);
+        break;
+      }
+    }
+    for (const row of document.querySelectorAll('li,[role="option"],[class*="item" i],[class*="inventory" i]')) {
+      if (!(row instanceof Element) || !visibleElement(row) || rows.has(row)) continue;
+      if (row.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) continue;
+      if (row.classList.contains(APP.tradeItemMark) || row.closest(`.${APP.tradeItemMark}`)) continue;
+      const text = normalizeWhitespace(row.innerText || row.textContent);
+      if (!text || text.length > 650 || !pricedTradeNativeAddControl(row)) continue;
+      if (pricedTradeItemForRow(row, trader)) rows.add(row);
+    }
+    return [...rows];
+  }
+
+  function renderPricedTradePanel(verification, decorated = 0, priced = 0) {
+    injectPricedTradeStyles();
+    let panel = document.getElementById(PRICED_TRADE_PANEL_ID);
+    if (!panel) {
+      panel = document.createElement('section');
+      panel.id = PRICED_TRADE_PANEL_ID;
+      panel.dataset.tsimmGenerated = 'true';
+      document.body.appendChild(panel);
+    }
+    panel.className = verification.status;
+    const trader = verification.trader;
+    const count = trader?.pricePageItems?.length || 0;
+    const capturedAt = trader?.pricePageLastCheckedAt || trader?.pricePageCapturedAt || null;
+    const freshness = tradeExitFreshness(capturedAt);
+    const title = verification.status === 'verified'
+      ? `🤝 PRICED TRADE · ${trader.name}`
+      : verification.status === 'waiting'
+        ? `⌛ PRICED TRADE ARMED · ${trader?.name || verification.session?.traderName || 'Trader'}`
+        : verification.status === 'mismatch'
+          ? `⚠ PRICED TRADE MISMATCH`
+          : `⚠ PRICED TRADE TRADER MISSING`;
+    const detail = verification.status === 'verified'
+      ? `${formatInteger(priced)}/${formatInteger(decorated)} visible addable items priced · ${formatInteger(count)} captured prices · ${freshness.ageLabel}`
+      : verification.status === 'waiting'
+        ? `${formatInteger(count)} captured prices ready · waiting for Torn to identify the other participant`
+        : verification.status === 'mismatch'
+          ? `Armed for ${trader?.name || verification.session?.traderName}; this trade is with ${verification.currentTrader?.name || 'someone else'}. No prices were applied.`
+          : 'The armed trader is no longer present in Trader Book. No prices were applied.';
+    panel.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span><button type="button" data-tsimm-action="priced-trade-clear">CLEAR</button>`;
+  }
+
+  function applyPricedTradeInventoryBadges(stats) {
+    clearPricedTradeAnnotations();
+    const verification = pricedTradeVerification(stats);
+    if (verification.status === 'inactive') return;
+    renderPricedTradePanel(verification);
+    if (verification.status !== 'verified' || !verification.trader) return;
+    injectPricedTradeStyles();
+    const trader = verification.trader;
+    let decorated = 0;
+    let priced = 0;
+    for (const row of pricedTradeCandidateRows(trader)) {
+      const item = pricedTradeItemForRow(row, trader);
+      if (!item) continue;
+      decorated += 1;
+      const quote = tradeExitQuoteForTrader(trader, {
+        itemId: item.id,
+        name: item.name,
+      });
+      const quantity = pricedTradeAvailableQuantity(row, item.name);
+      const badge = document.createElement('span');
+      badge.className = PRICED_TRADE_BADGE_CLASS;
+      badge.dataset.tsimmGenerated = 'true';
+      const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
+      row.dataset.tsimmPricedTradeToken = token;
+      row.classList.add(PRICED_TRADE_ROW_CLASS);
+      if (quote) {
+        priced += 1;
+        const freshness = quote.freshness || tradeExitFreshness(quote.capturedAt);
+        const status = freshness.status === 'fresh' ? 'fresh' : freshness.status;
+        row.classList.add(status);
+        badge.classList.add(status);
+        const stack = quantity ? quote.unitPrice * quantity : null;
+        badge.innerHTML = `<strong>${escapeHtml(trader.name)} PAYS ${escapeHtml(formatMoney(quote.unitPrice))} EA</strong>`
+          + `<span>${quantity ? `${escapeHtml(formatInteger(quantity))} available · stack ${escapeHtml(formatMoney(stack))}` : 'available quantity unresolved'} · ${escapeHtml(freshness.ageLabel)}</span>`;
+      } else {
+        row.classList.add('missing');
+        badge.classList.add('missing');
+        badge.innerHTML = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list</span>`;
+      }
+      row.appendChild(badge);
+    }
+    renderPricedTradePanel(verification, decorated, priced);
   }
 
   function currentTradeTrader(stats) {
@@ -5009,6 +5346,7 @@
     stats.tradeExitAudit = buildTradeExitAudit(stats);
     applyTradeExitAuditBadges(matched, stats.tradeExitAudit);
     applyTradeExitMainPageAlert(mySide, stats.tradeExitAudit);
+    applyPricedTradeInventoryBadges(stats);
 
     if (!parsed.length) {
       stats.tradeStatus = 'empty';
@@ -7621,7 +7959,7 @@
         </div>
         ${trader.notes ? `<div class="tsimm-trader-notes">${escapeHtml(trader.notes)}</div>` : ''}
         <div class="tsimm-trader-actions">
-          ${trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : ''}
+          ${trader.tradeUrl && priceItemCount ? `<button type="button" class="tsimm-priced-trade-start" data-tsimm-action="trader-start-priced-trade" data-tsimm-trader-id="${escapeHtml(trader.id)}">Start priced trade</button>` : (trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : '')}
           ${trader.profileUrl ? `<a href="${escapeHtml(trader.profileUrl)}">Profile</a>` : ''}
           ${trader.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Open prices</a>` : ''}
           ${autoRecaptureAvailable ? `<button type="button" data-tsimm-action="trader-open-recapture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open & recapture</button>` : ''}
@@ -8283,6 +8621,11 @@
         clearPendingTraderCapture('Trader price capture cleared.');
       } else if (action === 'trader-open-recapture') {
         requestTraderPriceRecapture(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-start-priced-trade') {
+        startPricedTrade(state.traders.find((entry) => entry.id === button.dataset.tsimmTraderId));
+      } else if (action === 'priced-trade-clear') {
+        clearPricedTradeSession('Priced Trade cleared.');
+        scheduleScan(20);
       } else if (action === 'trader-toggle-favorite') {
         const result = window.__TSIMM_WATCHLIST_API__?.toggleFavoriteById?.(button.dataset.tsimmTraderId);
         if (!result?.available) toast('Favorite trader controls are not ready. Refresh Torn and try again.');
