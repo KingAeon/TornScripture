@@ -12,7 +12,7 @@ text = text.replace('TornPDA Qty-row payout badges', 'direct TornPDA Qty-row pay
 
 
 def replace_function_block(source, start_name, next_name, replacement):
-    pattern = rf"  function {re.escape(start_name)}\b.*?\n  \}}\n\n(?=  function {re.escape(next_name)}\b)"
+    pattern = rf"  function {re.escape(start_name)}\b.*?(?=  function {re.escape(next_name)}\b)"
     updated, count = re.subn(pattern, replacement.rstrip() + '\n\n', source, count=1, flags=re.S)
     if count != 1:
         raise SystemExit(f'Could not replace {start_name} block; matches={count}')
