@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.18.6
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, scroll-stable in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.18.7
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, bottom-locked scroll-stable in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.6' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.6' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.7' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.7' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.6
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.7
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.18.6',
+    version: '0.18.7',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -5328,7 +5328,17 @@
     document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((badge) => badge.remove());
   }
 
+
   function pricedTradeCaptureScrollAnchor(surface = pricedTradeInventorySurface()) {
+    const scrollRoot = document.scrollingElement || document.documentElement;
+    const scrollTop = Math.max(0, Number(scrollRoot?.scrollTop ?? window.scrollY) || 0);
+    const viewportHeight = Math.max(0, Number(scrollRoot?.clientHeight ?? window.innerHeight) || 0);
+    const scrollHeight = Math.max(0, Number(scrollRoot?.scrollHeight) || 0);
+    const bottomDistance = Math.max(0, scrollHeight - scrollTop - viewportHeight);
+    if (bottomDistance <= 96) {
+      return { mode: 'bottom', bottomDistance };
+    }
+
     const activeRow = document.activeElement instanceof Element
       ? document.activeElement.closest(`.${PRICED_TRADE_ROW_CLASS}`)
       : null;
@@ -5342,11 +5352,22 @@
           return rect.bottom > 0 && rect.top < window.innerHeight;
         });
     if (!(row instanceof Element) || !row.isConnected) return null;
-    return { row, top: row.getBoundingClientRect().top };
+    return { mode: 'row', row, top: row.getBoundingClientRect().top };
   }
 
+
   function pricedTradeRestoreScrollAnchor(anchor) {
-    if (!anchor?.row?.isConnected) return;
+    if (!anchor) return;
+    if (anchor.mode === 'bottom') {
+      const scrollRoot = document.scrollingElement || document.documentElement;
+      if (!scrollRoot) return;
+      const viewportHeight = Math.max(0, Number(scrollRoot.clientHeight ?? window.innerHeight) || 0);
+      const scrollHeight = Math.max(0, Number(scrollRoot.scrollHeight) || 0);
+      const targetTop = Math.max(0, scrollHeight - viewportHeight - Math.max(0, Number(anchor.bottomDistance) || 0));
+      if (Math.abs(Number(scrollRoot.scrollTop) - targetTop) > 0.5) scrollRoot.scrollTop = targetTop;
+      return;
+    }
+    if (!anchor.row?.isConnected) return;
     const delta = anchor.row.getBoundingClientRect().top - Number(anchor.top || 0);
     if (Number.isFinite(delta) && Math.abs(delta) > 0.5) window.scrollBy(0, delta);
   }
