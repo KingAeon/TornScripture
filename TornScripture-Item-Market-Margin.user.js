@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.17.5
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, direct TornPDA Qty-row payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.17.6
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, TornPDA image-row payout badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.5' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.5' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.17.6' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.17.6' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.5
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.17.6
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.17.5',
+    version: '0.17.6',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4787,6 +4787,7 @@
     const singleControl = [...row.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
       .find((control) => visibleElement(control) && !control.disabled);
     if (singleControl) return 1;
+    if ([...row.querySelectorAll('img')].some((image) => visibleElement(image))) return 1;
     return null;
   }
 
@@ -4812,13 +4813,43 @@
     return fallback;
   }
 
+  function pricedTradeRowForItemImage(image, trader) {
+    if (!(image instanceof Element) || !trader) return null;
+    let best = null;
+    let node = image;
+    for (let depth = 0; node && depth < 9; depth += 1, node = node.parentElement) {
+      if (!(node instanceof Element) || node === document.body) continue;
+      if (node.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) continue;
+      if (node.classList.contains(APP.tradeItemMark) || node.closest(`.${APP.tradeItemMark}`)) break;
+      const text = normalizeWhitespace(node.innerText || node.textContent);
+      if (!text || text.length > 420) continue;
+      if (/\b(?:which items would you like to add to trade|add to trade|clear all)\b/i.test(text)) continue;
+      const item = pricedTradeItemForRow(node, trader);
+      if (!item) continue;
+      const itemImages = [...node.querySelectorAll('img')]
+        .filter((candidate) => visibleElement(candidate)
+          && !candidate.closest(`#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`));
+      if (itemImages.length !== 1) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 100 || rect.height < 18 || rect.height > 190) continue;
+      best = node;
+      if (text.length <= 220) return node;
+    }
+    return best;
+  }
+
   function pricedTradeCandidateRows(trader) {
     const rows = new Set();
     const ignored = `#${APP.panelId},#${APP.traderOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`;
-    const qtyControls = pricedTradeDirectQtyElements(document);
-    const singleControls = [...document.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
+    const surface = pricedTradeInventorySurface() || document;
+    for (const image of surface.querySelectorAll('img')) {
+      if (!visibleElement(image) || image.closest(ignored)) continue;
+      const row = pricedTradeRowForItemImage(image, trader);
+      if (row) rows.add(row);
+    }
+    const singleControls = [...surface.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
       .filter((control) => visibleElement(control) && !control.disabled && !control.closest(ignored));
-    for (const control of [...qtyControls, ...singleControls]) {
+    for (const control of singleControls) {
       const row = pricedTradeRowForControl(control, trader);
       if (row) rows.add(row);
     }
@@ -4837,7 +4868,7 @@
     const singleControls = [...document.querySelectorAll('input[type="checkbox"],input[type="radio"]')]
       .filter((control) => visibleElement(control) && !control.disabled && !control.closest(ignored));
     const itemControls = [...new Set([...qtyControls, ...singleControls])];
-    const active = Boolean(hasPickerText && hasAddText && itemControls.length);
+    const active = Boolean(hasPickerText && hasAddText);
     let surface = null;
     if (active) {
       const anchors = [...document.querySelectorAll('h1,h2,h3,h4,strong,b,p,span,div')]
