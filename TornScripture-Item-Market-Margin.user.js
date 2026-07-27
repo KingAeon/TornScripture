@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.18.7
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, bottom-locked scroll-stable in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.18.8
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, focus-anchored fixed-height in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.7' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.7' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.8' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.8' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.7
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.8
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.18.7',
+    version: '0.18.8',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4811,8 +4811,8 @@
       #${PRICED_TRADE_PANEL_ID}.inline{position:sticky;left:auto;top:0;z-index:40;width:auto;margin:0 0 6px;transform:none}#${PRICED_TRADE_PANEL_ID}.waiting{border-color:#4f9bc5;background:#071723f5;color:#c9ecff}#${PRICED_TRADE_PANEL_ID}.mismatch,#${PRICED_TRADE_PANEL_ID}.missing-trader{border-color:#cf5866;background:#250a0df5;color:#ffc2c8}
       #${PRICED_TRADE_PANEL_ID} strong,#${PRICED_TRADE_PANEL_ID} span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#${PRICED_TRADE_PANEL_ID} span{grid-column:1;color:#8fbd96;font-size:8px}#${PRICED_TRADE_PANEL_ID}.waiting span{color:#82b6d4}#${PRICED_TRADE_PANEL_ID}.mismatch span,#${PRICED_TRADE_PANEL_ID}.missing-trader span{color:#d89198}
       #${PRICED_TRADE_PANEL_ID} button{grid-row:1/3;grid-column:2;border:1px solid #75616a;border-radius:6px;background:#2a1c21;color:#ffd9df;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-      .${PRICED_TRADE_ROW_CLASS}{position:relative!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
-      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;min-height:52px!important;align-content:start!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:none!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_ROW_CLASS}{position:relative!important;overflow-anchor:none!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
+      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;height:62px!important;min-height:62px!important;overflow:hidden!important;overflow-anchor:none!important;align-content:start!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:none!important;box-sizing:border-box!important}
       .${PRICED_TRADE_BADGE_CLASS} strong,.${PRICED_TRADE_BADGE_CLASS} span{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}.${PRICED_TRADE_BADGE_CLASS} span{color:#7ebd89!important;font-size:7px!important}
       .${PRICED_TRADE_BADGE_CLASS}.stale{border-color:#c59a39!important;background:#2a2008f2!important;color:#ffe09a!important}.${PRICED_TRADE_BADGE_CLASS}.stale span{color:#c5ad73!important}
       .${PRICED_TRADE_BADGE_CLASS}.outdated{border-color:#b65466!important;background:#270b10f2!important;color:#ffb0bc!important}.${PRICED_TRADE_BADGE_CLASS}.outdated span{color:#c98d96!important}
@@ -5329,7 +5329,14 @@
   }
 
 
+
   function pricedTradeCaptureScrollAnchor(surface = pricedTradeInventorySurface()) {
+    const activeElement = document.activeElement instanceof Element ? document.activeElement : null;
+    const activeRow = activeElement?.closest(`.${PRICED_TRADE_ROW_CLASS}`) || null;
+    if (activeRow?.isConnected && (!(surface instanceof Element) || surface.contains(activeRow))) {
+      return { mode: 'row', row: activeRow, top: activeRow.getBoundingClientRect().top };
+    }
+
     const scrollRoot = document.scrollingElement || document.documentElement;
     const scrollTop = Math.max(0, Number(scrollRoot?.scrollTop ?? window.scrollY) || 0);
     const viewportHeight = Math.max(0, Number(scrollRoot?.clientHeight ?? window.innerHeight) || 0);
@@ -5339,20 +5346,7 @@
       return { mode: 'bottom', bottomDistance };
     }
 
-    const activeRow = document.activeElement instanceof Element
-      ? document.activeElement.closest(`.${PRICED_TRADE_ROW_CLASS}`)
-      : null;
-    const rows = surface instanceof Element
-      ? [...surface.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`)]
-      : [];
-    const row = activeRow?.isConnected
-      ? activeRow
-      : rows.find((candidate) => {
-          const rect = candidate.getBoundingClientRect();
-          return rect.bottom > 0 && rect.top < window.innerHeight;
-        });
-    if (!(row instanceof Element) || !row.isConnected) return null;
-    return { mode: 'row', row, top: row.getBoundingClientRect().top };
+    return null;
   }
 
 
@@ -5367,7 +5361,11 @@
       if (Math.abs(Number(scrollRoot.scrollTop) - targetTop) > 0.5) scrollRoot.scrollTop = targetTop;
       return;
     }
-    if (!anchor.row?.isConnected) return;
+    if (anchor.mode !== 'row' || !anchor.row?.isConnected) return;
+    const activeRow = document.activeElement instanceof Element
+      ? document.activeElement.closest(`.${PRICED_TRADE_ROW_CLASS}`)
+      : null;
+    if (activeRow !== anchor.row) return;
     const delta = anchor.row.getBoundingClientRect().top - Number(anchor.top || 0);
     if (Number.isFinite(delta) && Math.abs(delta) > 0.5) window.scrollBy(0, delta);
   }
