@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.18.9
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, scroll-quiet focus-anchored fixed-height in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.18.10
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe focus-anchored fixed-height in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.9' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.9' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.10' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.10' });
   }
 
 
@@ -264,7 +264,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.9
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.10
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +284,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.18.9',
+    version: '0.18.10',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4642,8 +4642,9 @@
     return changedNodes.some((node) => !pricedTradeGeneratedMutationNode(node));
   }
 
+
   function pricedTradeScrollIsActive() {
-    return Date.now() < pricedTradeScrollActiveUntil;
+    return false;
   }
 
   function schedulePricedTradeScrollSettle() {
@@ -4670,32 +4671,18 @@
     }, remaining);
   }
 
+
   function capturePricedTradeScroll() {
-    if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return;
-    pricedTradeScrollActiveUntil = Date.now() + PRICED_TRADE_SCROLL_QUIET_MS;
-    pricedTradeDeferredFullRepaint = true;
-    schedulePricedTradeScrollSettle();
+    // v0.18.10 emergency guard: scrolling must never schedule a Priced Trade repaint.
   }
 
-  function schedulePricedTradePickerRepaint(delay = 90) {
+
+  function schedulePricedTradePickerRepaint(delay = 140) {
     if (!loadPricedTradeSession()) return;
-    if (pricedTradeScrollIsActive()) {
-      pricedTradeDeferredFullRepaint = true;
-      schedulePricedTradeScrollSettle();
-      return;
-    }
-    scheduleScan(delay);
     clearTimeout(pricedTradeRepaintSettleTimer);
-    pricedTradeRepaintSettleTimer = setTimeout(() => {
-      pricedTradeRepaintSettleTimer = null;
-      if (loadPricedTradeSession() && !pricedTradeScrollIsActive()) scheduleScan(0);
-      else if (loadPricedTradeSession()) {
-        pricedTradeDeferredFullRepaint = true;
-        schedulePricedTradeScrollSettle();
-      }
-    }, 780);
+    pricedTradeRepaintSettleTimer = null;
+    scheduleScan(Math.max(100, Number(delay) || 0));
   }
-
 
   function pricedTradeMutationTouchesPicker(mutation, currentSurface = null, previousSurface = null) {
     const target = pricedTradeMutationElement(mutation.target);
@@ -9637,7 +9624,6 @@
     }
     window.addEventListener('hashchange', () => scheduleScan(20));
     window.addEventListener('popstate', () => scheduleScan(20));
-    document.addEventListener('scroll', capturePricedTradeScroll, { capture: true, passive: true });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) scheduleScan(20);
     });
