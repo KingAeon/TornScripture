@@ -1,0 +1,115 @@
+name: Push hotfix GOBLIN GOD v0.19.1 startup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/trigger_imm_v0191_push.txt
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Fix trader startup ordering and bump version
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('TornScripture-Item-Market-Margin.user.js')
+          text = path.read_text()
+
+          block = """  const TRADER_DISPOSITIONS = Object.freeze(['normal', 'avoid', 'hidden']);
+  const TRADER_REASON_LABELS = Object.freeze({
+    prices: 'Poor prices',
+    reputation: 'Reputation',
+    reliability: 'Unreliable',
+    availability: 'Frequently unavailable',
+    vibe: 'Bad vibe',
+    other: 'Other',
+  });
+
+"""
+          state_anchor = "  const state = {\n"
+
+          if text.count(block) != 1:
+              raise SystemExit(f'expected exactly one trader constants block, found {text.count(block)}')
+          if text.count(state_anchor) != 1:
+              raise SystemExit(f'expected exactly one state anchor, found {text.count(state_anchor)}')
+
+          text = text.replace(block, '', 1)
+          text = text.replace(state_anchor, block + state_anchor, 1)
+
+          replacements = {
+              '// @version      0.19.0': '// @version      0.19.1',
+              "version: '0.19.0'": "version: '0.19.1'",
+              'ITEM MARKET MARGIN v0.19.0': 'ITEM MARKET MARGIN v0.19.1',
+              "version: '0.19.0' });": "version: '0.19.1' });",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'missing version token: {old}')
+              text = text.replace(old, new)
+
+          old_description = '// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.'
+          new_description = '// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, startup-safe classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.'
+          if old_description not in text:
+              raise SystemExit('description token missing')
+          text = text.replace(old_description, new_description, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Validate JavaScript and protected systems
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          grep -F '// @version      0.19.1' TornScripture-Item-Market-Margin.user.js
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('TornScripture-Item-Market-Margin.user.js').read_text()
+          constants = text.index('const TRADER_DISPOSITIONS')
+          state = text.index('const state = {')
+          normalize = text.index('function normalizeTraderDisposition')
+          if not constants < state < normalize:
+              raise SystemExit(f'bad startup order: constants={constants}, state={state}, normalize={normalize}')
+          if text.count('const TRADER_DISPOSITIONS') != 1:
+              raise SystemExit('duplicate TRADER_DISPOSITIONS')
+          if text.count('const TRADER_REASON_LABELS') != 1:
+              raise SystemExit('duplicate TRADER_REASON_LABELS')
+          PY
+          grep -F 'function markTraderAvoid(id)' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function hideTrader(id)' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function restoreTrader(id)' TornScripture-Item-Market-Margin.user.js
+          grep -F 'schedulePricedTradeRowRefresh' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradeBestTraderQuote' TornScripture-Item-Market-Margin.user.js
+          grep -F 'quickMaxOverrideArmed' TornScripture-Item-Market-Margin.user.js
+          grep -F 'buildTradeExitAudit' TornScripture-Item-Market-Margin.user.js
+          grep -F 'inventoryBaseline' TornScripture-Item-Market-Margin.user.js
+          grep -F 'sellPriority' TornScripture-Item-Market-Margin.user.js
+
+      - name: Commit clean hotfix to main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f \
+            .github/workflows/hotfix-imm-v0191-startup.yml \
+            .github/workflows/hotfix-imm-v0191-startup-push.yml
+          git rm --ignore-unmatch \
+            scripts/trigger_imm_v0191_startup.txt \
+            scripts/trigger_imm_v0191_push.txt
+          git commit -m 'Fix trader controls startup ordering'
+          git push origin main
