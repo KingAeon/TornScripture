@@ -29,7 +29,20 @@ jobs:
             | base64 --decode \
             | gzip --decompress \
             > /tmp/apply_imm_v0190_trader_controls.py
-          test "$(wc -c < /tmp/apply_imm_v0190_trader_controls.py)" -eq 35574
+          test "$(wc -c < /tmp/apply_imm_v0190_trader_controls.py)" -eq 35504
+
+      - name: Adapt release helper to current CSS layout
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/apply_imm_v0190_trader_controls.py')
+          text = path.read_text()
+          old = 'css_anchor = "       #${APP.receiptAuditOverlayId}{position:fixed"'
+          new = 'css_anchor = "#${APP.traderOverlayId}{position:fixed"'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one legacy CSS anchor, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
           python -m py_compile /tmp/apply_imm_v0190_trader_controls.py
 
       - name: Apply trader controls
