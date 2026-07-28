@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - scripts/trigger_imm_v0195_funding_sources.txt
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/pr_trigger_imm_v0195_funding_sources.txt
 
 permissions:
   contents: write
