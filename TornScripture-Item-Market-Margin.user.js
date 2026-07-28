@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.1
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, startup-safe classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.19.2
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.1' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.1' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.2' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.2' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.1
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.2
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.1',
+    version: '0.19.2',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -356,6 +356,7 @@
     minimumProfitEach: 100,
     goldMinimumProfitEach: 1000,
     minimumRoiPercent: 0.25,
+    itemTraderQuoteLimit: 3,
     showLossesDuringTesting: true,
     tradeSidePreference: 'auto',
     showTradeItemBreakdown: true,
@@ -3114,6 +3115,8 @@
       listingMarketValueSource: null,
       listingItemId: null,
       listingItemName: null,
+      listingLowestPrice: null,
+      listingLowestQuantity: null,
       tradeSideCandidates: 0,
       tradeMySide: null,
       tradeSideSource: null,
@@ -4595,6 +4598,78 @@
     };
   }
 
+
+
+
+  function singleItemTraderQuotes(stats = state.lastScan) {
+    if (!String(stats?.pageType || '').startsWith('item listings')) return [];
+    const itemId = Number(stats?.listingItemId) > 0 ? Number(stats.listingItemId) : null;
+    const itemName = normalizeWhitespace(stats?.listingItemName);
+    if (!itemId && !itemName) return [];
+    const currentPrice = Number(stats?.listingLowestPrice) > 0 ? Number(stats.listingLowestPrice) : null;
+    const favoriteRefs = tradeExitFavoriteRefs();
+    const freshnessRank = { fresh: 0, stale: 1, outdated: 2, missing: 3 };
+    return state.traders
+      .filter(traderRecommendationsEligible)
+      .map((trader) => {
+        const quote = tradeExitQuoteForTrader(trader, { itemId, itemName, name: itemName });
+        if (!quote) return null;
+        const profitEach = currentPrice === null ? null : Number(quote.unitPrice) - currentPrice;
+        const roiPercent = currentPrice && profitEach !== null ? profitEach / currentPrice * 100 : null;
+        return {
+          ...quote,
+          trader,
+          favorite: tradeExitTraderIsFavorite(trader, favoriteRefs),
+          profitEach,
+          roiPercent,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) =>
+        Number(freshnessRank[left.freshness?.status] ?? 9) - Number(freshnessRank[right.freshness?.status] ?? 9)
+        || Number(right.unitPrice) - Number(left.unitPrice)
+        || Number(right.favorite) - Number(left.favorite)
+        || String(left.traderName || '').localeCompare(String(right.traderName || ''))
+      );
+  }
+
+  function singleItemTraderQuotesHtml(stats = state.lastScan) {
+    if (!String(stats?.pageType || '').startsWith('item listings')) return '';
+    const itemName = normalizeWhitespace(stats?.listingItemName) || 'this item';
+    const currentPrice = Number(stats?.listingLowestPrice) > 0 ? Number(stats.listingLowestPrice) : null;
+    const quotes = singleItemTraderQuotes(stats);
+    const limit = Number(state.settings.itemTraderQuoteLimit) === 5 ? 5 : 3;
+    const visible = quotes.slice(0, limit);
+    const rows = visible.map((quote, index) => {
+      const freshness = quote.freshness?.status || 'missing';
+      const profitKnown = Number.isFinite(quote.profitEach);
+      const profitClass = !profitKnown ? '' : quote.profitEach >= 0 ? 'profit' : 'loss';
+      const profitText = profitKnown
+        ? `${quote.profitEach >= 0 ? '+' : ''}${formatMoney(quote.profitEach)} · ${formatPercent(quote.roiPercent)}`
+        : 'Open listing price unresolved';
+      const links = [
+        quote.trader?.tradeUrl ? `<a href="${escapeHtml(quote.trader.tradeUrl)}">Trade</a>` : '',
+        quote.trader?.pricePageUrl ? `<a href="${escapeHtml(quote.trader.pricePageUrl)}">Prices</a>` : '',
+        quote.trader?.profileUrl ? `<a href="${escapeHtml(quote.trader.profileUrl)}">Profile</a>` : '',
+      ].filter(Boolean).join('');
+      return `<div class="tsimm-item-trader-row ${escapeHtml(freshness)}">
+        <div class="tsimm-item-trader-name"><strong>#${index + 1} ${quote.favorite ? '★ ' : ''}${escapeHtml(quote.traderName)}</strong><span>${escapeHtml(quote.freshness?.ageLabel || 'unknown age')} · ${escapeHtml(freshness)}</span></div>
+        <div class="tsimm-item-trader-money"><strong>${escapeHtml(formatMoney(quote.unitPrice))}</strong><span class="${escapeHtml(profitClass)}">${escapeHtml(profitText)}</span></div>
+        ${links ? `<div class="tsimm-item-trader-links">${links}</div>` : ''}
+      </div>`;
+    }).join('');
+    const toggle = quotes.length > 3
+      ? `<button type="button" data-tsimm-action="item-trader-quotes-toggle">${limit === 5 ? 'Show top 3' : `Show top ${Math.min(5, quotes.length)}`}</button>`
+      : '';
+    const subtitle = currentPrice === null
+      ? `${escapeHtml(itemName)} · current listing unresolved`
+      : `${escapeHtml(itemName)} · lowest visible ${escapeHtml(formatMoney(currentPrice))}`;
+    const empty = '<div class="tsimm-item-trader-empty">No active trader has a captured price for this item yet.</div>';
+    return `<section class="tsimm-item-trader-card">
+      <div class="tsimm-item-trader-head"><div><strong>🤝 Best trader exits</strong><span>${subtitle}</span></div>${toggle}</div>
+      <div class="tsimm-item-trader-list">${rows || empty}</div>
+    </section>`;
+  }
 
   function loadPricedTradeSession() {
     try {
@@ -7069,6 +7144,10 @@
     stats.listingCandidates = candidates.length;
     if (!candidates.length) return;
 
+    const lowestListing = [...candidates].sort((left, right) => Number(left.price) - Number(right.price))[0] || null;
+    stats.listingLowestPrice = Number(lowestListing?.price) > 0 ? Number(lowestListing.price) : null;
+    stats.listingLowestQuantity = Number(lowestListing?.quantity) > 0 ? Number(lowestListing.quantity) : null;
+
     for (const candidate of candidates) decorateQuickMaxCandidate(candidate, scanToken);
 
     const resolution = resolveListingMarketValue();
@@ -9073,6 +9152,7 @@
       .${APP.categoryMark}.tsimm-tier-npc{outline:2px solid #58bfff99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-gold{outline:2px solid #f4c95d99;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-good{outline:2px solid #44d88b80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-minor{outline:2px solid #bd6cff80;outline-offset:-2px}.${APP.categoryMark}.tsimm-tier-loss{outline:2px solid #ff626d80;outline-offset:-2px}
       .${APP.listingMark}.tsimm-tier-npc{box-shadow:inset 3px 0 #58bfff}.${APP.listingMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.listingMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.listingMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.listingMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
       .${APP.overseasMark}.tsimm-tier-gold{box-shadow:inset 3px 0 #f4c95d}.${APP.overseasMark}.tsimm-tier-good{box-shadow:inset 3px 0 #44d88b}.${APP.overseasMark}.tsimm-tier-minor{box-shadow:inset 3px 0 #bd6cff}.${APP.overseasMark}.tsimm-tier-loss{box-shadow:inset 3px 0 #ff626d}
+      .tsimm-item-trader-card{margin:8px 0;padding:8px;border:1px solid #5a4b70;border-radius:9px;background:#221d2a}.tsimm-item-trader-head{display:flex;align-items:flex-start;justify-content:space-between;gap:7px;margin-bottom:6px}.tsimm-item-trader-head>div{min-width:0}.tsimm-item-trader-head strong{display:block;color:#e7d7ff;font-size:12px}.tsimm-item-trader-head span{display:block;color:#aaa1b7;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-item-trader-head button{flex:0 0 auto;border:1px solid #76618f;border-radius:6px;background:#342942;color:#eee4f8;padding:4px 6px;font:800 9px/1 Arial,sans-serif}.tsimm-item-trader-list{display:grid;gap:5px}.tsimm-item-trader-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 7px;padding:6px;border:1px solid #46404f;border-radius:7px;background:#19171e}.tsimm-item-trader-row.stale{border-color:#74642f}.tsimm-item-trader-row.outdated{border-color:#714049;opacity:.82}.tsimm-item-trader-name,.tsimm-item-trader-money{min-width:0}.tsimm-item-trader-name strong,.tsimm-item-trader-money strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-item-trader-name span,.tsimm-item-trader-money span{display:block;color:#aaa1b7;font-size:9px}.tsimm-item-trader-money{text-align:right}.tsimm-item-trader-money .profit{color:#63df9f}.tsimm-item-trader-money .loss{color:#ff7c85}.tsimm-item-trader-links{grid-column:1/-1;display:flex;gap:4px}.tsimm-item-trader-links a{flex:1;border:1px solid #554c62;border-radius:5px;background:#2c2733;color:#f2edf7;padding:3px 5px;text-align:center;text-decoration:none;font-size:9px;font-weight:800}.tsimm-item-trader-empty{padding:7px;border:1px dashed #51485d;border-radius:7px;color:#aaa1b7;text-align:center;font-size:10px}
       .tsimm-overseas-card{margin:8px 0;padding:8px;border:1px solid #4d5967;border-radius:9px;background:#20272d}.tsimm-overseas-title{display:flex;align-items:center;gap:8px;margin-bottom:6px}.tsimm-overseas-title strong{flex:1;color:#a7d9ff}.tsimm-overseas-title span{font-size:9px;color:#9eb2c2;text-transform:uppercase}.tsimm-overseas-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-overseas-grid span{color:#aebbc4}.tsimm-overseas-grid strong{text-align:right}.tsimm-overseas-profit{color:#63df9f}.tsimm-overseas-plan{margin-top:7px;padding-top:6px;border-top:1px solid #3e4a53;display:grid;gap:3px;max-height:110px;overflow:auto}.tsimm-overseas-plan>div{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:10px}.tsimm-overseas-plan span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c8d4dc}
       .tsimm-overseas-page-plan{box-sizing:border-box;margin:7px 0;padding:8px;border:1px solid #54c8ed;border-radius:8px;background:#061b25f5;color:#ccefff;box-shadow:0 4px 14px #0009;font:700 10px/1.25 Arial,sans-serif}.tsimm-overseas-page-plan-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}.tsimm-overseas-page-plan-head strong{color:#8ee8ff}.tsimm-overseas-page-plan-head b{color:#68e69a}.tsimm-overseas-page-plan>span,.tsimm-overseas-page-plan>small{display:block;color:#9ebdca}.tsimm-overseas-page-plan-list{display:grid;gap:2px;margin-top:6px;padding-top:5px;border-top:1px solid #315365}.tsimm-overseas-page-plan-list>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}.tsimm-overseas-page-plan-list span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-overseas-page-plan-list b{color:#8ee8ff}.tsimm-overseas-page-plan-list strong{color:#68e69a}.tsimm-overseas-planned{box-shadow:inset 3px 0 #54c8ed!important}.tsimm-overseas-planned-badge{border-color:#54c8ed!important}.tsimm-overseas-buy-line{color:#8ee8ff!important;font-weight:900!important;opacity:1!important}
       .${APP.tradeItemMark}{position:relative;min-height:38px}      .${APP.tradeBadgeClass}{display:inline-flex;flex-direction:column;gap:1px;margin:3px 0 3px 6px;padding:3px 5px;border:1px solid #bd6cff;border-radius:7px;background:#19171dcc;color:#d9a6ff;font:700 10px/1.15 Arial,sans-serif;vertical-align:middle;white-space:nowrap;pointer-events:none}
@@ -9398,6 +9478,7 @@
         ${isInventory ? apiKeyProfileHtml(true) : ''}
         ${pendingPurchaseHtml()}
         ${pendingTraderCaptureHtml()}
+        ${singleItemTraderQuotesHtml(stats)}
         ${overseasSummaryHtml(stats)}
         ${tradeSummaryHtml(stats)}
         ${isProfile && stats.profileName ? `<div class="tsimm-profile-capture-card">${stats.profileBannerUrl ? `<img src="${escapeHtml(stats.profileBannerUrl)}" alt="${escapeHtml(stats.profileName)}">` : ''}<div><strong>${escapeHtml(stats.profileName)}</strong><span>Torn ID ${escapeHtml(stats.profileUserId || 'unresolved')}</span></div></div>` : ''}
@@ -9436,6 +9517,8 @@
       const action = button.dataset.tsimmAction;
       if (action === 'toggle') {
         updateSetting('collapsed', !state.settings.collapsed);
+      } else if (action === 'item-trader-quotes-toggle') {
+        updateSetting('itemTraderQuoteLimit', Number(state.settings.itemTraderQuoteLimit) === 5 ? 3 : 5);
       } else if (action === 'sync') {
         syncCatalog();
       } else if (action === 'scan') {
