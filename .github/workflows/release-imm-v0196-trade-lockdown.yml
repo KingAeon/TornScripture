@@ -1,0 +1,48 @@
+name: Release GOBLIN GOD v0.19.6 trade interaction lockdown
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    paths:
+      - scripts/pr_trigger_imm_v0196_trade_lockdown.txt
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Apply, validate, and publish
+        run: |
+          set -euo pipefail
+          python scripts/apply_imm_v0196_trade_lockdown.py
+          node --check TornScripture-Item-Market-Margin.user.js
+          grep -F '// @version      0.19.6' TornScripture-Item-Market-Margin.user.js
+          grep -F 'interaction-locked Priced Trade badges' TornScripture-Item-Market-Margin.user.js
+          grep -F 'return Date.now() < pricedTradeScrollActiveUntil;' TornScripture-Item-Market-Margin.user.js
+          grep -F "if (event.type === 'input') return true;" TornScripture-Item-Market-Margin.user.js
+          grep -F "document.addEventListener('scroll', capturePricedTradeScroll" TornScripture-Item-Market-Margin.user.js
+          grep -F 'Mobile Torn/TornPDA owns scroll position and keyboard anchoring.' TornScripture-Item-Market-Margin.user.js
+          if grep -F "document.addEventListener('input', capturePricedTradePickerInteraction" TornScripture-Item-Market-Margin.user.js; then
+            echo 'Duplicate Priced Trade input handler is still present.' >&2
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f \
+            .github/workflows/release-imm-v0196-trade-lockdown.yml \
+            scripts/apply_imm_v0196_trade_lockdown.py
+          git commit -m 'Lock Priced Trade during scrolling and typing'
+          git push origin main
