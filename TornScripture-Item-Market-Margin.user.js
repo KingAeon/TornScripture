@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.18.10
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe focus-anchored fixed-height in-place quantity-reactive decision-first ledger and best-trader trade badges, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.19.0
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.18.10' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.18.10' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.0' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.0' });
   }
 
 
@@ -197,6 +197,9 @@
         bannerUrl: earlyClean(identity.bannerUrl),
         captureSource: `${provider}-pricelist`,
         pricePageItems: [],
+        disposition: 'normal',
+        hiddenFromDisposition: 'normal',
+        avoidReasons: [],
         createdAt: new Date().toISOString(),
       });
       index = traders.length - 1;
@@ -264,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.18.10
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.0
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -284,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.18.10',
+    version: '0.19.0',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -313,6 +316,7 @@
     apiKeyProfileStorageKey: 'tornscripture-imm-api-key-profile-v1',
     inventoryReconcileIntentStorageKey: 'tornscripture-imm-inventory-reconcile-intent-v1',
     tradersStorageKey: 'tornscripture-imm-traders-v1',
+    traderViewStorageKey: 'tornscripture-imm-trader-view-v1',
     pendingTraderCaptureStorageKey: 'tornscripture-imm-pending-trader-capture-v1',
     priceRecaptureSessionKey: 'tornscripture-imm-price-recapture-v1',
     favoriteRecaptureCarouselSessionKey: 'tornscripture-imm-favorite-recapture-carousel-v1',
@@ -373,6 +377,7 @@
     sellPriority: normalizeSellPriority(loadJson(APP.sellPriorityStorageKey, {})),
     keyProfile: normalizeApiKeyProfile(loadJson(APP.apiKeyProfileStorageKey, {})),
     traders: normalizeTraders(loadJson(APP.tradersStorageKey, [])),
+    showHiddenTraders: Boolean(loadJson(APP.traderViewStorageKey, {})?.showHidden),
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
     purchaseSignals: [],
@@ -443,6 +448,53 @@
     return Number.isFinite(number) ? number : null;
   }
 
+
+  const TRADER_DISPOSITIONS = Object.freeze(['normal', 'avoid', 'hidden']);
+  const TRADER_REASON_LABELS = Object.freeze({
+    prices: 'Poor prices',
+    reputation: 'Reputation',
+    reliability: 'Unreliable',
+    availability: 'Frequently unavailable',
+    vibe: 'Bad vibe',
+    other: 'Other',
+  });
+
+  function normalizeTraderDisposition(value) {
+    const normalized = normalizeWhitespace(value).toLowerCase();
+    return TRADER_DISPOSITIONS.includes(normalized) ? normalized : 'normal';
+  }
+
+  function normalizeTraderReasons(value) {
+    const source = Array.isArray(value)
+      ? value
+      : normalizeWhitespace(value).split(/[,;|/]+/g);
+    const aliases = {
+      price: 'prices', prices: 'prices', pricing: 'prices', 'poor price': 'prices', 'poor prices': 'prices',
+      rep: 'reputation', reputation: 'reputation', scam: 'reputation', scammer: 'reputation',
+      reliable: 'reliability', reliability: 'reliability', unreliable: 'reliability', flaky: 'reliability',
+      availability: 'availability', unavailable: 'availability', closed: 'availability', 'frequently unavailable': 'availability',
+      vibe: 'vibe', vibes: 'vibe', 'bad vibe': 'vibe', attitude: 'vibe', interaction: 'vibe',
+      other: 'other',
+    };
+    const unique = [];
+    for (const raw of source) {
+      const cleaned = normalizeWhitespace(raw).toLowerCase();
+      if (!cleaned) continue;
+      const canonical = aliases[cleaned] || (Object.hasOwn(TRADER_REASON_LABELS, cleaned) ? cleaned : 'other');
+      if (!unique.includes(canonical)) unique.push(canonical);
+    }
+    return unique;
+  }
+
+  function traderReasonLabels(trader) {
+    return normalizeTraderReasons(trader?.avoidReasons)
+      .map((reason) => TRADER_REASON_LABELS[reason] || TRADER_REASON_LABELS.other);
+  }
+
+  function traderRecommendationsEligible(trader) {
+    return normalizeTraderDisposition(trader?.disposition) === 'normal';
+  }
+
   function normalizeTraderPriceItem(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
     const itemName = normalizeWhitespace(candidate.itemName ?? candidate.name);
@@ -460,6 +512,7 @@
     };
   }
 
+
   function normalizeTrader(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
     const name = normalizeWhitespace(candidate.name ?? candidate.username);
@@ -476,6 +529,9 @@
     const pricePageItems = Array.isArray(candidate.pricePageItems ?? candidate.pricingItems)
       ? (candidate.pricePageItems ?? candidate.pricingItems).map(normalizeTraderPriceItem).filter(Boolean)
       : [];
+    const legacyDisposition = candidate.hidden ? 'hidden' : candidate.avoid ? 'avoid' : 'normal';
+    const disposition = normalizeTraderDisposition(candidate.disposition ?? candidate.traderStatus ?? legacyDisposition);
+    const hiddenFromDisposition = normalizeTraderDisposition(candidate.hiddenFromDisposition) === 'avoid' ? 'avoid' : 'normal';
     return {
       id: normalizeWhitespace(candidate.recordId)
         || normalizeWhitespace(candidate.uuid)
@@ -499,11 +555,16 @@
       pricePageCaptureCount: Math.max(0, Math.floor(Number(candidate.pricePageCaptureCount) || 0)),
       pricePageLastChangedCount: Math.max(0, Math.floor(Number(candidate.pricePageLastChangedCount) || 0)),
       pricePageLastResult: normalizeWhitespace(candidate.pricePageLastResult) || (pricePageItems.length ? 'captured' : ''),
+      disposition,
+      hiddenFromDisposition,
+      avoidReasons: normalizeTraderReasons(candidate.avoidReasons ?? candidate.traderReasons ?? candidate.reasons),
+      dispositionUpdatedAt: candidate.dispositionUpdatedAt || null,
       notes: normalizeWhitespace(candidate.notes),
       createdAt: candidate.createdAt || new Date().toISOString(),
       updatedAt: candidate.updatedAt || new Date().toISOString(),
     };
   }
+
 
   function normalizeTraders(raw) {
     const source = Array.isArray(raw) ? raw : Array.isArray(raw?.traders) ? raw.traders : [];
@@ -514,8 +575,11 @@
       const key = trader.userId ? `id:${trader.userId}` : `name:${trader.normalizedName}`;
       unique.set(key, trader);
     }
+    const dispositionOrder = { normal: 0, avoid: 1, hidden: 2 };
     return [...unique.values()].sort((a, b) =>
-      Number(b.rating || 0) - Number(a.rating || 0) || a.name.localeCompare(b.name)
+      Number(dispositionOrder[a.disposition] ?? 0) - Number(dispositionOrder[b.disposition] ?? 0)
+      || Number(b.rating || 0) - Number(a.rating || 0)
+      || a.name.localeCompare(b.name)
     );
   }
 
@@ -4482,8 +4546,9 @@
     }
   }
 
+
   function tradeExitTraderIsFavorite(trader, refs) {
-    if (!trader) return false;
+    if (!trader || !traderRecommendationsEligible(trader)) return false;
     return refs.some((entry) =>
       (entry.traderId && entry.traderId === trader.id)
       || (entry.traderName && normalizeName(entry.traderName) === trader.normalizedName)
@@ -4673,7 +4738,7 @@
 
 
   function capturePricedTradeScroll() {
-    // v0.18.10 emergency guard: scrolling must never schedule a Priced Trade repaint.
+    // v0.19.0 emergency guard: scrolling must never schedule a Priced Trade repaint.
   }
 
 
@@ -8626,6 +8691,70 @@
     if (trader) upsertTrader(trader);
   }
 
+
+  function saveTraderView() {
+    saveJson(APP.traderViewStorageKey, {
+      schemaVersion: 1,
+      showHidden: Boolean(state.showHiddenTraders),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  function markTraderAvoid(id) {
+    const trader = state.traders.find((entry) => entry.id === id);
+    if (!trader) return;
+    const current = traderReasonLabels(trader).join(', ');
+    const raw = prompt(
+      `Why should ${trader.name} be avoided?\n\nUse any of: prices, reputation, reliability, availability, vibe, other. Separate reasons with commas.`,
+      current,
+    );
+    if (raw === null) return;
+    const reasons = normalizeTraderReasons(raw);
+    trader.disposition = 'avoid';
+    trader.hiddenFromDisposition = 'avoid';
+    trader.avoidReasons = reasons.length ? reasons : ['other'];
+    trader.dispositionUpdatedAt = new Date().toISOString();
+    trader.updatedAt = trader.dispositionUpdatedAt;
+    saveTraders();
+    renderTraders();
+    renderPanel();
+    toast(`${trader.name} marked AVOID${traderReasonLabels(trader).length ? ` · ${traderReasonLabels(trader).join(', ')}` : ''}.`);
+  }
+
+  function hideTrader(id) {
+    const trader = state.traders.find((entry) => entry.id === id);
+    if (!trader || !confirm(`Hide ${trader.name} from normal trader lists and automatic recommendations?`)) return;
+    trader.hiddenFromDisposition = trader.disposition === 'avoid' ? 'avoid' : 'normal';
+    trader.disposition = 'hidden';
+    trader.dispositionUpdatedAt = new Date().toISOString();
+    trader.updatedAt = trader.dispositionUpdatedAt;
+    saveTraders();
+    renderTraders();
+    renderPanel();
+    toast(`${trader.name} hidden. Their history and captured prices were preserved.`);
+  }
+
+  function restoreTrader(id) {
+    const trader = state.traders.find((entry) => entry.id === id);
+    if (!trader) return;
+    const restored = trader.disposition === 'hidden' && trader.hiddenFromDisposition === 'avoid' ? 'avoid' : 'normal';
+    trader.disposition = restored;
+    if (restored === 'normal') trader.avoidReasons = [];
+    trader.hiddenFromDisposition = restored === 'avoid' ? 'avoid' : 'normal';
+    trader.dispositionUpdatedAt = new Date().toISOString();
+    trader.updatedAt = trader.dispositionUpdatedAt;
+    saveTraders();
+    renderTraders();
+    renderPanel();
+    toast(`${trader.name} restored as ${restored === 'avoid' ? 'AVOID' : 'ACTIVE'}.`);
+  }
+
+  function toggleHiddenTraders() {
+    state.showHiddenTraders = !state.showHiddenTraders;
+    saveTraderView();
+    renderTraders();
+  }
+
   function deleteTrader(id) {
     const trader = state.traders.find((entry) => entry.id === id);
     if (!trader || !confirm(`Remove ${trader.name} from your trader book?`)) return;
@@ -8636,7 +8765,7 @@
   }
 
   async function copyTradersJson() {
-    const text = JSON.stringify({ schema: 'tornscripture-imm-traders', schemaVersion: 2, traders: state.traders }, null, 2);
+    const text = JSON.stringify({ schema: 'tornscripture-imm-traders', schemaVersion: 3, traders: state.traders }, null, 2);
     try {
       await navigator.clipboard.writeText(text);
       toast('Trader book JSON copied.');
@@ -8666,6 +8795,7 @@
     }
   }
 
+
   function traderCardHtml(trader) {
     const stats = traderStats(trader);
     const stars = trader.rating ? `${'★'.repeat(trader.rating)}${'☆'.repeat(5 - trader.rating)}` : 'Not rated';
@@ -8675,14 +8805,23 @@
       : 'Never';
     const priceItemCount = trader.pricePageItems?.length || 0;
     const autoRecaptureAvailable = trader.pricePageUrl && isSupportedPricePageUrl(trader.pricePageUrl);
+    const disposition = normalizeTraderDisposition(trader.disposition);
+    const reasonText = traderReasonLabels(trader).join(' · ');
+    const statusLabel = disposition === 'avoid' ? '⚠ AVOID' : disposition === 'hidden' ? '◌ HIDDEN' : '✓ ACTIVE';
+    const dispositionActions = disposition === 'normal'
+      ? `<button type="button" class="tsimm-trader-avoid-action" data-tsimm-action="trader-avoid" data-tsimm-trader-id="${escapeHtml(trader.id)}">Avoid</button><button type="button" class="tsimm-trader-hide-action" data-tsimm-action="trader-hide" data-tsimm-trader-id="${escapeHtml(trader.id)}">Hide</button>`
+      : disposition === 'avoid'
+        ? `<button type="button" class="tsimm-trader-avoid-action" data-tsimm-action="trader-avoid" data-tsimm-trader-id="${escapeHtml(trader.id)}">Edit avoid</button><button type="button" data-tsimm-action="trader-restore" data-tsimm-trader-id="${escapeHtml(trader.id)}">Restore</button><button type="button" class="tsimm-trader-hide-action" data-tsimm-action="trader-hide" data-tsimm-trader-id="${escapeHtml(trader.id)}">Hide</button>`
+        : `<button type="button" data-tsimm-action="trader-restore" data-tsimm-trader-id="${escapeHtml(trader.id)}">Restore</button>`;
     return `
-      <article class="tsimm-trader-card">
+      <article class="tsimm-trader-card tsimm-trader-${escapeHtml(disposition)}">
         <div class="tsimm-trader-card-head">
           ${trader.profileUrl
             ? `<a class="tsimm-trader-profile-button${trader.bannerUrl ? ' has-banner' : ''}" href="${escapeHtml(trader.profileUrl)}" title="Open ${escapeHtml(trader.name)}'s profile">${trader.bannerUrl ? `<img src="${escapeHtml(trader.bannerUrl)}" alt="${escapeHtml(trader.name)}"><span class="tsimm-trader-banner-label"><strong>${escapeHtml(trader.name)}</strong>${trader.userId ? `<small>[${escapeHtml(trader.userId)}]</small>` : ''}</span>` : `<strong>${escapeHtml(trader.name)}</strong>`}<span class="tsimm-trader-stars">${escapeHtml(stars)}</span></a>`
             : `<div class="tsimm-trader-profile-button"><strong>${escapeHtml(trader.name)}</strong><span>${escapeHtml(stars)}</span></div>`}
           <b>${escapeHtml(formatPercent(trader.targetPercent))} target</b>
         </div>
+        <div class="tsimm-trader-disposition"><strong>${escapeHtml(statusLabel)}</strong><span>${escapeHtml(reasonText || (disposition === 'normal' ? 'Eligible for comparisons and refresh queues' : disposition === 'hidden' ? 'Excluded from normal lists and recommendations' : 'Excluded from automatic recommendations'))}</span></div>
         <div class="tsimm-trader-grid">
           <span>Recorded trades</span><strong>${formatInteger(stats.trades)}</strong>
           <span>Cash received</span><strong>${formatMoney(stats.cash)}</strong>
@@ -8693,11 +8832,12 @@
         </div>
         ${trader.notes ? `<div class="tsimm-trader-notes">${escapeHtml(trader.notes)}</div>` : ''}
         <div class="tsimm-trader-actions">
-          ${trader.tradeUrl && priceItemCount ? `<button type="button" class="tsimm-priced-trade-start" data-tsimm-action="trader-start-priced-trade" data-tsimm-trader-id="${escapeHtml(trader.id)}">Start priced trade</button>` : (trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : '')}
+          ${disposition === 'normal' && trader.tradeUrl && priceItemCount ? `<button type="button" class="tsimm-priced-trade-start" data-tsimm-action="trader-start-priced-trade" data-tsimm-trader-id="${escapeHtml(trader.id)}">Start priced trade</button>` : (disposition === 'normal' && trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : '')}
           ${trader.profileUrl ? `<a href="${escapeHtml(trader.profileUrl)}">Profile</a>` : ''}
           ${trader.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Open prices</a>` : ''}
-          ${autoRecaptureAvailable ? `<button type="button" data-tsimm-action="trader-open-recapture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open & recapture</button>` : ''}
-          <button type="button" data-tsimm-action="trader-arm-capture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Arm price capture</button>
+          ${disposition === 'normal' && autoRecaptureAvailable ? `<button type="button" data-tsimm-action="trader-open-recapture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open & recapture</button>` : ''}
+          ${disposition === 'normal' ? `<button type="button" data-tsimm-action="trader-arm-capture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Arm price capture</button>` : ''}
+          ${dispositionActions}
           <button type="button" data-tsimm-action="trader-edit" data-tsimm-trader-id="${escapeHtml(trader.id)}">Edit</button>
           <button type="button" data-tsimm-action="trader-delete" data-tsimm-trader-id="${escapeHtml(trader.id)}">Delete</button>
         </div>
@@ -8705,28 +8845,33 @@
     `;
   }
 
+
   function renderTraders() {
     const overlay = document.getElementById(APP.traderOverlayId);
     if (!overlay) return;
+    const hiddenCount = state.traders.filter((trader) => normalizeTraderDisposition(trader.disposition) === 'hidden').length;
+    const avoidCount = state.traders.filter((trader) => normalizeTraderDisposition(trader.disposition) === 'avoid').length;
+    const visibleTraders = state.traders.filter((trader) => state.showHiddenTraders || normalizeTraderDisposition(trader.disposition) !== 'hidden');
     overlay.innerHTML = `
       <div class="tsimm-trader-shell">
         <div class="tsimm-ledger-head">
-          <div><strong>🤝 GOBLIN GOD Trader Book</strong><small>Fast links, ratings, notes, and local sale history</small></div>
+          <div><strong>🤝 GOBLIN GOD Trader Book</strong><small>Fast links, ratings, notes, local sale history, and recommendation controls</small></div>
           <button type="button" data-tsimm-action="traders-close">×</button>
         </div>
         <div class="tsimm-trader-top">
-          <strong>${formatInteger(state.traders.length)} saved traders</strong>
-          <span>${activePendingTraderCapture() ? `${escapeHtml(activePendingTraderCapture().name)} armed for next page` : 'Stored only in this browser unless exported.'}</span>
+          <strong>${formatInteger(state.traders.length)} saved · ${formatInteger(avoidCount)} avoid · ${formatInteger(hiddenCount)} hidden</strong>
+          <span>${activePendingTraderCapture() ? `${escapeHtml(activePendingTraderCapture().name)} armed for next page` : 'Avoided and hidden traders are excluded from automatic recommendations.'}</span>
         </div>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="trader-add">Add trader</button>
           ${state.lastScan.pageType === 'profile' && state.lastScan.profileCaptureReady ? '<button type="button" data-tsimm-action="trader-capture-profile">Capture this profile</button>' : ''}
           ${state.lastScan.pageType === 'trade' && state.lastScan.tradeCounterparty ? '<button type="button" data-tsimm-action="trader-save-current">Save current trade</button>' : ''}
+          ${hiddenCount ? `<button type="button" data-tsimm-action="traders-toggle-hidden">${state.showHiddenTraders ? 'Hide hidden' : `Show hidden (${formatInteger(hiddenCount)})`}</button>` : ''}
           <button type="button" data-tsimm-action="traders-copy">Copy JSON</button>
           <button type="button" data-tsimm-action="traders-import">Import JSON</button>
         </div>
         <div class="tsimm-trader-list">
-          ${state.traders.length ? state.traders.map(traderCardHtml).join('') : '<div class="tsimm-ledger-empty">No traders saved yet. Add one manually or save the counterparty from a trade page.</div>'}
+          ${visibleTraders.length ? visibleTraders.map(traderCardHtml).join('') : '<div class="tsimm-ledger-empty">No visible traders. Use Show hidden to restore a hidden trader.</div>'}
         </div>
       </div>
     `;
@@ -8968,7 +9113,8 @@
       .tsimm-ledger-lot-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px}.tsimm-ledger-lot-grid span{color:#aaa1b7}.tsimm-ledger-lot-grid strong{text-align:right}.tsimm-ledger-gold{color:#f4c95d}.tsimm-ledger-profit{color:#63df9f}.tsimm-ledger-minor{color:#c77dff}.tsimm-ledger-loss{color:#ff7c85}
       .tsimm-ledger-lot-foot{display:flex;gap:8px;align-items:center;margin-top:7px;padding-top:6px;border-top:1px solid #423c49}.tsimm-ledger-lot-foot small{flex:1;color:#8f8798}.tsimm-ledger-lot-foot button{border:1px solid #5a5266;border-radius:6px;background:#332e3a;color:#fff;padding:4px 7px;margin-left:4px}.tsimm-ledger-notes{margin-top:5px;color:#c1b8ca;font-size:10px}
       .tsimm-gold-text{color:#f4c95d}
-      #${APP.traderOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
+             .tsimm-trader-disposition{display:flex;align-items:center;gap:7px;margin-top:7px;padding:5px 7px;border:1px solid #4d6548;border-radius:6px;background:#172017}.tsimm-trader-disposition strong{color:#aaf59d;font-size:9px;white-space:nowrap}.tsimm-trader-disposition span{overflow:hidden;color:#a8bba5;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.tsimm-trader-card.tsimm-trader-avoid{border-color:#9a6d1f;background:#2c230f}.tsimm-trader-card.tsimm-trader-avoid .tsimm-trader-disposition{border-color:#9a6d1f;background:#211705}.tsimm-trader-card.tsimm-trader-avoid .tsimm-trader-disposition strong,.tsimm-trader-card.tsimm-trader-avoid .tsimm-trader-disposition span{color:#ffd166}.tsimm-trader-card.tsimm-trader-hidden{border-color:#555b61;background:#202326;opacity:.86}.tsimm-trader-card.tsimm-trader-hidden .tsimm-trader-disposition{border-color:#555b61;background:#151719}.tsimm-trader-card.tsimm-trader-hidden .tsimm-trader-disposition strong,.tsimm-trader-card.tsimm-trader-hidden .tsimm-trader-disposition span{color:#b4bdc2}.tsimm-trader-avoid-action{border-color:#9a6d1f!important;background:#392708!important;color:#ffe29a!important}.tsimm-trader-hide-action{border-color:#5d646a!important;background:#25292d!important;color:#d3d9dd!important}
+#${APP.traderOverlayId}{position:fixed;inset:0;z-index:2147483500;background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
       .tsimm-trader-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #7a6740;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-trader-top{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;color:#d8caa5}.tsimm-trader-top span{color:#aaa1b7;font-size:10px}
       .tsimm-trader-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-profile-button{display:grid;flex:1;gap:2px;min-width:0;color:#fff;text-decoration:none}.tsimm-trader-profile-button>strong{font-size:13px}.tsimm-trader-profile-button>.tsimm-trader-stars{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-profile-button.has-banner{position:relative;display:block;min-height:68px;border:1px solid #5d5137;border-radius:6px;overflow:hidden;background:#17140f}.tsimm-trader-profile-button.has-banner img{display:block;width:100%;height:68px;object-fit:cover}.tsimm-trader-banner-label{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:6px;background:linear-gradient(90deg,#0008,#0002 38%,#0002 62%,#0008);text-shadow:0 2px 4px #000,0 0 8px #000;color:#fff!important;letter-spacing:.02em;text-align:center}.tsimm-trader-banner-label strong{font-size:15px;line-height:1.05}.tsimm-trader-banner-label small{font-size:9px;color:#ded7e6}.tsimm-trader-profile-button.has-banner>.tsimm-trader-stars{position:absolute;left:6px;bottom:3px;padding:1px 4px;border-radius:999px;background:#0009;color:#f4c95d;font-size:10px}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px;white-space:nowrap}.tsimm-trader-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:7px}.tsimm-trader-grid span{color:#b6ad99}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}.tsimm-profile-capture-card{display:flex;align-items:center;gap:8px;margin:7px 0;padding:7px;border:1px solid #6f5220;border-radius:8px;background:#2b2417}.tsimm-profile-capture-card img{width:112px;max-height:44px;object-fit:cover;border-radius:5px}.tsimm-profile-capture-card div{display:grid;min-width:0}.tsimm-profile-capture-card strong{color:#f6d16f}.tsimm-profile-capture-card span{color:#bdb4c8;font-size:10px}.tsimm-btn-gold{background:#775715!important;border-color:#b98c2c!important;color:#fff5cc!important}
@@ -9383,6 +9529,14 @@
         if (trader) { upsertTrader(trader); toast(`Saved trader ${trader.name}.`); }
       } else if (action === 'trader-edit') {
         editTrader(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-avoid') {
+        markTraderAvoid(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-hide') {
+        hideTrader(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-restore') {
+        restoreTrader(button.dataset.tsimmTraderId);
+      } else if (action === 'traders-toggle-hidden') {
+        toggleHiddenTraders();
       } else if (action === 'trader-delete') {
         deleteTrader(button.dataset.tsimmTraderId);
       } else if (action === 'traders-copy') {
@@ -9696,7 +9850,7 @@
   'use strict';
 
   const A = Object.freeze({
-    v: '0.2.1',
+    v: '0.3.0',
     traders: 'tornscripture-imm-traders-v1',
     catalog: 'tornscripture-imm-catalog-v1',
     sharedCatalog: 'tornscripture-ish-torn-catalog-v1',
@@ -9911,12 +10065,16 @@
     return name ? { id, name, n: key(name), price } : null;
   }
 
+
   function normTraders() {
     return tradersRaw().list.map((candidate) => {
       if (!candidate || typeof candidate !== 'object') return null;
       const name = clean(candidate.name ?? candidate.username);
       if (!name) return null;
       const uid = Number(candidate.userId ?? candidate.tornId) > 0 ? Number(candidate.userId ?? candidate.tornId) : null;
+      const disposition = ['normal', 'avoid', 'hidden'].includes(clean(candidate.disposition).toLowerCase())
+        ? clean(candidate.disposition).toLowerCase()
+        : candidate.hidden ? 'hidden' : candidate.avoid ? 'avoid' : 'normal';
       return {
         raw: candidate,
         id: clean(candidate.recordId ?? candidate.uuid)
@@ -9925,6 +10083,8 @@
         name,
         n: key(name),
         uid,
+        disposition,
+        avoidReasons: Array.isArray(candidate.avoidReasons) ? candidate.avoidReasons.map(clean).filter(Boolean) : [],
         captured: candidate.pricePageLastCheckedAt || candidate.pricePageCapturedAt || candidate.pricesCapturedAt || null,
         url: clean(candidate.pricePageUrl ?? candidate.pricingPageUrl),
         items: (Array.isArray(candidate.pricePageItems ?? candidate.pricingItems)
@@ -9932,6 +10092,10 @@
           : []).map(normItem).filter(Boolean),
       };
     }).filter(Boolean);
+  }
+
+  function traderRecommendationEligible(trader) {
+    return clean(trader?.disposition || 'normal').toLowerCase() === 'normal';
   }
 
   function catalog() {
@@ -10502,6 +10666,7 @@
     scheduleTorn();
   }
 
+
   function favoriteCaptureSelection(traders = normTraders(), favorites = favoriteStore()) {
     const ready = [];
     const seen = new Set();
@@ -10510,7 +10675,9 @@
       const trader = traders.find((candidate) => favoriteMatches(favorite, candidate));
       if (!trader || seen.has(trader.id)) continue;
       seen.add(trader.id);
-      if (!trader.url || (!isWeav3rPriceListUrl(trader.url) && !isTornExchangePriceListUrl(trader.url))) {
+      if (!traderRecommendationEligible(trader)
+        || !trader.url
+        || (!isWeav3rPriceListUrl(trader.url) && !isTornExchangePriceListUrl(trader.url))) {
         skipped += 1;
         continue;
       }
@@ -10535,12 +10702,18 @@
     return Number.isFinite(captured) && Date.now() - captured <= TRADER_CAPTURE_FRESH_MS;
   }
 
+
   function savedTraderCaptureSelection(traders = normTraders()) {
     const eligible = [];
     const stale = [];
     const fresh = [];
     const unsupported = [];
+    const excluded = [];
     for (const trader of traders) {
+      if (!traderRecommendationEligible(trader)) {
+        excluded.push(trader);
+        continue;
+      }
       if (!trader.url || (!isWeav3rPriceListUrl(trader.url) && !isTornExchangePriceListUrl(trader.url))) {
         unsupported.push(trader);
         continue;
@@ -10549,7 +10722,7 @@
       if (traderCaptureFresh(trader)) fresh.push(trader);
       else stale.push(trader);
     }
-    return { total: traders.length, eligible, stale, fresh, unsupported };
+    return { total: traders.length, eligible, stale, fresh, unsupported, excluded };
   }
 
   function lastCaptureRefreshResult() {
@@ -10588,6 +10761,7 @@
     scheduleTorn();
   }
 
+
   function renderTraderRefreshDialog(selection = savedTraderCaptureSelection()) {
     let dialog = document.getElementById(A.bulkDialog);
     if (!traderRefreshDialogOpen) {
@@ -10600,7 +10774,7 @@
       dialog.dataset.tsimmGenerated = 'true';
       document.body.appendChild(dialog);
     }
-    dialog.innerHTML = `<div class="refresh-shell"><div class="refresh-head"><strong>🧌 GOBLIN GOD PRICE CENSUS</strong><button type="button" data-watch-bulk-cancel aria-label="Close">×</button></div><div class="refresh-grid"><span>Saved traders</span><strong>${selection.total}</strong><span>Supported price pages</span><strong>${selection.eligible.length}</strong><span>Stale or missing</span><strong>${selection.stale.length}</strong><span>Fresh within 72h</span><strong>${selection.fresh.length}</strong><span>Unsupported / manual</span><strong>${selection.unsupported.length}</strong></div><div class="refresh-note">Old captures are preserved until a replacement succeeds. The queue returns to Torn after each supported price page and can resume after an app restart.</div><div class="refresh-options"><div class="refresh-option"><strong>Stale or missing only</strong><span>Recommended default. Skips traders whose captured prices are already fresh.</span><button type="button" data-watch-bulk-start="stale" ${selection.stale.length ? '' : 'disabled'}>START ${selection.stale.length}</button></div><div class="refresh-option all"><strong>Every eligible trader</strong><span>Refreshes fresh, stale, and missing captures in one complete sweep.</span><button type="button" data-watch-bulk-start="all" ${selection.eligible.length ? '' : 'disabled'}>START ${selection.eligible.length}</button></div></div></div>`;
+    dialog.innerHTML = `<div class="refresh-shell"><div class="refresh-head"><strong>🧌 GOBLIN GOD PRICE CENSUS</strong><button type="button" data-watch-bulk-cancel aria-label="Close">×</button></div><div class="refresh-grid"><span>Saved traders</span><strong>${selection.total}</strong><span>Supported price pages</span><strong>${selection.eligible.length}</strong><span>Stale or missing</span><strong>${selection.stale.length}</strong><span>Fresh within 72h</span><strong>${selection.fresh.length}</strong><span>Unsupported / manual</span><strong>${selection.unsupported.length}</strong><span>Avoided / hidden</span><strong>${selection.excluded.length}</strong></div><div class="refresh-note">Old captures are preserved until a replacement succeeds. Avoided and hidden traders are skipped. The queue returns to Torn after each supported price page and can resume after an app restart.</div><div class="refresh-options"><div class="refresh-option"><strong>Stale or missing only</strong><span>Recommended default. Skips traders whose captured prices are already fresh.</span><button type="button" data-watch-bulk-start="stale" ${selection.stale.length ? '' : 'disabled'}>START ${selection.stale.length}</button></div><div class="refresh-option all"><strong>Every eligible trader</strong><span>Refreshes fresh, stale, and missing active traders in one complete sweep.</span><button type="button" data-watch-bulk-start="all" ${selection.eligible.length ? '' : 'disabled'}>START ${selection.eligible.length}</button></div></div></div>`;
   }
 
   function startSavedTraderCaptureCarousel(mode = 'stale', explicitTraders = null) {
@@ -10835,6 +11009,7 @@
     panel.innerHTML = `<div class="turnover-head"><strong>⚡ HIGH-TURNOVER TARGET LIBRARY</strong><span>Seed repeat-use items into the existing watch system. Your manual watches stay untouched.</span></div><div class="turnover-actions">${buttons}<button type="button" class="all ${allComplete ? 'complete' : ''}" data-watch-turnover-preset="all" ${allComplete ? 'disabled' : ''}><span>＋</span><strong>ADD EVERY PRESET<small>Broad scan list; profit rules still decide what is worth buying.</small></strong><span>${watchedTotal}/${union.size}</span></button></div><div class="velocity-board"><div class="velocity-board-head"><strong>LOCAL VELOCITY LEADERS</strong><span>movement signals, not confirmed sales</span></div>${velocityBoard}</div>`;
   }
 
+
   function renderFavoriteCaptureCarousel(book, traders, favorites) {
     if (!(book instanceof Element)) return;
     const favoriteSelection = favoriteCaptureSelection(traders, favorites);
@@ -10858,12 +11033,12 @@
       return;
     }
     bar.className = '';
-    const favoriteSkipped = favoriteSelection.skipped ? ` · ${favoriteSelection.skipped} unsupported` : '';
+    const favoriteSkipped = favoriteSelection.skipped ? ` · ${favoriteSelection.skipped} skipped` : '';
     const result = lastCaptureRefreshResult();
     const resultText = result
       ? ` · last ${captureQueueLabel(result).toLowerCase()}: ${result.completed.length} captured${result.failed.length ? `, ${result.failed.length} failed` : ''}`
       : '';
-    bar.innerHTML = `<div class="carousel-copy"><strong>↻ TRADER PRICE CONTROL</strong><span>${favoriteSelection.ready.length}/${favoriteSelection.favoriteCount} favorites ready${favoriteSkipped} · ${traderSelection.stale.length} stale/missing · ${traderSelection.fresh.length} fresh · ${traderSelection.unsupported.length} manual${esc(resultText)}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-start ${favoriteSelection.ready.length ? '' : 'disabled'}>FAVORITES</button><button type="button" data-watch-bulk-open ${traderSelection.eligible.length ? '' : 'disabled'}>PRICE CHECK TRADERS</button>${result?.failed?.length ? `<button type="button" data-watch-bulk-retry>RETRY FAILURES (${result.failed.length})</button>` : ''}</div>`;
+    bar.innerHTML = `<div class="carousel-copy"><strong>↻ TRADER PRICE CONTROL</strong><span>${favoriteSelection.ready.length}/${favoriteSelection.favoriteCount} favorites ready${favoriteSkipped} · ${traderSelection.stale.length} stale/missing · ${traderSelection.fresh.length} fresh · ${traderSelection.unsupported.length} manual · ${traderSelection.excluded.length} avoided/hidden${esc(resultText)}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-start ${favoriteSelection.ready.length ? '' : 'disabled'}>FAVORITES</button><button type="button" data-watch-bulk-open ${traderSelection.eligible.length ? '' : 'disabled'}>PRICE CHECK TRADERS</button>${result?.failed?.length ? `<button type="button" data-watch-bulk-retry>RETRY FAILURES (${result.failed.length})</button>` : ''}</div>`;
   }
 
   function isWatched(store, item) {
@@ -11016,13 +11191,14 @@
     return 'outdated';
   }
 
+
   function exitsForItem(item) {
     const traders = normTraders();
     const favorites = favoriteStore();
     const settings = { freshAgeHours: 72, actionableAgeHours: 168, ...read(A.overlaySettings, {}) };
     const exits = [];
     for (const trader of traders) {
-      if (!isFavorite(favorites, trader)) continue;
+      if (!traderRecommendationEligible(trader) || !isFavorite(favorites, trader)) continue;
       const priceItem = trader.items.find((candidate) =>
         (item.id && candidate.id === item.id) || candidate.n === key(item.name));
       if (!priceItem?.price) continue;
@@ -11288,6 +11464,7 @@
     return traders.find((candidate) => candidate.n === name) || null;
   }
 
+
   function decorateBook() {
     const book = document.getElementById('tornscripture-imm-traders');
     if (!book) return;
@@ -11315,6 +11492,14 @@
       applyFavoriteButtonState(button, favorite, 'book');
       button.dataset.trader = trader.id;
       button.dataset.tsimmTraderId = trader.id;
+      const eligible = traderRecommendationEligible(trader);
+      button.disabled = !eligible;
+      if (!eligible) {
+        button.textContent = trader.disposition === 'hidden' ? '◌ HIDDEN' : '⚠ AVOIDED';
+        button.title = 'Restore this trader to active before using favorites or automatic comparisons.';
+      } else {
+        button.removeAttribute('title');
+      }
     }
   }
 
