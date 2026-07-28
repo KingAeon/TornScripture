@@ -1,7 +1,7 @@
 name: Release GOBLIN GOD v0.19.3 ledger dedupe
 
 on:
-  pull_request_target:
+  push:
     branches: [main]
     paths:
       - scripts/trigger_imm_v0193_ledger_dedupe.txt
