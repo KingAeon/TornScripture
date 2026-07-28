@@ -1,7 +1,7 @@
 name: Hotfix GOBLIN GOD v0.19.1 startup
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     paths:
       - scripts/trigger_imm_v0191_startup.txt
@@ -104,7 +104,11 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add TornScripture-Item-Market-Margin.user.js
-          git rm -f .github/workflows/hotfix-imm-v0191-startup.yml
-          git rm --ignore-unmatch scripts/trigger_imm_v0191_startup.txt
+          git rm -f \
+            .github/workflows/hotfix-imm-v0191-startup.yml \
+            .github/workflows/hotfix-imm-v0191-startup-push.yml
+          git rm --ignore-unmatch \
+            scripts/trigger_imm_v0191_startup.txt \
+            scripts/trigger_imm_v0191_push.txt
           git commit -m 'Fix trader controls startup ordering'
           git push origin main
