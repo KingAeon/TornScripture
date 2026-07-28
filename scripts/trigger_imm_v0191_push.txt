@@ -1,0 +1,1 @@
+Trigger GOBLIN GOD v0.19.1 startup-order hotfix on main.
