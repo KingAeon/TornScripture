@@ -29,7 +29,7 @@ jobs:
       - name: Apply, validate, and publish
         run: |
           set -euo pipefail
-          sed -i 's/^         <\/div>$/        <\/div>/' scripts/apply_imm_v0195_funding_sources.py
+          sed -i 's/"""         <\/div>/"""        <\/div>/' scripts/apply_imm_v0195_funding_sources.py
           python scripts/apply_imm_v0195_funding_sources.py
           node --check TornScripture-Item-Market-Margin.user.js
           grep -F '// @version      0.19.5' TornScripture-Item-Market-Margin.user.js
