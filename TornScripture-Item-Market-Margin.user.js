@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.5
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
+// @version      0.19.6
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, interaction-locked Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.5' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.5' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.6' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.6' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.5
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.6
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.5',
+    version: '0.19.6',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4599,7 +4599,7 @@
   let pricedTradeScrollActiveUntil = 0;
   let pricedTradeDeferredFullRepaint = false;
   let pricedTradeDeferredRow = null;
-  const PRICED_TRADE_SCROLL_QUIET_MS = 280;
+  const PRICED_TRADE_SCROLL_QUIET_MS = 650;
 
   function tradeExitFavoriteRefs() {
     try {
@@ -4849,7 +4849,7 @@
 
 
   function pricedTradeScrollIsActive() {
-    return false;
+    return Date.now() < pricedTradeScrollActiveUntil;
   }
 
   function schedulePricedTradeScrollSettle() {
@@ -4877,13 +4877,25 @@
   }
 
 
-  function capturePricedTradeScroll() {
-    // v0.19.0 emergency guard: scrolling must never schedule a Priced Trade repaint.
+  function capturePricedTradeScroll(event) {
+    if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return;
+    const target = event?.target instanceof Element ? event.target : null;
+    if (target?.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return;
+    pricedTradeScrollActiveUntil = Date.now() + PRICED_TRADE_SCROLL_QUIET_MS;
+    clearTimeout(pricedTradeRepaintSettleTimer);
+    clearTimeout(pricedTradeQuantityTimer);
+    clearTimeout(pricedTradeScrollQuietTimer);
+    pricedTradeRepaintSettleTimer = null;
+    pricedTradeQuantityTimer = null;
+    pricedTradeScrollQuietTimer = null;
+    pricedTradePendingQuantityRow = null;
+    pricedTradeDeferredFullRepaint = false;
+    pricedTradeDeferredRow = null;
   }
 
 
   function schedulePricedTradePickerRepaint(delay = 140) {
-    if (!loadPricedTradeSession()) return;
+    if (!loadPricedTradeSession() || pricedTradeScrollIsActive()) return;
     clearTimeout(pricedTradeRepaintSettleTimer);
     pricedTradeRepaintSettleTimer = null;
     scheduleScan(Math.max(100, Number(delay) || 0));
@@ -4948,6 +4960,9 @@
         syncPricedTradePickerObserver();
         return;
       }
+      if (pricedTradeScrollIsActive()) return;
+      const activeElement = document.activeElement instanceof Element ? document.activeElement : null;
+      if (pricedTradeIsQuantityControl(activeElement)) return;
       const previousSurface = pricedTradeObservedSurface;
       const resolvedSurface = pricedTradeInventorySurface();
       const nextSurface = resolvedSurface instanceof Element ? resolvedSurface : null;
@@ -4979,16 +4994,29 @@
     });
     pricedTradePickerObserver.observe(document.body, {
       childList: true,
-      characterData: true,
       subtree: true,
     });
   }
 
 
+  function pricedTradeIsQuantityControl(target) {
+    if (!(target instanceof Element)) return false;
+    const role = String(target.getAttribute?.('role') || '').toLowerCase();
+    const type = String(target.getAttribute?.('type') || '').toLowerCase();
+    const label = pricedTradeControlLabel(target);
+    return ['checkbox', 'radio', 'number'].includes(type)
+      || role === 'spinbutton'
+      || target.getAttribute?.('contenteditable') === 'true'
+      || /\b(?:qty|quantity|amount)\b/i.test(label)
+      || /(?:qty|quantity|amount)/i.test(String(target.className || ''));
+  }
+
   function capturePricedTradePickerInteraction(event) {
     if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return;
     const target = event.target instanceof Element ? event.target : null;
     if (!target || target.closest(`#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return;
+    if (pricedTradeIsQuantityControl(target)) return;
+    if (pricedTradeScrollIsActive()) return;
     const picker = pricedTradePickerEvidence();
     const previousSurface = pricedTradeObservedSurface;
     const insidePrevious = previousSurface instanceof Element
@@ -5586,24 +5614,8 @@
     return null;
   }
 
-  function pricedTradeRestoreScrollAnchor(anchor) {
-    if (!anchor) return;
-    if (anchor.mode === 'bottom') {
-      const scrollRoot = document.scrollingElement || document.documentElement;
-      if (!scrollRoot) return;
-      const viewportHeight = Math.max(0, Number(scrollRoot.clientHeight ?? window.innerHeight) || 0);
-      const scrollHeight = Math.max(0, Number(scrollRoot.scrollHeight) || 0);
-      const targetTop = Math.max(0, scrollHeight - viewportHeight - Math.max(0, Number(anchor.bottomDistance) || 0));
-      if (Math.abs(Number(scrollRoot.scrollTop) - targetTop) > 0.5) scrollRoot.scrollTop = targetTop;
-      return;
-    }
-    if (anchor.mode !== 'row' || !anchor.row?.isConnected) return;
-    const activeRow = document.activeElement instanceof Element
-      ? document.activeElement.closest(`.${PRICED_TRADE_ROW_CLASS}`)
-      : null;
-    if (activeRow !== anchor.row) return;
-    const delta = anchor.row.getBoundingClientRect().top - Number(anchor.top || 0);
-    if (Number.isFinite(delta) && Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+  function pricedTradeRestoreScrollAnchor() {
+    // Deliberately empty. Mobile Torn/TornPDA owns scroll position and keyboard anchoring.
   }
 
   function pricedTradeRenderRowBadge(row, trader, resolvedItem = null) {
@@ -5667,11 +5679,7 @@
   function schedulePricedTradeRowRefresh(row, delay = 180) {
     if (!(row instanceof Element) || !row.isConnected || !loadPricedTradeSession()) return false;
     pricedTradeLastInteractedRow = row;
-    if (pricedTradeScrollIsActive()) {
-      pricedTradeDeferredRow = row;
-      schedulePricedTradeScrollSettle();
-      return true;
-    }
+    if (pricedTradeScrollIsActive()) return true;
     pricedTradePendingQuantityRow = row;
     clearTimeout(pricedTradeQuantityTimer);
     pricedTradeQuantityTimer = setTimeout(() => {
@@ -5682,11 +5690,7 @@
         schedulePricedTradePickerRepaint(45);
         return;
       }
-      if (pricedTradeScrollIsActive()) {
-        pricedTradeDeferredRow = pendingRow;
-        schedulePricedTradeScrollSettle();
-        return;
-      }
+      if (pricedTradeScrollIsActive()) return;
       const verification = pricedTradeVerification(state.lastScan || {});
       if (verification.status !== 'verified' || !verification.trader) {
         scheduleScan(0);
@@ -5703,15 +5707,7 @@
     if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return false;
     const target = event.target instanceof Element ? event.target : null;
     if (!target || target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return false;
-    const role = String(target.getAttribute?.('role') || '').toLowerCase();
-    const type = String(target.getAttribute?.('type') || '').toLowerCase();
-    const label = pricedTradeControlLabel(target);
-    const quantityControl = ['checkbox', 'radio', 'number'].includes(type)
-      || role === 'spinbutton'
-      || target.getAttribute?.('contenteditable') === 'true'
-      || /\b(?:qty|quantity|amount)\b/i.test(label)
-      || /(?:qty|quantity|amount)/i.test(String(target.className || ''));
-    if (!quantityControl) return false;
+    if (!pricedTradeIsQuantityControl(target)) return false;
 
     const trader = pricedTradeArmedTrader();
     if (!trader) return false;
@@ -5723,6 +5719,7 @@
     const surface = pricedTradeInventorySurface();
     if (surface instanceof Element && !surface.contains(row)) return false;
     pricedTradeLastInteractedRow = row;
+    if (event.type === 'input') return true;
     return schedulePricedTradeRowRefresh(row, delay);
   }
 
@@ -5739,11 +5736,7 @@
       return;
     }
 
-    if (pricedTradeScrollIsActive()) {
-      pricedTradeDeferredFullRepaint = true;
-      schedulePricedTradeScrollSettle();
-      return;
-    }
+    if (pricedTradeScrollIsActive()) return;
 
     injectPricedTradeStyles();
     const trader = verification.trader;
@@ -9830,7 +9823,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     document.addEventListener('click', capturePurchaseIntentFromClick, true);
     document.addEventListener('click', capturePricedTradePickerInteraction, true);
     document.addEventListener('change', capturePricedTradePickerInteraction, true);
-    document.addEventListener('input', capturePricedTradePickerInteraction, true);
+    document.addEventListener('scroll', capturePricedTradeScroll, { capture: true, passive: true });
+    document.addEventListener('touchmove', capturePricedTradeScroll, { capture: true, passive: true });
+    document.addEventListener('wheel', capturePricedTradeScroll, { capture: true, passive: true });
     document.addEventListener('click', (event) => {
       const button = event.target.closest(`[data-tsimm-action]`);
       if (!button) return;
