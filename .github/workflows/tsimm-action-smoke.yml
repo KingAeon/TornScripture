@@ -1,0 +1,27 @@
+name: TSIMM action smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/trigger_action_smoke.txt
+
+permissions:
+  contents: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Write marker
+        run: echo "smoke $(date -u +%FT%TZ)" > actions-smoke-marker.txt
+      - name: Commit marker
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add actions-smoke-marker.txt
+          git commit -m 'Run TSIMM action smoke'
+          git push origin main
