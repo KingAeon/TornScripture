@@ -1,1 +1,2 @@
 Trigger GOBLIN GOD v0.19.5 funding-source release from a same-repository pull request.
+Retry after patch correction.
