@@ -1,2 +1,0 @@
-Trigger guarded GOBLIN GOD v0.19.5 funding-source tracking release.
-Retry after workflow registration.
