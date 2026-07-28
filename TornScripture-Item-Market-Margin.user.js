@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.0
-// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.19.1
+// @description  Item-market and overseas profit overlays with Quick MAX, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, startup-safe classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.0' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.0' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.1' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.1' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.0
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.1
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.0',
+    version: '0.19.1',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -366,6 +366,16 @@
     ledgerShowSoldPurchases: true,
     overseasLoadLimit: 21,
     sellPrioritySuggestBelowTotalValue: 5000,
+  });
+
+  const TRADER_DISPOSITIONS = Object.freeze(['normal', 'avoid', 'hidden']);
+  const TRADER_REASON_LABELS = Object.freeze({
+    prices: 'Poor prices',
+    reputation: 'Reputation',
+    reliability: 'Unreliable',
+    availability: 'Frequently unavailable',
+    vibe: 'Bad vibe',
+    other: 'Other',
   });
 
   const state = {
@@ -449,16 +459,6 @@
   }
 
 
-  const TRADER_DISPOSITIONS = Object.freeze(['normal', 'avoid', 'hidden']);
-  const TRADER_REASON_LABELS = Object.freeze({
-    prices: 'Poor prices',
-    reputation: 'Reputation',
-    reliability: 'Unreliable',
-    availability: 'Frequently unavailable',
-    vibe: 'Bad vibe',
-    other: 'Other',
-  });
-
   function normalizeTraderDisposition(value) {
     const normalized = normalizeWhitespace(value).toLowerCase();
     return TRADER_DISPOSITIONS.includes(normalized) ? normalized : 'normal';
@@ -480,7 +480,7 @@
     for (const raw of source) {
       const cleaned = normalizeWhitespace(raw).toLowerCase();
       if (!cleaned) continue;
-      const canonical = aliases[cleaned] || (Object.hasOwn(TRADER_REASON_LABELS, cleaned) ? cleaned : 'other');
+      const canonical = aliases[cleaned] || (Object.prototype.hasOwnProperty.call(TRADER_REASON_LABELS, cleaned) ? cleaned : 'other');
       if (!unique.includes(canonical)) unique.push(canonical);
     }
     return unique;
