@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.2
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, and receipt audits.
+// @version      0.19.3
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.2' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.2' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.3' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.3' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.2
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.3
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.2',
+    version: '0.19.3',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2977,6 +2977,11 @@
   function commitPendingPurchase(captureMethod = 'detected-success', signal = '') {
     const pending = state.pendingPurchase;
     if (!pending) return null;
+    const fingerprint = purchaseFingerprint({
+      itemName: pending.itemName,
+      quantity: pending.quantity,
+      totalCost: pending.totalCost,
+    }, pending.itemId);
     const lot = buildLedgerLot({
       ...pending,
       marketValueAtPurchase: pending.marketValue,
@@ -2987,6 +2992,7 @@
     state.pendingPurchase = null;
     savePendingPurchase();
     activePendingTraderCapture();
+    rememberPurchaseFingerprint(fingerprint);
     addLedgerLot(lot);
     scheduleScan(30);
     toast(`Ledger recorded ${formatInteger(lot.quantity)}× ${lot.itemName}.`);
@@ -7520,13 +7526,12 @@
     return null;
   }
 
-  function purchaseFingerprint(parsed) {
+  function purchaseFingerprint(parsed, itemId = itemIdFromLocation()) {
     return [
       normalizeName(parsed?.itemName),
       Math.floor(Number(parsed?.quantity) || 0),
       Math.round(Number(parsed?.totalCost) || 0),
-      Number(itemIdFromLocation()) || 0,
-      stableTextHash(parsed?.successText),
+      Number(itemId) || 0,
     ].join('|');
   }
 
@@ -7556,28 +7561,32 @@
     if (!pageLooksLikeItemMarket() && !overseas) return null;
     const parsed = parsePurchaseSuccessText(value);
     if (!parsed) return null;
-    const fingerprint = purchaseFingerprint(parsed);
-    if (hasRecentPurchaseFingerprint(fingerprint)) return null;
+    const locationItemId = overseas ? null : itemIdFromLocation();
+    const catalog = catalogItemFor(parsed.itemName, locationItemId);
+    const resolvedItemId = catalog?.id || locationItemId || null;
+    const fingerprint = purchaseFingerprint(parsed, resolvedItemId);
 
     if (state.pendingPurchase) {
       const pendingMatches = normalizeName(state.pendingPurchase.itemName) === normalizeName(parsed.itemName)
         && Number(state.pendingPurchase.quantity) === Number(parsed.quantity)
         && Math.round(Number(state.pendingPurchase.totalCost)) === Math.round(Number(parsed.totalCost));
       if (pendingMatches) {
-        rememberPurchaseFingerprint(fingerprint);
         recordPurchaseSignal('success', source, parsed.successText, url);
         return commitPendingPurchase(source, parsed.successText);
       }
     }
 
-    const itemId = overseas ? null : itemIdFromLocation();
-    const catalog = catalogItemFor(parsed.itemName, itemId);
+    if (hasRecentPurchaseFingerprint(fingerprint)) {
+      recordPurchaseSignal('duplicate-suppressed', source, parsed.successText, url);
+      return null;
+    }
+
     const marketValueAtPurchase = Number(catalog?.marketPrice || (overseas ? 0 : resolveListingMarketValue().value) || 0);
     const lot = buildLedgerLot({
       source: overseas ? 'overseas' : 'item-market',
       venue: overseas ? 'overseas' : 'item-market',
       country: overseas ? overseasCountryFromPage() : '',
-      itemId: catalog?.id || itemId || null,
+      itemId: resolvedItemId,
       itemName: catalog?.name || parsed.itemName,
       quantity: parsed.quantity,
       unitCost: parsed.unitCost,
