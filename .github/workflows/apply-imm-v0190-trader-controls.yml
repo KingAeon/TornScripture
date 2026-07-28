@@ -23,15 +23,37 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Decode and apply trader controls
+      - name: Decode trader-controls patch
+        run: base64 --decode scripts/apply_imm_v0190_trader_controls.py.gz.b64 | gzip --decompress > /tmp/apply_imm_v0190_trader_controls.py
+
+      - name: Apply trader controls
+        id: apply
+        continue-on-error: true
         run: |
-          base64 --decode scripts/apply_imm_v0190_trader_controls.py.gz.b64 | gzip --decompress > /tmp/apply_imm_v0190_trader_controls.py
-          python /tmp/apply_imm_v0190_trader_controls.py
+          set +e
+          python /tmp/apply_imm_v0190_trader_controls.py > /tmp/apply.log 2>&1
+          code=$?
+          cat /tmp/apply.log
+          echo "$code" > /tmp/apply.status
+          exit "$code"
+
+      - name: Upload patch diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imm-v0190-patch-diagnostic
+          path: |
+            /tmp/apply.log
+            /tmp/apply.status
+            /tmp/apply_imm_v0190_trader_controls.py
+          if-no-files-found: warn
 
       - name: Validate JavaScript
+        if: steps.apply.outcome == 'success'
         run: node --check TornScripture-Item-Market-Margin.user.js
 
       - name: Validate trader classification behavior and protected systems
+        if: steps.apply.outcome == 'success'
         run: |
           grep -F '// @version      0.19.0' TornScripture-Item-Market-Margin.user.js
           grep -F "traderViewStorageKey: 'tornscripture-imm-trader-view-v1'" TornScripture-Item-Market-Margin.user.js
@@ -52,6 +74,7 @@ jobs:
           grep -F 'sellPriority' TornScripture-Item-Market-Margin.user.js
 
       - name: Commit clean release to main
+        if: steps.apply.outcome == 'success'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -60,3 +83,7 @@ jobs:
           git rm --ignore-unmatch scripts/trigger_imm_v0190.txt
           git commit -m 'Add trader avoid and hidden controls'
           git push origin main
+
+      - name: Fail when patch did not apply
+        if: steps.apply.outcome != 'success'
+        run: exit 1
