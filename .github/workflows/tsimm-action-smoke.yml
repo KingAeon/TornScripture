@@ -31,17 +31,19 @@ jobs:
           path = Path('TornScripture-Item-Market-Margin.user.js')
           text = path.read_text()
 
-          constants = """  const TRADER_DISPOSITIONS = Object.freeze(['normal', 'avoid', 'hidden']);
-  const TRADER_REASON_LABELS = Object.freeze({
-    prices: 'Poor prices',
-    reputation: 'Reputation',
-    reliability: 'Unreliable',
-    availability: 'Frequently unavailable',
-    vibe: 'Bad vibe',
-    other: 'Other',
-  });
-
-"""
+          constants = '\n'.join([
+              "  const TRADER_DISPOSITIONS = Object.freeze(['normal', 'avoid', 'hidden']);",
+              '  const TRADER_REASON_LABELS = Object.freeze({',
+              "    prices: 'Poor prices',",
+              "    reputation: 'Reputation',",
+              "    reliability: 'Unreliable',",
+              "    availability: 'Frequently unavailable',",
+              "    vibe: 'Bad vibe',",
+              "    other: 'Other',",
+              '  });',
+              '',
+              '',
+          ])
           state_anchor = "  const state = {\n"
 
           if text.count(constants) != 1:
