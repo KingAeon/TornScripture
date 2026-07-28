@@ -1,1 +1,0 @@
-Trigger guarded GOBLIN GOD v0.19.4 reversible exact ledger cleanup release.

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.3
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, and receipt audits.
+// @version      0.19.4
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, loop-safe Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.3' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.3' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.4' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.4' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.3
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.4
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.3',
+    version: '0.19.4',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -310,6 +310,7 @@
     sharedCatalogStorageKey: 'tornscripture-ish-torn-catalog-v1',
     settingsStorageKey: 'tornscripture-imm-settings-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
+    ledgerCleanupBackupStorageKey: 'tornscripture-imm-ledger-cleanup-backup-v1',
     inventoryStorageKey: 'tornscripture-imm-inventory-v1',
     inventoryBaselineStorageKey: 'tornscripture-imm-inventory-baseline-v1',
     sellPriorityStorageKey: 'tornscripture-imm-sell-priority-v1',
@@ -7821,6 +7822,134 @@
     }
   }
 
+  function loadLedgerCleanupBackup() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(APP.ledgerCleanupBackupStorageKey) || 'null');
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function ledgerLotUntouchedForCleanup(lot) {
+    const quantity = Math.max(0, Number(lot?.quantity) || 0);
+    const remaining = Math.max(0, Number(lot?.remainingQuantity) || 0);
+    return quantity > 0
+      && remaining === quantity
+      && normalizeWhitespace(lot?.status || 'open').toLowerCase() === 'open';
+  }
+
+  function exactLedgerDuplicateKey(lot) {
+    const identity = Number(lot?.itemId) > 0
+      ? `id:${Number(lot.itemId)}`
+      : `name:${normalizeName(lot?.itemName || lot?.normalizedName)}`;
+    return [
+      identity,
+      normalizeWhitespace(lot?.source),
+      normalizeWhitespace(lot?.venue),
+      Math.floor(Number(lot?.quantity) || 0),
+      Math.floor(Number(lot?.remainingQuantity) || 0),
+      Number(lot?.unitCost) || 0,
+      Number(lot?.totalCost) || 0,
+      Number(lot?.marketValueAtPurchase) || 0,
+      Number(lot?.traderValueAtPurchase) || 0,
+      Number(lot?.expectedProfitEach) || 0,
+      Number(lot?.expectedProfitTotal) || 0,
+      normalizeWhitespace(lot?.status || 'open').toLowerCase(),
+    ].join('|');
+  }
+
+  function exactDuplicateLedgerPairs() {
+    const lots = Array.isArray(state.ledger?.lots) ? state.ledger.lots : [];
+    const fetchLots = lots.filter((lot) => lot?.captureMethod === 'fetch-success' && ledgerLotUntouchedForCleanup(lot));
+    const fallbackLots = lots.filter((lot) => lot?.captureMethod === 'dom-success-fallback' && ledgerLotUntouchedForCleanup(lot));
+    const usedFetchIds = new Set();
+    const pairs = [];
+
+    for (const fallback of fallbackLots) {
+      const fallbackTime = Date.parse(fallback.capturedAt || '');
+      if (!Number.isFinite(fallbackTime)) continue;
+      const key = exactLedgerDuplicateKey(fallback);
+      let best = null;
+      for (const fetchLot of fetchLots) {
+        if (usedFetchIds.has(fetchLot.id) || exactLedgerDuplicateKey(fetchLot) !== key) continue;
+        const fetchTime = Date.parse(fetchLot.capturedAt || '');
+        if (!Number.isFinite(fetchTime)) continue;
+        const deltaMs = Math.abs(fallbackTime - fetchTime);
+        if (deltaMs > 250) continue;
+        if (!best || deltaMs < best.deltaMs) best = { keep: fetchLot, remove: fallback, deltaMs };
+      }
+      if (!best) continue;
+      usedFetchIds.add(best.keep.id);
+      pairs.push(best);
+    }
+    return pairs;
+  }
+
+  function exactDuplicateLedgerPreview() {
+    const pairs = exactDuplicateLedgerPairs();
+    return {
+      pairs,
+      lots: pairs.length,
+      quantity: pairs.reduce((sum, pair) => sum + Number(pair.remove.quantity || 0), 0),
+      invested: pairs.reduce((sum, pair) => sum + Number(pair.remove.totalCost || 0), 0),
+      expectedProfit: pairs.reduce((sum, pair) => sum + Number(pair.remove.expectedProfitTotal || 0), 0),
+    };
+  }
+
+  function cleanExactLedgerDuplicates() {
+    const preview = exactDuplicateLedgerPreview();
+    if (!preview.lots) {
+      toast('No untouched exact capture duplicates were found.');
+      return;
+    }
+    const accepted = confirm(
+      `Remove ${formatInteger(preview.lots)} exact duplicate lot${preview.lots === 1 ? '' : 's'}?\n\n`
+      + `Tracked quantity correction: ${formatInteger(preview.quantity)} items\n`
+      + `Invested correction: ${formatMoney(preview.invested)}\n`
+      + `Expected-profit correction: ${preview.expectedProfit >= 0 ? '+' : ''}${formatMoney(preview.expectedProfit)}\n\n`
+      + 'Only untouched fetch-success / dom-success-fallback pairs with identical values and timestamps within 250ms will be removed. A full pre-cleanup ledger backup will be stored for one-click undo.'
+    );
+    if (!accepted) return;
+
+    const backup = {
+      schema: 'tornscripture-imm-ledger-cleanup-backup',
+      schemaVersion: 1,
+      createdAt: new Date().toISOString(),
+      reason: 'exact-cross-channel-capture-duplicates',
+      removedLotIds: preview.pairs.map((pair) => pair.remove.id),
+      ledger: JSON.parse(JSON.stringify(state.ledger)),
+    };
+    saveJson(APP.ledgerCleanupBackupStorageKey, backup);
+    const removeIds = new Set(backup.removedLotIds);
+    state.ledger.lots = state.ledger.lots.filter((lot) => !removeIds.has(lot.id));
+    saveLedger();
+    renderLedger();
+    renderPanel();
+    toast(`Removed ${formatInteger(preview.lots)} exact duplicate lot${preview.lots === 1 ? '' : 's'}. Undo is available in the Ledger.`);
+  }
+
+  function undoExactLedgerDuplicateCleanup() {
+    const backup = loadLedgerCleanupBackup();
+    if (!backup?.ledger) {
+      toast('No duplicate-cleanup backup is available.');
+      return;
+    }
+    const created = new Date(backup.createdAt || '');
+    const when = Number.isFinite(created.getTime()) ? created.toLocaleString() : 'an earlier time';
+    const accepted = confirm(
+      `Restore the complete ledger snapshot from ${when}?\n\n`
+      + 'This replaces the current ledger, including any purchases or sales recorded after that cleanup.'
+    );
+    if (!accepted) return;
+    state.ledger = normalizeLedger(backup.ledger);
+    localStorage.removeItem(APP.ledgerCleanupBackupStorageKey);
+    saveLedger();
+    renderLedger();
+    renderPanel();
+    toast('Duplicate cleanup undone and the previous ledger restored.');
+  }
+
   function importLedgerJson() {
     const raw = prompt('Paste an IMM ledger JSON export. Existing lots will be preserved and matching IDs will be replaced.');
     if (!raw) return;
@@ -8517,6 +8646,8 @@
       ? `Inventory synced ${relativeAge(state.inventory.capturedAt)}${inventorySnapshotFresh() ? '' : ' · stale'}${inventoryCaptureNote}`
       : 'Inventory has not been synced';
     const showPurchaseControls = view === 'holdings' || view === 'history';
+    const duplicatePreview = exactDuplicateLedgerPreview();
+    const cleanupBackup = loadLedgerCleanupBackup();
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
@@ -8542,6 +8673,8 @@
           <button type="button" data-tsimm-action="ledger-add">Add manual lot</button>
           <button type="button" data-tsimm-action="ledger-copy">Copy JSON</button>
           <button type="button" data-tsimm-action="ledger-import">Import JSON</button>
+          <button type="button" data-tsimm-action="ledger-clean-duplicates" ${duplicatePreview.lots ? '' : 'disabled'}>Clean exact duplicates${duplicatePreview.lots ? ` (${formatInteger(duplicatePreview.lots)})` : ''}</button>
+          ${cleanupBackup?.ledger ? '<button type="button" data-tsimm-action="ledger-undo-cleanup">Undo cleanup</button>' : ''}
           <button type="button" data-tsimm-action="ledger-clear">Clear all</button>
         </div>
         <div class="tsimm-ledger-freshness">${escapeHtml(inventoryFreshness)}</div>
@@ -9682,6 +9815,10 @@
         editLedgerLot(button.dataset.tsimmLotId);
       } else if (action === 'ledger-delete') {
         deleteLedgerLot(button.dataset.tsimmLotId);
+      } else if (action === 'ledger-clean-duplicates') {
+        cleanExactLedgerDuplicates();
+      } else if (action === 'ledger-undo-cleanup') {
+        undoExactLedgerDuplicateCleanup();
       } else if (action === 'ledger-clear') {
         if (state.ledger.lots.length && confirm('Clear the entire IMM purchase ledger? This cannot be undone unless you copied the JSON first.')) {
           state.ledger = normalizeLedger({});
