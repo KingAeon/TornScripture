@@ -3,14 +3,14 @@ name: Hotfix GOBLIN GOD v0.19.1 startup
 on:
   pull_request_target:
     branches: [main]
-    paths:
-      - scripts/trigger_imm_v0191_startup.txt
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   hotfix:
+    if: github.event.pull_request.head.ref == 'release/imm-v0.19.1-startup-hotfix-3'
     runs-on: ubuntu-latest
     steps:
       - name: Check out main
