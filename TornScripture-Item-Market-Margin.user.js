@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.10
+// @version      0.19.11
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.10' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.10' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.11' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.11' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.10
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.11
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.10',
+    version: '0.19.11',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -5858,12 +5858,18 @@
         : status === 'loss'
           ? `-${formatMoney(Math.abs(projection.profit))}`
           : 'BREAK EVEN';
-      const each = status === 'profit'
-        ? `+${formatMoney(Math.abs(projection.profitEach))} ea`
-        : status === 'loss'
-          ? `-${formatMoney(Math.abs(projection.profitEach))} ea`
-          : `${formatMoney(0)} ea`;
-      primary = `${icon} ${total} ${scope} · ${each}`;
+      const costBasis = Number(projection.costBasis);
+      const roiPercent = costBasis > 0 && Number.isFinite(Number(projection.profit))
+        ? Number(projection.profit) / costBasis * 100
+        : null;
+      const normalizedRoi = roiPercent !== null && Math.abs(roiPercent) < 0.05 ? 0 : roiPercent;
+      const roiLabel = normalizedRoi === null
+        ? 'ROI —'
+        : `${new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          }).format(normalizedRoi)}% ROI`;
+      primary = `${icon} ${total} ${scope} · ${roiLabel}`;
     }
 
     let secondary = `${currentTrader?.name || 'Trader'} · tap for details`;
