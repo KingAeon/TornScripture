@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.6
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, interaction-locked Priced Trade badges, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
+// @version      0.19.7
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, static full-stack Priced Trade badges with native MAX filling, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.6' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.6' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.7' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.7' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.6
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.7
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -278,7 +278,7 @@
    * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
    * - Trade Exit Audit comparisons are read-only. Bulk removal runs only after the user presses its button and confirms; it uses Torn's visible item-removal controls and never accepts or completes a trade.
-   * - Priced Trade stores an expiring trader handoff, verifies the live counterparty, and adds read-only payout badges beside Torn's native addable-item controls. It never adds an item or changes a trade.
+   * - Priced Trade stores an expiring trader handoff, verifies the live counterparty, adds static full-stack payout badges, and provides an explicit MAX button that fills Torn's native quantity field. It never presses Add to Trade or completes a trade.
    * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, sells items, or completes trades.
    */
 
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.6',
+    version: '0.19.7',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -5086,8 +5086,8 @@
       #${PRICED_TRADE_PANEL_ID} strong,#${PRICED_TRADE_PANEL_ID} span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#${PRICED_TRADE_PANEL_ID} span{grid-column:1;color:#8fbd96;font-size:8px}#${PRICED_TRADE_PANEL_ID}.waiting span{color:#82b6d4}#${PRICED_TRADE_PANEL_ID}.mismatch span,#${PRICED_TRADE_PANEL_ID}.missing-trader span{color:#d89198}
       #${PRICED_TRADE_PANEL_ID} button{grid-row:1/3;grid-column:2;border:1px solid #75616a;border-radius:6px;background:#2a1c21;color:#ffd9df;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       .${PRICED_TRADE_ROW_CLASS}{position:relative!important;overflow-anchor:none!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
-      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;height:62px!important;min-height:62px!important;overflow:hidden!important;overflow-anchor:none!important;align-content:start!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:none!important;box-sizing:border-box!important}
-      .${PRICED_TRADE_BADGE_CLASS} strong,.${PRICED_TRADE_BADGE_CLASS} span{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}.${PRICED_TRADE_BADGE_CLASS} span{color:#7ebd89!important;font-size:7px!important}
+      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;position:relative!important;height:76px!important;min-height:76px!important;overflow:hidden!important;overflow-anchor:none!important;align-content:start!important;margin:3px 4px!important;padding:4px 44px 4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:auto!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_BADGE_CLASS} strong,.${PRICED_TRADE_BADGE_CLASS} span{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;pointer-events:none!important}.${PRICED_TRADE_BADGE_CLASS} span{color:#7ebd89!important;font-size:7px!important}
       .${PRICED_TRADE_BADGE_CLASS}.stale{border-color:#c59a39!important;background:#2a2008f2!important;color:#ffe09a!important}.${PRICED_TRADE_BADGE_CLASS}.stale span{color:#c5ad73!important}
       .${PRICED_TRADE_BADGE_CLASS}.outdated{border-color:#b65466!important;background:#270b10f2!important;color:#ffb0bc!important}.${PRICED_TRADE_BADGE_CLASS}.outdated span{color:#c98d96!important}
       .${PRICED_TRADE_BADGE_CLASS}.missing{border-color:#65727a!important;background:#14191cf2!important;color:#c1cbd1!important}.${PRICED_TRADE_BADGE_CLASS}.missing span{color:#8d999f!important}
@@ -5098,6 +5098,8 @@
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-meta{color:#87948c!important;font-size:7px!important}.${PRICED_TRADE_BADGE_CLASS}.quantity-selected .tsimm-priced-trade-meta{color:#9eefff!important;font-weight:900!important}.${PRICED_TRADE_BADGE_CLASS}.quantity-preview .tsimm-priced-trade-meta{color:#87948c!important}
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best{margin-top:2px!important;padding-top:2px!important;border-top:1px solid #725d21!important;color:#ffd76f!important;font-size:8px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.better{color:#8edcff!important;border-top-color:#315f73!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.stale{color:#d7b66b!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best-detail{color:#83b7cc!important;font-size:7px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
       .${PRICED_TRADE_ROW_CLASS}.decision-profit{box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.decision-loss{box-shadow:inset 3px 0 #dc5568!important}.${PRICED_TRADE_ROW_CLASS}.decision-even{box-shadow:inset 3px 0 #8a9298!important}.${PRICED_TRADE_ROW_CLASS}.decision-partial{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.decision-unknown{box-shadow:inset 3px 0 #65727a!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-max{position:absolute!important;right:4px!important;top:4px!important;width:36px!important;height:28px!important;margin:0!important;padding:0!important;border:1px solid #63e47c!important;border-radius:5px!important;background:#0d3818!important;color:#d4ffc8!important;font:900 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;line-height:26px!important;text-align:center!important;pointer-events:auto!important;cursor:pointer!important;z-index:2!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-max:active{transform:translateY(1px)!important;background:#175226!important}
       .tsimm-priced-trade-start{border-color:#47c968!important;background:#0d3818!important;color:#d4ffc8!important}
     `;
     document.head.appendChild(style);
@@ -5307,18 +5309,124 @@
 
   function pricedTradeQuantityDecision(row, itemName = '') {
     const availableQuantity = Math.max(1, Math.floor(Number(pricedTradeAvailableQuantity(row, itemName)) || 1));
-    const selection = pricedTradeSelectedQuantity(row);
-    const selectedQuantity = selection.selected
-      ? Math.max(1, Math.min(availableQuantity, Math.floor(Number(selection.quantity) || 1)))
-      : 0;
     return {
       availableQuantity,
-      selectedQuantity,
-      quantity: selectedQuantity || availableQuantity,
-      selected: selectedQuantity > 0,
-      mode: selectedQuantity > 0 ? 'selected' : 'preview',
-      source: selection.source,
+      selectedQuantity: 0,
+      quantity: availableQuantity,
+      selected: false,
+      mode: 'full-stack',
+      source: 'available-quantity',
     };
+  }
+
+  function pricedTradeWritableQuantityControl(row) {
+    if (!(row instanceof Element)) return null;
+    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`;
+    const controls = [...row.querySelectorAll('input,select,[role="spinbutton"],[contenteditable="true"]')]
+      .filter((control) => visibleElement(control) && !control.disabled && !control.closest(ignored));
+    return controls.find((control) => {
+      const role = String(control.getAttribute?.('role') || '').toLowerCase();
+      const type = String(control.getAttribute?.('type') || '').toLowerCase();
+      const label = pricedTradeControlLabel(control);
+      if (['checkbox', 'radio', 'number'].includes(type)) return true;
+      if (role === 'spinbutton' || control.getAttribute?.('contenteditable') === 'true') return true;
+      return /\b(?:qty|quantity|amount)\b/i.test(label)
+        || /(?:qty|quantity|amount)/i.test(String(control.className || ''));
+    }) || null;
+  }
+
+  function pricedTradeSetQuantityControl(control, quantity) {
+    if (!(control instanceof Element)) return false;
+    const nextQuantity = Math.max(1, Math.floor(Number(quantity) || 1));
+    try { control.focus({ preventScroll: true }); } catch { try { control.focus(); } catch {} }
+
+    if (control instanceof HTMLInputElement) {
+      const type = String(control.type || '').toLowerCase();
+      if (['checkbox', 'radio'].includes(type)) {
+        const checkedSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set;
+        if (checkedSetter) checkedSetter.call(control, true);
+        else control.checked = true;
+      } else {
+        const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        if (valueSetter) valueSetter.call(control, String(nextQuantity));
+        else control.value = String(nextQuantity);
+      }
+    } else if (control instanceof HTMLSelectElement) {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      if (valueSetter) valueSetter.call(control, String(nextQuantity));
+      else control.value = String(nextQuantity);
+    } else if (control.getAttribute?.('contenteditable') === 'true') {
+      control.textContent = String(nextQuantity);
+    } else if ('value' in control) {
+      control.value = String(nextQuantity);
+      control.setAttribute?.('aria-valuenow', String(nextQuantity));
+    } else {
+      return false;
+    }
+
+    pricedTradeScrollActiveUntil = Date.now() + 1000;
+    control.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    control.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    setTimeout(() => { try { control.blur(); } catch {} }, 20);
+    return true;
+  }
+
+  function pricedTradeRowByToken(token, trader) {
+    const normalizedToken = normalizeWhitespace(token);
+    if (!normalizedToken || !trader) return null;
+    return pricedTradeCandidateRows(trader).find((candidate) => {
+      if (candidate.dataset.tsimmPricedTradeToken === normalizedToken) return true;
+      const item = pricedTradeItemForRow(candidate, trader);
+      if (!item) return false;
+      const candidateToken = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
+      return candidateToken === normalizedToken;
+    }) || null;
+  }
+
+  function fillPricedTradeMax(row, requestedQuantity = 0, itemToken = '', attempt = 0) {
+    const trader = pricedTradeArmedTrader();
+    const liveRow = row instanceof Element && row.isConnected
+      ? row
+      : pricedTradeRowByToken(itemToken, trader);
+    if (!(liveRow instanceof Element) || !trader) {
+      toast('MAX could not find this Torn trade row.');
+      return false;
+    }
+
+    const item = pricedTradeItemForRow(liveRow, trader);
+    const availableQuantity = Math.max(
+      1,
+      Math.floor(Number(requestedQuantity) || Number(pricedTradeAvailableQuantity(liveRow, item?.name || '')) || 1),
+    );
+    pricedTradeScrollActiveUntil = Date.now() + 1000;
+    pricedTradeLastInteractedRow = liveRow;
+
+    let control = pricedTradeWritableQuantityControl(liveRow);
+    if (!control && attempt > 0) {
+      const active = document.activeElement instanceof Element ? document.activeElement : null;
+      if (active && pricedTradeIsQuantityControl(active) && !active.closest('[data-tsimm-generated]')) control = active;
+    }
+    if (control && pricedTradeSetQuantityControl(control, availableQuantity)) {
+      toast(`MAX filled ${formatInteger(availableQuantity)}× ${item?.name || 'item'}.`);
+      return true;
+    }
+
+    if (attempt === 0) {
+      const nativeControl = pricedTradeNativeAddControl(liveRow);
+      const nativeLabel = pricedTradeControlLabel(nativeControl);
+      if (nativeControl && /\b(?:qty|quantity|amount)\b/i.test(nativeLabel)) {
+        nativeControl.click();
+        setTimeout(() => fillPricedTradeMax(liveRow, availableQuantity, itemToken, 1), 90);
+        return true;
+      }
+    }
+
+    if (attempt < 4) {
+      setTimeout(() => fillPricedTradeMax(liveRow, availableQuantity, itemToken, attempt + 1), 90 + attempt * 70);
+      return true;
+    }
+    toast('Torn did not expose a quantity field. Tap its Qty control once, then press MAX.');
+    return false;
   }
 
   function pricedTradeRowForControl(control, trader) {
@@ -5506,25 +5614,30 @@
 
   function pricedTradeLedgerHtml(projection, unitPrice) {
     const payoutEach = Math.max(0, Number(unitPrice) || 0);
+    const requestedQuantity = Math.max(1, Math.floor(Number(projection?.requestedQuantity) || 1));
     if (!projection?.trackedQuantity) {
       return '<strong class="tsimm-priced-trade-verdict unknown">? COST UNKNOWN</strong>'
-        + `<span class="tsimm-priced-trade-comparison">pays ${escapeHtml(formatMoney(payoutEach))} ea · no open ledger lot</span>`;
+        + `<span class="tsimm-priced-trade-comparison">${escapeHtml(formatInteger(requestedQuantity))} available · pays ${escapeHtml(formatMoney(payoutEach))} ea · no open ledger lot</span>`;
     }
     const status = projection.profit > 0 ? 'profit' : projection.profit < 0 ? 'loss' : 'even';
-    const amount = formatMoney(Math.abs(projection.profitEach));
+    const totalAmount = formatMoney(Math.abs(projection.profit));
+    const eachAmount = formatMoney(Math.abs(projection.profitEach));
+    const scope = projection.fullCoverage
+      ? 'FULL STACK'
+      : `TRACKED ${formatInteger(projection.trackedQuantity)}/${formatInteger(projection.requestedQuantity)}`;
     const headline = status === 'profit'
-      ? `${projection.fullCoverage ? '✓ PROFIT' : '⚠ PARTIAL PROFIT'} +${amount} EA`
+      ? `${projection.fullCoverage ? '✓' : '⚠'} ${scope} +${totalAmount}`
       : status === 'loss'
-        ? `${projection.fullCoverage ? '✕ LOSS' : '⚠ PARTIAL LOSS'} -${amount} EA`
-        : `${projection.fullCoverage ? '≈ BREAK EVEN' : '⚠ PARTIAL EVEN'} · ${amount} EA`;
-    const coverage = projection.fullCoverage
-      ? 'ledger full'
-      : `${formatInteger(projection.trackedQuantity)}/${formatInteger(projection.requestedQuantity)} ledger units`;
+        ? `${projection.fullCoverage ? '✕' : '⚠'} ${scope} -${totalAmount}`
+        : `${projection.fullCoverage ? '≈' : '⚠'} ${scope} BREAK EVEN`;
+    const eachLabel = status === 'profit'
+      ? `+${eachAmount} ea`
+      : status === 'loss' ? `-${eachAmount} ea` : `${eachAmount} ea`;
     const lotDetail = Number(projection.lotsUsed) > 1
       ? ` · ${formatInteger(projection.lotsUsed)} lots blended`
       : Number(projection.lotsUsed) === 1 ? ' · 1 lot' : '';
     return `<strong class="tsimm-priced-trade-verdict ${status}${projection.fullCoverage ? '' : ' partial'}">${escapeHtml(headline)}</strong>`
-      + `<span class="tsimm-priced-trade-comparison">cost ${escapeHtml(formatMoney(projection.averageCost))} → pays ${escapeHtml(formatMoney(payoutEach))} · ${escapeHtml(coverage + lotDetail)}</span>`;
+      + `<span class="tsimm-priced-trade-comparison">${escapeHtml(eachLabel)} · cost ${escapeHtml(formatMoney(projection.averageCost))} → pays ${escapeHtml(formatMoney(payoutEach))}${escapeHtml(lotDetail)}</span>`;
   }
 
   function pricedTradeBestTraderQuote(item, currentTrader) {
@@ -5567,21 +5680,21 @@
       return `<strong class="tsimm-priced-trade-best${stale ? ' stale' : ''}">${escapeHtml(label)}</strong>`;
     }
     const knownCost = Boolean(projection?.trackedQuantity && Number.isFinite(Number(projection.averageCost)));
+    const trackedQuantity = Math.max(0, Math.floor(Number(projection?.trackedQuantity) || 0));
     const bestProfitEach = knownCost ? Number(bestMatch.quote.unitPrice) - Number(projection.averageCost) : null;
-    const profitLabel = bestProfitEach === null
+    const bestProfitTotal = bestProfitEach === null ? null : bestProfitEach * trackedQuantity;
+    const profitLabel = bestProfitTotal === null
       ? 'profit unknown'
-      : bestProfitEach > 0
-        ? `+${formatMoney(bestProfitEach)} EA`
-        : bestProfitEach < 0
-          ? `-${formatMoney(Math.abs(bestProfitEach))} EA`
-          : `${formatMoney(0)} EA`;
-    const gainEach = Math.max(0, Number(bestMatch.quote.unitPrice) - Number(currentQuote.unitPrice));
+      : bestProfitTotal > 0
+        ? `+${formatMoney(bestProfitTotal)} STACK`
+        : bestProfitTotal < 0
+          ? `-${formatMoney(Math.abs(bestProfitTotal))} STACK`
+          : `${formatMoney(0)} STACK`;
+    const gainTotal = Math.max(0, Number(bestMatch.quote.unitPrice) - Number(currentQuote.unitPrice)) * trackedQuantity;
     const prefix = stale ? '⌛ STALE BEST' : '↑ BEST';
     return `<strong class="tsimm-priced-trade-best better${stale ? ' stale' : ''}">${escapeHtml(prefix)}: ${escapeHtml(bestMatch.trader.name)} · ${escapeHtml(profitLabel)}</strong>`
-      + `<span class="tsimm-priced-trade-best-detail">+${escapeHtml(formatMoney(gainEach))} ea over this trader</span>`;
+      + `<span class="tsimm-priced-trade-best-detail">+${escapeHtml(formatMoney(gainTotal))} over this trader for the tracked stack</span>`;
   }
-
-
 
   function pricedTradeRowDecisionClasses() {
     return [
@@ -5624,7 +5737,8 @@
     if (!item) return null;
     const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
     const quote = tradeExitQuoteForTrader(trader, { itemId: item.id, name: item.name });
-    const quantityDecision = pricedTradeQuantityDecision(row, item.name);
+    const availableQuantity = Math.max(1, Math.floor(Number(pricedTradeAvailableQuantity(row, item.name)) || 1));
+    const maxButton = `<button class="tsimm-priced-trade-max" type="button" data-tsimm-action="priced-trade-max" data-tsimm-available-quantity="${availableQuantity}" data-tsimm-item-token="${escapeHtml(token)}" aria-label="Fill maximum quantity ${availableQuantity}">MAX</button>`;
     let badge = [...row.children].find((child) => child.classList?.contains(PRICED_TRADE_BADGE_CLASS))
       || row.querySelector(`.${PRICED_TRADE_BADGE_CLASS}`);
     if (!badge) {
@@ -5642,8 +5756,7 @@
       const freshness = quote.freshness || tradeExitFreshness(quote.capturedAt);
       const status = freshness.status === 'fresh' ? 'fresh' : freshness.status;
       row.classList.add(status);
-      const resolvedQuantity = Math.max(1, Math.floor(Number(quantityDecision.quantity) || 1));
-      const ledger = pricedTradeLedgerProjection(item, resolvedQuantity, quote.unitPrice);
+      const ledger = pricedTradeLedgerProjection(item, availableQuantity, quote.unitPrice);
       const ledgerState = !ledger.trackedQuantity
         ? 'unknown'
         : ledger.profit > 0 ? 'profit' : ledger.profit < 0 ? 'loss' : 'even';
@@ -5653,20 +5766,19 @@
         PRICED_TRADE_BADGE_CLASS,
         status,
         `ledger-${ledgerState}`,
-        quantityDecision.selected ? 'quantity-selected' : 'quantity-preview',
+        'quantity-full-stack',
       ];
       if (ledger.trackedQuantity && !ledger.fullCoverage) badgeClasses.push('ledger-partial');
       const bestMatch = pricedTradeBestTraderQuote(item, trader);
-      const quantityLabel = quantityDecision.selected
-        ? `${formatInteger(resolvedQuantity)} SELECTED`
-        : `${formatInteger(resolvedQuantity)} AVAILABLE PREVIEW`;
+      const quantityLabel = `FULL STACK · ${formatInteger(availableQuantity)} AVAILABLE`;
       badgeHtml = pricedTradeLedgerHtml(ledger, quote.unitPrice)
         + pricedTradeBestMatchHtml(bestMatch, trader, quote, ledger)
-        + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`;
+        + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`
+        + maxButton;
     } else {
       row.classList.add('missing');
-      badgeClasses = [PRICED_TRADE_BADGE_CLASS, 'missing'];
-      badgeHtml = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list</span>`;
+      badgeClasses = [PRICED_TRADE_BADGE_CLASS, 'missing', 'quantity-full-stack'];
+      badgeHtml = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list · ${escapeHtml(formatInteger(availableQuantity))} available</span>${maxButton}`;
     }
 
     const nextClassName = badgeClasses.join(' ');
@@ -9909,6 +10021,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       } else if (action === 'priced-trade-clear') {
         clearPricedTradeSession('Priced Trade cleared.');
         scheduleScan(20);
+      } else if (action === 'priced-trade-max') {
+        const row = button.closest(`.${PRICED_TRADE_ROW_CLASS}`);
+        fillPricedTradeMax(
+          row,
+          Number(button.dataset.tsimmAvailableQuantity) || 0,
+          button.dataset.tsimmItemToken || '',
+        );
       } else if (action === 'trader-toggle-favorite') {
         const result = window.__TSIMM_WATCHLIST_API__?.toggleFavoriteById?.(button.dataset.tsimmTraderId);
         if (!result?.available) toast('Favorite trader controls are not ready. Refresh Torn and try again.');
@@ -10015,7 +10134,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       }
     }, true);
     document.addEventListener('change', (event) => {
-      if (capturePricedTradeQuantityEvent(event, 60)) return;
+      if (pageLooksLikeTrade()
+        && !event.target.closest(immUiSelector())
+        && pricedTradeIsQuantityControl(event.target)) {
+        pricedTradeScrollActiveUntil = Date.now() + 1000;
+        return;
+      }
       const quickMaxOverride = event.target.closest('[data-tsimm-quick-max-override]');
       if (quickMaxOverride) {
         if (quickMaxOverride.checked) {
@@ -10063,7 +10187,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       updateSetting(key, value);
     });
     document.addEventListener('input', (event) => {
-      if (capturePricedTradeQuantityEvent(event, 220)) return;
+      if (pageLooksLikeTrade()
+        && !event.target.closest(immUiSelector())
+        && pricedTradeIsQuantityControl(event.target)) {
+        pricedTradeScrollActiveUntil = Date.now() + 1000;
+        return;
+      }
       const ledgerSearch = event.target.closest('[data-tsimm-ledger-search]');
       if (ledgerSearch) {
         const cursor = ledgerSearch.selectionStart ?? ledgerSearch.value.length;
@@ -10108,6 +10237,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const overseasRoute = href.includes('shops.php') || href.includes('foreignshop') || href.includes('travelshop') || href.includes('abroad');
     const tradeRoute = href.includes('trade.php');
     const profileRoute = href.includes('profiles.php');
+    if (tradeRoute
+      && loadPricedTradeSession()
+      && (pricedTradeScrollIsActive() || pricedTradeIsQuantityControl(document.activeElement))) return false;
     const inventoryRoute = href.includes('/item.php') || href.includes('sid=items') || href.includes('inventory');
     const added = [...(mutation.addedNodes || [])];
 
