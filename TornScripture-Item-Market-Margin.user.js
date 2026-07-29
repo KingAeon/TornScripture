@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.7
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, static full-stack Priced Trade badges with native MAX filling, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
+// @version      0.19.8
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, persistent full-stack Priced Trade badges with Qty-adjacent MAX filling, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.7' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.7' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.8' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.8' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.7
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.8
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -278,7 +278,7 @@
    * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
    * - Trade Exit Audit comparisons are read-only. Bulk removal runs only after the user presses its button and confirms; it uses Torn's visible item-removal controls and never accepts or completes a trade.
-   * - Priced Trade stores an expiring trader handoff, verifies the live counterparty, adds static full-stack payout badges, and provides an explicit MAX button that fills Torn's native quantity field. It never presses Add to Trade or completes a trade.
+   * - Priced Trade stores an expiring trader handoff, verifies the live counterparty, adds persistent full-stack payout badges, and provides an explicit MAX button beside Torn's native quantity field. It never presses Add to Trade or completes a trade.
    * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, sells items, or completes trades.
    */
 
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.7',
+    version: '0.19.8',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4588,6 +4588,7 @@
   const PRICED_TRADE_PANEL_ID = 'tsimm-priced-trade-panel';
   const PRICED_TRADE_BADGE_CLASS = 'tsimm-priced-trade-badge';
   const PRICED_TRADE_ROW_CLASS = 'tsimm-priced-trade-row';
+  const PRICED_TRADE_MAX_CLASS = 'tsimm-priced-trade-native-max';
   const PRICED_TRADE_TTL_MS = 12 * 60 * 60 * 1000;
   let pricedTradePickerObserver = null;
   let pricedTradeObservedSurface = null;
@@ -4862,17 +4863,10 @@
         return;
       }
       pricedTradeScrollActiveUntil = 0;
-      const deferredRow = pricedTradeDeferredRow;
-      const needsFullRepaint = pricedTradeDeferredFullRepaint;
       pricedTradeDeferredRow = null;
       pricedTradeDeferredFullRepaint = false;
       if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return;
-      const activeElement = document.activeElement instanceof Element ? document.activeElement : null;
-      if (deferredRow instanceof Element && deferredRow.isConnected && deferredRow.contains(activeElement)) {
-        schedulePricedTradeRowRefresh(deferredRow, 0);
-        return;
-      }
-      if (needsFullRepaint) scheduleScan(0);
+      pricedTradeReconcileVisibleRows();
     }, remaining);
   }
 
@@ -4891,14 +4885,21 @@
     pricedTradePendingQuantityRow = null;
     pricedTradeDeferredFullRepaint = false;
     pricedTradeDeferredRow = null;
+    schedulePricedTradeScrollSettle();
   }
 
 
   function schedulePricedTradePickerRepaint(delay = 140) {
-    if (!loadPricedTradeSession() || pricedTradeScrollIsActive()) return;
+    if (!loadPricedTradeSession()) return;
     clearTimeout(pricedTradeRepaintSettleTimer);
-    pricedTradeRepaintSettleTimer = null;
-    scheduleScan(Math.max(100, Number(delay) || 0));
+    pricedTradeRepaintSettleTimer = setTimeout(() => {
+      pricedTradeRepaintSettleTimer = null;
+      if (pricedTradeScrollIsActive()) {
+        schedulePricedTradeScrollSettle();
+        return;
+      }
+      pricedTradeReconcileVisibleRows();
+    }, Math.max(40, Number(delay) || 0));
   }
 
   function pricedTradeMutationTouchesPicker(mutation, currentSurface = null, previousSurface = null) {
@@ -4990,7 +4991,11 @@
         schedulePricedTradePickerRepaint(70);
         return;
       }
-      rowUpdates.forEach((row) => schedulePricedTradeRowRefresh(row, 100));
+      const verification = pricedTradeVerification(state.lastScan || {});
+      const trader = verification.status === 'verified' ? verification.trader : null;
+      if (trader && [...rowUpdates].some((row) => pricedTradeRowNeedsDecoration(row, trader))) {
+        schedulePricedTradePickerRepaint(70);
+      }
     });
     pricedTradePickerObserver.observe(document.body, {
       childList: true,
@@ -5030,7 +5035,7 @@
       : null;
     if (row instanceof Element && row.isConnected) {
       pricedTradeLastInteractedRow = row;
-      schedulePricedTradeRowRefresh(row, 90);
+      if (pricedTradeRowNeedsDecoration(row, trader)) schedulePricedTradePickerRepaint(90);
       return;
     }
     schedulePricedTradePickerRepaint(80);
@@ -5086,7 +5091,7 @@
       #${PRICED_TRADE_PANEL_ID} strong,#${PRICED_TRADE_PANEL_ID} span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#${PRICED_TRADE_PANEL_ID} span{grid-column:1;color:#8fbd96;font-size:8px}#${PRICED_TRADE_PANEL_ID}.waiting span{color:#82b6d4}#${PRICED_TRADE_PANEL_ID}.mismatch span,#${PRICED_TRADE_PANEL_ID}.missing-trader span{color:#d89198}
       #${PRICED_TRADE_PANEL_ID} button{grid-row:1/3;grid-column:2;border:1px solid #75616a;border-radius:6px;background:#2a1c21;color:#ffd9df;padding:6px 8px;font:800 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       .${PRICED_TRADE_ROW_CLASS}{position:relative!important;overflow-anchor:none!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
-      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;position:relative!important;height:76px!important;min-height:76px!important;overflow:hidden!important;overflow-anchor:none!important;align-content:start!important;margin:3px 4px!important;padding:4px 44px 4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:auto!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;position:relative!important;height:76px!important;min-height:76px!important;overflow:hidden!important;overflow-anchor:none!important;align-content:start!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:auto!important;box-sizing:border-box!important}
       .${PRICED_TRADE_BADGE_CLASS} strong,.${PRICED_TRADE_BADGE_CLASS} span{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;pointer-events:none!important}.${PRICED_TRADE_BADGE_CLASS} span{color:#7ebd89!important;font-size:7px!important}
       .${PRICED_TRADE_BADGE_CLASS}.stale{border-color:#c59a39!important;background:#2a2008f2!important;color:#ffe09a!important}.${PRICED_TRADE_BADGE_CLASS}.stale span{color:#c5ad73!important}
       .${PRICED_TRADE_BADGE_CLASS}.outdated{border-color:#b65466!important;background:#270b10f2!important;color:#ffb0bc!important}.${PRICED_TRADE_BADGE_CLASS}.outdated span{color:#c98d96!important}
@@ -5098,8 +5103,8 @@
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-meta{color:#87948c!important;font-size:7px!important}.${PRICED_TRADE_BADGE_CLASS}.quantity-selected .tsimm-priced-trade-meta{color:#9eefff!important;font-weight:900!important}.${PRICED_TRADE_BADGE_CLASS}.quantity-preview .tsimm-priced-trade-meta{color:#87948c!important}
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best{margin-top:2px!important;padding-top:2px!important;border-top:1px solid #725d21!important;color:#ffd76f!important;font-size:8px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.better{color:#8edcff!important;border-top-color:#315f73!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.stale{color:#d7b66b!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best-detail{color:#83b7cc!important;font-size:7px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
       .${PRICED_TRADE_ROW_CLASS}.decision-profit{box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.decision-loss{box-shadow:inset 3px 0 #dc5568!important}.${PRICED_TRADE_ROW_CLASS}.decision-even{box-shadow:inset 3px 0 #8a9298!important}.${PRICED_TRADE_ROW_CLASS}.decision-partial{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.decision-unknown{box-shadow:inset 3px 0 #65727a!important}
-      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-max{position:absolute!important;right:4px!important;top:4px!important;width:36px!important;height:28px!important;margin:0!important;padding:0!important;border:1px solid #63e47c!important;border-radius:5px!important;background:#0d3818!important;color:#d4ffc8!important;font:900 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;line-height:26px!important;text-align:center!important;pointer-events:auto!important;cursor:pointer!important;z-index:2!important}
-      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-max:active{transform:translateY(1px)!important;background:#175226!important}
+      .${PRICED_TRADE_MAX_CLASS}{display:inline-flex!important;align-items:center!important;justify-content:center!important;vertical-align:middle!important;flex:0 0 auto!important;width:38px!important;min-width:38px!important;height:28px!important;margin:0 0 0 4px!important;padding:0!important;border:1px solid #63e47c!important;border-radius:5px!important;background:#0d3818!important;color:#d4ffc8!important;font:900 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;line-height:26px!important;text-align:center!important;pointer-events:auto!important;cursor:pointer!important;z-index:2!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_MAX_CLASS}:active{transform:translateY(1px)!important;background:#175226!important}
       .tsimm-priced-trade-start{border-color:#47c968!important;background:#0d3818!important;color:#d4ffc8!important}
     `;
     document.head.appendChild(style);
@@ -5333,6 +5338,37 @@
       return /\b(?:qty|quantity|amount)\b/i.test(label)
         || /(?:qty|quantity|amount)/i.test(String(control.className || ''));
     }) || null;
+  }
+
+  function pricedTradeNativeMaxPlacementControl(row) {
+    if (!(row instanceof Element)) return null;
+    return pricedTradeWritableQuantityControl(row) || pricedTradeNativeAddControl(row);
+  }
+
+  function pricedTradeEnsureNativeMaxButton(row, availableQuantity, itemToken) {
+    if (!(row instanceof Element) || !row.isConnected) return null;
+    const control = pricedTradeNativeMaxPlacementControl(row);
+    let button = row.querySelector(`.${PRICED_TRADE_MAX_CLASS}`);
+    if (!(control instanceof Element) || !control.isConnected) {
+      button?.remove();
+      return null;
+    }
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = PRICED_TRADE_MAX_CLASS;
+      button.dataset.tsimmGenerated = 'true';
+      button.dataset.tsimmAction = 'priced-trade-max';
+      button.textContent = 'MAX';
+    }
+    const quantity = Math.max(1, Math.floor(Number(availableQuantity) || 1));
+    button.dataset.tsimmAvailableQuantity = String(quantity);
+    button.dataset.tsimmItemToken = normalizeWhitespace(itemToken);
+    button.setAttribute('aria-label', `Fill maximum quantity ${quantity}`);
+    if (button.parentElement !== control.parentElement || button.previousElementSibling !== control) {
+      control.insertAdjacentElement('afterend', button);
+    }
+    return button;
   }
 
   function pricedTradeSetQuantityControl(control, quantity) {
@@ -5705,14 +5741,14 @@
 
   function pricedTradeRemoveRowAnnotation(row) {
     if (!(row instanceof Element)) return;
-    row.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((badge) => badge.remove());
+    row.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS},.${PRICED_TRADE_MAX_CLASS}`).forEach((element) => element.remove());
     row.classList.remove(PRICED_TRADE_ROW_CLASS, ...pricedTradeRowDecisionClasses());
     delete row.dataset.tsimmPricedTradeToken;
   }
 
   function clearPricedTradeRowAnnotations() {
     document.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`).forEach(pricedTradeRemoveRowAnnotation);
-    document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((badge) => badge.remove());
+    document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS},.${PRICED_TRADE_MAX_CLASS}`).forEach((element) => element.remove());
   }
 
 
@@ -5738,7 +5774,6 @@
     const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
     const quote = tradeExitQuoteForTrader(trader, { itemId: item.id, name: item.name });
     const availableQuantity = Math.max(1, Math.floor(Number(pricedTradeAvailableQuantity(row, item.name)) || 1));
-    const maxButton = `<button class="tsimm-priced-trade-max" type="button" data-tsimm-action="priced-trade-max" data-tsimm-available-quantity="${availableQuantity}" data-tsimm-item-token="${escapeHtml(token)}" aria-label="Fill maximum quantity ${availableQuantity}">MAX</button>`;
     let badge = [...row.children].find((child) => child.classList?.contains(PRICED_TRADE_BADGE_CLASS))
       || row.querySelector(`.${PRICED_TRADE_BADGE_CLASS}`);
     if (!badge) {
@@ -5773,18 +5808,18 @@
       const quantityLabel = `FULL STACK · ${formatInteger(availableQuantity)} AVAILABLE`;
       badgeHtml = pricedTradeLedgerHtml(ledger, quote.unitPrice)
         + pricedTradeBestMatchHtml(bestMatch, trader, quote, ledger)
-        + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`
-        + maxButton;
+        + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`;
     } else {
       row.classList.add('missing');
       badgeClasses = [PRICED_TRADE_BADGE_CLASS, 'missing', 'quantity-full-stack'];
-      badgeHtml = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list · ${escapeHtml(formatInteger(availableQuantity))} available</span>${maxButton}`;
+      badgeHtml = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list · ${escapeHtml(formatInteger(availableQuantity))} available</span>`;
     }
 
     const nextClassName = badgeClasses.join(' ');
     if (badge.className !== nextClassName) badge.className = nextClassName;
     if (badge.innerHTML !== badgeHtml) badge.innerHTML = badgeHtml;
     if (badge.parentElement !== row) row.appendChild(badge);
+    pricedTradeEnsureNativeMaxButton(row, availableQuantity, token);
     return { row, item, token, priced: Boolean(quote) };
   }
 
@@ -5815,24 +5850,61 @@
     return true;
   }
 
-  function capturePricedTradeQuantityEvent(event, delay = 180) {
+  function capturePricedTradeQuantityEvent(event) {
     if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return false;
     const target = event.target instanceof Element ? event.target : null;
     if (!target || target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return false;
     if (!pricedTradeIsQuantityControl(target)) return false;
-
     const trader = pricedTradeArmedTrader();
     if (!trader) return false;
-    let row = target.closest(`.${PRICED_TRADE_ROW_CLASS}`) || pricedTradeRowForControl(target, trader);
-    if (!(row instanceof Element) && pricedTradeLastInteractedRow?.isConnected) {
-      row = pricedTradeLastInteractedRow;
+    const row = target.closest(`.${PRICED_TRADE_ROW_CLASS}`) || pricedTradeRowForControl(target, trader);
+    if (row instanceof Element && row.isConnected) pricedTradeLastInteractedRow = row;
+    return true;
+  }
+
+  function pricedTradeRowNeedsDecoration(row, trader) {
+    if (!(row instanceof Element) || !row.isConnected || !trader) return false;
+    const item = pricedTradeItemForRow(row, trader);
+    if (!item) return false;
+    const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
+    const badge = row.querySelector(`.${PRICED_TRADE_BADGE_CLASS}`);
+    const maxButton = row.querySelector(`.${PRICED_TRADE_MAX_CLASS}`);
+    const control = pricedTradeNativeMaxPlacementControl(row);
+    return !badge
+      || !maxButton
+      || row.dataset.tsimmPricedTradeToken !== token
+      || !(control instanceof Element)
+      || maxButton.parentElement !== control.parentElement
+      || maxButton.previousElementSibling !== control;
+  }
+
+  function pricedTradeReconcileVisibleRows() {
+    if (!loadPricedTradeSession() || !pageLooksLikeTrade() || pricedTradeScrollIsActive()) return false;
+    const verification = pricedTradeVerification(state.lastScan || {});
+    if (verification.status !== 'verified' || !verification.trader) {
+      scheduleScan(0);
+      return false;
     }
-    if (!(row instanceof Element) || !row.isConnected) return false;
-    const surface = pricedTradeInventorySurface();
-    if (surface instanceof Element && !surface.contains(row)) return false;
-    pricedTradeLastInteractedRow = row;
-    if (event.type === 'input') return true;
-    return schedulePricedTradeRowRefresh(row, delay);
+    injectPricedTradeStyles();
+    const trader = verification.trader;
+    const seenTokens = new Set();
+    let decorated = 0;
+    let priced = 0;
+    for (const row of pricedTradeCandidateRows(trader)) {
+      const item = pricedTradeItemForRow(row, trader);
+      if (!item) continue;
+      const token = Number(item.id) > 0 ? `id:${Number(item.id)}` : `name:${normalizeName(item.name)}`;
+      if (seenTokens.has(token)) continue;
+      seenTokens.add(token);
+      const result = pricedTradeRowNeedsDecoration(row, trader)
+        ? pricedTradeRenderRowBadge(row, trader, item)
+        : { priced: Boolean(tradeExitQuoteForTrader(trader, { itemId: item.id, name: item.name })) };
+      if (!result) continue;
+      decorated += 1;
+      if (result.priced) priced += 1;
+    }
+    renderPricedTradePanel(verification, decorated, priced);
+    return true;
   }
 
   function applyPricedTradeInventoryBadges(stats) {
@@ -5870,13 +5942,6 @@
       if (result.priced) priced += 1;
     }
 
-    document.querySelectorAll(`.${PRICED_TRADE_ROW_CLASS}`).forEach((row) => {
-      if (!activeRows.has(row)) pricedTradeRemoveRowAnnotation(row);
-    });
-    document.querySelectorAll(`.${PRICED_TRADE_BADGE_CLASS}`).forEach((badge) => {
-      const row = badge.closest(`.${PRICED_TRADE_ROW_CLASS}`);
-      if (!row || !activeRows.has(row)) badge.remove();
-    });
     renderPricedTradePanel(verification, decorated, priced);
     pricedTradeRestoreScrollAnchor(anchor);
     syncPricedTradePickerObserver();
