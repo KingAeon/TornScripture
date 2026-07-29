@@ -25,6 +25,16 @@ jobs:
       - name: Apply, validate, and publish
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_imm_v0197_static_badges_trade_max.py')
+          text = path.read_text(encoding='utf-8')
+          old = "if 'capturePricedTradeQuantityEvent(event' in text:"
+          new = "if 'if (capturePricedTradeQuantityEvent(event' in text:"
+          if text.count(old) != 1:
+              raise SystemExit('Could not correct the quantity-hook validator exactly once.')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           python -m py_compile scripts/apply_imm_v0197_static_badges_trade_max.py
           python scripts/apply_imm_v0197_static_badges_trade_max.py
           node --check TornScripture-Item-Market-Margin.user.js
@@ -36,7 +46,7 @@ jobs:
           grep -F 'function pricedTradeSetQuantityControl' TornScripture-Item-Market-Margin.user.js
           grep -F 'handleQuickMaxClick' TornScripture-Item-Market-Margin.user.js
           grep -F 'ledgerSalePlan' TornScripture-Item-Market-Margin.user.js
-          if grep -F 'capturePricedTradeQuantityEvent(event' TornScripture-Item-Market-Margin.user.js; then
+          if grep -F 'if (capturePricedTradeQuantityEvent(event' TornScripture-Item-Market-Margin.user.js; then
             echo 'Quantity-driven Priced Trade redraw hook is still bound.' >&2
             exit 1
           fi
