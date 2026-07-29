@@ -34,8 +34,8 @@ jobs:
           grep -F '// @version      0.19.12' TornScripture-Item-Market-Margin.user.js
           grep -F "version: '0.19.12'" TornScripture-Item-Market-Margin.user.js
           grep -F 'height:30px!important' TornScripture-Item-Market-Margin.user.js
-          grep -F "primary = \`${icon} ${total} · ${roiLabel}\`;" TornScripture-Item-Market-Margin.user.js
-          grep -F "secondary = projection?.fullCoverage ? bestLabel" TornScripture-Item-Market-Margin.user.js
+          grep -F 'primary = `${icon} ${total} · ${roiLabel}`;' TornScripture-Item-Market-Margin.user.js
+          grep -F 'secondary = projection?.fullCoverage ? bestLabel' TornScripture-Item-Market-Margin.user.js
           grep -F 'function pricedTradeEnsureNativeMaxButton' TornScripture-Item-Market-Margin.user.js
           grep -F 'function pricedTradeResolvedCandidateRows' TornScripture-Item-Market-Margin.user.js
           grep -F 'function pricedTradeLedgerProjection' TornScripture-Item-Market-Margin.user.js
