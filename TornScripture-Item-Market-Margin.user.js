@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.9
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, single-owner Priced Trade badges with reliable Qty-adjacent MAX filling and a compact expandable header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
+// @version      0.19.10
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.9' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.9' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.10' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.10' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.9
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.10
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.9',
+    version: '0.19.10',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4602,6 +4602,7 @@
   let pricedTradeDeferredFullRepaint = false;
   let pricedTradeDeferredRow = null;
   const PRICED_TRADE_SCROLL_QUIET_MS = 650;
+  const pricedTradeExpandedBadgeTokens = new Set();
 
   function tradeExitFavoriteRefs() {
     try {
@@ -4783,6 +4784,7 @@
     pricedTradeDeferredRow = null;
     pricedTradePendingQuantityRow = null;
     pricedTradeLastInteractedRow = null;
+    pricedTradeExpandedBadgeTokens.clear();
     clearPricedTradeAnnotations();
     syncPricedTradePickerObserver();
     if (message) toast(message);
@@ -5118,16 +5120,24 @@
       #${PRICED_TRADE_PANEL_ID} .tsimm-priced-trade-summary small{display:none;margin-top:2px;padding-top:3px;border-top:1px solid #285f35;color:#a9cbb0;font-size:7px;white-space:normal}#${PRICED_TRADE_PANEL_ID}.expanded .tsimm-priced-trade-summary small{display:block}#${PRICED_TRADE_PANEL_ID}.waiting .tsimm-priced-trade-summary small{border-top-color:#315d73;color:#9fc5d8}#${PRICED_TRADE_PANEL_ID}.mismatch .tsimm-priced-trade-summary small,#${PRICED_TRADE_PANEL_ID}.missing-trader .tsimm-priced-trade-summary small{border-top-color:#74303a;color:#d8a1a8}
       #${PRICED_TRADE_PANEL_ID} .tsimm-priced-trade-clear{align-self:stretch;border:1px solid #75616a;border-radius:6px;background:#2a1c21;color:#ffd9df;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       .${PRICED_TRADE_ROW_CLASS}{position:relative!important;overflow-anchor:none!important;box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.stale{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.outdated{box-shadow:inset 3px 0 #b65466!important}.${PRICED_TRADE_ROW_CLASS}.missing{box-shadow:inset 3px 0 #66717a!important}
-      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;position:relative!important;height:76px!important;min-height:76px!important;overflow:hidden!important;overflow-anchor:none!important;align-content:start!important;margin:3px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:auto!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_BADGE_CLASS}{display:grid!important;gap:1px!important;width:min(210px,48vw)!important;max-width:min(210px,48vw)!important;position:relative!important;height:36px!important;min-height:36px!important;max-height:36px!important;overflow:hidden!important;overflow-anchor:none!important;align-content:start!important;margin:2px 4px!important;padding:4px 6px!important;border:1px solid #47c968!important;border-radius:5px!important;background:#082611f2!important;color:#caffba!important;font:800 8px/1.12 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;pointer-events:auto!important;cursor:pointer!important;box-sizing:border-box!important}
+      .${PRICED_TRADE_BADGE_CLASS}.expanded{height:auto!important;min-height:36px!important;max-height:132px!important;overflow:auto!important}
       .${PRICED_TRADE_BADGE_CLASS} strong,.${PRICED_TRADE_BADGE_CLASS} span{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;pointer-events:none!important}.${PRICED_TRADE_BADGE_CLASS} span{color:#7ebd89!important;font-size:7px!important}
       .${PRICED_TRADE_BADGE_CLASS}.stale{border-color:#c59a39!important;background:#2a2008f2!important;color:#ffe09a!important}.${PRICED_TRADE_BADGE_CLASS}.stale span{color:#c5ad73!important}
       .${PRICED_TRADE_BADGE_CLASS}.outdated{border-color:#b65466!important;background:#270b10f2!important;color:#ffb0bc!important}.${PRICED_TRADE_BADGE_CLASS}.outdated span{color:#c98d96!important}
       .${PRICED_TRADE_BADGE_CLASS}.missing{border-color:#65727a!important;background:#14191cf2!important;color:#c1cbd1!important}.${PRICED_TRADE_BADGE_CLASS}.missing span{color:#8d999f!important}
       .${PRICED_TRADE_BADGE_CLASS}.ledger-profit{border-color:#47c968!important;background:#082611f2!important;color:#caffba!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-loss{border-color:#dc5568!important;background:#310b12f2!important;color:#ffc0c9!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-even{border-color:#8a9298!important;background:#191d20f2!important;color:#e1e5e8!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-unknown{border-color:#65727a!important;background:#14191cf2!important;color:#c1cbd1!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-partial{border-color:#c59a39!important;background:#2a2008f2!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-compact{display:grid!important;gap:1px!important;min-width:0!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-compact-line{font-size:9px!important;line-height:1.05!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-compact-sub{color:#9fb4a3!important;font-size:7px!important;line-height:1.05!important}
+      .${PRICED_TRADE_BADGE_CLASS}.ledger-loss .tsimm-priced-trade-compact-sub{color:#dba0a8!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-partial .tsimm-priced-trade-compact-sub{color:#d3bc82!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-unknown .tsimm-priced-trade-compact-sub{color:#a8b2b8!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-details{display:none!important;gap:1px!important;margin-top:3px!important;padding-top:3px!important;border-top:1px solid #315d39!important}
+      .${PRICED_TRADE_BADGE_CLASS}.expanded .tsimm-priced-trade-details{display:grid!important}
+      .${PRICED_TRADE_BADGE_CLASS}.ledger-loss .tsimm-priced-trade-details{border-top-color:#74303a!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-partial .tsimm-priced-trade-details{border-top-color:#7c6125!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-unknown .tsimm-priced-trade-details{border-top-color:#566068!important}
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict,.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-comparison,.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-meta{white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict{font-size:9px!important;line-height:1.15!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.profit{color:#83f19a!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.loss{color:#ff8f9d!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.even{color:#e0e0e0!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-verdict.unknown{color:#b3bec4!important}
-      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-comparison{margin-top:1px!important;padding-top:2px!important;border-top:1px solid #315d39!important;color:#d7ded9!important;font-size:7px!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-loss .tsimm-priced-trade-comparison{border-top-color:#74303a!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-partial .tsimm-priced-trade-comparison{border-top-color:#7c6125!important}.${PRICED_TRADE_BADGE_CLASS}.ledger-unknown .tsimm-priced-trade-comparison{border-top-color:#566068!important}
-      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-meta{color:#87948c!important;font-size:7px!important}.${PRICED_TRADE_BADGE_CLASS}.quantity-selected .tsimm-priced-trade-meta{color:#9eefff!important;font-weight:900!important}.${PRICED_TRADE_BADGE_CLASS}.quantity-preview .tsimm-priced-trade-meta{color:#87948c!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-comparison{margin-top:1px!important;color:#d7ded9!important;font-size:7px!important}
+      .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-meta{color:#87948c!important;font-size:7px!important}
       .${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best{margin-top:2px!important;padding-top:2px!important;border-top:1px solid #725d21!important;color:#ffd76f!important;font-size:8px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.better{color:#8edcff!important;border-top-color:#315f73!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best.stale{color:#d7b66b!important}.${PRICED_TRADE_BADGE_CLASS} .tsimm-priced-trade-best-detail{color:#83b7cc!important;font-size:7px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
       .${PRICED_TRADE_ROW_CLASS}.decision-profit{box-shadow:inset 3px 0 #47c968!important}.${PRICED_TRADE_ROW_CLASS}.decision-loss{box-shadow:inset 3px 0 #dc5568!important}.${PRICED_TRADE_ROW_CLASS}.decision-even{box-shadow:inset 3px 0 #8a9298!important}.${PRICED_TRADE_ROW_CLASS}.decision-partial{box-shadow:inset 3px 0 #c59a39!important}.${PRICED_TRADE_ROW_CLASS}.decision-unknown{box-shadow:inset 3px 0 #65727a!important}
       .${PRICED_TRADE_MAX_CLASS}{display:inline-flex!important;align-items:center!important;justify-content:center!important;vertical-align:middle!important;flex:0 0 auto!important;width:38px!important;min-width:38px!important;height:28px!important;margin:0 0 0 4px!important;padding:0!important;border:1px solid #63e47c!important;border-radius:5px!important;background:#0d3818!important;color:#d4ffc8!important;font:900 8px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;line-height:26px!important;text-align:center!important;pointer-events:auto!important;cursor:pointer!important;z-index:2!important;box-sizing:border-box!important}
@@ -5832,6 +5842,47 @@
       + `<span class="tsimm-priced-trade-best-detail">+${escapeHtml(formatMoney(gainTotal))} over this trader for the tracked stack</span>`;
   }
 
+  function pricedTradeCompactBadgeHtml(projection, bestMatch, currentTrader, currentQuote) {
+    const trackedQuantity = Math.max(0, Math.floor(Number(projection?.trackedQuantity) || 0));
+    const requestedQuantity = Math.max(1, Math.floor(Number(projection?.requestedQuantity) || 1));
+    const knownCost = trackedQuantity > 0 && Number.isFinite(Number(projection?.profitEach));
+    let primary = `? COST UNKNOWN · pays ${formatMoney(currentQuote?.unitPrice || 0)} ea`;
+    if (knownCost) {
+      const status = Number(projection.profit) > 0 ? 'profit' : Number(projection.profit) < 0 ? 'loss' : 'even';
+      const icon = projection.fullCoverage ? (status === 'profit' ? '✓' : status === 'loss' ? '✕' : '≈') : '⚠';
+      const scope = projection.fullCoverage
+        ? 'STACK'
+        : `${formatInteger(trackedQuantity)}/${formatInteger(requestedQuantity)} TRACKED`;
+      const total = status === 'profit'
+        ? `+${formatMoney(Math.abs(projection.profit))}`
+        : status === 'loss'
+          ? `-${formatMoney(Math.abs(projection.profit))}`
+          : 'BREAK EVEN';
+      const each = status === 'profit'
+        ? `+${formatMoney(Math.abs(projection.profitEach))} ea`
+        : status === 'loss'
+          ? `-${formatMoney(Math.abs(projection.profitEach))} ea`
+          : `${formatMoney(0)} ea`;
+      primary = `${icon} ${total} ${scope} · ${each}`;
+    }
+
+    let secondary = `${currentTrader?.name || 'Trader'} · tap for details`;
+    if (bestMatch?.trader && bestMatch?.quote && currentTrader && currentQuote) {
+      const stale = bestMatch.comparisonFreshness !== 'fresh';
+      if (bestMatch.trader.id === currentTrader.id) {
+        secondary = `${stale ? '⌛ STALE TOP' : '★ TOP MATCH'} · ${currentTrader.name}`;
+      } else if (trackedQuantity > 0) {
+        const gainTotal = Math.max(0, Number(bestMatch.quote.unitPrice) - Number(currentQuote.unitPrice)) * trackedQuantity;
+        secondary = `${stale ? '⌛ STALE BEST' : '↑ BEST'} ${bestMatch.trader.name} · +${formatMoney(gainTotal)} more`;
+      } else {
+        secondary = `${stale ? '⌛ STALE BEST' : '↑ BEST'} ${bestMatch.trader.name} · pays ${formatMoney(bestMatch.quote.unitPrice)} ea`;
+      }
+    }
+
+    return `<span class="tsimm-priced-trade-compact"><strong class="tsimm-priced-trade-compact-line">${escapeHtml(primary)}</strong><span class="tsimm-priced-trade-compact-sub">${escapeHtml(secondary)}</span></span>`;
+  }
+
+
   function pricedTradeRowDecisionClasses() {
     return [
       'fresh', 'stale', 'outdated', 'missing',
@@ -5899,6 +5950,7 @@
     }
     badge.dataset.tsimmItemToken = token;
 
+    const expanded = pricedTradeExpandedBadgeTokens.has(token);
     let badgeClasses = [PRICED_TRADE_BADGE_CLASS];
     let badgeHtml = '';
     if (quote) {
@@ -5917,20 +5969,30 @@
         `ledger-${ledgerState}`,
         'quantity-full-stack',
       ];
+      if (expanded) badgeClasses.push('expanded');
       if (ledger.trackedQuantity && !ledger.fullCoverage) badgeClasses.push('ledger-partial');
       const bestMatch = pricedTradeBestTraderQuote(item, trader);
       const quantityLabel = `FULL STACK · ${formatInteger(availableQuantity)} AVAILABLE`;
-      badgeHtml = pricedTradeLedgerHtml(ledger, quote.unitPrice)
+      const detailHtml = pricedTradeLedgerHtml(ledger, quote.unitPrice)
         + pricedTradeBestMatchHtml(bestMatch, trader, quote, ledger)
         + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`;
+      badgeHtml = pricedTradeCompactBadgeHtml(ledger, bestMatch, trader, quote)
+        + `<span class="tsimm-priced-trade-details">${detailHtml}</span>`;
     } else {
       row.classList.add('missing');
       badgeClasses = [PRICED_TRADE_BADGE_CLASS, 'missing', 'quantity-full-stack'];
-      badgeHtml = `<strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list · ${escapeHtml(formatInteger(availableQuantity))} available</span>`;
+      if (expanded) badgeClasses.push('expanded');
+      badgeHtml = `<span class="tsimm-priced-trade-compact"><strong class="tsimm-priced-trade-compact-line">? NO CAPTURED PRICE</strong><span class="tsimm-priced-trade-compact-sub">${escapeHtml(trader.name)} · tap for details</span></span>`
+        + `<span class="tsimm-priced-trade-details"><strong>${escapeHtml(trader.name)} · NO CAPTURED PRICE</strong><span>${escapeHtml(item.name)} is absent from the saved price list · ${escapeHtml(formatInteger(availableQuantity))} available</span></span>`;
     }
 
     const nextClassName = badgeClasses.join(' ');
     if (badge.className !== nextClassName) badge.className = nextClassName;
+    badge.dataset.tsimmAction = 'priced-trade-badge-toggle';
+    badge.setAttribute('role', 'button');
+    badge.setAttribute('tabindex', '0');
+    badge.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    badge.setAttribute('aria-label', `${item.name}: ${expanded ? 'hide' : 'show'} Priced Trade details`);
     if (badge.innerHTML !== badgeHtml) badge.innerHTML = badgeHtml;
     if (badge.parentElement !== row) row.appendChild(badge);
     pricedTradeEnsureNativeMaxButton(row, availableQuantity, token);
@@ -10204,6 +10266,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         setPricedTradePanelExpanded(expanded);
         panel?.classList.toggle('expanded', expanded);
         button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      } else if (action === 'priced-trade-badge-toggle') {
+        const token = normalizeWhitespace(button.dataset.tsimmItemToken);
+        if (token) {
+          const expanded = !button.classList.contains('expanded');
+          if (expanded) pricedTradeExpandedBadgeTokens.add(token);
+          else pricedTradeExpandedBadgeTokens.delete(token);
+          button.classList.toggle('expanded', expanded);
+          button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        }
       } else if (action === 'priced-trade-clear') {
         clearPricedTradeSession('Priced Trade cleared.');
         scheduleScan(20);
