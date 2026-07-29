@@ -5,6 +5,11 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - scripts/trigger_imm_v0197_static_badges_trade_max.txt
+  push:
+    branches:
+      - 'release/imm-v0.19.7-static-badges-trade-max-*'
+    paths:
+      - scripts/trigger_imm_v0197_static_badges_trade_max.txt
 
 permissions:
   contents: write
