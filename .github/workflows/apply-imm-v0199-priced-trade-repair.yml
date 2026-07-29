@@ -1,0 +1,62 @@
+name: Apply IMM v0.19.9 Priced Trade repair
+
+on:
+  push:
+    branches:
+      - repair/priced-trade-v0.19.9
+    paths:
+      - scripts/trigger_imm_v0199_priced_trade_repair.txt
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: repair/priced-trade-v0.19.9
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Decode and apply guarded repair
+        run: |
+          base64 --decode scripts/apply_imm_v0199_priced_trade_repair.py.gz.b64 | gzip --decompress > /tmp/apply_imm_v0199_priced_trade_repair.py
+          python /tmp/apply_imm_v0199_priced_trade_repair.py
+
+      - name: Validate JavaScript and protected systems
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          grep -F '// @version      0.19.9' TornScripture-Item-Market-Margin.user.js
+          grep -F "version: '0.19.9'" TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeResolvedCandidateRows' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeOwnedGeneratedElements' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradePruneNonCanonicalRows' TornScripture-Item-Market-Margin.user.js
+          grep -F 'data-tsimm-action="priced-trade-toggle"' TornScripture-Item-Market-Margin.user.js
+          grep -F 'pricedTradePickerObserver.observe(observeTarget' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeBestTraderQuote' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function exactDuplicateLedgerPairs' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function ledgerFundingSummary' TornScripture-Item-Market-Margin.user.js
+          grep -F 'buildTradeExitAudit' TornScripture-Item-Market-Margin.user.js
+          if grep -Fq 'pricedTradePickerObserver.observe(document.body' TornScripture-Item-Market-Margin.user.js; then
+            echo 'Legacy document-wide Priced Trade observer remains' >&2
+            exit 1
+          fi
+
+      - name: Commit validated repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f \
+            scripts/apply_imm_v0199_priced_trade_repair.py.gz.b64 \
+            scripts/trigger_imm_v0199_priced_trade_repair.txt \
+            .github/workflows/apply-imm-v0199-priced-trade-repair.yml
+          git commit -m 'Repair Priced Trade row ownership and compact controls'
+          git push origin HEAD:repair/priced-trade-v0.19.9
