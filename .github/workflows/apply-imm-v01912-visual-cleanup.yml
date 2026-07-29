@@ -1,0 +1,54 @@
+name: Apply IMM v0.19.12 visual cleanup
+
+on:
+  push:
+    branches:
+      - repair/priced-trade-v0.19.12
+    paths:
+      - scripts/trigger_imm_v01912_visual_cleanup.txt
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: repair/priced-trade-v0.19.12
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Apply guarded visual cleanup
+        run: python scripts/apply_imm_v01912_visual_cleanup.py
+
+      - name: Validate JavaScript and protected systems
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          grep -F '// @version      0.19.12' TornScripture-Item-Market-Margin.user.js
+          grep -F "version: '0.19.12'" TornScripture-Item-Market-Margin.user.js
+          grep -F 'height:30px!important' TornScripture-Item-Market-Margin.user.js
+          grep -F "primary = \`${icon} ${total} · ${roiLabel}\`;" TornScripture-Item-Market-Margin.user.js
+          grep -F "secondary = projection?.fullCoverage ? bestLabel" TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeEnsureNativeMaxButton' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeResolvedCandidateRows' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeLedgerProjection' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeBestTraderQuote' TornScripture-Item-Market-Margin.user.js
+
+      - name: Commit validated cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f \
+            scripts/apply_imm_v01912_visual_cleanup.py \
+            scripts/trigger_imm_v01912_visual_cleanup.txt \
+            .github/workflows/apply-imm-v01912-visual-cleanup.yml
+          git commit -m 'Tighten compact Priced Trade badges'
+          git push origin HEAD:repair/priced-trade-v0.19.12
