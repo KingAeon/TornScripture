@@ -1,0 +1,228 @@
+name: IMM v0.19.15 self-contained repair
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: imm-v01915-self-contained
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch ROI-first badges
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('TornScripture-Item-Market-Margin.user.js')
+          text = path.read_text(encoding='utf-8')
+
+          if '// @version      0.19.15' in text:
+              print('IMM v0.19.15 is already present; only removing the one-shot workflow.')
+          else:
+              if '// @version      0.19.14' not in text:
+                  raise SystemExit('Expected IMM v0.19.14 on main before patching.')
+              text = text.replace('0.19.14', '0.19.15')
+
+              cleanup_old = "badge.classList.remove('tsimm-watch-inline-badge', 'tsimm-watch-best-exit', 'tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss', 'tsimm-watch-floor-badge', 'tsimm-watch-hidden-loss');"
+              cleanup_new = "badge.classList.remove('tsimm-watch-inline-badge', 'tsimm-watch-best-exit', 'tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss', 'tsimm-watch-floor-badge', 'tsimm-watch-hidden-loss', 'tsimm-watch-roi-gold', 'tsimm-watch-roi-green', 'tsimm-watch-roi-purple', 'tsimm-watch-roi-even', 'tsimm-watch-roi-loss');"
+              if text.count(cleanup_old) != 1:
+                  raise SystemExit(f'Cleanup anchor count was {text.count(cleanup_old)}, expected 1.')
+              text = text.replace(cleanup_old, cleanup_new, 1)
+
+              css_anchor = """    `;
+    style.textContent += `
+      #${A.turnoverPanel}{"""
+              roi_css = """    `;
+    style.textContent += `
+      .tsimm-watch-inline-badge.tsimm-watch-roi-gold,.tsimm-watch-inline-badge.tsimm-watch-roi-gold strong,.tsimm-watch-inline-badge.tsimm-watch-roi-gold .tsimm-listing-lot{border-color:#f4c95d!important;background:#2b2208f5!important;color:#ffe38a!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-green,.tsimm-watch-inline-badge.tsimm-watch-roi-green strong,.tsimm-watch-inline-badge.tsimm-watch-roi-green .tsimm-listing-lot{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-purple,.tsimm-watch-inline-badge.tsimm-watch-roi-purple strong,.tsimm-watch-inline-badge.tsimm-watch-roi-purple .tsimm-listing-lot{border-color:#c77dff!important;background:#281037f5!important;color:#dca2ff!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-even,.tsimm-watch-inline-badge.tsimm-watch-roi-even strong,.tsimm-watch-inline-badge.tsimm-watch-roi-even .tsimm-listing-lot{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-loss,.tsimm-watch-inline-badge.tsimm-watch-roi-loss strong,.tsimm-watch-inline-badge.tsimm-watch-roi-loss .tsimm-listing-lot{border-color:#ff626d!important;background:#2c0b0ef5!important;color:#ff8c96!important}
+      .tsimm-watch-profit.tsimm-watch-roi-gold{border-color:#f4c95d!important;background:#2b2208f5!important;color:#ffe38a!important}
+      .tsimm-watch-profit.tsimm-watch-roi-green{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}
+      .tsimm-watch-profit.tsimm-watch-roi-purple{border-color:#c77dff!important;background:#281037f5!important;color:#dca2ff!important}
+      .tsimm-watch-profit.tsimm-watch-roi-even{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}
+      .tsimm-watch-profit.tsimm-watch-roi-loss{border-color:#ff626d!important;background:#2c0b0ef5!important;color:#ff8c96!important}
+      .tsimm-watch-hidden-loss{display:flex!important}
+    `;
+    style.textContent += `
+      #${A.turnoverPanel}{"""
+              if text.count(css_anchor) != 1:
+                  raise SystemExit(f'CSS insertion anchor count was {text.count(css_anchor)}, expected 1.')
+              text = text.replace(css_anchor, roi_css, 1)
+
+              health_pattern = re.compile(
+                  r"  function addMarketHealthMarker\(row, health\) \{.*?\n  \}\n\n  function applyMarketHealthPanel",
+                  re.S,
+              )
+              health_replacement = """  function addMarketHealthMarker(row, health) {
+    if (!(row instanceof Element)) return;
+    row.classList.remove(
+      'tsimm-market-health-aligned-row', 'tsimm-market-health-caution-row',
+      'tsimm-market-health-danger-row', 'tsimm-market-health-unknown-row',
+    );
+    row.classList.add(`tsimm-market-health-${health.level}-row`);
+    row.querySelector('[data-tsimm-market-health]')?.remove();
+  }
+
+  function applyMarketHealthPanel"""
+              text, health_count = health_pattern.subn(health_replacement, text)
+              if health_count != 1:
+                  raise SystemExit(f'Market-health function replacements: {health_count}, expected 1.')
+
+              profit_pattern = re.compile(
+                  r"  function addProfitMarker\(row, traderProfit, traderName = '', breakEvenPrice = 0, isFloor = false\) \{.*?\n  \}\n\n  function validWatchListingRow",
+                  re.S,
+              )
+              profit_replacement = """  function addProfitMarker(row, traderProfit, traderName = '', breakEvenPrice = 0, isFloor = false) {
+    const badge = row.querySelector('.tsimm-margin-badge.tsimm-badge-listing')
+      || row.querySelector('.tsimm-margin-badge');
+    const profitEach = Number(traderProfit);
+    if (!Number.isFinite(profitEach)) return false;
+    const traderLabel = clean(traderName).slice(0, 18) || 'trader';
+    const signedCash = (value) => value > 0 ? `+${cash(value)}` : cash(value);
+    const entryPrice = Math.max(0, Number(badge?.dataset?.tsimmListingPrice) || listingPrice(row) || 0);
+    const roiPercent = entryPrice > 0 ? profitEach / entryPrice * 100 : 0;
+    const roiClass = profitEach < 0
+      ? 'tsimm-watch-roi-loss'
+      : profitEach === 0
+        ? 'tsimm-watch-roi-even'
+        : roiPercent >= 4
+          ? 'tsimm-watch-roi-gold'
+          : roiPercent >= 2.5
+            ? 'tsimm-watch-roi-green'
+            : 'tsimm-watch-roi-purple';
+    const roiText = entryPrice > 0 ? `${roiPercent.toFixed(2)}%` : 'ROI —';
+    const exitPrice = breakEvenPrice > 0 ? breakEvenPrice : Math.max(0, entryPrice + profitEach);
+
+    if (badge) {
+      if (!badge.dataset.tsimmWatchOriginalHtml) badge.dataset.tsimmWatchOriginalHtml = badge.innerHTML;
+      const quantity = Math.max(1, Math.floor(Number(badge.dataset.tsimmQuantity) || 1));
+      const totalProfit = profitEach * quantity;
+      const eachText = profitEach === 0 ? '$0 ea' : `${signedCash(profitEach)} ea`;
+      const lotText = totalProfit === 0 ? 'lot $0' : `lot ${compactWatchCash(totalProfit)}`;
+      badge.innerHTML = `<strong>${esc(eachText)} · ${esc(roiText)}</strong>`
+        + `<span class="tsimm-listing-lot">${esc(lotText)}</span>`;
+      badge.classList.remove(
+        'tsimm-tier-npc', 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss',
+        'tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss',
+        'tsimm-watch-floor-badge', 'tsimm-watch-hidden-loss',
+        'tsimm-watch-roi-gold', 'tsimm-watch-roi-green', 'tsimm-watch-roi-purple',
+        'tsimm-watch-roi-even', 'tsimm-watch-roi-loss',
+      );
+      badge.classList.add('tsimm-watch-inline-badge', 'tsimm-watch-best-exit', roiClass);
+      badge.title = `${traderLabel} exit ${cash(exitPrice)} · buy ${cash(entryPrice)} · ${roiText} ROI${isFloor ? ' · first row at or below the exit' : ''}`;
+      row.classList.toggle('tsimm-watch-profitable', profitEach > 0);
+      return true;
+    }
+
+    const marker = document.createElement('span');
+    marker.className = `tsimm-watch-profit ${roiClass}`;
+    marker.dataset.tsimmWatchProfit = '1';
+    marker.textContent = `${profitEach === 0 ? '$0 ea' : `${signedCash(profitEach)} ea`} · ${roiText}`;
+    marker.title = `${traderLabel} exit ${cash(exitPrice)} · buy ${cash(entryPrice)} · ${roiText} ROI${isFloor ? ' · first row at or below the exit' : ''}`;
+    row.appendChild(marker);
+    row.classList.add('tsimm-watch-format-row');
+    row.classList.toggle('tsimm-watch-profitable', profitEach > 0);
+    return true;
+  }
+
+  function validWatchListingRow"""
+              text, profit_count = profit_pattern.subn(profit_replacement, text)
+              if profit_count != 1:
+                  raise SystemExit(f'Profit-marker function replacements: {profit_count}, expected 1.')
+
+              path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate script and protected systems
+        shell: bash
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path('TornScripture-Item-Market-Margin.user.js').read_text(encoding='utf-8')
+          required = {
+              'version': '// @version      0.19.15',
+              'runtime version': "version: '0.19.15'",
+              'gold tier': 'tsimm-watch-roi-gold',
+              'green tier': 'tsimm-watch-roi-green',
+              'purple tier': 'tsimm-watch-roi-purple',
+              'cyan tier': 'tsimm-watch-roi-even',
+              'red tier': 'tsimm-watch-roi-loss',
+              'ROI calculation': 'profitEach / entryPrice * 100',
+              'ROI badge line': '${esc(eachText)} · ${esc(roiText)}',
+              'market risk header': 'applyMarketHealthPanel(health)',
+              'danger rail': 'tsimm-market-health-danger-row',
+              'sale handoff': 'savePendingTradeSaleFromStats',
+              'FIFO sales': 'function recordTradeSale(',
+              'Priced Trade': 'function pricedTradeRenderRowBadge(',
+              'MAX': 'function pricedTradeEnsureNativeMaxButton(',
+          }
+          missing = [name for name, token in required.items() if token not in text]
+          if missing:
+              raise SystemExit(f'Missing protected systems: {missing}')
+          if '0.19.14' in text:
+              raise SystemExit('Old version marker remains.')
+          if text.count('function addProfitMarker(') != 1:
+              raise SystemExit('Unexpected addProfitMarker ownership count.')
+          if text.count('function recordTradeSale(') != 1:
+              raise SystemExit('Unexpected recordTradeSale ownership count.')
+          if text.count('function pricedTradeRenderRowBadge(') != 1:
+              raise SystemExit('Unexpected Priced Trade ownership count.')
+
+          def tier(entry, exit_price):
+              profit = exit_price - entry
+              roi = profit / entry * 100
+              if profit < 0:
+                  return 'red'
+              if profit == 0:
+                  return 'cyan'
+              if roi >= 4:
+                  return 'gold'
+              if roi >= 2.5:
+                  return 'green'
+              return 'purple'
+
+          checks = [
+              (994, 1037, 'gold'),
+              (1000, 1037, 'green'),
+              (479, 484, 'purple'),
+              (484, 484, 'cyan'),
+              (1050, 1037, 'red'),
+          ]
+          for entry, exit_price, expected in checks:
+              actual = tier(entry, exit_price)
+              if actual != expected:
+                  raise SystemExit(f'{entry}->{exit_price}: expected {expected}, got {actual}')
+          print('Self-contained ROI-first validation passed.')
+          PY
+
+      - name: Commit v0.19.15 and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name 'TornScripture Repair Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm .github/workflows/imm-v01915-self-contained.yml
+          git commit -m 'Release IMM v0.19.15 ROI-first badges'
+          git push origin HEAD:main
