@@ -1,2 +1,0 @@
-Trigger the guarded self-contained IMM v0.19.15 ROI-first badge release.
-Simplified canonical workflow trigger.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.14
+// @version      0.19.15
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.14' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.14' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.15' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.15' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.14
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.15
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.14',
+    version: '0.19.15',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -11057,6 +11057,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .tsimm-market-health-mark{display:flex!important;align-items:center!important;gap:0!important;margin-top:1px!important;padding-top:1px!important;border-top:1px solid #6b6570!important;font:900 6.5px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:.02em!important;opacity:1!important}.tsimm-market-health-mark .mv-gap.discount{color:#78ef8d!important}.tsimm-market-health-mark .mv-gap.aligned{color:#8ee8ff!important}.tsimm-market-health-mark .mv-gap.premium{color:#ff8c96!important}.tsimm-market-health-mark .mv-gap.unknown{color:#aeb8bd!important}.tsimm-market-health-mark .quote-gap.aligned,.tsimm-market-health-summary.aligned{color:#8ee8ff!important}.tsimm-market-health-mark .quote-gap.caution,.tsimm-market-health-summary.caution{color:#ffd166!important}.tsimm-market-health-mark .quote-gap.danger,.tsimm-market-health-summary.danger{color:#ff8c96!important}.tsimm-market-health-mark .quote-gap.unknown,.tsimm-market-health-summary.unknown{color:#aeb8bd!important}.tsimm-market-health-aligned-row{box-shadow:inset 3px 0 #52c7ea!important}.tsimm-market-health-caution-row{box-shadow:inset 3px 0 #d7a83d!important}.tsimm-market-health-danger-row{box-shadow:inset 3px 0 #df5966!important}.tsimm-market-health-unknown-row{box-shadow:inset 3px 0 #66717a!important}#${A.panel}.health-caution{border-color:#9a6d1f!important}#${A.panel}.health-danger{border-color:#8f4850!important}#${A.panel}.health-aligned{border-color:#318cab!important}
     `;
     style.textContent += `
+      .tsimm-watch-inline-badge.tsimm-watch-roi-gold,.tsimm-watch-inline-badge.tsimm-watch-roi-gold strong,.tsimm-watch-inline-badge.tsimm-watch-roi-gold .tsimm-listing-lot{border-color:#f4c95d!important;background:#2b2208f5!important;color:#ffe38a!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-green,.tsimm-watch-inline-badge.tsimm-watch-roi-green strong,.tsimm-watch-inline-badge.tsimm-watch-roi-green .tsimm-listing-lot{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-purple,.tsimm-watch-inline-badge.tsimm-watch-roi-purple strong,.tsimm-watch-inline-badge.tsimm-watch-roi-purple .tsimm-listing-lot{border-color:#c77dff!important;background:#281037f5!important;color:#dca2ff!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-even,.tsimm-watch-inline-badge.tsimm-watch-roi-even strong,.tsimm-watch-inline-badge.tsimm-watch-roi-even .tsimm-listing-lot{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}
+      .tsimm-watch-inline-badge.tsimm-watch-roi-loss,.tsimm-watch-inline-badge.tsimm-watch-roi-loss strong,.tsimm-watch-inline-badge.tsimm-watch-roi-loss .tsimm-listing-lot{border-color:#ff626d!important;background:#2c0b0ef5!important;color:#ff8c96!important}
+      .tsimm-watch-profit.tsimm-watch-roi-gold{border-color:#f4c95d!important;background:#2b2208f5!important;color:#ffe38a!important}
+      .tsimm-watch-profit.tsimm-watch-roi-green{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}
+      .tsimm-watch-profit.tsimm-watch-roi-purple{border-color:#c77dff!important;background:#281037f5!important;color:#dca2ff!important}
+      .tsimm-watch-profit.tsimm-watch-roi-even{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}
+      .tsimm-watch-profit.tsimm-watch-roi-loss{border-color:#ff626d!important;background:#2c0b0ef5!important;color:#ff8c96!important}
+      .tsimm-watch-hidden-loss{display:flex!important}
+    `;
+    style.textContent += `
       #${A.turnoverPanel}{display:grid;gap:7px;box-sizing:border-box;margin:6px 8px;padding:9px;border:1px solid #9d7627;border-radius:8px;background:#171105f4;color:#ffe28a;font:800 9px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${A.turnoverPanel} .turnover-head{display:grid;gap:2px}#${A.turnoverPanel} .turnover-head strong{color:#ffe8a3;font-size:11px;letter-spacing:.04em}#${A.turnoverPanel} .turnover-head span{color:#bfa969;font-size:8px;font-weight:700}
       #${A.turnoverPanel} .turnover-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}#${A.turnoverPanel} button{display:grid;grid-template-columns:auto 1fr auto;gap:5px;align-items:center;min-height:36px;border:1px solid #826923;border-radius:6px;background:#2a2008;color:#ffe8a3;padding:6px 7px;text-align:left;font:800 8px/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.turnoverPanel} button small{color:#ad985a;font-size:7px}#${A.turnoverPanel} button.complete{border-color:#4ea966;background:#0b2b13;color:#bdffae}#${A.turnoverPanel} button.all{grid-column:1/-1;border-color:#5a8aa6;background:#0a2230;color:#c8efff}#${A.turnoverPanel} button:disabled{opacity:.65}
@@ -12332,7 +12345,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   function cleanupMarket() {
     document.querySelectorAll('.tsimm-margin-badge[data-tsimm-watch-original-html]').forEach((badge) => {
       badge.innerHTML = badge.dataset.tsimmWatchOriginalHtml || '';
-      badge.classList.remove('tsimm-watch-inline-badge', 'tsimm-watch-best-exit', 'tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss', 'tsimm-watch-floor-badge', 'tsimm-watch-hidden-loss');
+      badge.classList.remove('tsimm-watch-inline-badge', 'tsimm-watch-best-exit', 'tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss', 'tsimm-watch-floor-badge', 'tsimm-watch-hidden-loss', 'tsimm-watch-roi-gold', 'tsimm-watch-roi-green', 'tsimm-watch-roi-purple', 'tsimm-watch-roi-even', 'tsimm-watch-roi-loss');
       delete badge.dataset.tsimmWatchOriginalHtml;
     });
     document.querySelectorAll('.tsimm-watch-inline[data-tsimm-watch-original-html]').forEach((line) => {
@@ -12406,40 +12419,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function addMarketHealthMarker(row, health) {
     if (!(row instanceof Element)) return;
-    const badge = row.querySelector('.tsimm-margin-badge.tsimm-badge-listing');
-    const price = listingPrice(row);
-    const listingGap = price > 0 && health.marketValue > 0
-      ? (price - health.marketValue) / health.marketValue * 100
-      : null;
     row.classList.remove(
       'tsimm-market-health-aligned-row', 'tsimm-market-health-caution-row',
       'tsimm-market-health-danger-row', 'tsimm-market-health-unknown-row',
     );
     row.classList.add(`tsimm-market-health-${health.level}-row`);
-    if (!badge) return;
-    badge.querySelector('[data-tsimm-market-health]')?.remove();
-    const marker = document.createElement('span');
-    marker.dataset.tsimmMarketHealth = '1';
-    marker.className = 'tsimm-market-health-mark';
-    const mvLevel = !Number.isFinite(listingGap)
-      ? 'unknown'
-      : listingGap <= -0.5
-        ? 'discount'
-        : listingGap >= 0.5
-          ? 'premium'
-          : 'aligned';
-    const mvText = `Ⓜ ${signedMarketPercent(listingGap)} MV`;
-    const quoteText = Number.isFinite(health.quoteGap) ? `Q ${signedMarketPercent(health.quoteGap)}` : '';
-    marker.innerHTML = `<span class="mv-gap ${mvLevel}">${esc(mvText)}</span>`
-      + (quoteText ? `<span class="quote-gap ${health.level}"> · ${esc(quoteText)}</span>` : '');
-    marker.title = [
-      health.label,
-      health.livePrice > 0 ? `Live floor ${cash(health.livePrice)}` : '',
-      health.marketValue > 0 ? `Torn Market Value ${cash(health.marketValue)}` : '',
-      Number(health.best?.price) > 0 ? `${health.best.traderName} ${cash(health.best.price)} (${health.best.status})` : '',
-      health.velocity?.label ? `Velocity ${health.velocity.label}` : '',
-    ].filter(Boolean).join(' · ');
-    badge.appendChild(marker);
+    row.querySelector('[data-tsimm-market-health]')?.remove();
   }
 
   function applyMarketHealthPanel(health) {
@@ -12467,54 +12452,46 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!Number.isFinite(profitEach)) return false;
     const traderLabel = clean(traderName).slice(0, 18) || 'trader';
     const signedCash = (value) => value > 0 ? `+${cash(value)}` : cash(value);
-
-    if (profitEach < 0 && !isFloor) {
-      badge?.classList.add('tsimm-watch-hidden-loss');
-      row.classList.remove('tsimm-watch-profitable');
-      return true;
-    }
+    const entryPrice = Math.max(0, Number(badge?.dataset?.tsimmListingPrice) || listingPrice(row) || 0);
+    const roiPercent = entryPrice > 0 ? profitEach / entryPrice * 100 : 0;
+    const roiClass = profitEach < 0
+      ? 'tsimm-watch-roi-loss'
+      : profitEach === 0
+        ? 'tsimm-watch-roi-even'
+        : roiPercent >= 4
+          ? 'tsimm-watch-roi-gold'
+          : roiPercent >= 2.5
+            ? 'tsimm-watch-roi-green'
+            : 'tsimm-watch-roi-purple';
+    const roiText = entryPrice > 0 ? `${roiPercent.toFixed(2)}%` : 'ROI —';
+    const exitPrice = breakEvenPrice > 0 ? breakEvenPrice : Math.max(0, entryPrice + profitEach);
 
     if (badge) {
       if (!badge.dataset.tsimmWatchOriginalHtml) badge.dataset.tsimmWatchOriginalHtml = badge.innerHTML;
       const quantity = Math.max(1, Math.floor(Number(badge.dataset.tsimmQuantity) || 1));
       const totalProfit = profitEach * quantity;
-      if (profitEach < 0 && isFloor) {
-        badge.innerHTML = '<strong>BREAK-EVEN LIMIT</strong>'
-          + `<span class="tsimm-listing-lot">${esc(cash(breakEvenPrice))} exit</span>`;
-      } else {
-        const eachText = profitEach === 0 ? '$0 EVEN' : `${signedCash(profitEach)} ea`;
-        const lotText = totalProfit === 0 ? 'lot $0' : `lot ${compactWatchCash(totalProfit)}`;
-        badge.innerHTML = `<strong>${esc(eachText)}</strong>`
-          + `<span class="tsimm-listing-lot">${esc(lotText)}</span>`;
-      }
+      const eachText = profitEach === 0 ? '$0 ea' : `${signedCash(profitEach)} ea`;
+      const lotText = totalProfit === 0 ? 'lot $0' : `lot ${compactWatchCash(totalProfit)}`;
+      badge.innerHTML = `<strong>${esc(eachText)} · ${esc(roiText)}</strong>`
+        + `<span class="tsimm-listing-lot">${esc(lotText)}</span>`;
       badge.classList.remove(
         'tsimm-tier-npc', 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss',
         'tsimm-watch-best-exit-profit', 'tsimm-watch-best-exit-even', 'tsimm-watch-best-exit-loss',
         'tsimm-watch-floor-badge', 'tsimm-watch-hidden-loss',
+        'tsimm-watch-roi-gold', 'tsimm-watch-roi-green', 'tsimm-watch-roi-purple',
+        'tsimm-watch-roi-even', 'tsimm-watch-roi-loss',
       );
-      badge.classList.add('tsimm-watch-inline-badge', 'tsimm-watch-best-exit');
-      if (profitEach > 0) badge.classList.add('tsimm-watch-best-exit-profit');
-      else if (profitEach === 0) badge.classList.add('tsimm-watch-best-exit-even');
-      else badge.classList.add('tsimm-watch-floor-badge');
-      badge.title = profitEach < 0 && isFloor
-        ? `Break-even limit from ${traderLabel}: ${cash(breakEvenPrice)}`
-        : `${traderLabel} best exit`;
+      badge.classList.add('tsimm-watch-inline-badge', 'tsimm-watch-best-exit', roiClass);
+      badge.title = `${traderLabel} exit ${cash(exitPrice)} · buy ${cash(entryPrice)} · ${roiText} ROI${isFloor ? ' · first row at or below the exit' : ''}`;
       row.classList.toggle('tsimm-watch-profitable', profitEach > 0);
       return true;
     }
 
-    if (profitEach < 0 && !isFloor) return true;
     const marker = document.createElement('span');
-    marker.className = `tsimm-watch-profit${profitEach > 0 ? ' flip' : ''}${isFloor ? ' floor' : ''}`;
+    marker.className = `tsimm-watch-profit ${roiClass}`;
     marker.dataset.tsimmWatchProfit = '1';
-    marker.textContent = profitEach < 0 && isFloor
-      ? `BREAK-EVEN LIMIT ${cash(breakEvenPrice)}`
-      : profitEach === 0
-        ? '$0 EVEN'
-        : `${compactWatchCash(profitEach)} ea`;
-    marker.title = profitEach < 0 && isFloor
-      ? `Break-even limit from ${traderLabel}: ${cash(breakEvenPrice)}`
-      : `${traderLabel} best exit`;
+    marker.textContent = `${profitEach === 0 ? '$0 ea' : `${signedCash(profitEach)} ea`} · ${roiText}`;
+    marker.title = `${traderLabel} exit ${cash(exitPrice)} · buy ${cash(entryPrice)} · ${roiText} ROI${isFloor ? ' · first row at or below the exit' : ''}`;
     row.appendChild(marker);
     row.classList.add('tsimm-watch-format-row');
     row.classList.toggle('tsimm-watch-profitable', profitEach > 0);
