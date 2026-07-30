@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.16
+// @version      0.19.17
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.16' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.16' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.17' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.17' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.16
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.17
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.16',
+    version: '0.19.17',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2776,6 +2776,16 @@
       #${APP.ledgerOverlayId} .tsimm-priority-pill.always{border-color:#3b8fc2;color:#8bd7ff}#${APP.ledgerOverlayId} .tsimm-priority-pill.hide{border-color:#8a5f2e;color:#ffc879}#${APP.ledgerOverlayId} .tsimm-priority-pill.suggested{border-color:#9b6bd0;color:#e2bfff}
       #${APP.ledgerOverlayId} .tsimm-priority-row-actions{margin-top:7px;padding-top:7px;border-top:1px solid #3a3341}
       #${APP.ledgerOverlayId} .tsimm-priority-row-actions button.active{background:#5b2b82;border-color:#9a61c2}.tsimm-priority-row-actions button[data-tsimm-sell-priority="hide"].active{background:#563715;border-color:#b78035}.tsimm-priority-row-actions button[data-tsimm-sell-priority="always"].active{background:#174f75;border-color:#3b8fc2}
+      #${APP.ledgerOverlayId} .tsimm-integrity-note{margin:0 8px 8px;padding:8px;border:1px solid #4f6572;border-radius:8px;background:#172229;color:#bcd5e2;line-height:1.45}
+      #${APP.ledgerOverlayId} .tsimm-integrity-result{display:grid;gap:3px;margin:0 8px 8px;padding:10px;border:1px solid #4d4656;border-radius:9px;background:#24212a}
+      #${APP.ledgerOverlayId} .tsimm-integrity-result.good{border-color:#3e8b62;background:#18271f}.tsimm-integrity-result.good strong{color:#63df9f}
+      #${APP.ledgerOverlayId} .tsimm-integrity-result.bad{border-color:#9c4650;background:#301d21}.tsimm-integrity-result.bad strong{color:#ff9ca4}
+      #${APP.ledgerOverlayId} .tsimm-integrity-result span{color:#bdb5c6}
+      #${APP.ledgerOverlayId} .tsimm-integrity-groups{display:grid;gap:8px;padding:0 8px 12px;min-width:0}
+      #${APP.ledgerOverlayId} .tsimm-integrity-group{min-width:0;border:1px solid #514a59;border-radius:9px;background:#201d25;overflow:hidden}
+      #${APP.ledgerOverlayId} .tsimm-integrity-group-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;background:#2a2530;border-bottom:1px solid #514a59}.tsimm-integrity-group-head span{flex:none;border:1px solid #76548e;border-radius:999px;padding:2px 6px;color:#e2bfff;font-size:9px}
+      #${APP.ledgerOverlayId} .tsimm-integrity-list{display:grid;gap:6px;padding:7px}
+      #${APP.ledgerOverlayId} .tsimm-integrity-issue{display:grid;gap:3px;min-width:0;padding:7px;border:1px solid #4b4352;border-radius:7px;background:#17151b}.tsimm-integrity-issue strong{color:#f1c3c8;overflow-wrap:anywhere}.tsimm-integrity-issue span{color:#c8c0cf;overflow-wrap:anywhere;word-break:break-word}
       @media(max-width:520px){#${APP.ledgerOverlayId} .tsimm-reconcile-counts,#${APP.ledgerOverlayId} .tsimm-key-endpoints{grid-template-columns:repeat(2,1fr)}}
     `;
     document.head.appendChild(style);
@@ -2981,6 +2991,276 @@
       realizedProfit: realizedProfits.reduce((sum, value) => sum + value, 0),
       realizedSalesWithProfit: realizedProfits.length,
     };
+  }
+
+  const LEDGER_INTEGRITY_GROUPS = Object.freeze([
+    { type: 'duplicate-lot-id', label: 'Duplicate lot IDs' },
+    { type: 'duplicate-sale-id', label: 'Duplicate sale IDs' },
+    { type: 'duplicate-allocation-id', label: 'Duplicate allocation IDs' },
+    { type: 'missing-lot-reference', label: 'Missing lot references' },
+    { type: 'allocation-quantity', label: 'Allocation quantity disagreements' },
+    { type: 'cost-basis-total', label: 'Cost-basis total disagreements' },
+    { type: 'proceeds-total', label: 'Proceeds total disagreements' },
+    { type: 'realized-profit-total', label: 'Realized-profit total disagreements' },
+    { type: 'lot-sold-quantity', label: 'Lot sold-quantity disagreements' },
+  ]);
+
+  function analyzeLedgerIntegrity(ledger = state.ledger) {
+    const lots = Array.isArray(ledger?.lots) ? ledger.lots : [];
+    const sales = Array.isArray(ledger?.sales) ? ledger.sales : [];
+    const issues = [];
+    const lotIds = new Set();
+    const allocatedQuantityByLotId = new Map();
+    const allocationIds = new Map();
+    const amount = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    };
+    const quantity = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    };
+    const recordId = (value) => String(value ?? '').trim();
+    const amountsAgree = (left, right) => Math.abs(amount(left) - amount(right)) <= 0.01;
+    const quantitiesAgree = (left, right) => Math.abs(quantity(left) - quantity(right)) < 0.000001;
+    const addIssue = (type, id, detail) => {
+      issues.push({ type, recordId: recordId(id) || 'Missing ID', detail: String(detail || '') });
+    };
+    const duplicateIds = (records, type, kind, describe) => {
+      const found = new Map();
+      records.forEach((record, index) => {
+        const id = recordId(record?.id);
+        if (!id) return;
+        const entries = found.get(id) || [];
+        entries.push(describe(record, index));
+        found.set(id, entries);
+      });
+      for (const [id, entries] of found) {
+        if (entries.length > 1) {
+          addIssue(type, id, `${kind} ID appears ${entries.length} times: ${entries.join('; ')}.`);
+        }
+      }
+    };
+
+    duplicateIds(
+      lots,
+      'duplicate-lot-id',
+      'Lot',
+      (lot, index) => `lot #${index + 1} ${recordId(lot?.itemName) || 'Unnamed item'}`,
+    );
+    duplicateIds(
+      sales,
+      'duplicate-sale-id',
+      'Sale',
+      (sale, index) => `sale #${index + 1} ${recordId(sale?.counterparty) || 'Unknown counterparty'}`,
+    );
+
+    for (const lot of lots) {
+      const lotId = recordId(lot?.id);
+      if (lotId) lotIds.add(lotId);
+    }
+
+    sales.forEach((sale, saleIndex) => {
+      const saleId = recordId(sale?.id) || `sale #${saleIndex + 1}`;
+      const items = Array.isArray(sale?.items) ? sale.items : [];
+      let saleItemQuantity = 0;
+      let saleTrackedQuantity = 0;
+      let saleUntrackedQuantity = 0;
+      let saleItemCostBasis = 0;
+      let saleItemProceeds = 0;
+      let saleAllocationCostBasis = 0;
+      let saleAllocationProceeds = 0;
+      let saleAllocationProfit = 0;
+
+      items.forEach((item, itemIndex) => {
+        const itemName = recordId(item?.itemName ?? item?.name) || `item #${itemIndex + 1}`;
+        const itemId = `${saleId} / ${itemName}`;
+        const itemQuantity = quantity(item?.quantity);
+        const itemTrackedQuantity = quantity(item?.trackedQuantity);
+        const itemUntrackedQuantity = quantity(item?.untrackedQuantity);
+        const allocations = Array.isArray(item?.allocations) ? item.allocations : [];
+        let itemAllocationQuantity = 0;
+        let itemAllocationCostBasis = 0;
+        let itemAllocationProceeds = 0;
+        let itemAllocationProfit = 0;
+
+        allocations.forEach((allocation, allocationIndex) => {
+          const allocationId = recordId(allocation?.id);
+          const allocationLabel = allocationId || `allocation #${allocationIndex + 1}`;
+          const allocationContext = `${saleId} / ${itemName} / ${allocationLabel}`;
+          const lotId = recordId(allocation?.lotId);
+          const allocationQuantity = quantity(allocation?.quantity);
+          const allocationCostBasis = amount(allocation?.costBasis);
+          const allocationProceeds = amount(allocation?.proceeds);
+          const allocationProfit = amount(allocation?.realizedProfit);
+
+          if (allocationId) {
+            const entries = allocationIds.get(allocationId) || [];
+            entries.push(allocationContext);
+            allocationIds.set(allocationId, entries);
+          }
+          if (!lotId || !lotIds.has(lotId)) {
+            addIssue(
+              'missing-lot-reference',
+              allocationContext,
+              lotId ? `References missing lot ID ${lotId}.` : 'Does not contain a lot ID.',
+            );
+          }
+          if (lotId) {
+            allocatedQuantityByLotId.set(
+              lotId,
+              quantity(allocatedQuantityByLotId.get(lotId)) + allocationQuantity,
+            );
+          }
+
+          itemAllocationQuantity += allocationQuantity;
+          itemAllocationCostBasis += allocationCostBasis;
+          itemAllocationProceeds += allocationProceeds;
+          itemAllocationProfit += allocationProfit;
+        });
+
+        if (!quantitiesAgree(itemAllocationQuantity, itemTrackedQuantity)) {
+          addIssue(
+            'allocation-quantity',
+            itemId,
+            `Allocations total ${itemAllocationQuantity}; item tracked quantity is ${itemTrackedQuantity}.`,
+          );
+        }
+        if (!quantitiesAgree(itemTrackedQuantity + itemUntrackedQuantity, itemQuantity)) {
+          addIssue(
+            'allocation-quantity',
+            itemId,
+            `Tracked ${itemTrackedQuantity} plus untracked ${itemUntrackedQuantity} does not equal item quantity ${itemQuantity}.`,
+          );
+        }
+        if (!amountsAgree(itemAllocationCostBasis, item?.costBasis)) {
+          addIssue(
+            'cost-basis-total',
+            itemId,
+            `Allocations total ${itemAllocationCostBasis}; item cost basis is ${amount(item?.costBasis)}.`,
+          );
+        }
+        const expectedTrackedProceeds = itemQuantity > 0
+          ? amount(item?.proceeds) * itemTrackedQuantity / itemQuantity
+          : 0;
+        if (!amountsAgree(itemAllocationProceeds, expectedTrackedProceeds)) {
+          addIssue(
+            'proceeds-total',
+            itemId,
+            `Allocations total ${itemAllocationProceeds}; expected tracked proceeds are ${expectedTrackedProceeds}.`,
+          );
+        }
+        const itemRealizedProfit = optionalFiniteNumber(item?.realizedProfit);
+        if (itemRealizedProfit !== null && !amountsAgree(itemAllocationProfit, itemRealizedProfit)) {
+          addIssue(
+            'realized-profit-total',
+            itemId,
+            `Allocations total ${itemAllocationProfit}; item realized profit is ${itemRealizedProfit}.`,
+          );
+        }
+
+        saleItemQuantity += itemQuantity;
+        saleTrackedQuantity += itemTrackedQuantity;
+        saleUntrackedQuantity += itemUntrackedQuantity;
+        saleItemCostBasis += amount(item?.costBasis);
+        saleItemProceeds += amount(item?.proceeds);
+        saleAllocationCostBasis += itemAllocationCostBasis;
+        saleAllocationProceeds += itemAllocationProceeds;
+        saleAllocationProfit += itemAllocationProfit;
+      });
+
+      if (!quantitiesAgree(saleItemQuantity, sale?.requestedQuantity)) {
+        addIssue(
+          'allocation-quantity',
+          saleId,
+          `Sale items total ${saleItemQuantity}; requested quantity is ${quantity(sale?.requestedQuantity)}.`,
+        );
+      }
+      if (!quantitiesAgree(saleTrackedQuantity, sale?.trackedQuantity)) {
+        addIssue(
+          'allocation-quantity',
+          saleId,
+          `Sale items track ${saleTrackedQuantity}; sale tracked quantity is ${quantity(sale?.trackedQuantity)}.`,
+        );
+      }
+      if (!quantitiesAgree(saleUntrackedQuantity, sale?.untrackedQuantity)) {
+        addIssue(
+          'allocation-quantity',
+          saleId,
+          `Sale items leave ${saleUntrackedQuantity} untracked; sale untracked quantity is ${quantity(sale?.untrackedQuantity)}.`,
+        );
+      }
+      if (!amountsAgree(saleItemCostBasis, sale?.trackedCostBasis)) {
+        addIssue(
+          'cost-basis-total',
+          saleId,
+          `Sale items total ${saleItemCostBasis}; sale tracked cost basis is ${amount(sale?.trackedCostBasis)}.`,
+        );
+      }
+      if (!amountsAgree(saleAllocationCostBasis, sale?.trackedCostBasis)) {
+        addIssue(
+          'cost-basis-total',
+          saleId,
+          `Allocations total ${saleAllocationCostBasis}; sale tracked cost basis is ${amount(sale?.trackedCostBasis)}.`,
+        );
+      }
+      if (!amountsAgree(saleItemProceeds, sale?.cashReceived)) {
+        addIssue(
+          'proceeds-total',
+          saleId,
+          `Sale items total ${saleItemProceeds}; cash received is ${amount(sale?.cashReceived)}.`,
+        );
+      }
+      if (sale?.fullCoverage && !amountsAgree(saleAllocationProceeds, sale?.cashReceived)) {
+        addIssue(
+          'proceeds-total',
+          saleId,
+          `Full-coverage allocations total ${saleAllocationProceeds}; cash received is ${amount(sale?.cashReceived)}.`,
+        );
+      }
+      const trackedProfit = optionalFiniteNumber(sale?.trackedProfit);
+      if (trackedProfit !== null && !amountsAgree(saleAllocationProfit, trackedProfit)) {
+        addIssue(
+          'realized-profit-total',
+          saleId,
+          `Allocations total ${saleAllocationProfit}; sale tracked profit is ${trackedProfit}.`,
+        );
+      }
+      const realizedProfit = optionalFiniteNumber(sale?.realizedProfit);
+      if (sale?.fullCoverage && realizedProfit !== null && !amountsAgree(saleAllocationProfit, realizedProfit)) {
+        addIssue(
+          'realized-profit-total',
+          saleId,
+          `Full-coverage allocations total ${saleAllocationProfit}; sale realized profit is ${realizedProfit}.`,
+        );
+      }
+    });
+
+    for (const [allocationId, entries] of allocationIds) {
+      if (entries.length > 1) {
+        addIssue(
+          'duplicate-allocation-id',
+          allocationId,
+          `Allocation ID appears ${entries.length} times: ${entries.join('; ')}.`,
+        );
+      }
+    }
+
+    lots.forEach((lot, index) => {
+      const lotId = recordId(lot?.id);
+      if (!lotId) return;
+      const soldQuantity = quantity(lot?.quantity) - quantity(lot?.remainingQuantity);
+      const allocatedQuantity = quantity(allocatedQuantityByLotId.get(lotId));
+      if (!quantitiesAgree(soldQuantity, allocatedQuantity)) {
+        addIssue(
+          'lot-sold-quantity',
+          lotId,
+          `${recordId(lot?.itemName) || `Lot #${index + 1}`} shows ${soldQuantity} sold; sale allocations reference ${allocatedQuantity}.`,
+        );
+      }
+    });
+
+    return { issues };
   }
 
   function buildLedgerLot(source, captureMethod = 'manual') {
@@ -9334,6 +9614,63 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     `;
   }
 
+  function formatLedgerIntegrityAmount(value) {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0);
+  }
+
+  function ledgerIntegrityHtml(report) {
+    const issues = Array.isArray(report?.issues) ? report.issues : [];
+    if (!issues.length) {
+      return `
+        <section class="tsimm-integrity-result good">
+          <strong>No integrity issues found</strong>
+          <span>Read-only checks found no duplicate IDs, missing lot references, or quantity and accounting disagreements.</span>
+        </section>
+      `;
+    }
+    const groups = LEDGER_INTEGRITY_GROUPS.map((group) => ({
+      ...group,
+      issues: issues.filter((issue) => issue.type === group.type),
+    })).filter((group) => group.issues.length);
+    const moneyTypes = new Set(['cost-basis-total', 'proceeds-total', 'realized-profit-total']);
+    const groupHtml = groups.map((group) => `
+      <section class="tsimm-integrity-group">
+        <div class="tsimm-integrity-group-head">
+          <strong>${escapeHtml(group.label)}</strong>
+          <span>${formatInteger(group.issues.length)}</span>
+        </div>
+        <div class="tsimm-integrity-list">
+          ${group.issues.map((issue) => {
+            const detail = moneyTypes.has(issue.type)
+              ? String(issue.detail).replace(/-?\d+(?:\.\d+)?/g, (value) => formatLedgerIntegrityAmount(value))
+              : issue.detail;
+            return `
+              <article class="tsimm-integrity-issue">
+                <strong>${escapeHtml(issue.recordId)}</strong>
+                <span>${escapeHtml(detail)}</span>
+              </article>
+            `;
+          }).join('')}
+        </div>
+      </section>
+    `).join('');
+    return `
+      <div class="tsimm-integrity-note">
+        Read-only report. Nothing on this screen normalizes, saves, repairs, deletes, or changes Ledger records.
+      </div>
+      <section class="tsimm-integrity-result bad">
+        <strong>${formatInteger(issues.length)} integrity issue${issues.length === 1 ? '' : 's'} found</strong>
+        <span>Review the affected IDs before editing or deleting any Ledger data.</span>
+      </section>
+      <div class="tsimm-integrity-groups">${groupHtml}</div>
+    `;
+  }
+
   function renderLedger() {
     const overlay = document.getElementById(APP.ledgerOverlayId);
     if (!overlay) return;
@@ -9360,6 +9697,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const cleanupBackup = loadLedgerCleanupBackup();
     const fundingSummary = ledgerFundingSummary();
     const unassignedOpenLots = fundingSummary.find((row) => row.fundingSource === 'unassigned')?.lots || 0;
+    const integrityReport = analyzeLedgerIntegrity(state.ledger);
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
@@ -9390,6 +9728,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <button type="button" class="${view === 'reconcile' ? 'active' : ''}" data-tsimm-action="ledger-tab" data-tsimm-ledger-view="reconcile">Reconcile${issues ? ` (${formatInteger(issues)})` : ''}</button>
           <button type="button" class="${view === 'history' ? 'active' : ''}" data-tsimm-action="ledger-tab" data-tsimm-ledger-view="history">Purchase history</button>
           <button type="button" class="${view === 'sales' ? 'active' : ''}" data-tsimm-action="ledger-tab" data-tsimm-ledger-view="sales">Sale audits</button>
+          <button type="button" class="${view === 'integrity' ? 'active' : ''}" data-tsimm-action="ledger-tab" data-tsimm-ledger-view="integrity">Integrity${integrityReport.issues.length ? ` (${formatInteger(integrityReport.issues.length)})` : ''}</button>
         </div>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="inventory-sync" ${state.inventorySyncing ? 'disabled' : ''}>${state.inventorySyncing ? 'Syncing inventory…' : 'Sync inventory'}</button>
@@ -9406,6 +9745,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         <div class="tsimm-ledger-freshness">${escapeHtml(inventoryFreshness)}</div>
         ${view === 'reconcile'
           ? ledgerReconciliationHtml(reconciliationRows)
+          : view === 'integrity'
+            ? ledgerIntegrityHtml(integrityReport)
           : showPurchaseControls ? `
             <div class="tsimm-ledger-filters">
               <input type="search" value="${escapeHtml(state.ledgerUi.search)}" placeholder="Search item name" data-tsimm-ledger-search>
@@ -10547,7 +10888,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         inspectGoblinGodKey();
       } else if (action === 'ledger-tab') {
         const view = button.dataset.tsimmLedgerView;
-        if (['holdings', 'reconcile', 'history', 'sales'].includes(view)) {
+        if (['holdings', 'reconcile', 'history', 'sales', 'integrity'].includes(view)) {
           state.ledgerUi.view = view;
           state.ledgerUi.search = '';
           renderLedger();
