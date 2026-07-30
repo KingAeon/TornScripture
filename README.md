@@ -10,6 +10,28 @@ The goal of TornScripture is simple:
 
 ## Current Projects
 
+### 📈 Item Market Margin
+
+Version: 0.19.16
+
+Item Market Margin compares visible item prices with market and trader values,
+then records user-confirmed purchases and completed trade sales locally.
+
+Current features include:
+
+- Item Market and overseas-shop profit overlays
+- Quick MAX quantity filling with a separately armed Override MAX mode
+- Trader book with captured Weav3r and TornExchange prices, classifications,
+  favorites, and watchlists
+- Priced Trade counterparty verification, payout badges, and quantity controls
+- Read-only Trade Exit Audit comparisons with confirmed bulk removal
+- Purchase history and cross-channel purchase deduplication
+- Black Ledger purchase lots, capital sources, cost basis, and sale history
+- Reversible duplicate-ledger cleanup and read-only receipt audits
+- Local catalog, inventory reconciliation, and sell-priority tools
+- Market-velocity history and high-turnover item presets
+- No automated listing, selling, trade completion, or unarmed purchasing
+
 ### 🐾 War Intelligence HUD
 
 Version: 0.7.1
@@ -83,7 +105,6 @@ The shareable price configuration lives at `data/trader-prices.json`. See
 - Search and filtering
 - Better visualizations
 - Additional Torn utilities
-- Trader website price adapters
 - Spreadsheet-to-JSON price export
 
 ---
