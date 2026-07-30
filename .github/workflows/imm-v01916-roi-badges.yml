@@ -1,0 +1,52 @@
+name: Release IMM v0.19.16 ROI-first compact badges
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/imm-v01916-trigger-main.txt
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Apply guarded compact badge patch
+        run: python scripts/apply_imm_v01916_roi_badges.py
+
+      - name: Validate JavaScript and protected systems
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          git diff --check
+          grep -F '// @version      0.19.16' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function compactWatchEachCash' TornScripture-Item-Market-Margin.user.js
+          grep -F 'badge.innerHTML = `<strong>${esc(roiText)} · ${esc(eachText)}</strong>`' TornScripture-Item-Market-Margin.user.js
+          grep -F 'marker.textContent = `${roiText} · ${eachText}`;' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function recordTradeSale' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeRenderRowBadge' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function pricedTradeEnsureNativeMaxButton' TornScripture-Item-Market-Margin.user.js
+          grep -F 'function normalizeLedger' TornScripture-Item-Market-Margin.user.js
+
+      - name: Commit clean release to main
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git rm -f \
+            scripts/apply_imm_v01916_roi_badges.py \
+            .github/imm-v01916-trigger-main.txt \
+            .github/workflows/imm-v01916-roi-badges.yml
+          git commit -m 'Release IMM v0.19.16 compact ROI badges'
+          git push origin main
