@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.12
+// @version      0.19.13
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.12' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.12' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.13' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.13' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.12
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.13
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.12',
+    version: '0.19.13',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -325,6 +325,7 @@
     priceBridgeWindowNamePrefix: 'TSIMM_PRICE_BRIDGE:',
     priceImportQueryKey: 'tsimmPriceImport',
     pendingPurchaseStorageKey: 'tornscripture-imm-pending-purchase-v1',
+    pendingTradeSaleStorageKey: 'tornscripture-imm-pending-trade-sale-v1',
     recentPurchaseFingerprintsStorageKey: 'tornscripture-imm-recent-purchase-fingerprints-v1',
     purchasePrivacyMigrationStorageKey: 'tornscripture-imm-purchase-privacy-v1',
     catalogUrl: 'https://api.torn.com/v2/torn/items',
@@ -338,6 +339,7 @@
     minimumScanIntervalMs: 90,
     catalogMaxAgeMs: 24 * 60 * 60 * 1000,
     pendingPurchaseMaxAgeMs: 30 * 60 * 1000,
+    pendingTradeSaleMaxAgeMs: 2 * 60 * 60 * 1000,
     duplicatePurchaseWindowMs: 2 * 60 * 1000,
     traderCaptureMaxAgeMs: 60 * 60 * 1000,
     inventoryCacheMaxAgeMs: 2 * 60 * 60 * 1000,
@@ -3859,6 +3861,130 @@
       : { completed: false, source: '' };
   }
 
+
+
+  function normalizePendingTradeSale(candidate) {
+    if (!candidate || typeof candidate !== 'object') return null;
+    const capturedAtMs = Date.parse(candidate.capturedAt || '');
+    if (!Number.isFinite(capturedAtMs) || Date.now() - capturedAtMs > APP.pendingTradeSaleMaxAgeMs) return null;
+    const tradeItems = Array.isArray(candidate.tradeItems)
+      ? candidate.tradeItems.map((item) => {
+          const name = normalizeWhitespace(item?.name ?? item?.itemName);
+          const quantity = Math.max(0, Math.floor(Number(item?.quantity) || 0));
+          if (!name || quantity <= 0) return null;
+          const marketPrice = Math.max(0, Number(item?.marketPrice) || 0);
+          const targetEach = Math.max(0, Number(item?.targetEach) || 0);
+          return {
+            itemId: Number(item?.itemId) > 0 ? Number(item.itemId) : null,
+            name,
+            quantity,
+            marketPrice,
+            marketTotal: Math.max(0, Number(item?.marketTotal) || marketPrice * quantity),
+            targetEach,
+            targetTotal: Math.max(0, Number(item?.targetTotal) || targetEach * quantity),
+          };
+        }).filter(Boolean)
+      : [];
+    const tradeNetCash = optionalFiniteNumber(candidate.tradeNetCash);
+    if (!tradeItems.length || tradeNetCash === null) return null;
+    return {
+      schemaVersion: 1,
+      capturedAt: new Date(capturedAtMs).toISOString(),
+      tradeId: normalizeWhitespace(candidate.tradeId),
+      tradeCounterparty: normalizeWhitespace(candidate.tradeCounterparty),
+      tradeCounterpartyId: Number(candidate.tradeCounterpartyId) > 0 ? Number(candidate.tradeCounterpartyId) : null,
+      tradeCounterpartyProfileUrl: normalizeHttpUrl(candidate.tradeCounterpartyProfileUrl),
+      tradeCounterpartyBannerUrl: normalizeHttpUrl(candidate.tradeCounterpartyBannerUrl),
+      tradeMarketTotal: Math.max(0, Number(candidate.tradeMarketTotal) || 0),
+      tradeTargetTotal: Math.max(0, Number(candidate.tradeTargetTotal) || 0),
+      tradeTraderCash: optionalFiniteNumber(candidate.tradeTraderCash),
+      tradeMyCash: Math.max(0, Number(candidate.tradeMyCash) || 0),
+      tradeNetCash,
+      tradeItems,
+      tradeUnmatchedItems: Math.max(0, Math.floor(Number(candidate.tradeUnmatchedItems) || 0)),
+      sourceUrl: normalizeHttpUrl(candidate.sourceUrl),
+    };
+  }
+
+  function loadPendingTradeSale() {
+    const pending = normalizePendingTradeSale(loadJson(APP.pendingTradeSaleStorageKey, null));
+    if (!pending) localStorage.removeItem(APP.pendingTradeSaleStorageKey);
+    return pending;
+  }
+
+  function clearPendingTradeSale() {
+    localStorage.removeItem(APP.pendingTradeSaleStorageKey);
+  }
+
+  function pendingTradeSaleMatchesStats(pending, stats) {
+    if (!pending || !stats) return false;
+    const pendingTradeId = normalizeWhitespace(pending.tradeId);
+    const statsTradeId = normalizeWhitespace(stats.tradeId || tradeIdFromLocation());
+    if (pendingTradeId && statsTradeId) return pendingTradeId === statsTradeId;
+    const pendingFingerprint = saleFingerprintForStats({
+      tradeId: pendingTradeId,
+      tradeItems: pending.tradeItems,
+      tradeNetCash: pending.tradeNetCash,
+    });
+    return pendingFingerprint === saleFingerprintForStats(stats);
+  }
+
+  function clearPendingTradeSaleForStats(stats) {
+    const pending = loadPendingTradeSale();
+    if (pending && pendingTradeSaleMatchesStats(pending, stats)) clearPendingTradeSale();
+  }
+
+  function savePendingTradeSaleFromStats(stats) {
+    if (!stats || stats.pageType !== 'trade' || stats.tradeCompleted) return null;
+    if (!Array.isArray(stats.tradeItems) || !stats.tradeItems.length) return null;
+    if (stats.tradeUnmatchedItems || optionalFiniteNumber(stats.tradeNetCash) === null) return null;
+    const snapshot = normalizePendingTradeSale({
+      capturedAt: new Date().toISOString(),
+      tradeId: stats.tradeId || tradeIdFromLocation(),
+      tradeCounterparty: stats.tradeCounterparty,
+      tradeCounterpartyId: stats.tradeCounterpartyId,
+      tradeCounterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
+      tradeCounterpartyBannerUrl: stats.tradeCounterpartyBannerUrl,
+      tradeMarketTotal: stats.tradeMarketTotal,
+      tradeTargetTotal: stats.tradeTargetTotal,
+      tradeTraderCash: stats.tradeTraderCash,
+      tradeMyCash: stats.tradeMyCash,
+      tradeNetCash: stats.tradeNetCash,
+      tradeItems: stats.tradeItems,
+      tradeUnmatchedItems: stats.tradeUnmatchedItems,
+      sourceUrl: location.href,
+    });
+    if (!snapshot) return null;
+    saveJson(APP.pendingTradeSaleStorageKey, snapshot);
+    return snapshot;
+  }
+
+  function hydrateStatsFromPendingTradeSale(stats) {
+    const pending = loadPendingTradeSale();
+    if (!pending) return false;
+    const currentTradeId = normalizeWhitespace(tradeIdFromLocation());
+    if (pending.tradeId && currentTradeId && pending.tradeId !== currentTradeId) return false;
+    stats.tradeId = currentTradeId || pending.tradeId || null;
+    stats.tradeCounterparty = pending.tradeCounterparty || null;
+    stats.tradeCounterpartyId = pending.tradeCounterpartyId || null;
+    stats.tradeCounterpartyProfileUrl = pending.tradeCounterpartyProfileUrl || '';
+    stats.tradeCounterpartyBannerUrl = pending.tradeCounterpartyBannerUrl || '';
+    stats.tradeMarketTotal = pending.tradeMarketTotal;
+    stats.tradeTargetTotal = pending.tradeTargetTotal;
+    stats.tradeTraderCash = pending.tradeTraderCash;
+    stats.tradeMyCash = pending.tradeMyCash;
+    stats.tradeNetCash = pending.tradeNetCash;
+    stats.tradeItems = structuredCloneSafe(pending.tradeItems);
+    stats.tradeMatchedItems = pending.tradeItems.length;
+    stats.tradeUnmatchedItems = pending.tradeUnmatchedItems;
+    stats.tradeUnmatched = [];
+    stats.tradeStatus = 'completed-snapshot';
+    stats.tradeCompleted = true;
+    stats.tradeCompletionSource = 'preserved live-trade snapshot';
+    stats.notes.push('Completed trade restored from the live manifest preserved before Torn opened the trade log.');
+    return true;
+  }
+
   function stableStringHash(value) {
     let hash = 2166136261;
     for (const character of String(value || '')) {
@@ -4069,6 +4195,7 @@
         : `FIFO allocation with ${plan.untrackedQuantity} untracked item${plan.untrackedQuantity === 1 ? '' : 's'}.`,
     });
     state.ledger.sales.unshift(sale);
+    clearPendingTradeSaleForStats(stats);
     saveLedger();
     applyLedgerSalePreview(stats);
     renderLedger();
@@ -6552,8 +6679,17 @@
     const sides = tradeSideCandidates();
     stats.tradeSideCandidates = sides.length;
     if (sides.length < 2) {
+      const completion = tradeCompletionState();
+      stats.tradeCompleted = completion.completed;
+      stats.tradeCompletionSource = completion.source || null;
+      if (completion.completed && hydrateStatsFromPendingTradeSale(stats)) {
+        applyLedgerSalePreview(stats);
+        return;
+      }
       stats.tradeStatus = 'incomplete';
-      stats.notes.push('Trade sides were not recognized. Copy diagnostics from the live trade page.');
+      stats.notes.push(completion.completed
+        ? 'Completed trade detected, but no preserved live-sale snapshot matched this trade.'
+        : 'Trade sides were not recognized. Copy diagnostics from the live trade page.');
       const previous = state.lastScan;
       const currentTradeId = tradeIdFromLocation() || null;
       const sameTrade = previous?.pageType === 'trade'
@@ -6658,6 +6794,7 @@
     }
 
     applyLedgerSalePreview(stats);
+    savePendingTradeSaleFromStats(stats);
 
     if (/assumed left/i.test(myResolution.source)) {
       stats.notes.push('IMM assumed your items are on the left. Use the Trade side selector to verify or override it.');
@@ -7133,6 +7270,9 @@
       badge.dataset.tsimmQuantity = String(margin.qty);
       badge.dataset.tsimmBaseProfitEach = String(margin.profitEach);
       badge.dataset.tsimmBaseProfitTotal = String(margin.totalProfit);
+      badge.dataset.tsimmListingPrice = String(margin.price);
+      badge.dataset.tsimmMarketValue = String(margin.value);
+      badge.dataset.tsimmTraderPayout = String(margin.payout);
     }
 
     if (mode === 'category') {
@@ -8205,6 +8345,59 @@
     }, existing ? existing.captureMethod || 'manual-edit' : 'manual');
   }
 
+
+
+  function promptMissedLedgerSale() {
+    const itemName = normalizeWhitespace(prompt('Sold item name:', listingItemNameFromPage() || ''));
+    if (!itemName) return null;
+    const quantity = Math.max(0, Math.floor(Number(prompt('Quantity sold:', '1')) || 0));
+    if (quantity <= 0) return null;
+    const cashReceived = Math.max(0, Number(prompt('Total cash received for this sale:', '0')) || 0);
+    if (cashReceived <= 0) return null;
+    const counterparty = normalizeWhitespace(prompt('Buyer or trader name (optional):', ''));
+    const catalog = catalogItemFor(itemName);
+    const marketPrice = Math.max(0, Number(catalog?.marketPrice) || 0);
+    const targetEach = cashReceived / quantity;
+    const stats = emptyScanStats();
+    stats.pageType = 'trade';
+    stats.tradeId = `recovery-${Date.now()}`;
+    stats.tradeCounterparty = counterparty || 'Recovered sale';
+    stats.tradeCounterpartyId = null;
+    stats.tradeCounterpartyProfileUrl = '';
+    stats.tradeCounterpartyBannerUrl = '';
+    stats.tradeMarketTotal = marketPrice * quantity;
+    stats.tradeTargetTotal = cashReceived;
+    stats.tradeTraderCash = cashReceived;
+    stats.tradeMyCash = 0;
+    stats.tradeNetCash = cashReceived;
+    stats.tradeItems = [{
+      itemId: catalog?.id || null,
+      name: catalog?.name || itemName,
+      quantity,
+      marketPrice,
+      marketTotal: marketPrice * quantity,
+      targetEach,
+      targetTotal: cashReceived,
+    }];
+    stats.tradeMatchedItems = 1;
+    stats.tradeUnmatchedItems = 0;
+    stats.tradeUnmatched = [];
+    const plan = ledgerSalePlan(stats);
+    if (!plan.trackedQuantity) {
+      alert('No open ledger lots matched this item. Correct the item name or add the missing purchase lot first.');
+      return null;
+    }
+    if (!plan.fullCoverage) {
+      alert(`Only ${formatInteger(plan.trackedQuantity)} of ${formatInteger(plan.requestedQuantity)} sold items are covered by open lots. Recovery stopped so the ledger cannot invent a cost basis.`);
+      return null;
+    }
+    const profit = cashReceived - plan.trackedCostBasis;
+    const accepted = confirm(
+      `Recover this missed sale?\n\n${catalog?.name || itemName} × ${formatInteger(quantity)}\nCash received: ${formatMoney(cashReceived)}\nFIFO cost basis: ${formatMoney(plan.trackedCostBasis)}\nRealized profit: ${profit >= 0 ? '+' : ''}${formatMoney(profit)}\n\nThis will reduce the matching open lots and create a Sale Audit record.`
+    );
+    return accepted ? stats : null;
+  }
+
   function editLedgerLot(id) {
     const index = state.ledger.lots.findIndex((lot) => lot.id === id);
     if (index < 0) return;
@@ -9201,6 +9394,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="inventory-sync" ${state.inventorySyncing ? 'disabled' : ''}>${state.inventorySyncing ? 'Syncing inventory…' : 'Sync inventory'}</button>
           <button type="button" data-tsimm-action="ledger-add">Add manual lot</button>
+          <button type="button" data-tsimm-action="ledger-recover-sale">Recover missed sale</button>
           <button type="button" data-tsimm-action="ledger-copy">Copy JSON</button>
           <button type="button" data-tsimm-action="ledger-import">Import JSON</button>
           <button type="button" data-tsimm-action="ledger-default-funding">New money: ${escapeHtml(ledgerFundingSourceLabel(state.settings.ledgerDefaultFundingSource))}</button>
@@ -10370,6 +10564,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           addLedgerLot(lot);
           toast(`Added ${formatInteger(lot.quantity)}× ${lot.itemName}.`);
         }
+      } else if (action === 'ledger-recover-sale') {
+        const recovered = promptMissedLedgerSale();
+        if (recovered) {
+          try {
+            const sale = recordTradeSale(recovered, 'manual-missed-sale-recovery');
+            toast(`Recovered sale. Profit ${sale.realizedProfit >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit)}.`);
+          } catch (error) {
+            alert(error?.message || 'IMM could not recover this sale.');
+          }
+        }
       } else if (action === 'ledger-funding-edit') {
         editLedgerLotFundingSource(button.dataset.tsimmLotId);
       } else if (action === 'ledger-edit') {
@@ -10850,6 +11054,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       #${A.panel} .watch-copy{display:grid;min-width:0;gap:2px}#${A.panel} strong{overflow:hidden;color:#c7ffad;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} span{display:block;overflow:hidden;color:#72bd7d;font-size:7px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} button{min-height:28px;border:1px solid #58d76d;border-radius:4px;background:#082b10;color:#c5ffac;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.panel}.idle{border-color:#4d5960;background:#0a0d0ff5;color:#aeb8bd}#${A.panel}.idle strong,#${A.panel}.idle span{color:#aeb8bd}#${A.panel}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.panel}.stale strong,#${A.panel}.stale span{color:#ffd166}#${A.panel}.outdated,#${A.panel}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.panel}.outdated strong,#${A.panel}.outdated span,#${A.panel}.missing strong,#${A.panel}.missing span{color:#ff9ba3}
       .tsimm-watch-inline-badge{display:grid!important;gap:1px!important;min-width:0!important;max-width:100%!important;padding:2px 4px!important;overflow:hidden!important;box-sizing:border-box!important}.tsimm-watch-inline-badge strong,.tsimm-watch-inline-badge .tsimm-listing-lot{display:block!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;white-space:nowrap!important;text-overflow:clip!important}.tsimm-watch-inline-badge strong{font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline-badge .tsimm-listing-lot{font:800 7px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline{display:none!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit .tsimm-listing-lot{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-even,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even .tsimm-listing-lot,.tsimm-watch-inline-badge.tsimm-watch-floor-badge,.tsimm-watch-inline-badge.tsimm-watch-floor-badge strong,.tsimm-watch-inline-badge.tsimm-watch-floor-badge .tsimm-listing-lot{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}.tsimm-watch-hidden-loss{display:none!important}.tsimm-watch-format-row{position:relative!important}
       .tsimm-watch-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:112px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}.tsimm-watch-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-watch-profit.floor{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}.tsimm-watch-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-watch-floor-row{box-shadow:inset 0 2px #52c7ea!important}
+      .tsimm-market-health-mark{display:block!important;margin-top:1px!important;padding-top:1px!important;border-top:1px solid currentColor!important;font:900 6.5px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:.02em!important;opacity:1!important}.tsimm-market-health-mark.aligned,.tsimm-market-health-summary.aligned{color:#8ee8ff!important}.tsimm-market-health-mark.caution,.tsimm-market-health-summary.caution{color:#ffd166!important}.tsimm-market-health-mark.danger,.tsimm-market-health-summary.danger{color:#ff8c96!important}.tsimm-market-health-mark.unknown,.tsimm-market-health-summary.unknown{color:#aeb8bd!important}.tsimm-market-health-aligned-row{box-shadow:inset 3px 0 #52c7ea!important}.tsimm-market-health-caution-row{box-shadow:inset 3px 0 #d7a83d!important}.tsimm-market-health-danger-row{box-shadow:inset 3px 0 #df5966!important}.tsimm-market-health-unknown-row{box-shadow:inset 3px 0 #66717a!important}#${A.panel}.health-caution{border-color:#9a6d1f!important}#${A.panel}.health-danger{border-color:#8f4850!important}#${A.panel}.health-aligned{border-color:#318cab!important}
     `;
     style.textContent += `
       #${A.turnoverPanel}{display:grid;gap:7px;box-sizing:border-box;margin:6px 8px;padding:9px;border:1px solid #9d7627;border-radius:8px;background:#171105f4;color:#ffe28a;font:800 9px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -12136,10 +12341,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       delete line.dataset.tsimmWatchOriginalHtml;
       line.closest('.tsimm-margin-badge')?.classList.remove('tsimm-watch-inline-badge');
     });
-    document.querySelectorAll('[data-tsimm-watch-profit]').forEach((element) => element.remove());
+    document.querySelectorAll('[data-tsimm-watch-profit],[data-tsimm-market-health]').forEach((element) => element.remove());
+    document.querySelectorAll('[data-tsimm-market-health-summary]').forEach((element) => element.remove());
     document.querySelectorAll('.tsimm-watch-hidden-loss').forEach((badge) => badge.classList.remove('tsimm-watch-hidden-loss'));
-    document.querySelectorAll('.tsimm-watch-profitable,.tsimm-watch-floor-row,.tsimm-watch-format-row').forEach((row) => {
-      row.classList.remove('tsimm-watch-profitable', 'tsimm-watch-floor-row', 'tsimm-watch-format-row');
+    document.querySelectorAll('.tsimm-watch-profitable,.tsimm-watch-floor-row,.tsimm-watch-format-row,.tsimm-market-health-aligned-row,.tsimm-market-health-caution-row,.tsimm-market-health-danger-row,.tsimm-market-health-unknown-row').forEach((row) => {
+      row.classList.remove(
+        'tsimm-watch-profitable', 'tsimm-watch-floor-row', 'tsimm-watch-format-row',
+        'tsimm-market-health-aligned-row', 'tsimm-market-health-caution-row',
+        'tsimm-market-health-danger-row', 'tsimm-market-health-unknown-row',
+      );
     });
   }
 
@@ -12157,6 +12367,88 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (amount >= 1_000_000) return compact(1_000_000, 'm', amount < 10_000_000 ? 1 : 0);
     if (amount >= 1_000) return compact(1_000, 'k', amount < 10_000 ? 1 : 0);
     return `${sign}${cash(amount)}`;
+  }
+
+
+
+  function marketHealthForItem(item, best, rows) {
+    const prices = rows.map(listingPrice).filter((price) => Number.isFinite(price) && price > 0);
+    const livePrice = prices.length ? Math.min(...prices) : 0;
+    const badge = rows.map((row) => row.querySelector('.tsimm-margin-badge.tsimm-badge-listing')).find(Boolean);
+    const marketValue = Math.max(0, Number(badge?.dataset?.tsimmMarketValue) || 0);
+    const velocity = turnoverVelocityForItem(item);
+    const marketGap = livePrice > 0 && marketValue > 0 ? (livePrice - marketValue) / marketValue * 100 : null;
+    const quoteGap = livePrice > 0 && Number(best?.price) > 0 ? (Number(best.price) - livePrice) / livePrice * 100 : null;
+    let level = 'unknown';
+    let label = 'MARKET DATA LIMITED';
+    if (livePrice > 0 && marketValue > 0) {
+      level = 'aligned';
+      label = 'MARKET ALIGNED';
+      if (best?.status === 'outdated' || (quoteGap !== null && quoteGap >= 4) || marketGap <= -6) {
+        level = 'danger';
+        label = best?.status === 'outdated' ? 'OUTDATED QUOTE' : 'QUOTE-LAG RISK';
+      } else if (best?.status === 'stale'
+        || (quoteGap !== null && quoteGap >= 1.5)
+        || Math.abs(marketGap) >= 2
+        || ['fast', 'frenzy'].includes(velocity.band)) {
+        level = 'caution';
+        label = ['fast', 'frenzy'].includes(velocity.band) ? `${velocity.label} MARKET` : 'MARKET MOVING';
+      }
+    }
+    return { level, label, livePrice, marketValue, marketGap, quoteGap, velocity, best };
+  }
+
+  function signedMarketPercent(value) {
+    if (!Number.isFinite(value)) return '—';
+    const normalized = Math.abs(value) < 0.05 ? 0 : value;
+    return `${normalized > 0 ? '+' : ''}${normalized.toFixed(1)}%`;
+  }
+
+  function addMarketHealthMarker(row, health) {
+    if (!(row instanceof Element)) return;
+    const badge = row.querySelector('.tsimm-margin-badge.tsimm-badge-listing');
+    const price = listingPrice(row);
+    const listingGap = price > 0 && health.marketValue > 0
+      ? (price - health.marketValue) / health.marketValue * 100
+      : null;
+    row.classList.remove(
+      'tsimm-market-health-aligned-row', 'tsimm-market-health-caution-row',
+      'tsimm-market-health-danger-row', 'tsimm-market-health-unknown-row',
+    );
+    row.classList.add(`tsimm-market-health-${health.level}-row`);
+    if (!badge) return;
+    badge.querySelector('[data-tsimm-market-health]')?.remove();
+    const marker = document.createElement('span');
+    marker.dataset.tsimmMarketHealth = '1';
+    marker.className = `tsimm-market-health-mark ${health.level}`;
+    const quoteText = Number.isFinite(health.quoteGap) ? ` · Q ${signedMarketPercent(health.quoteGap)}` : '';
+    marker.textContent = `Ⓜ ${signedMarketPercent(listingGap)} MV${quoteText}`;
+    marker.title = [
+      health.label,
+      health.livePrice > 0 ? `Live floor ${cash(health.livePrice)}` : '',
+      health.marketValue > 0 ? `Torn Market Value ${cash(health.marketValue)}` : '',
+      Number(health.best?.price) > 0 ? `${health.best.traderName} ${cash(health.best.price)} (${health.best.status})` : '',
+      health.velocity?.label ? `Velocity ${health.velocity.label}` : '',
+    ].filter(Boolean).join(' · ');
+    badge.appendChild(marker);
+  }
+
+  function applyMarketHealthPanel(health) {
+    const panel = document.getElementById(A.panel);
+    const copy = panel?.querySelector('.watch-copy');
+    if (!panel || !copy) return;
+    panel.classList.remove('health-aligned', 'health-caution', 'health-danger', 'health-unknown');
+    panel.classList.add(`health-${health.level}`);
+    copy.querySelector('[data-tsimm-market-health-summary]')?.remove();
+    const summary = document.createElement('span');
+    summary.dataset.tsimmMarketHealthSummary = '1';
+    summary.className = `tsimm-market-health-summary ${health.level}`;
+    const live = health.livePrice > 0 ? cash(health.livePrice) : '—';
+    const market = health.marketValue > 0 ? cash(health.marketValue) : '—';
+    const quote = Number(health.best?.price) > 0 ? cash(health.best.price) : '—';
+    const gap = Number.isFinite(health.quoteGap) ? ` · quote ${signedMarketPercent(health.quoteGap)} vs live` : '';
+    summary.textContent = `${health.label} · LIVE ${live} · MV ${market} · EXIT ${quote}${gap}`;
+    copy.appendChild(summary);
   }
 
   function addProfitMarker(row, traderProfit, traderName = '', breakEvenPrice = 0, isFloor = false) {
@@ -12247,21 +12539,25 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const watched = isWatched(watchedStore(), item);
     const exits = watched ? exitsForItem(item) : [];
     const best = bestExit(exits);
-    renderWatchPanel(item, exits);
-    if (!watched || !best || best.status !== 'fresh') return;
     const rows = [...document.querySelectorAll('.tsimm-listing-mark')].filter(validWatchListingRow);
-    let floorPlaced = false;
-    for (const row of rows) {
-      const price = listingPrice(row);
-      if (!(price > 0)) continue;
-      const traderProfit = best.price - price;
-      const isFloorRow = traderProfit <= 0 && !floorPlaced;
-      if (isFloorRow) {
-        row.classList.add('tsimm-watch-floor-row');
-        floorPlaced = true;
+    const health = marketHealthForItem(item, best, rows);
+    renderWatchPanel(item, exits);
+    applyMarketHealthPanel(health);
+    if (watched && best && best.status === 'fresh') {
+      let floorPlaced = false;
+      for (const row of rows) {
+        const price = listingPrice(row);
+        if (!(price > 0)) continue;
+        const traderProfit = best.price - price;
+        const isFloorRow = traderProfit <= 0 && !floorPlaced;
+        if (isFloorRow) {
+          row.classList.add('tsimm-watch-floor-row');
+          floorPlaced = true;
+        }
+        addProfitMarker(row, traderProfit, best.traderName, best.price, isFloorRow);
       }
-      addProfitMarker(row, traderProfit, best.traderName, best.price, isFloorRow);
     }
+    for (const row of rows) addMarketHealthMarker(row, health);
   }
 
   function cardTrader(card, traders) {
