@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.15
+// @version      0.19.16
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.15' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.15' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.16' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.16' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.15
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.16
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.15',
+    version: '0.19.16',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -12384,6 +12384,23 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
 
 
+  function compactWatchEachCash(value) {
+    const number = Number(value) || 0;
+    const amount = Math.abs(number);
+    const sign = number < 0 ? '-' : number > 0 ? '+' : '';
+    const compact = (divisor, suffix, decimals) => {
+      const rendered = (amount / divisor)
+        .toFixed(decimals)
+        .replace(/\.0+$|(\.[0-9]*[1-9])0+$/g, '$1');
+      return `${sign}$${rendered}${suffix}`;
+    };
+    if (amount >= 1_000_000_000) return compact(1_000_000_000, 'b', amount < 10_000_000_000 ? 2 : 1);
+    if (amount >= 1_000_000) return compact(1_000_000, 'm', amount < 10_000_000 ? 2 : 1);
+    if (amount >= 1_000) return compact(1_000, 'k', amount < 10_000 ? 2 : amount < 100_000 ? 1 : 0);
+    return `${sign}${cash(amount)}`;
+  }
+
+
   function marketHealthForItem(item, best, rows) {
     const prices = rows.map(listingPrice).filter((price) => Number.isFinite(price) && price > 0);
     const livePrice = prices.length ? Math.min(...prices) : 0;
@@ -12465,14 +12482,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
             : 'tsimm-watch-roi-purple';
     const roiText = entryPrice > 0 ? `${roiPercent.toFixed(2)}%` : 'ROI —';
     const exitPrice = breakEvenPrice > 0 ? breakEvenPrice : Math.max(0, entryPrice + profitEach);
+    const eachText = profitEach === 0 ? '$0 ea' : `${compactWatchEachCash(profitEach)} ea`;
 
     if (badge) {
       if (!badge.dataset.tsimmWatchOriginalHtml) badge.dataset.tsimmWatchOriginalHtml = badge.innerHTML;
       const quantity = Math.max(1, Math.floor(Number(badge.dataset.tsimmQuantity) || 1));
       const totalProfit = profitEach * quantity;
-      const eachText = profitEach === 0 ? '$0 ea' : `${signedCash(profitEach)} ea`;
       const lotText = totalProfit === 0 ? 'lot $0' : `lot ${compactWatchCash(totalProfit)}`;
-      badge.innerHTML = `<strong>${esc(eachText)} · ${esc(roiText)}</strong>`
+      badge.innerHTML = `<strong>${esc(roiText)} · ${esc(eachText)}</strong>`
         + `<span class="tsimm-listing-lot">${esc(lotText)}</span>`;
       badge.classList.remove(
         'tsimm-tier-npc', 'tsimm-tier-gold', 'tsimm-tier-good', 'tsimm-tier-minor', 'tsimm-tier-loss',
@@ -12490,7 +12507,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const marker = document.createElement('span');
     marker.className = `tsimm-watch-profit ${roiClass}`;
     marker.dataset.tsimmWatchProfit = '1';
-    marker.textContent = `${profitEach === 0 ? '$0 ea' : `${signedCash(profitEach)} ea`} · ${roiText}`;
+    marker.textContent = `${roiText} · ${eachText}`;
     marker.title = `${traderLabel} exit ${cash(exitPrice)} · buy ${cash(entryPrice)} · ${roiText} ROI${isFloor ? ' · first row at or below the exit' : ''}`;
     row.appendChild(marker);
     row.classList.add('tsimm-watch-format-row');
