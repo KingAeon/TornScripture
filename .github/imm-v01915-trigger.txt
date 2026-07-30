@@ -1,1 +1,2 @@
 Trigger the validated self-contained IMM v0.19.15 ROI-first badge release.
+Second synchronization after the workflow was registered on main.
