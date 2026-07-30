@@ -44,9 +44,7 @@
         overflow:hidden!important;
         box-sizing:border-box!important;
       }
-      html body ${PATCH.badgeSelector}[data-tsimm-roi-hotfix="1"]>strong,
-      html body ${PATCH.badgeSelector}[data-tsimm-roi-hotfix="1"]>.tsimm-listing-lot,
-      html body ${PATCH.badgeSelector}[data-tsimm-roi-hotfix="1"] [data-tsimm-market-health]{
+      html body ${PATCH.badgeSelector}[data-tsimm-roi-hotfix="1"]>*{
         display:none!important;
       }
       html body ${PATCH.badgeSelector}[data-tsimm-roi-hotfix="1"]::before,
