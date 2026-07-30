@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.13
+// @version      0.19.14
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.13' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.13' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.14' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.14' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.13
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.14
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.13',
+    version: '0.19.14',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -11054,7 +11054,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       #${A.panel} .watch-copy{display:grid;min-width:0;gap:2px}#${A.panel} strong{overflow:hidden;color:#c7ffad;font-size:8px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} span{display:block;overflow:hidden;color:#72bd7d;font-size:7px;white-space:nowrap;text-overflow:ellipsis}#${A.panel} button{min-height:28px;border:1px solid #58d76d;border-radius:4px;background:#082b10;color:#c5ffac;padding:4px 7px;font:800 7px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}#${A.panel}.idle{border-color:#4d5960;background:#0a0d0ff5;color:#aeb8bd}#${A.panel}.idle strong,#${A.panel}.idle span{color:#aeb8bd}#${A.panel}.stale{border-color:#9a6d1f;background:#211705f5;color:#ffd166}#${A.panel}.stale strong,#${A.panel}.stale span{color:#ffd166}#${A.panel}.outdated,#${A.panel}.missing{border-color:#8f4850;background:#23090cf5;color:#ff9ba3}#${A.panel}.outdated strong,#${A.panel}.outdated span,#${A.panel}.missing strong,#${A.panel}.missing span{color:#ff9ba3}
       .tsimm-watch-inline-badge{display:grid!important;gap:1px!important;min-width:0!important;max-width:100%!important;padding:2px 4px!important;overflow:hidden!important;box-sizing:border-box!important}.tsimm-watch-inline-badge strong,.tsimm-watch-inline-badge .tsimm-listing-lot{display:block!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;white-space:nowrap!important;text-overflow:clip!important}.tsimm-watch-inline-badge strong{font:800 8px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline-badge .tsimm-listing-lot{font:800 7px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}.tsimm-watch-inline{display:none!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-profit .tsimm-listing-lot{border-color:#78ef8d!important;background:#073411f5!important;color:#78ef8d!important}.tsimm-watch-inline-badge.tsimm-watch-best-exit-even,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even strong,.tsimm-watch-inline-badge.tsimm-watch-best-exit-even .tsimm-listing-lot,.tsimm-watch-inline-badge.tsimm-watch-floor-badge,.tsimm-watch-inline-badge.tsimm-watch-floor-badge strong,.tsimm-watch-inline-badge.tsimm-watch-floor-badge .tsimm-listing-lot{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}.tsimm-watch-hidden-loss{display:none!important}.tsimm-watch-format-row{position:relative!important}
       .tsimm-watch-profit{position:absolute!important;right:clamp(72px,20%,148px)!important;top:50%!important;z-index:12!important;display:inline-flex!important;align-items:center!important;width:max-content!important;max-width:112px!important;margin:0!important;padding:2px 5px!important;transform:translateY(-50%)!important;border:1px solid #42b95a!important;border-radius:4px!important;background:#07230df2!important;color:#baff9f!important;font:800 8px/1.1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;white-space:nowrap!important;pointer-events:none!important;box-sizing:border-box!important}.tsimm-watch-profit.flip{border-color:#78ef8d!important;background:#073411f5!important;color:#d1ffbf!important}.tsimm-watch-profit.floor{border-color:#52c7ea!important;background:#071f29f5!important;color:#8ee8ff!important}.tsimm-watch-profitable{box-shadow:inset 2px 0 #58df78!important}.tsimm-watch-floor-row{box-shadow:inset 0 2px #52c7ea!important}
-      .tsimm-market-health-mark{display:block!important;margin-top:1px!important;padding-top:1px!important;border-top:1px solid currentColor!important;font:900 6.5px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:.02em!important;opacity:1!important}.tsimm-market-health-mark.aligned,.tsimm-market-health-summary.aligned{color:#8ee8ff!important}.tsimm-market-health-mark.caution,.tsimm-market-health-summary.caution{color:#ffd166!important}.tsimm-market-health-mark.danger,.tsimm-market-health-summary.danger{color:#ff8c96!important}.tsimm-market-health-mark.unknown,.tsimm-market-health-summary.unknown{color:#aeb8bd!important}.tsimm-market-health-aligned-row{box-shadow:inset 3px 0 #52c7ea!important}.tsimm-market-health-caution-row{box-shadow:inset 3px 0 #d7a83d!important}.tsimm-market-health-danger-row{box-shadow:inset 3px 0 #df5966!important}.tsimm-market-health-unknown-row{box-shadow:inset 3px 0 #66717a!important}#${A.panel}.health-caution{border-color:#9a6d1f!important}#${A.panel}.health-danger{border-color:#8f4850!important}#${A.panel}.health-aligned{border-color:#318cab!important}
+      .tsimm-market-health-mark{display:flex!important;align-items:center!important;gap:0!important;margin-top:1px!important;padding-top:1px!important;border-top:1px solid #6b6570!important;font:900 6.5px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:.02em!important;opacity:1!important}.tsimm-market-health-mark .mv-gap.discount{color:#78ef8d!important}.tsimm-market-health-mark .mv-gap.aligned{color:#8ee8ff!important}.tsimm-market-health-mark .mv-gap.premium{color:#ff8c96!important}.tsimm-market-health-mark .mv-gap.unknown{color:#aeb8bd!important}.tsimm-market-health-mark .quote-gap.aligned,.tsimm-market-health-summary.aligned{color:#8ee8ff!important}.tsimm-market-health-mark .quote-gap.caution,.tsimm-market-health-summary.caution{color:#ffd166!important}.tsimm-market-health-mark .quote-gap.danger,.tsimm-market-health-summary.danger{color:#ff8c96!important}.tsimm-market-health-mark .quote-gap.unknown,.tsimm-market-health-summary.unknown{color:#aeb8bd!important}.tsimm-market-health-aligned-row{box-shadow:inset 3px 0 #52c7ea!important}.tsimm-market-health-caution-row{box-shadow:inset 3px 0 #d7a83d!important}.tsimm-market-health-danger-row{box-shadow:inset 3px 0 #df5966!important}.tsimm-market-health-unknown-row{box-shadow:inset 3px 0 #66717a!important}#${A.panel}.health-caution{border-color:#9a6d1f!important}#${A.panel}.health-danger{border-color:#8f4850!important}#${A.panel}.health-aligned{border-color:#318cab!important}
     `;
     style.textContent += `
       #${A.turnoverPanel}{display:grid;gap:7px;box-sizing:border-box;margin:6px 8px;padding:9px;border:1px solid #9d7627;border-radius:8px;background:#171105f4;color:#ffe28a;font:800 9px/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -12420,9 +12420,18 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     badge.querySelector('[data-tsimm-market-health]')?.remove();
     const marker = document.createElement('span');
     marker.dataset.tsimmMarketHealth = '1';
-    marker.className = `tsimm-market-health-mark ${health.level}`;
-    const quoteText = Number.isFinite(health.quoteGap) ? ` · Q ${signedMarketPercent(health.quoteGap)}` : '';
-    marker.textContent = `Ⓜ ${signedMarketPercent(listingGap)} MV${quoteText}`;
+    marker.className = 'tsimm-market-health-mark';
+    const mvLevel = !Number.isFinite(listingGap)
+      ? 'unknown'
+      : listingGap <= -0.5
+        ? 'discount'
+        : listingGap >= 0.5
+          ? 'premium'
+          : 'aligned';
+    const mvText = `Ⓜ ${signedMarketPercent(listingGap)} MV`;
+    const quoteText = Number.isFinite(health.quoteGap) ? `Q ${signedMarketPercent(health.quoteGap)}` : '';
+    marker.innerHTML = `<span class="mv-gap ${mvLevel}">${esc(mvText)}</span>`
+      + (quoteText ? `<span class="quote-gap ${health.level}"> · ${esc(quoteText)}</span>` : '');
     marker.title = [
       health.label,
       health.livePrice > 0 ? `Live floor ${cash(health.livePrice)}` : '',
