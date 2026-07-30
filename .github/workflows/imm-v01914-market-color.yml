@@ -1,0 +1,101 @@
+name: IMM v0.19.14 market color semantics
+
+on:
+  push:
+    branches:
+      - repair/imm-v0.19.14-market-color-semantics
+    paths:
+      - .github/workflows/imm-v01914-market-color.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message == 'Bootstrap IMM v0.19.14 market color repair'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Separate value color from market-risk color
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('TornScripture-Item-Market-Margin.user.js')
+          text = path.read_text(encoding='utf-8')
+
+          if '// @version      0.19.13' not in text:
+              raise SystemExit('Expected v0.19.13 base was not found')
+          text = text.replace('0.19.13', '0.19.14')
+
+          old_js = """    marker.className = `tsimm-market-health-mark ${health.level}`;
+              const quoteText = Number.isFinite(health.quoteGap) ? ` · Q ${signedMarketPercent(health.quoteGap)}` : '';
+              marker.textContent = `Ⓜ ${signedMarketPercent(listingGap)} MV${quoteText}`;"""
+          new_js = """    marker.className = 'tsimm-market-health-mark';
+              const mvLevel = !Number.isFinite(listingGap)
+                ? 'unknown'
+                : listingGap <= -0.5
+                  ? 'discount'
+                  : listingGap >= 0.5
+                    ? 'premium'
+                    : 'aligned';
+              const mvText = `Ⓜ ${signedMarketPercent(listingGap)} MV`;
+              const quoteText = Number.isFinite(health.quoteGap) ? `Q ${signedMarketPercent(health.quoteGap)}` : '';
+              marker.innerHTML = `<span class=\"mv-gap ${mvLevel}\">${esc(mvText)}</span>`
+                + (quoteText ? `<span class=\"quote-gap ${health.level}\"> · ${esc(quoteText)}</span>` : '');"""
+          if text.count(old_js) != 1:
+              raise SystemExit(f'Expected one market marker block, found {text.count(old_js)}')
+          text = text.replace(old_js, new_js)
+
+          css_pattern = re.compile(
+              r"\.tsimm-market-health-mark\{display:block!important;.*?#\$\{A\.panel\}\.health-aligned\{border-color:#318cab!important\}",
+              re.S,
+          )
+          new_css = ".tsimm-market-health-mark{display:flex!important;align-items:center!important;gap:0!important;margin-top:1px!important;padding-top:1px!important;border-top:1px solid #6b6570!important;font:900 6.5px/1.05 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:.02em!important;opacity:1!important}.tsimm-market-health-mark .mv-gap.discount{color:#78ef8d!important}.tsimm-market-health-mark .mv-gap.aligned{color:#8ee8ff!important}.tsimm-market-health-mark .mv-gap.premium{color:#ff8c96!important}.tsimm-market-health-mark .mv-gap.unknown{color:#aeb8bd!important}.tsimm-market-health-mark .quote-gap.aligned,.tsimm-market-health-summary.aligned{color:#8ee8ff!important}.tsimm-market-health-mark .quote-gap.caution,.tsimm-market-health-summary.caution{color:#ffd166!important}.tsimm-market-health-mark .quote-gap.danger,.tsimm-market-health-summary.danger{color:#ff8c96!important}.tsimm-market-health-mark .quote-gap.unknown,.tsimm-market-health-summary.unknown{color:#aeb8bd!important}.tsimm-market-health-aligned-row{box-shadow:inset 3px 0 #52c7ea!important}.tsimm-market-health-caution-row{box-shadow:inset 3px 0 #d7a83d!important}.tsimm-market-health-danger-row{box-shadow:inset 3px 0 #df5966!important}.tsimm-market-health-unknown-row{box-shadow:inset 3px 0 #66717a!important}#${A.panel}.health-caution{border-color:#9a6d1f!important}#${A.panel}.health-danger{border-color:#8f4850!important}#${A.panel}.health-aligned{border-color:#318cab!important}"
+          text, count = css_pattern.subn(new_css, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one market-health CSS block, replaced {count}')
+
+          required = [
+              '// @version      0.19.14',
+              "version: '0.19.14'",
+              "listingGap <= -0.5",
+              "class=\"mv-gap ${mvLevel}\"",
+              "class=\"quote-gap ${health.level}\"",
+              '.mv-gap.discount{color:#78ef8d!important}',
+              '.mv-gap.premium{color:#ff8c96!important}',
+              'pricedTradeRenderRowBadge',
+              'pricedTradeEnsureNativeMaxButton',
+              'recordTradeSale',
+          ]
+          missing = [token for token in required if token not in text]
+          if missing:
+              raise SystemExit(f'Missing protected tokens: {missing}')
+          if '0.19.13' in text:
+              raise SystemExit('Old version marker remains')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate userscript
+        shell: bash
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          git diff --check
+          git diff --stat
+
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name 'TornScripture Repair Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js
+          git commit -m 'Separate MV discount colors from market risk'
+          git push origin HEAD:${{ github.ref_name }}
