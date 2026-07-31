@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.19
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
+// @version      0.19.20
+// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.19' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.19' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.20' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.20' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.19
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.20
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.19',
+    version: '0.19.20',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -503,6 +503,10 @@
     keyProfile: normalizeApiKeyProfile(loadJson(APP.apiKeyProfileStorageKey, {})),
     traders: normalizeTraders(loadJson(APP.tradersStorageKey, [])),
     showHiddenTraders: Boolean(loadJson(APP.traderViewStorageKey, {})?.showHidden),
+    traderUi: {
+      sort: normalizeTraderSort(loadJson(APP.traderViewStorageKey, {})?.sort),
+      activeDossierId: '',
+    },
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
     purchaseSignals: [],
@@ -615,6 +619,71 @@
     return normalizeTraderDisposition(trader?.disposition) === 'normal';
   }
 
+  function normalizeTraderSort(value) {
+    const normalized = normalizeWhitespace(value).toLowerCase();
+    return [
+      'default',
+      'recent-activity',
+      'sale-volume',
+      'sale-cash',
+      'tracked-profit',
+      'effective-payout',
+    ].includes(normalized) ? normalized : 'default';
+  }
+
+  function normalizeTraderRelationshipRoles(value) {
+    const source = Array.isArray(value) ? value : [value];
+    const roles = [];
+    for (const candidate of source) {
+      const normalized = normalizeWhitespace(candidate).toLowerCase();
+      const expanded = normalized === 'both'
+        ? ['buyer', 'supplier']
+        : normalized.split(/[,;|/]+/g);
+      for (const role of expanded) {
+        const canonical = normalizeWhitespace(role).toLowerCase();
+        if (['buyer', 'supplier'].includes(canonical) && !roles.includes(canonical)) roles.push(canonical);
+      }
+    }
+    return roles;
+  }
+
+  function normalizeTraderJournalEntry(candidate, fallbackAt = null) {
+    const source = typeof candidate === 'string' ? { text: candidate } : candidate;
+    if (!source || typeof source !== 'object') return null;
+    const text = String(source.text ?? source.note ?? source.body ?? '').trim().slice(0, 4000);
+    if (!text) return null;
+    const rawCreatedAt = source.createdAt ?? source.at ?? source.timestamp ?? fallbackAt;
+    const parsedCreatedAt = Date.parse(rawCreatedAt || '');
+    const createdAt = Number.isFinite(parsedCreatedAt)
+      ? new Date(parsedCreatedAt).toISOString()
+      : new Date().toISOString();
+    return {
+      id: normalizeWhitespace(source.id)
+        || `journal_${stableStringHash(`${createdAt}|${text}`)}`,
+      createdAt,
+      text,
+    };
+  }
+
+  function normalizeTraderRelationshipJournal(value, fallbackAt = null) {
+    const source = Array.isArray(value)
+      ? value
+      : Array.isArray(value?.entries)
+        ? value.entries
+        : value
+          ? [value]
+          : [];
+    const unique = new Map();
+    for (const candidate of source) {
+      const entry = normalizeTraderJournalEntry(candidate, fallbackAt);
+      if (entry && !unique.has(entry.id)) unique.set(entry.id, entry);
+    }
+    return [...unique.values()].sort((left, right) =>
+      Date.parse(left.createdAt) - Date.parse(right.createdAt)
+      || left.id.localeCompare(right.id)
+    );
+  }
+
   function normalizeTraderPriceItem(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
     const itemName = normalizeWhitespace(candidate.itemName ?? candidate.name);
@@ -649,6 +718,14 @@
     const pricePageItems = Array.isArray(candidate.pricePageItems ?? candidate.pricingItems)
       ? (candidate.pricePageItems ?? candidate.pricingItems).map(normalizeTraderPriceItem).filter(Boolean)
       : [];
+    const relationshipRoles = normalizeTraderRelationshipRoles(
+      candidate.relationshipRoles ?? candidate.relationshipRole ?? candidate.role,
+    );
+    const journalFallbackAt = candidate.updatedAt || candidate.createdAt || null;
+    const relationshipJournal = normalizeTraderRelationshipJournal(
+      candidate.relationshipJournal ?? candidate.journal,
+      journalFallbackAt,
+    );
     const legacyDisposition = candidate.hidden ? 'hidden' : candidate.avoid ? 'avoid' : 'normal';
     const disposition = normalizeTraderDisposition(candidate.disposition ?? candidate.traderStatus ?? legacyDisposition);
     const hiddenFromDisposition = normalizeTraderDisposition(candidate.hiddenFromDisposition) === 'avoid' ? 'avoid' : 'normal';
@@ -668,6 +745,7 @@
       captureSource: normalizeWhitespace(candidate.captureSource) || (bannerUrl ? 'profile-page' : 'manual'),
       pricePageUrl: normalizeHttpUrl(candidate.pricePageUrl ?? candidate.pricingPageUrl ?? candidate.receiptPageUrl),
       previousPricePageUrl: normalizeHttpUrl(candidate.previousPricePageUrl),
+      pricePageProvider: normalizeWhitespace(candidate.pricePageProvider ?? candidate.pricingProvider).toLowerCase(),
       pricePageTitle: normalizeWhitespace(candidate.pricePageTitle ?? candidate.pricingPageTitle).slice(0, 160),
       pricePageItems,
       pricePageCapturedAt: candidate.pricePageCapturedAt ?? candidate.pricesCapturedAt ?? null,
@@ -680,6 +758,8 @@
       avoidReasons: normalizeTraderReasons(candidate.avoidReasons ?? candidate.traderReasons ?? candidate.reasons),
       dispositionUpdatedAt: candidate.dispositionUpdatedAt || null,
       notes: normalizeWhitespace(candidate.notes),
+      relationshipRoles,
+      relationshipJournal,
       createdAt: candidate.createdAt || new Date().toISOString(),
       updatedAt: candidate.updatedAt || new Date().toISOString(),
     };
@@ -10257,18 +10337,106 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     });
   }
 
+  function traderEffectiveRelationshipRoles(trader, sales = traderSalesFor(trader)) {
+    const roles = normalizeTraderRelationshipRoles(trader?.relationshipRoles);
+    if (sales.length && !roles.includes('buyer')) roles.unshift('buyer');
+    return roles;
+  }
+
+  function traderRelationshipRoleLabel(roles) {
+    const normalized = normalizeTraderRelationshipRoles(roles);
+    if (normalized.includes('buyer') && normalized.includes('supplier')) return 'Buyer + supplier';
+    if (normalized.includes('buyer')) return 'Buyer';
+    if (normalized.includes('supplier')) return 'Supplier';
+    return 'Unclassified';
+  }
+
+  function traderExplicitRelationshipValue(trader) {
+    const roles = normalizeTraderRelationshipRoles(trader?.relationshipRoles);
+    if (roles.includes('buyer') && roles.includes('supplier')) return 'both';
+    return roles[0] || 'unclassified';
+  }
+
+  function traderTopItems(sales) {
+    const idsByName = new Map();
+    for (const sale of sales) {
+      for (const item of Array.isArray(sale?.items) ? sale.items : []) {
+        const itemId = Number(item?.itemId) > 0 ? Number(item.itemId) : null;
+        const nameKey = normalizeName(item?.itemName ?? item?.name);
+        if (!itemId || !nameKey) continue;
+        if (!idsByName.has(nameKey)) idsByName.set(nameKey, new Set());
+        idsByName.get(nameKey).add(itemId);
+      }
+    }
+    const totals = new Map();
+    for (const sale of sales) {
+      for (const item of Array.isArray(sale?.items) ? sale.items : []) {
+        const rawItemId = Number(item?.itemId) > 0 ? Number(item.itemId) : null;
+        const itemName = normalizeWhitespace(item?.itemName ?? item?.name) || (rawItemId ? `Item ${rawItemId}` : '');
+        if (!itemName) continue;
+        const nameKey = normalizeName(itemName);
+        const nameIds = idsByName.get(nameKey);
+        const itemId = rawItemId || (nameIds?.size === 1 ? [...nameIds][0] : null);
+        const key = itemId ? `id:${itemId}` : `name:${normalizeName(itemName)}`;
+        const current = totals.get(key) || {
+          itemId,
+          itemName,
+          quantity: 0,
+          trackedQuantity: 0,
+          untrackedQuantity: 0,
+        };
+        current.quantity += Math.max(0, Math.floor(Number(item?.quantity) || 0));
+        current.trackedQuantity += Math.max(0, Math.floor(Number(item?.trackedQuantity) || 0));
+        current.untrackedQuantity += Math.max(0, Math.floor(Number(item?.untrackedQuantity) || 0));
+        totals.set(key, current);
+      }
+    }
+    return [...totals.values()].sort((left, right) =>
+      right.quantity - left.quantity
+      || left.itemName.localeCompare(right.itemName)
+      || Number(left.itemId || 0) - Number(right.itemId || 0)
+    );
+  }
+
+  function traderRecentActivityAt(trader, sales) {
+    const timestamps = [
+      trader?.updatedAt,
+      trader?.dispositionUpdatedAt,
+      trader?.pricePageLastCheckedAt,
+      trader?.pricePageCapturedAt,
+      ...(sales || []).map((sale) => sale?.soldAt),
+      ...(trader?.relationshipJournal || []).map((entry) => entry?.createdAt),
+    ].map((value) => Date.parse(value || '')).filter(Number.isFinite);
+    return timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : null;
+  }
+
   function traderStats(trader) {
-    const sales = traderSalesFor(trader);
-    const profits = sales.map((sale) => optionalFiniteNumber(sale.realizedProfit) ?? optionalFiniteNumber(sale.trackedProfit)).filter((value) => value !== null);
+    const sales = traderSalesFor(trader).sort((left, right) =>
+      Date.parse(right?.soldAt || '') - Date.parse(left?.soldAt || '')
+      || normalizeWhitespace(right?.id).localeCompare(normalizeWhitespace(left?.id))
+    );
+    const profits = sales
+      .map((sale) => optionalFiniteNumber(sale.realizedProfit) ?? optionalFiniteNumber(sale.trackedProfit))
+      .filter((value) => value !== null);
     const cash = sales.reduce((sum, sale) => sum + Number(sale.cashReceived || 0), 0);
     const market = sales.reduce((sum, sale) => sum + Number(sale.marketTotal || 0), 0);
+    const partialTrades = sales.filter((sale) =>
+      sale?.fullCoverage !== true
+      || Number(sale?.untrackedQuantity || 0) > 0
+      || optionalFiniteNumber(sale?.realizedProfit) === null
+    ).length;
     return {
       trades: sales.length,
       cash,
+      market,
       profit: profits.reduce((sum, value) => sum + value, 0),
       profitCount: profits.length,
+      partialTrades,
       effectivePercent: market > 0 ? cash / market * 100 : null,
       lastTradeAt: sales[0]?.soldAt || null,
+      recentActivityAt: traderRecentActivityAt(trader, sales),
+      topItems: traderTopItems(sales),
+      sales,
     };
   }
 
@@ -10323,7 +10491,20 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       || candidate.normalizedName === trader.normalizedName
       || candidate.id === trader.id
     );
-    if (index >= 0) state.traders[index] = { ...state.traders[index], ...trader, id: state.traders[index].id };
+    if (index >= 0) {
+      const existing = state.traders[index];
+      const incomingRoles = normalizeTraderRelationshipRoles(trader.relationshipRoles);
+      state.traders[index] = {
+        ...existing,
+        ...trader,
+        id: existing.id,
+        relationshipRoles: incomingRoles.length ? incomingRoles : existing.relationshipRoles,
+        relationshipJournal: normalizeTraderRelationshipJournal([
+          ...(existing.relationshipJournal || []),
+          ...(trader.relationshipJournal || []),
+        ], trader.updatedAt || existing.updatedAt),
+      };
+    }
     else state.traders.push(trader);
     saveTraders();
     const savedTrader = state.traders.find((candidate) =>
@@ -10408,8 +10589,64 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     saveJson(APP.traderViewStorageKey, {
       schemaVersion: 1,
       showHidden: Boolean(state.showHiddenTraders),
+      sort: normalizeTraderSort(state.traderUi?.sort),
       updatedAt: new Date().toISOString(),
     });
+  }
+
+  function openTraderDossier(id) {
+    const trader = state.traders.find((entry) => entry.id === id);
+    if (!trader) return;
+    state.traderUi.activeDossierId = trader.id;
+    renderTraders();
+  }
+
+  function closeTraderDossier() {
+    state.traderUi.activeDossierId = '';
+    renderTraders();
+  }
+
+  function setTraderRelationshipRoles(id, value) {
+    const trader = state.traders.find((entry) => entry.id === id);
+    if (!trader) return;
+    trader.relationshipRoles = value === 'both'
+      ? ['buyer', 'supplier']
+      : normalizeTraderRelationshipRoles(value);
+    trader.updatedAt = new Date().toISOString();
+    saveTraders();
+    state.traderUi.activeDossierId = trader.id;
+    renderTraders();
+    renderPanel();
+  }
+
+  function addTraderRelationshipJournalEntry(id) {
+    const trader = state.traders.find((entry) => entry.id === id);
+    if (!trader) return;
+    const text = String(prompt(`Add a relationship note for ${trader.name}:`, '') || '').trim();
+    if (!text) return;
+    const now = new Date().toISOString();
+    const entry = normalizeTraderJournalEntry({
+      id: createId('journal'),
+      createdAt: now,
+      text,
+    }, now);
+    if (!entry) return;
+    trader.relationshipJournal = [
+      ...normalizeTraderRelationshipJournal(trader.relationshipJournal, trader.updatedAt),
+      entry,
+    ];
+    trader.updatedAt = now;
+    saveTraders();
+    state.traderUi.activeDossierId = trader.id;
+    renderTraders();
+    renderPanel();
+    toast(`Relationship note added for ${trader.name}.`);
+  }
+
+  function setTraderBookSort(value) {
+    state.traderUi.sort = normalizeTraderSort(value);
+    saveTraderView();
+    renderTraders();
   }
 
   function markTraderAvoid(id) {
@@ -10471,6 +10708,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const trader = state.traders.find((entry) => entry.id === id);
     if (!trader || !confirm(`Remove ${trader.name} from your trader book?`)) return;
     state.traders = state.traders.filter((entry) => entry.id !== id);
+    if (state.traderUi.activeDossierId === id) state.traderUi.activeDossierId = '';
     saveTraders();
     renderTraders();
     renderPanel();
@@ -10505,6 +10743,207 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     } catch (error) {
       toast(error?.message || 'Trader import failed.');
     }
+  }
+
+  function traderFavoriteState(trader) {
+    try {
+      return Boolean(window.__TSIMM_WATCHLIST_API__?.favoriteStateById?.(trader?.id)?.favorite);
+    } catch {
+      return false;
+    }
+  }
+
+  function traderPricePageProvider(trader) {
+    const stored = normalizeWhitespace(trader?.pricePageProvider);
+    if (stored) return stored;
+    try {
+      return new URL(trader?.pricePageUrl).hostname.replace(/^www\./i, '') || 'Unknown';
+    } catch {
+      return 'Unknown';
+    }
+  }
+
+  function traderSortOptionsHtml(selected) {
+    const choices = [
+      ['default', 'Default book order'],
+      ['recent-activity', 'Recent relationship activity'],
+      ['sale-volume', 'Sale volume'],
+      ['sale-cash', 'Cash received'],
+      ['tracked-profit', 'Tracked realized profit'],
+      ['effective-payout', 'Effective payout'],
+    ];
+    return choices.map(([value, label]) =>
+      `<option value="${value}" ${selected === value ? 'selected' : ''}>${escapeHtml(label)}</option>`
+    ).join('');
+  }
+
+  function sortTradersForBook(traders, sortValue) {
+    const sort = normalizeTraderSort(sortValue);
+    if (sort === 'default') return [...traders];
+    const scored = traders.map((trader, index) => {
+      const stats = traderStats(trader);
+      const metric = {
+        'recent-activity': Date.parse(stats.recentActivityAt || ''),
+        'sale-volume': stats.trades,
+        'sale-cash': stats.cash,
+        'tracked-profit': stats.profitCount ? stats.profit : null,
+        'effective-payout': stats.effectivePercent,
+      }[sort];
+      return { trader, index, metric: Number.isFinite(metric) ? metric : null };
+    });
+    scored.sort((left, right) => {
+      if (left.metric === null && right.metric !== null) return 1;
+      if (left.metric !== null && right.metric === null) return -1;
+      if (left.metric !== right.metric) return Number(right.metric || 0) - Number(left.metric || 0);
+      return left.trader.name.localeCompare(right.trader.name) || left.index - right.index;
+    });
+    return scored.map((entry) => entry.trader);
+  }
+
+  function traderDossierSaleHtml(sale) {
+    const fullCoverage = sale?.fullCoverage === true
+      && Number(sale?.untrackedQuantity || 0) === 0
+      && optionalFiniteNumber(sale?.realizedProfit) !== null;
+    const profit = fullCoverage
+      ? optionalFiniteNumber(sale.realizedProfit)
+      : optionalFiniteNumber(sale.trackedProfit);
+    const profitLabel = profit === null
+      ? 'Profit unavailable'
+      : `${fullCoverage ? 'Realized profit' : 'Tracked profit'} ${profit >= 0 ? '+' : ''}${formatMoney(profit)}`;
+    const coverageLabel = fullCoverage
+      ? `Fully tracked · ${formatInteger(sale.trackedQuantity || sale.requestedQuantity)} item${Number(sale.trackedQuantity || sale.requestedQuantity) === 1 ? '' : 's'}`
+      : `Partial · ${formatInteger(sale.trackedQuantity)} tracked · ${formatInteger(sale.untrackedQuantity)} untracked`;
+    const effectivePercent = Number(sale?.marketTotal) > 0
+      ? Number(sale.cashReceived || 0) / Number(sale.marketTotal) * 100
+      : null;
+    const audit = sale?.receiptAudit;
+    const auditLabel = audit
+      ? `Receipt audit: ${receiptAuditBadge(audit.status)}`
+      : 'Receipt audit: none';
+    const itemSummary = (sale?.items || [])
+      .map((item) => `${normalizeWhitespace(item?.itemName) || 'Unknown item'} × ${formatInteger(item?.quantity)}`)
+      .join(', ');
+    return `
+      <article class="tsimm-dossier-sale ${fullCoverage ? 'tracked' : 'partial'}">
+        <div class="tsimm-dossier-row-head">
+          <strong>${escapeHtml(sale?.soldAt ? new Date(sale.soldAt).toLocaleString() : 'Unknown sale date')}</strong>
+          <span>${escapeHtml(sale?.tradeId ? `Trade ${sale.tradeId}` : `Sale ${sale?.id || 'unknown'}`)}</span>
+        </div>
+        <div class="tsimm-dossier-sale-grid">
+          <span>Sale ID</span><strong>${escapeHtml(sale?.id || 'Unknown')}</strong>
+          <span>Cash received</span><strong>${formatMoney(sale?.cashReceived || 0)}</strong>
+          <span>Market total</span><strong>${Number(sale?.marketTotal) > 0 ? formatMoney(sale.marketTotal) : 'Not recorded'}</strong>
+          <span>Effective payout</span><strong>${effectivePercent === null ? 'Unavailable' : formatPercent(effectivePercent)}</strong>
+          <span>Cost coverage</span><strong>${escapeHtml(coverageLabel)}</strong>
+          <span>${fullCoverage ? 'Profit' : 'Partial accounting'}</span><strong class="${profit !== null && profit < 0 ? 'tsimm-ledger-loss' : 'tsimm-ledger-profit'}">${escapeHtml(profitLabel)}</strong>
+          <span>Receipt</span><strong>${escapeHtml(auditLabel)}</strong>
+        </div>
+        ${itemSummary ? `<small>${escapeHtml(itemSummary)}</small>` : ''}
+        <div class="tsimm-dossier-inline-actions">
+          ${sale?.saleUrl ? `<a href="${escapeHtml(sale.saleUrl)}">Open sale</a>` : ''}
+          ${audit ? `<button type="button" data-tsimm-action="receipt-audit-open" data-tsimm-sale-id="${escapeHtml(sale.id)}">Open receipt audit</button>` : ''}
+        </div>
+      </article>
+    `;
+  }
+
+  function traderDossierHtml(trader) {
+    const stats = traderStats(trader);
+    const explicitRoles = normalizeTraderRelationshipRoles(trader.relationshipRoles);
+    const effectiveRoles = traderEffectiveRelationshipRoles(trader, stats.sales);
+    const derivedBuyer = stats.trades > 0 && !explicitRoles.includes('buyer');
+    const roleLabel = traderRelationshipRoleLabel(effectiveRoles);
+    const disposition = normalizeTraderDisposition(trader.disposition);
+    const reasonText = traderReasonLabels(trader).join(' · ');
+    const stars = trader.rating ? `${'★'.repeat(trader.rating)}${'☆'.repeat(5 - trader.rating)}` : 'Not rated';
+    const favorite = traderFavoriteState(trader);
+    const priceFreshness = tradeExitFreshness(trader.pricePageLastCheckedAt || trader.pricePageCapturedAt);
+    const recentSales = stats.sales.slice(0, 6);
+    const topItems = stats.topItems.slice(0, 8);
+    const journal = [...normalizeTraderRelationshipJournal(trader.relationshipJournal, trader.updatedAt)].reverse();
+    const profitSummary = stats.profitCount
+      ? `${stats.profit >= 0 ? '+' : ''}${formatMoney(stats.profit)}${stats.profitCount < stats.trades ? ` · ${formatInteger(stats.profitCount)}/${formatInteger(stats.trades)} sales covered` : ''}`
+      : 'Unavailable';
+    const priceItems = (trader.pricePageItems || []).slice(0, 8);
+    const hasSupplierRole = effectiveRoles.includes('supplier');
+    return `
+      <div class="tsimm-trader-shell tsimm-trader-dossier-shell">
+        <div class="tsimm-ledger-head">
+          <div><strong>Trader dossier · ${escapeHtml(trader.name)}</strong><small>Relationship context and read-only history from the existing Trader Book and Ledger</small></div>
+          <button type="button" data-tsimm-action="traders-close">×</button>
+        </div>
+        <div class="tsimm-dossier-scroll">
+          <div class="tsimm-dossier-back"><button type="button" data-tsimm-action="trader-dossier-close">← Back to Trader Book</button></div>
+          <section class="tsimm-dossier-hero">
+            ${trader.bannerUrl ? `<img src="${escapeHtml(trader.bannerUrl)}" alt="">` : ''}
+            <div>
+              <strong>${escapeHtml(trader.name)}${trader.userId ? ` [${escapeHtml(trader.userId)}]` : ''}</strong>
+              <span>${escapeHtml(roleLabel)}${derivedBuyer ? ' · buyer role derived from recorded sales' : ''}</span>
+              <small>${escapeHtml(stars)} · ${escapeHtml(formatPercent(trader.targetPercent))} payout target</small>
+            </div>
+          </section>
+          <div class="tsimm-dossier-actions">
+            <button type="button" data-tsimm-action="trader-toggle-favorite" data-tsimm-trader-id="${escapeHtml(trader.id)}">${favorite ? '★ Favorite' : '☆ Add favorite'}</button>
+            <button type="button" data-tsimm-action="trader-edit" data-tsimm-trader-id="${escapeHtml(trader.id)}">Edit trader</button>
+            ${trader.profileUrl ? `<a href="${escapeHtml(trader.profileUrl)}">Profile</a>` : ''}
+            ${disposition === 'normal' && trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : ''}
+            ${trader.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Price page</a>` : ''}
+          </div>
+          <section class="tsimm-dossier-section">
+            <div class="tsimm-dossier-section-head"><strong>Relationship</strong><span>Stored on this Trader Book record</span></div>
+            <label class="tsimm-dossier-role">Explicit role
+              <select data-tsimm-trader-role data-tsimm-trader-id="${escapeHtml(trader.id)}">
+                <option value="unclassified" ${traderExplicitRelationshipValue(trader) === 'unclassified' ? 'selected' : ''}>Unclassified</option>
+                <option value="buyer" ${traderExplicitRelationshipValue(trader) === 'buyer' ? 'selected' : ''}>Buyer</option>
+                <option value="supplier" ${traderExplicitRelationshipValue(trader) === 'supplier' ? 'selected' : ''}>Supplier</option>
+                <option value="both" ${traderExplicitRelationshipValue(trader) === 'both' ? 'selected' : ''}>Buyer + supplier</option>
+              </select>
+            </label>
+            <div class="tsimm-trader-disposition"><strong>${escapeHtml(disposition.toUpperCase())}</strong><span>${escapeHtml(reasonText || (disposition === 'normal' ? 'Eligible for existing comparisons and refresh queues' : 'Excluded from automatic recommendations'))}</span></div>
+            ${trader.notes ? `<div class="tsimm-trader-notes"><strong>Legacy notes</strong><br>${escapeHtml(trader.notes)}</div>` : ''}
+          </section>
+          <section class="tsimm-dossier-section">
+            <div class="tsimm-dossier-section-head"><strong>Buyer history</strong><span>Derived live from linked Ledger sales</span></div>
+            <div class="tsimm-dossier-summary">
+              <div><span>Completed sales</span><strong>${formatInteger(stats.trades)}</strong></div>
+              <div><span>Cash received</span><strong>${formatMoney(stats.cash)}</strong></div>
+              <div><span>Tracked realized profit</span><strong class="${stats.profit < 0 ? 'tsimm-ledger-loss' : 'tsimm-ledger-profit'}">${escapeHtml(profitSummary)}</strong></div>
+              <div><span>Effective payout</span><strong>${stats.effectivePercent === null ? 'Unavailable' : formatPercent(stats.effectivePercent)}</strong></div>
+              <div><span>Last sale</span><strong>${stats.lastTradeAt ? escapeHtml(new Date(stats.lastTradeAt).toLocaleString()) : 'None recorded'}</strong></div>
+              <div><span>Recent activity</span><strong>${stats.recentActivityAt ? escapeHtml(relativeAge(stats.recentActivityAt)) : 'None recorded'}</strong></div>
+            </div>
+            ${stats.partialTrades ? `<div class="tsimm-dossier-warning">${formatInteger(stats.partialTrades)} sale${stats.partialTrades === 1 ? '' : 's'} have partial or unavailable FIFO coverage. Profit values are labeled as tracked only; no complete realized-profit figure is inferred.</div>` : ''}
+            ${recentSales.length ? `<div class="tsimm-dossier-sales">${recentSales.map(traderDossierSaleHtml).join('')}</div>` : '<div class="tsimm-ledger-empty">No Ledger sales are linked to this trader by Torn user ID or normalized name.</div>'}
+          </section>
+          <section class="tsimm-dossier-section">
+            <div class="tsimm-dossier-section-head"><strong>Top sold items</strong><span>Quantity from linked sale item rows</span></div>
+            ${topItems.length ? `<div class="tsimm-dossier-items">${topItems.map((item) => `<div><strong>${escapeHtml(item.itemName)}${item.itemId ? ` [${escapeHtml(item.itemId)}]` : ''}</strong><span>${formatInteger(item.quantity)} sold · ${formatInteger(item.trackedQuantity)} tracked${item.untrackedQuantity ? ` · ${formatInteger(item.untrackedQuantity)} untracked` : ''}</span></div>`).join('')}</div>` : '<div class="tsimm-ledger-empty">No sold-item history is available.</div>'}
+          </section>
+          <section class="tsimm-dossier-section">
+            <div class="tsimm-dossier-section-head"><strong>Saved price-page history</strong><span>No background refresh</span></div>
+            ${trader.pricePageUrl ? `
+              <div class="tsimm-dossier-price-meta">
+                <span>Provider</span><strong>${escapeHtml(traderPricePageProvider(trader))}</strong>
+                <span>Captured items</span><strong>${formatInteger(trader.pricePageItems?.length || 0)}</strong>
+                <span>Captured at</span><strong>${trader.pricePageCapturedAt ? escapeHtml(new Date(trader.pricePageCapturedAt).toLocaleString()) : 'Never'}</strong>
+                <span>Last checked</span><strong>${trader.pricePageLastCheckedAt ? escapeHtml(new Date(trader.pricePageLastCheckedAt).toLocaleString()) : 'Never'}</strong>
+                <span>Freshness</span><strong class="tsimm-dossier-freshness-${escapeHtml(priceFreshness.status)}">${escapeHtml(priceFreshness.ageLabel)} · ${escapeHtml(priceFreshness.status)}</strong>
+                <span>Last result</span><strong>${escapeHtml(trader.pricePageLastResult || 'No result recorded')}</strong>
+                <span>Checks / changes</span><strong>${formatInteger(trader.pricePageCaptureCount)} / ${formatInteger(trader.pricePageLastChangedCount)}</strong>
+                <span>Page title</span><strong>${escapeHtml(trader.pricePageTitle || 'Untitled')}</strong>
+              </div>
+              ${priceItems.length ? `<div class="tsimm-dossier-items">${priceItems.map((item) => `<div><strong>${escapeHtml(item.itemName)}${item.itemId ? ` [${escapeHtml(item.itemId)}]` : ''}</strong><span>${formatMoney(item.unitPrice)} each</span></div>`).join('')}</div>` : '<div class="tsimm-ledger-empty">No captured price rows are stored.</div>'}
+            ` : '<div class="tsimm-ledger-empty">No price page is saved for this trader.</div>'}
+          </section>
+          ${hasSupplierRole ? '<section class="tsimm-dossier-section"><div class="tsimm-dossier-section-head"><strong>Supplier history</strong><span>Planning placeholder</span></div><div class="tsimm-ledger-empty">Supplier accounting is not recorded yet. Future acquisition receipts will provide purchase volume, margin, sell-through, and dispute history. No purchase or cost data is inferred here.</div></section>' : ''}
+          <section class="tsimm-dossier-section">
+            <div class="tsimm-dossier-section-head"><strong>Relationship journal</strong><span>Append-only notes · newest first</span></div>
+            <div class="tsimm-dossier-actions"><button type="button" data-tsimm-action="trader-journal-add" data-tsimm-trader-id="${escapeHtml(trader.id)}">Add relationship note</button></div>
+            ${journal.length ? `<div class="tsimm-dossier-journal">${journal.map((entry) => `<article><time>${escapeHtml(new Date(entry.createdAt).toLocaleString())}</time><p>${escapeHtml(entry.text)}</p><small>${escapeHtml(entry.id)}</small></article>`).join('')}</div>` : '<div class="tsimm-ledger-empty">No relationship journal entries yet.</div>'}
+          </section>
+        </div>
+      </div>
+    `;
   }
 
 
@@ -10544,6 +10983,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         </div>
         ${trader.notes ? `<div class="tsimm-trader-notes">${escapeHtml(trader.notes)}</div>` : ''}
         <div class="tsimm-trader-actions">
+          <button type="button" class="tsimm-btn-gold" data-tsimm-action="trader-dossier-open" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open dossier</button>
           ${disposition === 'normal' && trader.tradeUrl && priceItemCount ? `<button type="button" class="tsimm-priced-trade-start" data-tsimm-action="trader-start-priced-trade" data-tsimm-trader-id="${escapeHtml(trader.id)}">Start priced trade</button>` : (disposition === 'normal' && trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : '')}
           ${trader.profileUrl ? `<a href="${escapeHtml(trader.profileUrl)}">Profile</a>` : ''}
           ${trader.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Open prices</a>` : ''}
@@ -10561,9 +11001,18 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   function renderTraders() {
     const overlay = document.getElementById(APP.traderOverlayId);
     if (!overlay) return;
+    const activeDossier = state.traders.find((trader) => trader.id === state.traderUi.activeDossierId);
+    if (activeDossier) {
+      overlay.innerHTML = traderDossierHtml(activeDossier);
+      return;
+    }
+    if (state.traderUi.activeDossierId) state.traderUi.activeDossierId = '';
     const hiddenCount = state.traders.filter((trader) => normalizeTraderDisposition(trader.disposition) === 'hidden').length;
     const avoidCount = state.traders.filter((trader) => normalizeTraderDisposition(trader.disposition) === 'avoid').length;
-    const visibleTraders = state.traders.filter((trader) => state.showHiddenTraders || normalizeTraderDisposition(trader.disposition) !== 'hidden');
+    const visibleTraders = sortTradersForBook(
+      state.traders.filter((trader) => state.showHiddenTraders || normalizeTraderDisposition(trader.disposition) !== 'hidden'),
+      state.traderUi.sort,
+    );
     overlay.innerHTML = `
       <div class="tsimm-trader-shell">
         <div class="tsimm-ledger-head">
@@ -10574,6 +11023,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <strong>${formatInteger(state.traders.length)} saved · ${formatInteger(avoidCount)} avoid · ${formatInteger(hiddenCount)} hidden</strong>
           <span>${activePendingTraderCapture() ? `${escapeHtml(activePendingTraderCapture().name)} armed for next page` : 'Avoided and hidden traders are excluded from automatic recommendations.'}</span>
         </div>
+        <label class="tsimm-trader-sort">Sort Trader Book
+          <select data-tsimm-trader-sort>${traderSortOptionsHtml(state.traderUi.sort)}</select>
+        </label>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="trader-add">Add trader</button>
           ${state.lastScan.pageType === 'profile' && state.lastScan.profileCaptureReady ? '<button type="button" data-tsimm-action="trader-capture-profile">Capture this profile</button>' : ''}
@@ -10831,6 +11283,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .tsimm-trader-shell{width:min(620px,100%);max-height:94vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #7a6740;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-trader-top{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;color:#d8caa5}.tsimm-trader-top span{color:#aaa1b7;font-size:10px}
       .tsimm-trader-list{overflow:auto;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-profile-button{display:grid;flex:1;gap:2px;min-width:0;color:#fff;text-decoration:none}.tsimm-trader-profile-button>strong{font-size:13px}.tsimm-trader-profile-button>.tsimm-trader-stars{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-profile-button.has-banner{position:relative;display:block;min-height:68px;border:1px solid #5d5137;border-radius:6px;overflow:hidden;background:#17140f}.tsimm-trader-profile-button.has-banner img{display:block;width:100%;height:68px;object-fit:cover}.tsimm-trader-banner-label{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:6px;background:linear-gradient(90deg,#0008,#0002 38%,#0002 62%,#0008);text-shadow:0 2px 4px #000,0 0 8px #000;color:#fff!important;letter-spacing:.02em;text-align:center}.tsimm-trader-banner-label strong{font-size:15px;line-height:1.05}.tsimm-trader-banner-label small{font-size:9px;color:#ded7e6}.tsimm-trader-profile-button.has-banner>.tsimm-trader-stars{position:absolute;left:6px;bottom:3px;padding:1px 4px;border-radius:999px;background:#0009;color:#f4c95d;font-size:10px}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px;white-space:nowrap}.tsimm-trader-grid{display:grid;grid-template-columns:1fr auto;gap:3px 8px;margin-top:7px}.tsimm-trader-grid span{color:#b6ad99}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}.tsimm-profile-capture-card{display:flex;align-items:center;gap:8px;margin:7px 0;padding:7px;border:1px solid #6f5220;border-radius:8px;background:#2b2417}.tsimm-profile-capture-card img{width:112px;max-height:44px;object-fit:cover;border-radius:5px}.tsimm-profile-capture-card div{display:grid;min-width:0}.tsimm-profile-capture-card strong{color:#f6d16f}.tsimm-profile-capture-card span{color:#bdb4c8;font-size:10px}.tsimm-btn-gold{background:#775715!important;border-color:#b98c2c!important;color:#fff5cc!important}
+      .tsimm-trader-sort{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 10px 8px;color:#bdb4c8;font-weight:700}.tsimm-trader-sort select,.tsimm-dossier-role select{min-height:36px;max-width:100%;border:1px solid #675c43;border-radius:7px;background:#201d18;color:#fff;padding:6px 28px 6px 8px;font:inherit}
+      .tsimm-trader-dossier-shell{width:min(760px,100%)}.tsimm-dossier-scroll{min-width:0;overflow:auto;padding:8px;display:grid;gap:8px}.tsimm-dossier-back button{min-height:38px;border:1px solid #675c43;border-radius:7px;background:#332d23;color:#fff;padding:7px 10px;font-weight:800}.tsimm-dossier-hero{position:relative;display:flex;align-items:center;gap:10px;min-width:0;padding:9px;border:1px solid #746442;border-radius:9px;background:#29251e;overflow:hidden}.tsimm-dossier-hero>img{width:150px;max-width:36%;height:58px;border-radius:6px;object-fit:cover}.tsimm-dossier-hero>div{display:grid;gap:2px;min-width:0}.tsimm-dossier-hero strong{overflow-wrap:anywhere;color:#fff;font-size:16px}.tsimm-dossier-hero span{color:#f4c95d;font-weight:800}.tsimm-dossier-hero small{color:#bdb4c8}
+      .tsimm-dossier-actions,.tsimm-dossier-inline-actions{display:flex;flex-wrap:wrap;gap:6px}.tsimm-dossier-actions a,.tsimm-dossier-actions button,.tsimm-dossier-inline-actions a,.tsimm-dossier-inline-actions button{flex:1;min-width:105px;min-height:38px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #675c43;border-radius:7px;background:#3a3326;color:#fff;padding:7px;text-align:center;text-decoration:none;font:700 11px/1.2 Arial,sans-serif}.tsimm-dossier-section{min-width:0;padding:9px;border:1px solid #4f4858;border-radius:9px;background:#25212a}.tsimm-dossier-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}.tsimm-dossier-section-head strong{color:#f4c95d;font-size:13px}.tsimm-dossier-section-head span{color:#9f96a8;font-size:9px;text-align:right}.tsimm-dossier-role{display:grid;grid-template-columns:minmax(0,1fr) minmax(145px,auto);align-items:center;gap:8px;color:#bdb4c8;font-weight:700}
+      .tsimm-dossier-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px}.tsimm-dossier-summary>div{display:grid;gap:2px;min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1b181f}.tsimm-dossier-summary span{color:#a79eaf;font-size:9px;text-transform:uppercase}.tsimm-dossier-summary strong{overflow-wrap:anywhere}.tsimm-dossier-warning{margin-top:7px;padding:7px;border:1px solid #9a6d1f;border-radius:7px;background:#2c230f;color:#ffd166}.tsimm-dossier-sales,.tsimm-dossier-journal,.tsimm-dossier-items{display:grid;gap:6px;margin-top:7px}.tsimm-dossier-sale,.tsimm-dossier-journal article,.tsimm-dossier-items>div{min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1d1a21}.tsimm-dossier-sale.partial{border-color:#9a6d1f}.tsimm-dossier-row-head,.tsimm-dossier-items>div{display:flex;justify-content:space-between;gap:8px}.tsimm-dossier-row-head span,.tsimm-dossier-items span{color:#aaa1b7;text-align:right}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:3px 8px;margin:6px 0}.tsimm-dossier-sale-grid span,.tsimm-dossier-price-meta span{color:#aaa1b7}.tsimm-dossier-sale-grid strong,.tsimm-dossier-price-meta strong{text-align:right;overflow-wrap:anywhere}.tsimm-dossier-sale>small{display:block;color:#aaa1b7;overflow-wrap:anywhere}.tsimm-dossier-inline-actions{margin-top:6px}.tsimm-dossier-freshness-fresh{color:#63df9f}.tsimm-dossier-freshness-stale{color:#ffd166}.tsimm-dossier-freshness-outdated,.tsimm-dossier-freshness-missing{color:#ff7c85}.tsimm-dossier-journal article{display:grid;gap:4px}.tsimm-dossier-journal time,.tsimm-dossier-journal small{color:#918899;font-size:9px}.tsimm-dossier-journal p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+      @media(max-width:430px){.tsimm-trader-top,.tsimm-dossier-section-head,.tsimm-dossier-row-head,.tsimm-dossier-items>div{align-items:stretch;flex-direction:column}.tsimm-trader-sort{display:grid;justify-content:stretch}.tsimm-trader-sort select{width:100%}.tsimm-dossier-hero>img{width:86px;max-width:30%}.tsimm-dossier-role{grid-template-columns:1fr}.tsimm-dossier-role select{width:100%}.tsimm-dossier-summary{grid-template-columns:1fr 1fr}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr)}.tsimm-dossier-row-head span,.tsimm-dossier-items span{text-align:left}}
       #${APP.receiptAuditOverlayId}{position:fixed;inset:0;z-index:2147483600;background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
       .tsimm-audit-shell{width:min(660px,100%);max-height:95vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #71617d;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}.tsimm-audit-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:5px;padding:8px}.tsimm-audit-summary>div{display:grid;gap:2px;padding:7px;border:1px solid #4a4352;border-radius:8px;background:#25212a}.tsimm-audit-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}.tsimm-audit-input{display:grid;gap:5px;padding:0 8px 8px}.tsimm-audit-input label{font-weight:700;color:#ded5e7}.tsimm-audit-input textarea{min-height:120px;max-height:220px;resize:vertical;border:1px solid #625a70;border-radius:8px;background:#141218;color:#f7f3fa;padding:8px;font:11px/1.35 monospace}.tsimm-audit-input small{color:#9d94a7}.tsimm-audit-result{margin:0 8px 8px;padding:8px;border:1px solid #51485c;border-radius:9px;background:#242129}.tsimm-audit-result-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.tsimm-audit-result-head span{font-size:9px;text-transform:uppercase;color:#b8afc1}.tsimm-audit-result p{margin:5px 0 7px;color:#cbc3d2}.tsimm-audit-link{display:block;margin-top:7px;text-align:center;border:1px solid #615372;border-radius:6px;background:#352d3f;color:#fff;text-decoration:none;padding:6px;font-weight:700}.tsimm-audit-items{overflow:auto;display:grid;gap:6px;padding:0 8px 8px}.tsimm-audit-item{padding:7px;border:1px solid #4f4759;border-radius:8px;background:#24212a}.tsimm-audit-item>div:first-child{display:flex;justify-content:space-between;gap:8px}.tsimm-audit-item>div:first-child span{font-size:9px;text-transform:uppercase}.tsimm-audit-item>small{display:block;margin-top:5px;color:#a9a0b2}.tsimm-audit-gold{border-color:#a98532!important}.tsimm-audit-green{border-color:#3e8b62!important}.tsimm-audit-purple{border-color:#7b4c9e!important}.tsimm-audit-red{border-color:#9c4650!important}.tsimm-audit-gray{border-color:#5e5963!important}.tsimm-audit-warning{margin:0 8px 8px;padding:7px;border:1px solid #8f4650;border-radius:7px;background:#301d21;color:#ffb8be}.tsimm-audit-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.tsimm-audit-actions button{flex:1;min-width:110px;border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:7px;font-weight:700}.tsimm-audit-actions button:first-child{background:#5b2b82;border-color:#8e55b9}.tsimm-audit-actions button:disabled{opacity:.5}.tsimm-audit-status-gold{color:#f4c95d}.tsimm-audit-status-green{color:#63df9f}.tsimm-audit-status-purple{color:#cf8cff}.tsimm-audit-status-red{color:#ff7c85}.tsimm-audit-status-gray,.tsimm-audit-status-link-only{color:#bbb2c3}
       #tsimm-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%);z-index:2147483647;padding:8px 11px;border-radius:8px;background:#17151b;color:#fff;border:1px solid #655d70;box-shadow:0 6px 20px #0009;font:12px Arial,sans-serif}
@@ -11267,6 +11724,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       } else if (action === 'trader-add') {
         const trader = promptTrader();
         if (trader) { upsertTrader(trader); toast(`Saved trader ${trader.name}.`); }
+      } else if (action === 'trader-dossier-open') {
+        openTraderDossier(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-dossier-close') {
+        closeTraderDossier();
+      } else if (action === 'trader-journal-add') {
+        addTraderRelationshipJournalEntry(button.dataset.tsimmTraderId);
       } else if (action === 'trader-edit') {
         editTrader(button.dataset.tsimmTraderId);
       } else if (action === 'trader-avoid') {
@@ -11398,6 +11861,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         state.settings.ledgerShowSoldPurchases = soldToggle.checked;
         saveJson(APP.settingsStorageKey, state.settings);
         renderLedger();
+        return;
+      }
+      const traderSort = event.target.closest('[data-tsimm-trader-sort]');
+      if (traderSort) {
+        setTraderBookSort(traderSort.value);
+        return;
+      }
+      const traderRole = event.target.closest('[data-tsimm-trader-role]');
+      if (traderRole) {
+        setTraderRelationshipRoles(traderRole.dataset.tsimmTraderId, traderRole.value);
         return;
       }
       const ledgerSort = event.target.closest('[data-tsimm-ledger-sort]');
@@ -11621,6 +12094,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       museumInventoryStrategyPlan,
       normalizeSaleRecord,
       normalizeTraderPriceItem,
+      normalizeTraderRelationshipRoles,
+      normalizeTraderRelationshipJournal,
       normalizeTrader,
       normalizeTraders,
       normalizeReceiptAudit,
@@ -11632,6 +12107,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       compactPriceCaptureResult,
       expandPriceCaptureResult,
       traderSalesFor,
+      traderEffectiveRelationshipRoles,
+      traderRelationshipRoleLabel,
+      traderTopItems,
+      traderStats,
+      sortTradersForBook,
+      traderDossierHtml,
       linkRecordedSalesToTrader,
       optionalFiniteNumber,
       buildLedgerLot,
@@ -13564,6 +14045,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       turnoverVelocityForItem,
       turnoverLeaderboard,
       maybeCaptureTurnoverSnapshot,
+      favoriteStateById(traderId) {
+        const trader = normTraders().find((candidate) => candidate.id === clean(traderId));
+        return trader
+          ? { available: true, favorite: isFavorite(favoriteStore(), trader), traderName: trader.name }
+          : { available: false, favorite: false, traderName: '' };
+      },
       toggleFavoriteById(traderId) {
         const trader = normTraders().find((candidate) => candidate.id === clean(traderId));
         if (!trader) return { available: false, favorite: false, traderName: '' };
