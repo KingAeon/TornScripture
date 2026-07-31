@@ -9101,11 +9101,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     renderPanel();
   }
 
-  async function copyLedgerJson() {
-    const text = JSON.stringify(state.ledger, null, 2);
+  async function copyLedgerText(text, successMessage) {
     try {
       await navigator.clipboard.writeText(text);
-      toast('Ledger JSON copied.');
+      toast(successMessage);
     } catch {
       const area = document.createElement('textarea');
       area.value = text;
@@ -9115,8 +9114,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       area.select();
       document.execCommand('copy');
       area.remove();
-      toast('Ledger JSON copied.');
+      toast(successMessage);
     }
+  }
+
+  async function copyLedgerJson() {
+    await copyLedgerText(JSON.stringify(state.ledger, null, 2), 'Ledger JSON copied.');
   }
 
   function loadLedgerCleanupBackup() {
@@ -9126,6 +9129,72 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     } catch {
       return null;
     }
+  }
+
+  function ledgerFingerprint(ledger) {
+    const canonicalize = (value) => {
+      if (value === null) return 'null';
+      if (Array.isArray(value)) {
+        return `[${value.map((entry) => canonicalize(entry)).join(',')}]`;
+      }
+      if (typeof value === 'object') {
+        const entries = Object.keys(value)
+          .filter((key) => key !== 'updatedAt' && value[key] !== undefined
+            && typeof value[key] !== 'function' && typeof value[key] !== 'symbol')
+          .sort()
+          .map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`);
+        return `{${entries.join(',')}}`;
+      }
+      if (typeof value === 'number') return Number.isFinite(value) ? JSON.stringify(value) : 'null';
+      if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+      return 'null';
+    };
+    const canonical = canonicalize(ledger);
+    return `ledger-v1:${canonical.length}:${stableStringHash(canonical)}`;
+  }
+
+  function ledgerCleanupBackupState(backup = loadLedgerCleanupBackup(), ledger = state.ledger) {
+    if (!backup?.ledger || typeof backup.ledger !== 'object') {
+      return { available: false, canUndo: false, reason: 'missing', message: '' };
+    }
+    const postCleanupFingerprint = normalizeWhitespace(backup.postCleanupFingerprint);
+    if (Number(backup.schemaVersion) !== 2 || !postCleanupFingerprint) {
+      return {
+        available: true,
+        canUndo: false,
+        reason: 'legacy',
+        message: 'Automatic undo is blocked because this legacy cleanup backup has no post-cleanup fingerprint. Copy the cleanup backup JSON for manual recovery.',
+      };
+    }
+    const currentFingerprint = ledgerFingerprint(ledger);
+    if (currentFingerprint !== postCleanupFingerprint) {
+      return {
+        available: true,
+        canUndo: false,
+        reason: 'changed',
+        message: 'Automatic undo is blocked because Ledger activity occurred after cleanup. Copy the cleanup backup JSON for manual recovery.',
+      };
+    }
+    return {
+      available: true,
+      canUndo: true,
+      reason: 'safe',
+      message: '',
+      currentFingerprint,
+    };
+  }
+
+  async function copyLedgerCleanupBackupJson() {
+    const backup = loadLedgerCleanupBackup();
+    const backupState = ledgerCleanupBackupState(backup);
+    if (!backupState.available) {
+      toast('No duplicate-cleanup backup is available.');
+      return;
+    }
+    await copyLedgerText(
+      JSON.stringify(backup.ledger, null, 2),
+      'Cleanup backup Ledger JSON copied.',
+    );
   }
 
   function ledgerLotUntouchedForCleanup(lot) {
@@ -9210,17 +9279,24 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     );
     if (!accepted) return;
 
+    const preCleanupLedger = JSON.parse(JSON.stringify(state.ledger));
+    const removedLotIds = preview.pairs.map((pair) => pair.remove.id);
+    const removeIds = new Set(removedLotIds);
+    const cleanedLedger = {
+      ...preCleanupLedger,
+      lots: (preCleanupLedger.lots || []).filter((lot) => !removeIds.has(lot.id)),
+    };
     const backup = {
       schema: 'tornscripture-imm-ledger-cleanup-backup',
-      schemaVersion: 1,
+      schemaVersion: 2,
       createdAt: new Date().toISOString(),
       reason: 'exact-cross-channel-capture-duplicates',
-      removedLotIds: preview.pairs.map((pair) => pair.remove.id),
-      ledger: JSON.parse(JSON.stringify(state.ledger)),
+      removedLotIds,
+      postCleanupFingerprint: ledgerFingerprint(cleanedLedger),
+      ledger: preCleanupLedger,
     };
     saveJson(APP.ledgerCleanupBackupStorageKey, backup);
-    const removeIds = new Set(backup.removedLotIds);
-    state.ledger.lots = state.ledger.lots.filter((lot) => !removeIds.has(lot.id));
+    state.ledger = cleanedLedger;
     saveLedger();
     renderLedger();
     renderPanel();
@@ -9229,8 +9305,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function undoExactLedgerDuplicateCleanup() {
     const backup = loadLedgerCleanupBackup();
-    if (!backup?.ledger) {
+    const backupState = ledgerCleanupBackupState(backup);
+    if (!backupState.available) {
       toast('No duplicate-cleanup backup is available.');
+      return;
+    }
+    if (!backupState.canUndo) {
+      alert(`${backupState.message}\n\nUse "Copy cleanup backup JSON" in the Ledger before making any manual recovery changes.`);
+      renderLedger();
       return;
     }
     const created = new Date(backup.createdAt || '');
@@ -9241,8 +9323,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     );
     if (!accepted) return;
     state.ledger = normalizeLedger(backup.ledger);
-    localStorage.removeItem(APP.ledgerCleanupBackupStorageKey);
     saveLedger();
+    localStorage.removeItem(APP.ledgerCleanupBackupStorageKey);
     renderLedger();
     renderPanel();
     toast('Duplicate cleanup undone and the previous ledger restored.');
@@ -10025,6 +10107,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const showPurchaseControls = view === 'holdings' || view === 'history';
     const duplicatePreview = exactDuplicateLedgerPreview();
     const cleanupBackup = loadLedgerCleanupBackup();
+    const cleanupBackupState = ledgerCleanupBackupState(cleanupBackup);
     const fundingSummary = ledgerFundingSummary();
     const unassignedOpenLots = fundingSummary.find((row) => row.fundingSource === 'unassigned')?.lots || 0;
     const integrityReport = analyzeLedgerIntegrity(state.ledger);
@@ -10070,9 +10153,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <button type="button" data-tsimm-action="ledger-default-funding">New money: ${escapeHtml(ledgerFundingSourceLabel(state.settings.ledgerDefaultFundingSource))}</button>
           <button type="button" data-tsimm-action="ledger-assign-unassigned" ${unassignedOpenLots ? '' : 'disabled'}>Assign unassigned${unassignedOpenLots ? ` (${formatInteger(unassignedOpenLots)})` : ''}</button>
           <button type="button" data-tsimm-action="ledger-clean-duplicates" ${duplicatePreview.lots ? '' : 'disabled'}>Clean exact duplicates${duplicatePreview.lots ? ` (${formatInteger(duplicatePreview.lots)})` : ''}</button>
-          ${cleanupBackup?.ledger ? '<button type="button" data-tsimm-action="ledger-undo-cleanup">Undo cleanup</button>' : ''}
+          ${cleanupBackupState.available ? `
+            <button type="button" data-tsimm-action="ledger-undo-cleanup" ${cleanupBackupState.canUndo ? '' : 'disabled'}>${cleanupBackupState.canUndo ? 'Undo cleanup' : cleanupBackupState.reason === 'legacy' ? 'Undo blocked (legacy backup)' : 'Undo blocked (Ledger changed)'}</button>
+            <button type="button" data-tsimm-action="ledger-copy-cleanup-backup">Copy cleanup backup JSON</button>
+          ` : ''}
           <button type="button" data-tsimm-action="ledger-clear">Clear all</button>
         </div>
+        ${cleanupBackupState.available && !cleanupBackupState.canUndo
+          ? `<div class="tsimm-ledger-future">${escapeHtml(cleanupBackupState.message)}</div>`
+          : ''}
         <div class="tsimm-ledger-freshness">${escapeHtml(inventoryFreshness)}</div>
         ${view === 'reconcile'
           ? ledgerReconciliationHtml(reconciliationRows)
@@ -11235,6 +11324,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         closeLedger();
       } else if (action === 'ledger-copy') {
         copyLedgerJson();
+      } else if (action === 'ledger-copy-cleanup-backup') {
+        copyLedgerCleanupBackupJson();
       } else if (action === 'ledger-import') {
         importLedgerJson();
       } else if (action === 'ledger-add') {
