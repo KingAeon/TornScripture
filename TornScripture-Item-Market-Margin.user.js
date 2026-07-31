@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.17
+// @version      0.19.18
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.17' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.17' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.18' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.18' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.17
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.18
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.17',
+    version: '0.19.18',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -354,6 +354,28 @@
     'Drug', 'Energy Drink',
   ]);
 
+  const MUSEUM_SET_DEFINITIONS = Object.freeze({
+    plushie: Object.freeze([
+      'Camel Plushie', 'Chamois Plushie', 'Jaguar Plushie', 'Kitten Plushie',
+      'Lion Plushie', 'Monkey Plushie', 'Nessie Plushie', 'Panda Plushie',
+      'Red Fox Plushie', 'Sheep Plushie', 'Stingray Plushie', 'Teddy Bear Plushie',
+      'Wolverine Plushie',
+    ]),
+    flower: Object.freeze([
+      'African Violet', 'Banana Orchid', 'Ceibo Flower', 'Cherry Blossom', 'Crocus',
+      'Dahlia', 'Edelweiss', 'Heather', 'Orchid', 'Peony', 'Tribulus Omanense',
+    ]),
+  });
+  const MUSEUM_SET_LABELS = Object.freeze({
+    plushie: 'Plushie',
+    flower: 'Flower',
+  });
+  const MUSEUM_STRATEGY_PILOT = Object.freeze({
+    plannedSets: 5,
+    individualSets: 3,
+    reservedSets: 2,
+  });
+
   const DEFAULT_SETTINGS = Object.freeze({
     collapsed: false,
     minimumProfitEach: 100,
@@ -369,6 +391,11 @@
     showClosedLedgerLots: true,
     ledgerShowSoldPurchases: true,
     ledgerDefaultFundingSource: 'personal',
+    ledgerInventoryStrategy: {
+      schemaVersion: 1,
+      setTargets: { plushie: 0, flower: 0 },
+      itemTargets: {},
+    },
     overseasLoadLimit: 21,
     sellPrioritySuggestBelowTotalValue: 5000,
   });
@@ -429,8 +456,45 @@
     }).join('');
   }
 
+  function normalizeLedgerInventoryStrategy(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const rawSetTargets = source.setTargets && typeof source.setTargets === 'object'
+      ? source.setTargets
+      : {};
+    const setTargets = {};
+    for (const setType of Object.keys(MUSEUM_SET_DEFINITIONS)) {
+      setTargets[setType] = Math.max(0, Math.floor(Number(rawSetTargets[setType]) || 0));
+    }
+    const knownNames = new Set(
+      Object.values(MUSEUM_SET_DEFINITIONS).flat().map((name) => normalizeName(name)),
+    );
+    const itemTargets = {};
+    const rawItemTargets = source.itemTargets && typeof source.itemTargets === 'object'
+      ? source.itemTargets
+      : {};
+    for (const [rawName, rawTarget] of Object.entries(rawItemTargets)) {
+      const normalizedName = normalizeName(rawName);
+      if (!knownNames.has(normalizedName)) continue;
+      itemTargets[normalizedName] = Math.max(0, Math.floor(Number(rawTarget) || 0));
+    }
+    return {
+      schemaVersion: 1,
+      setTargets,
+      itemTargets,
+    };
+  }
+
+  function normalizeSettings(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    return {
+      ...structuredCloneSafe(DEFAULT_SETTINGS),
+      ...source,
+      ledgerInventoryStrategy: normalizeLedgerInventoryStrategy(source.ledgerInventoryStrategy),
+    };
+  }
+
   const state = {
-    settings: { ...structuredCloneSafe(DEFAULT_SETTINGS), ...loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS) },
+    settings: normalizeSettings(loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS)),
     catalog: mergeCatalogCaches(),
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
     inventory: normalizeInventoryCache(loadJson(APP.inventoryStorageKey, {})),
@@ -2248,6 +2312,173 @@
     };
   }
 
+  function museumInventoryStrategyPlan(
+    inventory = state.inventory,
+    strategy = state.settings.ledgerInventoryStrategy,
+  ) {
+    const normalizedStrategy = normalizeLedgerInventoryStrategy(strategy);
+    const inventoryByName = new Map();
+    for (const item of inventory?.items || []) {
+      const normalizedName = normalizeName(item?.itemName ?? item?.name);
+      if (!normalizedName) continue;
+      const existing = inventoryByName.get(normalizedName) || {
+        itemId: Number(item?.itemId) > 0 ? Number(item.itemId) : null,
+        itemName: normalizeWhitespace(item?.itemName ?? item?.name),
+        totalQuantity: 0,
+      };
+      existing.itemId ||= Number(item?.itemId) > 0 ? Number(item.itemId) : null;
+      existing.itemName ||= normalizeWhitespace(item?.itemName ?? item?.name);
+      existing.totalQuantity += Math.max(0, Math.floor(Number(
+        item?.totalQuantity ?? (Number(item?.onHandQuantity || 0) + Number(item?.listedQuantity || 0))
+      ) || 0));
+      inventoryByName.set(normalizedName, existing);
+    }
+
+    const sets = Object.entries(MUSEUM_SET_DEFINITIONS).map(([setType, names]) => {
+      const setTarget = normalizedStrategy.setTargets[setType] || 0;
+      const items = names.map((itemName) => {
+        const normalizedName = normalizeName(itemName);
+        const inventoryItem = inventoryByName.get(normalizedName);
+        const totalQuantity = Math.max(0, Math.floor(Number(inventoryItem?.totalQuantity) || 0));
+        const hasItemTarget = Object.prototype.hasOwnProperty.call(
+          normalizedStrategy.itemTargets,
+          normalizedName,
+        );
+        const reserveTarget = hasItemTarget
+          ? normalizedStrategy.itemTargets[normalizedName]
+          : setTarget;
+        const reservedQuantity = Math.min(totalQuantity, Math.max(0, reserveTarget));
+        const freelySellableQuantity = totalQuantity - reservedQuantity;
+        const strategyMode = totalQuantity <= 0
+          ? 'no-stock'
+          : reservedQuantity <= 0
+            ? 'individual'
+            : reservedQuantity >= totalQuantity
+              ? 'reserved'
+              : 'mixed';
+        return {
+          setType,
+          itemId: inventoryItem?.itemId || null,
+          itemName,
+          normalizedName,
+          totalQuantity,
+          reserveTarget,
+          reservedQuantity,
+          freelySellableQuantity,
+          strategyMode,
+          hasItemTarget,
+        };
+      });
+      const completeSets = items.length
+        ? Math.min(...items.map((item) => item.totalQuantity))
+        : 0;
+      const reservedCompleteSets = items.length
+        ? Math.min(...items.map((item) => item.reservedQuantity))
+        : 0;
+      const nextSetQuantity = completeSets + 1;
+      const missingForNextSet = items
+        .map((item) => ({
+          itemName: item.itemName,
+          quantity: Math.max(0, nextSetQuantity - item.totalQuantity),
+        }))
+        .filter((item) => item.quantity > 0);
+      return {
+        setType,
+        label: MUSEUM_SET_LABELS[setType] || setType,
+        setTarget,
+        items,
+        totalQuantity: items.reduce((sum, item) => sum + item.totalQuantity, 0),
+        reservedQuantity: items.reduce((sum, item) => sum + item.reservedQuantity, 0),
+        freelySellableQuantity: items.reduce((sum, item) => sum + item.freelySellableQuantity, 0),
+        completeSets,
+        reservedCompleteSets,
+        missingForNextSet,
+      };
+    });
+    return {
+      strategy: normalizedStrategy,
+      sets,
+      totalQuantity: sets.reduce((sum, set) => sum + set.totalQuantity, 0),
+      reservedQuantity: sets.reduce((sum, set) => sum + set.reservedQuantity, 0),
+      freelySellableQuantity: sets.reduce((sum, set) => sum + set.freelySellableQuantity, 0),
+    };
+  }
+
+  function saveMuseumInventoryStrategy(strategy, message = '') {
+    state.settings = {
+      ...state.settings,
+      ledgerInventoryStrategy: normalizeLedgerInventoryStrategy(strategy),
+    };
+    saveJson(APP.settingsStorageKey, state.settings);
+    renderLedger();
+    if (message) toast(message);
+  }
+
+  function setMuseumSetReserveTarget(setType, target) {
+    if (!MUSEUM_SET_DEFINITIONS[setType]) return false;
+    const strategy = normalizeLedgerInventoryStrategy(state.settings.ledgerInventoryStrategy);
+    strategy.setTargets[setType] = Math.max(0, Math.floor(Number(target) || 0));
+    saveMuseumInventoryStrategy(
+      strategy,
+      `${MUSEUM_SET_LABELS[setType]} default reserve target set to ${formatInteger(strategy.setTargets[setType])} per item.`,
+    );
+    return true;
+  }
+
+  function setMuseumItemReserveTarget(itemName, target) {
+    const normalizedName = normalizeName(itemName);
+    const planItem = museumInventoryStrategyPlan().sets
+      .flatMap((set) => set.items)
+      .find((item) => item.normalizedName === normalizedName);
+    if (!planItem) return false;
+    const strategy = normalizeLedgerInventoryStrategy(state.settings.ledgerInventoryStrategy);
+    const reserveTarget = Math.max(
+      0,
+      Math.min(planItem.totalQuantity, Math.floor(Number(target) || 0)),
+    );
+    strategy.itemTargets[normalizedName] = reserveTarget;
+    saveMuseumInventoryStrategy(
+      strategy,
+      `${planItem.itemName}: ${formatInteger(reserveTarget)} reserved, ${formatInteger(planItem.totalQuantity - reserveTarget)} freely sellable.`,
+    );
+    return true;
+  }
+
+  function clearMuseumItemReserveTarget(itemName) {
+    const normalizedName = normalizeName(itemName);
+    const strategy = normalizeLedgerInventoryStrategy(state.settings.ledgerInventoryStrategy);
+    if (!Object.prototype.hasOwnProperty.call(strategy.itemTargets, normalizedName)) return false;
+    delete strategy.itemTargets[normalizedName];
+    saveMuseumInventoryStrategy(strategy, `${itemName} now uses its set reserve target.`);
+    return true;
+  }
+
+  function applyMuseumInventoryPilotStrategy() {
+    const strategy = normalizeLedgerInventoryStrategy({});
+    strategy.setTargets.plushie = MUSEUM_STRATEGY_PILOT.reservedSets;
+    strategy.setTargets.flower = MUSEUM_STRATEGY_PILOT.reservedSets;
+    saveMuseumInventoryStrategy(
+      strategy,
+      `Pilot strategy applied: ${formatInteger(MUSEUM_STRATEGY_PILOT.individualSets)} set-equivalents sellable and ${formatInteger(MUSEUM_STRATEGY_PILOT.reservedSets)} reserved when ${formatInteger(MUSEUM_STRATEGY_PILOT.plannedSets)} are owned.`,
+    );
+  }
+
+  function resetMuseumInventoryStrategy() {
+    const current = normalizeLedgerInventoryStrategy(state.settings.ledgerInventoryStrategy);
+    const configured = Object.values(current.setTargets).some((target) => target > 0)
+      || Object.keys(current.itemTargets).length > 0;
+    if (!configured) {
+      toast('Museum inventory is already fully unreserved.');
+      return false;
+    }
+    if (!confirm('Reset all plushie and flower strategy targets to individual-sale stock? Inventory and Ledger records will not change.')) return false;
+    saveMuseumInventoryStrategy(
+      normalizeLedgerInventoryStrategy({}),
+      'Museum inventory strategy reset to individual-sale stock.',
+    );
+    return true;
+  }
+
   function normalizeInventoryBaseline(raw) {
     const found = new Map();
     for (const item of Array.isArray(raw?.items) ? raw.items : []) {
@@ -2730,6 +2961,92 @@
     );
   }
 
+  function museumInventoryStrategyModeLabel(mode) {
+    return ({
+      individual: 'Individual sale',
+      reserved: 'Reserved for sets',
+      mixed: 'Mixed',
+      'no-stock': 'No stock',
+    })[mode] || 'Individual sale';
+  }
+
+  function ledgerInventoryStrategyHtml(plan = museumInventoryStrategyPlan()) {
+    const inventoryReady = Boolean(state.inventory?.capturedAt);
+    const setHtml = plan.sets.map((set) => {
+      const missingText = set.missingForNextSet.length
+        ? set.missingForNextSet
+          .map((item) => `${formatInteger(item.quantity)}x ${item.itemName}`)
+          .join(', ')
+        : 'No missing pieces';
+      const itemHtml = set.items.map((item) => `
+        <div class="tsimm-strategy-item">
+          <div class="tsimm-strategy-item-head">
+            <strong>${escapeHtml(item.itemName)}</strong>
+            <span class="${escapeHtml(item.strategyMode)}">${escapeHtml(museumInventoryStrategyModeLabel(item.strategyMode))}</span>
+          </div>
+          <div class="tsimm-strategy-quantities">
+            <span>Owned <strong>${formatInteger(item.totalQuantity)}</strong></span>
+            <span>Reserved <strong>${formatInteger(item.reservedQuantity)}</strong></span>
+            <span>Free <strong>${formatInteger(item.freelySellableQuantity)}</strong></span>
+          </div>
+          <div class="tsimm-strategy-item-control">
+            <label>
+              <span>Reserve quantity</span>
+              <input type="number" min="0" max="${escapeHtml(item.totalQuantity)}" step="1" value="${escapeHtml(item.reservedQuantity)}"
+                data-tsimm-strategy-item-target data-tsimm-item-name="${escapeHtml(item.itemName)}"
+                ${item.totalQuantity > 0 ? '' : 'disabled'}>
+            </label>
+            ${item.hasItemTarget
+              ? `<button type="button" data-tsimm-action="ledger-strategy-use-set-target" data-tsimm-item-name="${escapeHtml(item.itemName)}">Use set target</button>`
+              : ''}
+          </div>
+        </div>
+      `).join('');
+      return `
+        <article class="tsimm-strategy-set">
+          <div class="tsimm-strategy-set-head">
+            <strong>${escapeHtml(set.label)} sets</strong>
+            <span>${formatInteger(set.completeSets)} complete owned · ${formatInteger(set.reservedCompleteSets)} complete reserved</span>
+          </div>
+          <label class="tsimm-strategy-set-target">
+            <span>Default reserve target per item</span>
+            <input type="number" min="0" step="1" value="${escapeHtml(set.setTarget)}"
+              data-tsimm-strategy-set-target="${escapeHtml(set.setType)}">
+          </label>
+          <div class="tsimm-strategy-missing">
+            <strong>Next complete set needs</strong>
+            <span>${escapeHtml(missingText)}</span>
+          </div>
+          <details>
+            <summary>Item reserve targets (${formatInteger(set.items.length)})</summary>
+            <div class="tsimm-strategy-items">${itemHtml}</div>
+          </details>
+        </article>
+      `;
+    }).join('');
+    return `
+      <section class="tsimm-strategy-card">
+        <div class="tsimm-strategy-head">
+          <div>
+            <strong>Museum inventory strategy</strong>
+            <small>Planning metadata only. Purchase lots, FIFO allocations, costs, and sales remain unchanged.</small>
+          </div>
+          <span>${inventoryReady ? 'Inventory snapshot' : 'Sync inventory first'}</span>
+        </div>
+        <div class="tsimm-strategy-summary">
+          <div><strong>${formatInteger(plan.totalQuantity)}</strong><span>Total owned</span></div>
+          <div><strong>${formatInteger(plan.reservedQuantity)}</strong><span>Reserved for sets</span></div>
+          <div><strong>${formatInteger(plan.freelySellableQuantity)}</strong><span>Freely sellable</span></div>
+        </div>
+        <div class="tsimm-strategy-actions">
+          <button type="button" data-tsimm-action="ledger-strategy-pilot">Apply pilot: 3 individual / 2 reserved sets</button>
+          <button type="button" data-tsimm-action="ledger-strategy-reset">Reset to individual-sale stock</button>
+        </div>
+        <div class="tsimm-strategy-sets">${setHtml}</div>
+      </section>
+    `;
+  }
+
   function injectLedgerReconciliationStyles() {
     if (!document.head || document.getElementById(APP.ledgerReconcileStyleId)) return;
     const style = document.createElement('style');
@@ -2776,6 +3093,19 @@
       #${APP.ledgerOverlayId} .tsimm-priority-pill.always{border-color:#3b8fc2;color:#8bd7ff}#${APP.ledgerOverlayId} .tsimm-priority-pill.hide{border-color:#8a5f2e;color:#ffc879}#${APP.ledgerOverlayId} .tsimm-priority-pill.suggested{border-color:#9b6bd0;color:#e2bfff}
       #${APP.ledgerOverlayId} .tsimm-priority-row-actions{margin-top:7px;padding-top:7px;border-top:1px solid #3a3341}
       #${APP.ledgerOverlayId} .tsimm-priority-row-actions button.active{background:#5b2b82;border-color:#9a61c2}.tsimm-priority-row-actions button[data-tsimm-sell-priority="hide"].active{background:#563715;border-color:#b78035}.tsimm-priority-row-actions button[data-tsimm-sell-priority="always"].active{background:#174f75;border-color:#3b8fc2}
+      #${APP.ledgerOverlayId} .tsimm-strategy-card{display:grid;gap:8px;min-width:0;margin:0 8px 10px;padding:9px;border:1px solid #71602f;border-radius:9px;background:#201c12}
+      #${APP.ledgerOverlayId} .tsimm-strategy-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0}
+      #${APP.ledgerOverlayId} .tsimm-strategy-head>div{display:grid;gap:2px;min-width:0}#${APP.ledgerOverlayId} .tsimm-strategy-head small{color:#b8aa87;font-size:9px;overflow-wrap:anywhere}#${APP.ledgerOverlayId} .tsimm-strategy-head>span{flex:none;color:#e3c96f;font-size:9px}
+      #${APP.ledgerOverlayId} .tsimm-strategy-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}#${APP.ledgerOverlayId} .tsimm-strategy-summary>div{display:grid;gap:2px;min-width:0;padding:7px 4px;border:1px solid #554a2c;border-radius:7px;background:#292318;text-align:center}#${APP.ledgerOverlayId} .tsimm-strategy-summary span{color:#b8aa87;font-size:8px;text-transform:uppercase}
+      #${APP.ledgerOverlayId} .tsimm-strategy-actions{display:flex;flex-wrap:wrap;gap:5px}#${APP.ledgerOverlayId} .tsimm-strategy-actions button{flex:1;min-width:150px;min-height:36px;border:1px solid #765f26;border-radius:7px;background:#463819;color:#fff4c5;padding:7px;font-size:9px;font-weight:800}
+      #${APP.ledgerOverlayId} .tsimm-strategy-sets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;min-width:0}#${APP.ledgerOverlayId} .tsimm-strategy-set{display:grid;align-content:start;gap:7px;min-width:0;padding:8px;border:1px solid #52482e;border-radius:8px;background:#18150f}
+      #${APP.ledgerOverlayId} .tsimm-strategy-set-head{display:grid;gap:2px;min-width:0}#${APP.ledgerOverlayId} .tsimm-strategy-set-head span{color:#b8aa87;font-size:9px;overflow-wrap:anywhere}
+      #${APP.ledgerOverlayId} .tsimm-strategy-set-target{display:grid;grid-template-columns:minmax(0,1fr) 74px;align-items:center;gap:7px;color:#d8ccb0;font-size:9px}#${APP.ledgerOverlayId} .tsimm-strategy-set-target input{width:100%;min-width:0;border:1px solid #5e5338;border-radius:6px;background:#111;color:#fff;padding:7px}
+      #${APP.ledgerOverlayId} .tsimm-strategy-missing{display:grid;gap:2px;min-width:0;padding:6px;border:1px solid #4d432d;border-radius:6px;background:#221d13}#${APP.ledgerOverlayId} .tsimm-strategy-missing strong{font-size:9px;color:#efd27b}#${APP.ledgerOverlayId} .tsimm-strategy-missing span{color:#c7baa0;font-size:9px;overflow-wrap:anywhere;word-break:break-word}
+      #${APP.ledgerOverlayId} .tsimm-strategy-set details{min-width:0}#${APP.ledgerOverlayId} .tsimm-strategy-set summary{cursor:pointer;min-height:28px;color:#e2d3ae;font-size:9px;font-weight:800;touch-action:manipulation}#${APP.ledgerOverlayId} .tsimm-strategy-items{display:grid;gap:5px;min-width:0}
+      #${APP.ledgerOverlayId} .tsimm-strategy-item{display:grid;gap:5px;min-width:0;padding:6px;border:1px solid #403927;border-radius:6px;background:#211d15}#${APP.ledgerOverlayId} .tsimm-strategy-item-head{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;min-width:0}#${APP.ledgerOverlayId} .tsimm-strategy-item-head strong{min-width:0;overflow-wrap:anywhere;font-size:9px}#${APP.ledgerOverlayId} .tsimm-strategy-item-head span{flex:none;border:1px solid #61583e;border-radius:999px;padding:2px 5px;color:#c9bfa7;font-size:7px}#${APP.ledgerOverlayId} .tsimm-strategy-item-head span.reserved{border-color:#8a6726;color:#f2cf75}#${APP.ledgerOverlayId} .tsimm-strategy-item-head span.mixed{border-color:#75509a;color:#d9aeff}#${APP.ledgerOverlayId} .tsimm-strategy-item-head span.individual{border-color:#347a58;color:#8be0ad}
+      #${APP.ledgerOverlayId} .tsimm-strategy-quantities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;color:#a99d84;font-size:8px}#${APP.ledgerOverlayId} .tsimm-strategy-quantities span{display:grid;text-align:center}#${APP.ledgerOverlayId} .tsimm-strategy-quantities strong{color:#eee2c7}
+      #${APP.ledgerOverlayId} .tsimm-strategy-item-control{display:flex;align-items:end;flex-wrap:wrap;gap:5px}#${APP.ledgerOverlayId} .tsimm-strategy-item-control label{display:grid;flex:1;min-width:92px;gap:2px;color:#aea289;font-size:8px}#${APP.ledgerOverlayId} .tsimm-strategy-item-control input{width:100%;min-width:0;border:1px solid #514933;border-radius:5px;background:#111;color:#fff;padding:6px}#${APP.ledgerOverlayId} .tsimm-strategy-item-control button{flex:1;min-width:90px;min-height:31px;border:1px solid #5d5133;border-radius:5px;background:#332b19;color:#f4e6c0;padding:5px;font-size:8px;font-weight:800}
       #${APP.ledgerOverlayId} .tsimm-integrity-note{margin:0 8px 8px;padding:8px;border:1px solid #4f6572;border-radius:8px;background:#172229;color:#bcd5e2;line-height:1.45}
       #${APP.ledgerOverlayId} .tsimm-integrity-result{display:grid;gap:3px;margin:0 8px 8px;padding:10px;border:1px solid #4d4656;border-radius:9px;background:#24212a}
       #${APP.ledgerOverlayId} .tsimm-integrity-result.good{border-color:#3e8b62;background:#18271f}.tsimm-integrity-result.good strong{color:#63df9f}
@@ -2786,7 +3116,7 @@
       #${APP.ledgerOverlayId} .tsimm-integrity-group-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;background:#2a2530;border-bottom:1px solid #514a59}.tsimm-integrity-group-head span{flex:none;border:1px solid #76548e;border-radius:999px;padding:2px 6px;color:#e2bfff;font-size:9px}
       #${APP.ledgerOverlayId} .tsimm-integrity-list{display:grid;gap:6px;padding:7px}
       #${APP.ledgerOverlayId} .tsimm-integrity-issue{display:grid;gap:3px;min-width:0;padding:7px;border:1px solid #4b4352;border-radius:7px;background:#17151b}.tsimm-integrity-issue strong{color:#f1c3c8;overflow-wrap:anywhere}.tsimm-integrity-issue span{color:#c8c0cf;overflow-wrap:anywhere;word-break:break-word}
-      @media(max-width:520px){#${APP.ledgerOverlayId} .tsimm-reconcile-counts,#${APP.ledgerOverlayId} .tsimm-key-endpoints{grid-template-columns:repeat(2,1fr)}}
+      @media(max-width:520px){#${APP.ledgerOverlayId} .tsimm-reconcile-counts,#${APP.ledgerOverlayId} .tsimm-key-endpoints{grid-template-columns:repeat(2,1fr)}#${APP.ledgerOverlayId} .tsimm-strategy-sets{grid-template-columns:1fr}#${APP.ledgerOverlayId} .tsimm-strategy-head{display:grid}#${APP.ledgerOverlayId} .tsimm-strategy-head>span{justify-self:start}}
     `;
     document.head.appendChild(style);
   }
@@ -9698,6 +10028,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const fundingSummary = ledgerFundingSummary();
     const unassignedOpenLots = fundingSummary.find((row) => row.fundingSource === 'unassigned')?.lots || 0;
     const integrityReport = analyzeLedgerIntegrity(state.ledger);
+    const inventoryStrategyPlan = museumInventoryStrategyPlan();
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
@@ -9748,6 +10079,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           : view === 'integrity'
             ? ledgerIntegrityHtml(integrityReport)
           : showPurchaseControls ? `
+            ${view === 'holdings' ? ledgerInventoryStrategyHtml(inventoryStrategyPlan) : ''}
             <div class="tsimm-ledger-filters">
               <input type="search" value="${escapeHtml(state.ledgerUi.search)}" placeholder="Search item name" data-tsimm-ledger-search>
               <select data-tsimm-ledger-sort>
@@ -10866,6 +11198,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         syncInventorySnapshot();
       } else if (action === 'inventory-open-reconcile') {
         openInventoryAndReconcile();
+      } else if (action === 'ledger-strategy-pilot') {
+        applyMuseumInventoryPilotStrategy();
+      } else if (action === 'ledger-strategy-reset') {
+        resetMuseumInventoryStrategy();
+      } else if (action === 'ledger-strategy-use-set-target') {
+        clearMuseumItemReserveTarget(button.dataset.tsimmItemName);
       } else if (action === 'inventory-baseline-set') {
         setCurrentInventoryBaseline();
       } else if (action === 'inventory-baseline-clear') {
@@ -10985,6 +11323,22 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           ? 'all'
           : normalizeLedgerFundingSource(fundingFilter.value);
         renderLedger();
+        return;
+      }
+      const strategySetTarget = event.target.closest('[data-tsimm-strategy-set-target]');
+      if (strategySetTarget) {
+        setMuseumSetReserveTarget(
+          strategySetTarget.dataset.tsimmStrategySetTarget,
+          strategySetTarget.value,
+        );
+        return;
+      }
+      const strategyItemTarget = event.target.closest('[data-tsimm-strategy-item-target]');
+      if (strategyItemTarget) {
+        setMuseumItemReserveTarget(
+          strategyItemTarget.dataset.tsimmItemName,
+          strategyItemTarget.value,
+        );
         return;
       }
       const input = event.target.closest('[data-tsimm-setting]');
@@ -11172,6 +11526,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       sanitizePurchaseSignalText,
       scrubItemMarketPurchaseNotes,
       normalizeLedger,
+      normalizeLedgerInventoryStrategy,
+      museumInventoryStrategyPlan,
       normalizeSaleRecord,
       normalizeTraderPriceItem,
       normalizeTrader,
@@ -11264,12 +11620,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       label: 'MUSEUM SETS',
       description: 'Plushies and flowers continually absorbed by Museum set exchanges.',
       items: Object.freeze([
-        'Camel Plushie', 'Chamois Plushie', 'Jaguar Plushie', 'Kitten Plushie',
-        'Lion Plushie', 'Monkey Plushie', 'Nessie Plushie', 'Panda Plushie',
-        'Red Fox Plushie', 'Sheep Plushie', 'Stingray Plushie', 'Teddy Bear Plushie',
-        'Wolverine Plushie', 'African Violet', 'Banana Orchid', 'Ceibo Flower',
-        'Cherry Blossom', 'Crocus', 'Dahlia', 'Edelweiss', 'Heather', 'Orchid',
-        'Peony', 'Tribulus Omanense',
+        ...MUSEUM_SET_DEFINITIONS.plushie,
+        ...MUSEUM_SET_DEFINITIONS.flower,
       ]),
     }),
     Object.freeze({
