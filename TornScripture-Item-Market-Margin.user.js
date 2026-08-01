@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.22
+// @version      0.19.23
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.22' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.22' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.23' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.23' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.22
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.23
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.22',
+    version: '0.19.23',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -522,6 +522,7 @@
       sort: initialTraderView.sort,
       mode: initialTraderView.mode || null,
       activeDossierId: '',
+      renderGeneration: 0,
     },
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
     pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
@@ -11042,17 +11043,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <button type="button" data-watch-favorite-book="1" data-trader="${escapeHtml(trader.id)}" data-tsimm-action="trader-toggle-favorite" data-tsimm-trader-id="${escapeHtml(trader.id)}" class="tsimm-favorite-trader-btn${favorite ? ' on' : ''}" aria-pressed="${favorite}" ${disposition === 'normal' ? '' : 'disabled'}>${favorite ? '★ Favorite' : '☆ Favorite'}</button>
         </div>
         ${reasonText ? `<div class="tsimm-trader-compact-reason">${escapeHtml(reasonText)}</div>` : ''}
-        <div class="tsimm-trader-compact-metrics">
-          <div><span>Target payout</span><strong>${escapeHtml(formatPercent(trader.targetPercent))}</strong></div>
-          <div><span>Observed payout</span><strong>${escapeHtml(observedPayout)}</strong></div>
-          <div><span>Completed trades</span><strong>${escapeHtml(completedTrades)}</strong></div>
-          <div><span>Cash received</span><strong>${escapeHtml(cashReceived)}</strong></div>
-          <div><span>Recent activity</span><strong>${escapeHtml(recentActivity)}</strong></div>
-          <div><span>Price freshness</span><strong class="tsimm-dossier-freshness-${escapeHtml(priceFreshness?.status || 'missing')}">${escapeHtml(priceFreshnessText)}</strong></div>
+        <div class="tsimm-trader-compact-summary">
+          <span><b>Target</b> ${escapeHtml(formatPercent(trader.targetPercent))}</span>
+          <span><b>Observed</b> ${escapeHtml(observedPayout)}</span>
+          <span><b>Trades</b> ${escapeHtml(completedTrades)}</span>
+          <span><b>Cash</b> ${escapeHtml(cashReceived)}</span>
         </div>
-        <div class="tsimm-trader-compact-primary">
+        <div class="tsimm-trader-compact-footer">
+          <div class="tsimm-trader-compact-freshness">
+            <span><b>Activity</b> ${escapeHtml(recentActivity)}</span>
+            <span class="tsimm-dossier-freshness-${escapeHtml(priceFreshness?.status || 'missing')}"><b>Prices</b> ${escapeHtml(priceFreshnessText)}</span>
+          </div>
           <button type="button" class="tsimm-btn-gold" data-tsimm-action="trader-dossier-open" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open dossier</button>
-          <details>
+          <details class="tsimm-trader-row-more">
             <summary>More</summary>
             <div class="tsimm-trader-actions">
               ${disposition === 'normal' && trader.tradeUrl && priceItemCount ? `<button type="button" class="tsimm-priced-trade-start" data-tsimm-action="trader-start-priced-trade" data-tsimm-trader-id="${escapeHtml(trader.id)}">Start priced trade</button>` : (disposition === 'normal' && trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : '')}
@@ -11134,10 +11137,129 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return traders.map(renderer).join('');
   }
 
+  function traderBookModeControlHtml(mode) {
+    return `
+      <div class="tsimm-trader-mode" role="group" aria-label="Trader Book view">
+        <span>View</span>
+        <div>
+          <button type="button" data-tsimm-action="traders-set-mode" data-tsimm-trader-mode="compact" aria-pressed="${mode === 'compact'}" class="${mode === 'compact' ? 'active' : ''}">Compact</button>
+          <button type="button" data-tsimm-action="traders-set-mode" data-tsimm-trader-mode="detailed" aria-pressed="${mode === 'detailed'}" class="${mode === 'detailed' ? 'active' : ''}">Detailed</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function traderBookActionButtonsHtml(hiddenCount) {
+    return `
+      <button type="button" data-tsimm-action="trader-add">Add trader</button>
+      ${state.lastScan.pageType === 'profile' && state.lastScan.profileCaptureReady ? '<button type="button" data-tsimm-action="trader-capture-profile">Capture this profile</button>' : ''}
+      ${state.lastScan.pageType === 'trade' && state.lastScan.tradeCounterparty ? '<button type="button" data-tsimm-action="trader-save-current">Save current trade</button>' : ''}
+      ${hiddenCount ? `<button type="button" data-tsimm-action="traders-toggle-hidden">${state.showHiddenTraders ? 'Hide hidden' : `Show hidden (${formatInteger(hiddenCount)})`}</button>` : ''}
+      <button type="button" data-tsimm-action="traders-copy">Copy JSON</button>
+      <button type="button" data-tsimm-action="traders-import">Import JSON</button>
+    `;
+  }
+
+  const TRADER_BOOK_DECORATION_SELECTOR = '#tsimm-turnover-preset-panel,#tsimm-favorite-capture-carousel';
+
+  // Trader Book extensions may render only into this generation-bound host.
+  // Compact mode additionally requires its native Tools disclosure to be open.
+  function traderBookRenderGeneration(overlay = document.getElementById(APP.traderOverlayId)) {
+    const generation = Number(overlay?.dataset?.tsimmTraderGeneration);
+    return Number.isSafeInteger(generation) && generation > 0 ? generation : null;
+  }
+
+  function advanceTraderBookRenderGeneration(overlay = document.getElementById(APP.traderOverlayId)) {
+    state.traderUi.renderGeneration = Math.max(0, Math.floor(Number(state.traderUi.renderGeneration) || 0)) + 1;
+    if (overlay) overlay.dataset.tsimmTraderGeneration = String(state.traderUi.renderGeneration);
+    return state.traderUi.renderGeneration;
+  }
+
+  function removeTraderBookDecorations(overlay = document.getElementById(APP.traderOverlayId)) {
+    if (!overlay?.querySelectorAll) return;
+    for (const decoration of overlay.querySelectorAll(TRADER_BOOK_DECORATION_SELECTOR)) decoration.remove();
+  }
+
+  function traderBookDecorationHost(overlay, expectedGeneration) {
+    const generation = Number(expectedGeneration);
+    if (!overlay?.isConnected || !Number.isSafeInteger(generation) || generation <= 0) return null;
+    if (traderBookRenderGeneration(overlay) !== generation) return null;
+    if (overlay.querySelector('.tsimm-trader-dossier-shell')) return null;
+    const shell = overlay.querySelector('.tsimm-trader-book-shell');
+    const list = overlay.querySelector('.tsimm-trader-list');
+    const host = overlay.querySelector('[data-tsimm-trader-decoration-host]');
+    if (!shell || !list || !host?.isConnected || host.closest(`#${APP.traderOverlayId}`) !== overlay) return null;
+    if (Number(host.dataset.tsimmTraderGeneration) !== generation) return null;
+    if (shell.classList.contains('tsimm-trader-book-compact')) {
+      const tools = host.closest('details.tsimm-trader-tools');
+      if (!tools?.isConnected || !tools.open || !shell.contains(tools)) return null;
+    } else if (!shell.classList.contains('tsimm-trader-book-detailed')) {
+      return null;
+    }
+    return host;
+  }
+
+  function handleTraderBookToolsSummaryClick(summary) {
+    const tools = summary?.closest?.('details.tsimm-trader-tools');
+    const overlay = tools?.closest?.(`#${APP.traderOverlayId}`);
+    const host = tools?.querySelector?.('[data-tsimm-trader-decoration-host]');
+    if (!tools || !overlay || !host || !host.isConnected) return;
+    const generation = advanceTraderBookRenderGeneration(overlay);
+    host.dataset.tsimmTraderGeneration = String(generation);
+    removeTraderBookDecorations(overlay);
+    if (tools.open) return;
+    queueMicrotask(() => {
+      if (!tools.isConnected || !tools.open || !host.isConnected) return;
+      if (traderBookRenderGeneration(overlay) !== generation) return;
+      window.__TSIMM_WATCHLIST_API__?.decorateBook?.(generation);
+    });
+  }
+
+  function traderBookControlsHtml(mode, hiddenCount, avoidCount, renderGeneration = state.traderUi.renderGeneration) {
+    const pending = activePendingTraderCapture();
+    const status = pending
+      ? `${escapeHtml(pending.name)} armed for next page`
+      : `${formatInteger(state.traders.length)} saved · ${formatInteger(avoidCount)} avoid · ${formatInteger(hiddenCount)} hidden`;
+    const sortControl = `
+      <label class="tsimm-trader-sort"><span>Sort Trader Book</span>
+        <select data-tsimm-trader-sort aria-label="Sort Trader Book">${traderSortOptionsHtml(state.traderUi.sort)}</select>
+      </label>
+    `;
+    const modeControl = traderBookModeControlHtml(mode);
+    const actions = traderBookActionButtonsHtml(hiddenCount);
+    if (mode === 'compact') {
+      return `
+        <div class="tsimm-trader-compact-toolbar">
+          ${sortControl}
+          ${modeControl}
+          <details class="tsimm-trader-tools">
+            <summary>Tools</summary>
+            <div class="tsimm-ledger-actions">${actions}</div>
+            <div class="tsimm-trader-decoration-host" data-tsimm-trader-decoration-host data-tsimm-trader-generation="${escapeHtml(renderGeneration)}"></div>
+          </details>
+          <small class="tsimm-trader-compact-status">${status}</small>
+        </div>
+      `;
+    }
+    return `
+      <div class="tsimm-trader-top">
+        <strong>${formatInteger(state.traders.length)} saved · ${formatInteger(avoidCount)} avoid · ${formatInteger(hiddenCount)} hidden</strong>
+        <span>${pending ? `${escapeHtml(pending.name)} armed for next page` : 'Avoided and hidden traders are excluded from automatic recommendations.'}</span>
+      </div>
+      <div class="tsimm-trader-view-toolbar">
+        ${sortControl}
+        ${modeControl}
+      </div>
+      <div class="tsimm-ledger-actions">${actions}</div>
+      <div class="tsimm-trader-decoration-host" data-tsimm-trader-decoration-host data-tsimm-trader-generation="${escapeHtml(renderGeneration)}"></div>
+    `;
+  }
+
 
   function renderTraders() {
     const overlay = document.getElementById(APP.traderOverlayId);
     if (!overlay) return;
+    const renderGeneration = advanceTraderBookRenderGeneration(overlay);
     const activeDossier = state.traders.find((trader) => trader.id === state.traderUi.activeDossierId);
     if (activeDossier) {
       overlay.innerHTML = traderDossierHtml(activeDossier);
@@ -11149,35 +11271,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const mode = resolveTraderBookMode(state.traderUi.mode);
     const visibleTraders = visibleTradersForBook(state.traders, state.showHiddenTraders, state.traderUi.sort);
     overlay.innerHTML = `
-      <div class="tsimm-trader-shell">
+      <div class="tsimm-trader-shell tsimm-trader-book-shell tsimm-trader-book-${escapeHtml(mode)}">
         <div class="tsimm-ledger-head">
           <div><strong>🤝 GOBLIN GOD Trader Book</strong><small>Fast links, ratings, notes, local sale history, and recommendation controls</small></div>
           <button type="button" data-tsimm-action="traders-close">×</button>
         </div>
-        <div class="tsimm-trader-top">
-          <strong>${formatInteger(state.traders.length)} saved · ${formatInteger(avoidCount)} avoid · ${formatInteger(hiddenCount)} hidden</strong>
-          <span>${activePendingTraderCapture() ? `${escapeHtml(activePendingTraderCapture().name)} armed for next page` : 'Avoided and hidden traders are excluded from automatic recommendations.'}</span>
-        </div>
-        <div class="tsimm-trader-view-toolbar">
-          <label class="tsimm-trader-sort">Sort Trader Book
-            <select data-tsimm-trader-sort>${traderSortOptionsHtml(state.traderUi.sort)}</select>
-          </label>
-          <div class="tsimm-trader-mode" role="group" aria-label="Trader Book view">
-            <span>View</span>
-            <div>
-              <button type="button" data-tsimm-action="traders-set-mode" data-tsimm-trader-mode="compact" aria-pressed="${mode === 'compact'}" class="${mode === 'compact' ? 'active' : ''}">Compact</button>
-              <button type="button" data-tsimm-action="traders-set-mode" data-tsimm-trader-mode="detailed" aria-pressed="${mode === 'detailed'}" class="${mode === 'detailed' ? 'active' : ''}">Detailed</button>
-            </div>
-          </div>
-        </div>
-        <div class="tsimm-ledger-actions">
-          <button type="button" data-tsimm-action="trader-add">Add trader</button>
-          ${state.lastScan.pageType === 'profile' && state.lastScan.profileCaptureReady ? '<button type="button" data-tsimm-action="trader-capture-profile">Capture this profile</button>' : ''}
-          ${state.lastScan.pageType === 'trade' && state.lastScan.tradeCounterparty ? '<button type="button" data-tsimm-action="trader-save-current">Save current trade</button>' : ''}
-          ${hiddenCount ? `<button type="button" data-tsimm-action="traders-toggle-hidden">${state.showHiddenTraders ? 'Hide hidden' : `Show hidden (${formatInteger(hiddenCount)})`}</button>` : ''}
-          <button type="button" data-tsimm-action="traders-copy">Copy JSON</button>
-          <button type="button" data-tsimm-action="traders-import">Import JSON</button>
-        </div>
+        ${traderBookControlsHtml(mode, hiddenCount, avoidCount, renderGeneration)}
         <div class="tsimm-trader-list tsimm-trader-list-${escapeHtml(mode)}">
           ${visibleTraders.length ? traderBookRowsHtml(visibleTraders, mode) : '<div class="tsimm-ledger-empty">No visible traders. Use Show hidden to restore a hidden trader.</div>'}
         </div>
@@ -11185,7 +11284,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     `;
     setTimeout(() => {
       try {
-        window.__TSIMM_WATCHLIST_API__?.decorateBook?.();
+        window.__TSIMM_WATCHLIST_API__?.decorateBook?.(renderGeneration);
       } catch (error) {
         console.error('[TornScripture IMM] Favorite Trader Book decoration failed:', error);
       }
@@ -11205,7 +11304,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function closeTraders() {
-    document.getElementById(APP.traderOverlayId)?.remove();
+    const overlay = document.getElementById(APP.traderOverlayId);
+    if (!overlay) return;
+    advanceTraderBookRenderGeneration(overlay);
+    removeTraderBookDecorations(overlay);
+    overlay.remove();
   }
 
   function pendingPurchaseHtml() {
@@ -11428,12 +11531,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .tsimm-trader-shell{position:relative;z-index:1;width:min(620px,100%);max-width:100%;max-height:100%;min-width:0;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #7a6740;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-trader-top{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;color:#d8caa5}.tsimm-trader-top span{color:#aaa1b7;font-size:10px}
       .tsimm-trader-list{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{min-width:0;border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-profile-button{display:grid;flex:1;gap:2px;min-width:0;color:#fff;text-decoration:none}.tsimm-trader-profile-button>strong{font-size:13px}.tsimm-trader-profile-button>.tsimm-trader-stars{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-profile-button.has-banner{position:relative;display:block;min-height:68px;border:1px solid #5d5137;border-radius:6px;overflow:hidden;background:#17140f}.tsimm-trader-profile-button.has-banner img{display:block;width:100%;height:68px;object-fit:cover}.tsimm-trader-banner-label{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:6px;background:linear-gradient(90deg,#0008,#0002 38%,#0002 62%,#0008);text-shadow:0 2px 4px #000,0 0 8px #000;color:#fff!important;letter-spacing:.02em;text-align:center}.tsimm-trader-banner-label strong{font-size:15px;line-height:1.05;overflow-wrap:anywhere}.tsimm-trader-banner-label small{font-size:9px;color:#ded7e6}.tsimm-trader-profile-button.has-banner>.tsimm-trader-stars{position:absolute;left:6px;bottom:3px;padding:1px 4px;border-radius:999px;background:#0009;color:#f4c95d;font-size:10px}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px;white-space:nowrap}.tsimm-trader-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);gap:3px 8px;margin-top:7px}.tsimm-trader-grid span,.tsimm-trader-grid strong{min-width:0;overflow-wrap:anywhere}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{min-width:0;margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700;overflow-wrap:anywhere}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}.tsimm-profile-capture-card{display:flex;align-items:center;gap:8px;margin:7px 0;padding:7px;border:1px solid #6f5220;border-radius:8px;background:#2b2417}.tsimm-profile-capture-card img{width:112px;max-height:44px;object-fit:cover;border-radius:5px}.tsimm-profile-capture-card div{display:grid;min-width:0}.tsimm-profile-capture-card strong{color:#f6d16f}.tsimm-profile-capture-card span{color:#bdb4c8;font-size:10px}.tsimm-btn-gold{background:#775715!important;border-color:#b98c2c!important;color:#fff5cc!important}
-      .tsimm-trader-view-toolbar{display:flex;align-items:flex-end;justify-content:flex-end;gap:8px;padding:0 10px 8px}.tsimm-trader-sort{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;color:#bdb4c8;font-weight:700}.tsimm-trader-sort select,.tsimm-dossier-role select{min-height:36px;max-width:100%;border:1px solid #675c43;border-radius:7px;background:#201d18;color:#fff;padding:6px 28px 6px 8px;font:inherit}.tsimm-trader-mode{display:grid;gap:3px;color:#bdb4c8;font-weight:700}.tsimm-trader-mode>span{font-size:9px}.tsimm-trader-mode>div{display:flex}.tsimm-trader-mode button{min-height:36px;border:1px solid #675c43;background:#201d18;color:#c9c1d0;padding:6px 9px;font:700 10px Arial,sans-serif}.tsimm-trader-mode button:first-child{border-radius:7px 0 0 7px}.tsimm-trader-mode button:last-child{margin-left:-1px;border-radius:0 7px 7px 0}.tsimm-trader-mode button.active{position:relative;border-color:#b98c2c;background:#775715;color:#fff5cc}
-      .tsimm-trader-list-compact{gap:6px}.tsimm-trader-compact-row{display:grid;gap:6px;padding:7px}.tsimm-trader-compact-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:start}.tsimm-trader-compact-identity{display:grid;min-width:0;gap:4px}.tsimm-trader-compact-identity>strong{min-width:0;color:#fff;font-size:13px;line-height:1.15;overflow-wrap:anywhere}.tsimm-trader-compact-identity>strong small{color:#aaa1b7;font-size:9px}.tsimm-trader-compact-chips{display:flex;flex-wrap:wrap;gap:4px}.tsimm-trader-chip{display:inline-flex;align-items:center;min-height:20px;max-width:100%;border:1px solid #5c5365;border-radius:999px;background:#211e26;color:#d4cbdc;padding:2px 6px;font-size:9px;overflow-wrap:anywhere}.tsimm-trader-chip-normal{border-color:#4d6548;background:#172017;color:#aaf59d}.tsimm-trader-chip-avoid{border-color:#9a6d1f;background:#211705;color:#ffd166}.tsimm-trader-chip-hidden{border-color:#555b61;background:#151719;color:#b4bdc2}.tsimm-trader-compact-head>.tsimm-favorite-trader-btn{min-width:76px;min-height:36px}.tsimm-trader-compact-reason{color:#b9afc1;font-size:9px;overflow-wrap:anywhere}.tsimm-trader-compact-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.tsimm-trader-compact-metrics>div{display:grid;min-width:0;gap:1px;padding:4px 5px;border:1px solid #4d4655;border-radius:6px;background:#1b181f}.tsimm-trader-compact-metrics span{color:#9f96a8;font-size:8px}.tsimm-trader-compact-metrics strong{min-width:0;color:#f1edf4;font-size:10px;line-height:1.15;overflow-wrap:anywhere}.tsimm-trader-compact-primary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:start}.tsimm-trader-compact-primary>button,.tsimm-trader-compact-primary summary{min-height:38px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #675c43;border-radius:7px;background:#3a3326;color:#fff;padding:7px;font:700 11px/1.2 Arial,sans-serif;cursor:pointer;touch-action:manipulation}.tsimm-trader-compact-primary details{position:relative}.tsimm-trader-compact-primary summary{min-width:72px;list-style:none}.tsimm-trader-compact-primary summary::-webkit-details-marker{display:none}.tsimm-trader-compact-primary details[open]{grid-column:1/-1}.tsimm-trader-compact-primary details[open] summary{margin-left:auto}.tsimm-trader-compact-primary .tsimm-trader-actions{margin-top:6px;padding-top:6px;border-top:1px solid #4d4655}
+      .tsimm-trader-view-toolbar{display:flex;align-items:flex-end;justify-content:flex-end;gap:8px;padding:0 10px 8px}.tsimm-trader-sort{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;color:#bdb4c8;font-weight:700}.tsimm-trader-sort select,.tsimm-dossier-role select{min-height:36px;max-width:100%;border:1px solid #675c43;border-radius:7px;background:#201d18;color:#fff;padding:6px 28px 6px 8px;font:inherit}.tsimm-trader-mode{display:grid;gap:3px;color:#bdb4c8;font-weight:700}.tsimm-trader-mode>span,.tsimm-trader-compact-toolbar .tsimm-trader-sort>span{font-size:9px}.tsimm-trader-mode>div{display:flex}.tsimm-trader-mode button{min-height:36px;border:1px solid #675c43;background:#201d18;color:#c9c1d0;padding:6px 9px;font:700 10px Arial,sans-serif}.tsimm-trader-mode button:first-child{border-radius:7px 0 0 7px}.tsimm-trader-mode button:last-child{margin-left:-1px;border-radius:0 7px 7px 0}.tsimm-trader-mode button.active{position:relative;border-color:#b98c2c;background:#775715;color:#fff5cc}.tsimm-trader-compact-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 6px;align-items:end;padding:5px 8px 4px;border-bottom:1px solid #413a49;background:#211e26}.tsimm-trader-compact-toolbar .tsimm-trader-sort{display:grid;gap:2px;justify-content:stretch}.tsimm-trader-compact-toolbar .tsimm-trader-sort select{width:100%;min-width:0}.tsimm-trader-tools{min-width:0}.tsimm-trader-tools>summary{min-height:36px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:58px;border:1px solid #675c43;border-radius:7px;background:#332e3a;color:#fff;padding:6px 8px;font-weight:800;list-style:none;cursor:pointer;touch-action:manipulation}.tsimm-trader-tools>summary::-webkit-details-marker{display:none}.tsimm-trader-tools[open]{grid-column:1/-1;max-height:min(62vh,520px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}.tsimm-trader-tools[open]>summary{width:max-content;margin-left:auto}.tsimm-trader-tools .tsimm-ledger-actions{padding:5px 0 0}.tsimm-trader-decoration-host{display:grid;min-width:0;max-width:100%;overflow-x:hidden}.tsimm-trader-decoration-host>#tsimm-favorite-capture-carousel,.tsimm-trader-decoration-host>#tsimm-turnover-preset-panel{margin-left:0;margin-right:0}.tsimm-trader-compact-status{grid-column:1/-1;min-width:0;overflow:hidden;color:#9f96a8;font-size:9px;line-height:1.2;text-overflow:ellipsis;white-space:nowrap}
+      .tsimm-trader-list-compact{gap:5px;padding-top:5px}.tsimm-trader-compact-row{display:grid;gap:4px;padding:6px}.tsimm-trader-compact-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:start}.tsimm-trader-compact-identity{display:grid;min-width:0;gap:3px}.tsimm-trader-compact-identity>strong{display:-webkit-box;min-width:0;max-height:30px;overflow:hidden;color:#fff;font-size:13px;line-height:1.15;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}.tsimm-trader-compact-identity>strong small{color:#aaa1b7;font-size:9px}.tsimm-trader-compact-chips{display:flex;flex-wrap:wrap;gap:3px}.tsimm-trader-chip{display:inline-flex;align-items:center;min-height:18px;max-width:100%;border:1px solid #5c5365;border-radius:999px;background:#211e26;color:#d4cbdc;padding:1px 5px;font-size:9px;line-height:1.15;overflow-wrap:anywhere}.tsimm-trader-chip-normal{border-color:#4d6548;background:#172017;color:#aaf59d}.tsimm-trader-chip-avoid{border-color:#9a6d1f;background:#211705;color:#ffd166}.tsimm-trader-chip-hidden{border-color:#555b61;background:#151719;color:#b4bdc2}.tsimm-trader-compact-head>.tsimm-favorite-trader-btn{min-width:74px;min-height:36px}.tsimm-trader-compact-reason{color:#b9afc1;font-size:9px;line-height:1.15;overflow-wrap:anywhere}.tsimm-trader-compact-summary{display:flex;flex-wrap:wrap;gap:2px 9px;min-width:0;color:#e6e0eb;font-size:10px;line-height:1.25}.tsimm-trader-compact-summary span{min-width:0;overflow-wrap:anywhere}.tsimm-trader-compact-summary b,.tsimm-trader-compact-freshness b{color:#9f96a8;font-size:9px}.tsimm-trader-compact-footer{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:5px;align-items:center;min-width:0}.tsimm-trader-compact-freshness{display:grid;min-width:0;gap:1px;font-size:9px;line-height:1.15}.tsimm-trader-compact-freshness span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trader-compact-footer>button,.tsimm-trader-compact-footer summary{min-height:36px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #675c43;border-radius:7px;background:#3a3326;color:#fff;padding:6px 7px;font:700 10px/1.2 Arial,sans-serif;cursor:pointer;touch-action:manipulation}.tsimm-trader-compact-footer>button{min-width:92px}.tsimm-trader-row-more{position:relative}.tsimm-trader-row-more summary{min-width:58px;list-style:none}.tsimm-trader-row-more summary::-webkit-details-marker{display:none}.tsimm-trader-row-more[open]{grid-column:1/-1}.tsimm-trader-row-more[open] summary{width:max-content;margin-left:auto}.tsimm-trader-row-more .tsimm-trader-actions{margin-top:5px;padding-top:5px;border-top:1px solid #4d4655}
       .tsimm-trader-dossier-shell{width:min(760px,100%)}.tsimm-dossier-scroll{min-width:0;min-height:0;max-width:100%;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:8px;display:grid;gap:8px}.tsimm-dossier-back button{min-height:38px;border:1px solid #675c43;border-radius:7px;background:#332d23;color:#fff;padding:7px 10px;font-weight:800}.tsimm-dossier-hero{position:relative;display:flex;align-items:center;gap:10px;min-width:0;padding:9px;border:1px solid #746442;border-radius:9px;background:#29251e;overflow:hidden}.tsimm-dossier-hero>img{width:150px;max-width:36%;height:58px;border-radius:6px;object-fit:cover}.tsimm-dossier-hero>div{display:grid;gap:2px;min-width:0}.tsimm-dossier-hero strong{overflow-wrap:anywhere;word-break:break-word;color:#fff;font-size:16px}.tsimm-dossier-hero span,.tsimm-dossier-hero small{min-width:0;overflow-wrap:anywhere;word-break:break-word}.tsimm-dossier-hero span{color:#f4c95d;font-weight:800}.tsimm-dossier-hero small{color:#bdb4c8}
       .tsimm-dossier-actions,.tsimm-dossier-inline-actions{display:flex;flex-wrap:wrap;gap:6px}.tsimm-dossier-actions a,.tsimm-dossier-actions button,.tsimm-dossier-inline-actions a,.tsimm-dossier-inline-actions button{flex:1;min-width:105px;min-height:38px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #675c43;border-radius:7px;background:#3a3326;color:#fff;padding:7px;text-align:center;text-decoration:none;font:700 11px/1.2 Arial,sans-serif}.tsimm-dossier-section{min-width:0;padding:9px;border:1px solid #4f4858;border-radius:9px;background:#25212a}.tsimm-dossier-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}.tsimm-dossier-section-head strong{color:#f4c95d;font-size:13px}.tsimm-dossier-section-head span{color:#9f96a8;font-size:9px;text-align:right}.tsimm-dossier-role{display:grid;grid-template-columns:minmax(0,1fr) minmax(145px,auto);align-items:center;gap:8px;color:#bdb4c8;font-weight:700}
       .tsimm-dossier-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px}.tsimm-dossier-summary>div{display:grid;gap:2px;min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1b181f}.tsimm-dossier-summary span{color:#a79eaf;font-size:9px;text-transform:uppercase}.tsimm-dossier-summary strong{overflow-wrap:anywhere}.tsimm-dossier-warning{margin-top:7px;padding:7px;border:1px solid #9a6d1f;border-radius:7px;background:#2c230f;color:#ffd166}.tsimm-dossier-sales,.tsimm-dossier-journal,.tsimm-dossier-items{display:grid;gap:6px;margin-top:7px}.tsimm-dossier-sale,.tsimm-dossier-journal article,.tsimm-dossier-items>div{min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1d1a21}.tsimm-dossier-sale.partial{border-color:#9a6d1f}.tsimm-dossier-row-head,.tsimm-dossier-items>div{display:flex;justify-content:space-between;gap:8px}.tsimm-dossier-row-head span,.tsimm-dossier-items span{color:#aaa1b7;text-align:right}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:3px 8px;margin:6px 0}.tsimm-dossier-sale-grid span,.tsimm-dossier-price-meta span{color:#aaa1b7}.tsimm-dossier-sale-grid strong,.tsimm-dossier-price-meta strong{text-align:right;overflow-wrap:anywhere}.tsimm-dossier-sale>small{display:block;color:#aaa1b7;overflow-wrap:anywhere}.tsimm-dossier-inline-actions{margin-top:6px}.tsimm-dossier-freshness-fresh{color:#63df9f}.tsimm-dossier-freshness-stale{color:#ffd166}.tsimm-dossier-freshness-outdated,.tsimm-dossier-freshness-missing{color:#ff7c85}.tsimm-dossier-journal article{display:grid;gap:4px}.tsimm-dossier-journal time,.tsimm-dossier-journal small{color:#918899;font-size:9px}.tsimm-dossier-journal p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
-      @media(max-width:600px){.tsimm-trader-shell{width:100%;max-height:100%;border-radius:10px}.tsimm-trader-dossier-shell{width:100%}.tsimm-trader-view-toolbar{align-items:stretch;flex-wrap:wrap}.tsimm-trader-sort{flex:1 1 220px;justify-content:space-between}.tsimm-trader-mode{flex:0 0 auto}.tsimm-trader-compact-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:600px){.tsimm-trader-shell{width:100%;max-height:100%;border-radius:10px}.tsimm-trader-dossier-shell{width:100%}.tsimm-trader-book-compact>.tsimm-ledger-head{padding:7px 9px}.tsimm-trader-book-compact>.tsimm-ledger-head small{display:none}.tsimm-trader-view-toolbar{align-items:stretch;flex-wrap:wrap}.tsimm-trader-view-toolbar .tsimm-trader-sort{flex:1 1 220px;justify-content:space-between}.tsimm-trader-mode{flex:0 0 auto}}
       @media(max-width:430px){.tsimm-trader-top,.tsimm-dossier-section-head,.tsimm-dossier-row-head,.tsimm-dossier-items>div{align-items:stretch;flex-direction:column}.tsimm-trader-view-toolbar{display:grid}.tsimm-trader-sort{display:grid;justify-content:stretch}.tsimm-trader-sort select{width:100%}.tsimm-trader-mode>div{display:grid;grid-template-columns:1fr 1fr}.tsimm-trader-mode button{width:100%}.tsimm-trader-compact-head{grid-template-columns:minmax(0,1fr) auto}.tsimm-dossier-hero>img{width:86px;max-width:30%}.tsimm-dossier-role{grid-template-columns:1fr}.tsimm-dossier-role select{width:100%}.tsimm-dossier-summary{grid-template-columns:1fr 1fr}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr)}.tsimm-dossier-row-head span,.tsimm-dossier-items span{text-align:left}}
       #${APP.receiptAuditOverlayId}{position:fixed;inset:0;z-index:${IMM_LAYERS.receiptAudit};background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
       .tsimm-audit-shell{width:min(660px,100%);max-height:95vh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #71617d;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}.tsimm-audit-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:5px;padding:8px}.tsimm-audit-summary>div{display:grid;gap:2px;padding:7px;border:1px solid #4a4352;border-radius:8px;background:#25212a}.tsimm-audit-summary span{font-size:9px;color:#aaa1b7;text-transform:uppercase}.tsimm-audit-input{display:grid;gap:5px;padding:0 8px 8px}.tsimm-audit-input label{font-weight:700;color:#ded5e7}.tsimm-audit-input textarea{min-height:120px;max-height:220px;resize:vertical;border:1px solid #625a70;border-radius:8px;background:#141218;color:#f7f3fa;padding:8px;font:11px/1.35 monospace}.tsimm-audit-input small{color:#9d94a7}.tsimm-audit-result{margin:0 8px 8px;padding:8px;border:1px solid #51485c;border-radius:9px;background:#242129}.tsimm-audit-result-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.tsimm-audit-result-head span{font-size:9px;text-transform:uppercase;color:#b8afc1}.tsimm-audit-result p{margin:5px 0 7px;color:#cbc3d2}.tsimm-audit-link{display:block;margin-top:7px;text-align:center;border:1px solid #615372;border-radius:6px;background:#352d3f;color:#fff;text-decoration:none;padding:6px;font-weight:700}.tsimm-audit-items{overflow:auto;display:grid;gap:6px;padding:0 8px 8px}.tsimm-audit-item{padding:7px;border:1px solid #4f4759;border-radius:8px;background:#24212a}.tsimm-audit-item>div:first-child{display:flex;justify-content:space-between;gap:8px}.tsimm-audit-item>div:first-child span{font-size:9px;text-transform:uppercase}.tsimm-audit-item>small{display:block;margin-top:5px;color:#a9a0b2}.tsimm-audit-gold{border-color:#a98532!important}.tsimm-audit-green{border-color:#3e8b62!important}.tsimm-audit-purple{border-color:#7b4c9e!important}.tsimm-audit-red{border-color:#9c4650!important}.tsimm-audit-gray{border-color:#5e5963!important}.tsimm-audit-warning{margin:0 8px 8px;padding:7px;border:1px solid #8f4650;border-radius:7px;background:#301d21;color:#ffb8be}.tsimm-audit-actions{display:flex;flex-wrap:wrap;gap:5px;padding:0 8px 8px}.tsimm-audit-actions button{flex:1;min-width:110px;border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:7px;font-weight:700}.tsimm-audit-actions button:first-child{background:#5b2b82;border-color:#8e55b9}.tsimm-audit-actions button:disabled{opacity:.5}.tsimm-audit-status-gold{color:#f4c95d}.tsimm-audit-status-green{color:#63df9f}.tsimm-audit-status-purple{color:#cf8cff}.tsimm-audit-status-red{color:#ff7c85}.tsimm-audit-status-gray,.tsimm-audit-status-link-only{color:#bbb2c3}
@@ -11749,6 +11852,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     document.addEventListener('touchmove', capturePricedTradeScroll, { capture: true, passive: true });
     document.addEventListener('wheel', capturePricedTradeScroll, { capture: true, passive: true });
     document.addEventListener('click', (event) => {
+      const traderToolsSummary = event.target.closest?.('.tsimm-trader-tools>summary');
+      if (traderToolsSummary) {
+        handleTraderBookToolsSummaryClick(traderToolsSummary);
+        return;
+      }
       const button = event.target.closest(`[data-tsimm-action]`);
       if (!button) return;
       event.preventDefault();
@@ -12269,6 +12377,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       traderCompactRowHtml,
       traderCardHtml,
       traderBookRowsHtml,
+      traderBookModeControlHtml,
+      traderBookActionButtonsHtml,
+      traderBookControlsHtml,
+      traderBookRenderGeneration,
+      advanceTraderBookRenderGeneration,
+      removeTraderBookDecorations,
+      traderBookDecorationHost,
+      handleTraderBookToolsSummaryClick,
       traderDossierHtml,
       setTraderBookMode,
       openTraderDossier,
@@ -13436,15 +13552,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return true;
   }
 
-  function renderTurnoverPresetPanel(book) {
-    if (!(book instanceof Element)) return;
-    let panel = book.querySelector(`#${A.turnoverPanel}`);
+  function renderTurnoverPresetPanel(host) {
+    if (!(host instanceof Element) || !host.matches('[data-tsimm-trader-decoration-host]') || !host.isConnected) return;
+    let panel = host.querySelector(`#${A.turnoverPanel}`);
     if (!panel) {
       panel = document.createElement('section');
       panel.id = A.turnoverPanel;
-      const firstCard = book.querySelector('.tsimm-trader-card');
-      if (firstCard) firstCard.before(panel);
-      else book.appendChild(panel);
+      host.appendChild(panel);
     }
     const store = watchedStore();
     const buttons = HIGH_TURNOVER_PRESETS.map((preset) => {
@@ -13469,19 +13583,17 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
 
-  function renderFavoriteCaptureCarousel(book, traders, favorites) {
-    if (!(book instanceof Element)) return;
+  function renderFavoriteCaptureCarousel(host, traders, favorites) {
+    if (!(host instanceof Element) || !host.matches('[data-tsimm-trader-decoration-host]') || !host.isConnected) return;
     const favoriteSelection = favoriteCaptureSelection(traders, favorites);
     const traderSelection = savedTraderCaptureSelection(traders);
     const queue = activeFavoriteCaptureCarousel();
     renderTraderRefreshDialog(traderSelection);
-    let bar = book.querySelector(`#${A.carousel}`);
+    let bar = host.querySelector(`#${A.carousel}`);
     if (!bar) {
       bar = document.createElement('section');
       bar.id = A.carousel;
-      const firstCard = book.querySelector('.tsimm-trader-card');
-      if (firstCard) firstCard.before(bar);
-      else book.appendChild(bar);
+      host.appendChild(bar);
     }
     if (queue) {
       const current = queue.entries[queue.cursor] || null;
@@ -14005,18 +14117,18 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
 
-  function decorateBook() {
+  function decorateBook(expectedGeneration) {
     const book = document.getElementById('tornscripture-imm-traders');
     if (!book) return;
-    const list = book.querySelector('.tsimm-trader-list');
-    // A delayed watchlist repaint may arrive after the book switches to its
-    // internal dossier view. Only decorate the owned list container so Target
-    // Library can never become a flex sibling that squeezes the modal shell.
-    if (!list || book.querySelector('.tsimm-trader-dossier-shell')) return;
+    const host = traderBookDecorationHost(book, expectedGeneration);
+    for (const decoration of book.querySelectorAll(TRADER_BOOK_DECORATION_SELECTOR)) {
+      if (!host?.contains(decoration)) decoration.remove();
+    }
+    if (!host) return;
     const traders = normTraders();
     const favorites = favoriteStore();
-    renderTurnoverPresetPanel(list);
-    renderFavoriteCaptureCarousel(book, traders, favorites);
+    renderTurnoverPresetPanel(host);
+    renderFavoriteCaptureCarousel(host, traders, favorites);
     for (const card of book.querySelectorAll('.tsimm-trader-card')) {
       const trader = cardTrader(card, traders);
       let button = card.querySelector('[data-watch-favorite-book]');
@@ -14050,11 +14162,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function scheduleTorn() {
     clearTimeout(tornTimer);
+    const scheduledTraderGeneration = traderBookRenderGeneration();
     tornTimer = setTimeout(() => {
       ownMutation = true;
       for (const [name, task] of [
         ['style', injectStyle],
-        ['book', decorateBook],
+        ['book', () => decorateBook(scheduledTraderGeneration)],
         ['dock', renderWatchDock],
         ['market', decorateMarket],
       ]) {
