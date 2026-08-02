@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.23
+// @version      0.19.24
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.23' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.23' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.24' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.24' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.23
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.24
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.23',
+    version: '0.19.24',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -11161,6 +11161,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   const TRADER_BOOK_DECORATION_SELECTOR = '#tsimm-turnover-preset-panel,#tsimm-favorite-capture-carousel';
+  // TornPDA may commit native <details> activation after the click microtask.
+  // One bounded owner waits for that toggle and for the watchlist API to exist.
+  const TRADER_BOOK_DECORATION_RETRY_DELAY_MS = 125;
+  const TRADER_BOOK_DECORATION_RETRY_MAX_MS = 4500;
+  const TRADER_BOOK_DECORATION_RETRY_MAX_ATTEMPTS = 37;
+  let traderBookDecorationRetry = null;
+
+  function cancelTraderBookDecorationRetry() {
+    if (traderBookDecorationRetry?.timer !== null && traderBookDecorationRetry?.timer !== undefined) {
+      clearTimeout(traderBookDecorationRetry.timer);
+    }
+    traderBookDecorationRetry = null;
+  }
 
   // Trader Book extensions may render only into this generation-bound host.
   // Compact mode additionally requires its native Tools disclosure to be open.
@@ -11170,6 +11183,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function advanceTraderBookRenderGeneration(overlay = document.getElementById(APP.traderOverlayId)) {
+    cancelTraderBookDecorationRetry();
     state.traderUi.renderGeneration = Math.max(0, Math.floor(Number(state.traderUi.renderGeneration) || 0)) + 1;
     if (overlay) overlay.dataset.tsimmTraderGeneration = String(state.traderUi.renderGeneration);
     return state.traderUi.renderGeneration;
@@ -11199,6 +11213,79 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return host;
   }
 
+  function traderBookDecorationsMounted(host) {
+    if (!host?.querySelectorAll) return false;
+    return host.querySelectorAll('#tsimm-turnover-preset-panel').length === 1
+      && host.querySelectorAll('#tsimm-favorite-capture-carousel').length === 1;
+  }
+
+  function traderBookCompactDecorationContextValid(context) {
+    const { overlay, tools, host, generation } = context || {};
+    if (!overlay || document.getElementById(APP.traderOverlayId) !== overlay) return false;
+    if (!tools?.isConnected || !tools.open || !host?.isConnected) return false;
+    if (tools.querySelector('[data-tsimm-trader-decoration-host]') !== host) return false;
+    const shell = overlay.querySelector('.tsimm-trader-book-shell');
+    if (!shell?.classList.contains('tsimm-trader-book-compact') || !shell.contains(tools)) return false;
+    return traderBookDecorationHost(overlay, generation) === host;
+  }
+
+  function scheduleTraderBookDecorationRetry(context, delay) {
+    context.timer = setTimeout(() => runTraderBookDecorationRetry(context), delay);
+  }
+
+  function runTraderBookDecorationRetry(context) {
+    if (traderBookDecorationRetry !== context || !traderBookCompactDecorationContextValid(context)) {
+      if (traderBookDecorationRetry === context) cancelTraderBookDecorationRetry();
+      return;
+    }
+    context.timer = null;
+    if (Date.now() - context.startedAt > TRADER_BOOK_DECORATION_RETRY_MAX_MS
+      || context.attempts >= TRADER_BOOK_DECORATION_RETRY_MAX_ATTEMPTS) {
+      cancelTraderBookDecorationRetry();
+      return;
+    }
+    context.attempts += 1;
+    const decorate = window.__TSIMM_WATCHLIST_API__?.decorateBook;
+    if (typeof decorate === 'function') {
+      try {
+        decorate(context.generation);
+      } catch (error) {
+        console.error('[TornScripture IMM] Compact Trader Book decoration attempt failed:', error);
+      }
+    }
+    if (traderBookDecorationsMounted(context.host)) {
+      traderBookDecorationRetry = null;
+      return;
+    }
+    if (context.attempts >= TRADER_BOOK_DECORATION_RETRY_MAX_ATTEMPTS) {
+      cancelTraderBookDecorationRetry();
+      return;
+    }
+    scheduleTraderBookDecorationRetry(context, TRADER_BOOK_DECORATION_RETRY_DELAY_MS);
+  }
+
+  function startTraderBookDecorationRetry(overlay, tools, host, generation) {
+    cancelTraderBookDecorationRetry();
+    const context = {
+      overlay,
+      tools,
+      host,
+      generation,
+      startedAt: Date.now(),
+      attempts: 0,
+      timer: null,
+    };
+    traderBookDecorationRetry = context;
+    scheduleTraderBookDecorationRetry(context, 0);
+    return context;
+  }
+
+  function traderBookDecorationRetryState() {
+    return traderBookDecorationRetry
+      ? { active: true, generation: traderBookDecorationRetry.generation, attempts: traderBookDecorationRetry.attempts }
+      : { active: false, generation: null, attempts: 0 };
+  }
+
   function handleTraderBookToolsSummaryClick(summary) {
     const tools = summary?.closest?.('details.tsimm-trader-tools');
     const overlay = tools?.closest?.(`#${APP.traderOverlayId}`);
@@ -11208,11 +11295,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     host.dataset.tsimmTraderGeneration = String(generation);
     removeTraderBookDecorations(overlay);
     if (tools.open) return;
-    queueMicrotask(() => {
-      if (!tools.isConnected || !tools.open || !host.isConnected) return;
-      if (traderBookRenderGeneration(overlay) !== generation) return;
-      window.__TSIMM_WATCHLIST_API__?.decorateBook?.(generation);
-    });
+    startTraderBookDecorationRetry(overlay, tools, host, generation);
   }
 
   function traderBookControlsHtml(mode, hiddenCount, avoidCount, renderGeneration = state.traderUi.renderGeneration) {
@@ -12384,6 +12467,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       advanceTraderBookRenderGeneration,
       removeTraderBookDecorations,
       traderBookDecorationHost,
+      traderBookDecorationsMounted,
+      traderBookCompactDecorationContextValid,
+      runTraderBookDecorationRetry,
+      startTraderBookDecorationRetry,
+      cancelTraderBookDecorationRetry,
+      traderBookDecorationRetryState,
       handleTraderBookToolsSummaryClick,
       traderDossierHtml,
       setTraderBookMode,
