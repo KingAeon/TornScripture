@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.23
+// @version      0.19.25
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.23' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.23' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.25' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.25' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.23
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.25
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.23',
+    version: '0.19.25',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -11161,6 +11161,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   const TRADER_BOOK_DECORATION_SELECTOR = '#tsimm-turnover-preset-panel,#tsimm-favorite-capture-carousel';
+  // TornPDA may commit native <details> activation after the click microtask.
+  // One bounded owner waits for that toggle or Detailed decoration readiness.
+  const TRADER_BOOK_DECORATION_RETRY_DELAY_MS = 125;
+  const TRADER_BOOK_DECORATION_RETRY_MAX_MS = 4500;
+  const TRADER_BOOK_DECORATION_RETRY_MAX_ATTEMPTS = 37;
+  let traderBookDecorationRetry = null;
+
+  function cancelTraderBookDecorationRetry() {
+    if (traderBookDecorationRetry?.timer !== null && traderBookDecorationRetry?.timer !== undefined) {
+      clearTimeout(traderBookDecorationRetry.timer);
+    }
+    traderBookDecorationRetry = null;
+  }
 
   // Trader Book extensions may render only into this generation-bound host.
   // Compact mode additionally requires its native Tools disclosure to be open.
@@ -11170,6 +11183,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function advanceTraderBookRenderGeneration(overlay = document.getElementById(APP.traderOverlayId)) {
+    cancelTraderBookDecorationRetry();
     state.traderUi.renderGeneration = Math.max(0, Math.floor(Number(state.traderUi.renderGeneration) || 0)) + 1;
     if (overlay) overlay.dataset.tsimmTraderGeneration = String(state.traderUi.renderGeneration);
     return state.traderUi.renderGeneration;
@@ -11199,6 +11213,93 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return host;
   }
 
+  function traderBookDecorationsMounted(host) {
+    if (!host?.querySelectorAll) return false;
+    return host.querySelectorAll('#tsimm-turnover-preset-panel').length === 1
+      && host.querySelectorAll('#tsimm-favorite-capture-carousel').length === 1;
+  }
+
+  function traderBookCompactDecorationContextValid(context) {
+    const { overlay, tools, host, generation } = context || {};
+    if (!overlay || document.getElementById(APP.traderOverlayId) !== overlay) return false;
+    if (!tools?.isConnected || !tools.open || !host?.isConnected) return false;
+    if (tools.querySelector('[data-tsimm-trader-decoration-host]') !== host) return false;
+    const shell = overlay.querySelector('.tsimm-trader-book-shell');
+    if (!shell?.classList.contains('tsimm-trader-book-compact') || !shell.contains(tools)) return false;
+    return traderBookDecorationHost(overlay, generation) === host;
+  }
+
+  function traderBookDecorationContextValid(context) {
+    if (context?.mode === 'compact') return traderBookCompactDecorationContextValid(context);
+    const { overlay, host, generation } = context || {};
+    if (context?.mode !== 'detailed' || !overlay || document.getElementById(APP.traderOverlayId) !== overlay) return false;
+    if (!host?.isConnected || host.parentElement !== overlay.querySelector('.tsimm-trader-book-detailed')) return false;
+    return traderBookDecorationHost(overlay, generation) === host;
+  }
+
+  function scheduleTraderBookDecorationRetry(context, delay) {
+    context.timer = setTimeout(() => runTraderBookDecorationRetry(context), delay);
+  }
+
+  function runTraderBookDecorationRetry(context) {
+    if (traderBookDecorationRetry !== context || !traderBookDecorationContextValid(context)) {
+      if (traderBookDecorationRetry === context) cancelTraderBookDecorationRetry();
+      return;
+    }
+    context.timer = null;
+    if (Date.now() - context.startedAt > TRADER_BOOK_DECORATION_RETRY_MAX_MS
+      || context.attempts >= TRADER_BOOK_DECORATION_RETRY_MAX_ATTEMPTS) {
+      cancelTraderBookDecorationRetry();
+      return;
+    }
+    context.attempts += 1;
+    const decorate = window.__TSIMM_WATCHLIST_API__?.decorateBook;
+    if (typeof decorate === 'function') {
+      try {
+        decorate(context.generation);
+      } catch (error) {
+        console.error('[TornScripture IMM] Trader Book decoration attempt failed:', error);
+      }
+    }
+    if (traderBookDecorationsMounted(context.host)) {
+      traderBookDecorationRetry = null;
+      return;
+    }
+    if (context.attempts >= TRADER_BOOK_DECORATION_RETRY_MAX_ATTEMPTS) {
+      cancelTraderBookDecorationRetry();
+      return;
+    }
+    scheduleTraderBookDecorationRetry(context, TRADER_BOOK_DECORATION_RETRY_DELAY_MS);
+  }
+
+  function startTraderBookDecorationRetry(overlay, tools, host, generation) {
+    cancelTraderBookDecorationRetry();
+    const shell = overlay?.querySelector?.('.tsimm-trader-book-shell');
+    const mode = shell?.classList?.contains('tsimm-trader-book-compact')
+      ? 'compact'
+      : shell?.classList?.contains('tsimm-trader-book-detailed') ? 'detailed' : '';
+    if (!mode) return null;
+    const context = {
+      overlay,
+      tools,
+      host,
+      generation,
+      mode,
+      startedAt: Date.now(),
+      attempts: 0,
+      timer: null,
+    };
+    traderBookDecorationRetry = context;
+    scheduleTraderBookDecorationRetry(context, 0);
+    return context;
+  }
+
+  function traderBookDecorationRetryState() {
+    return traderBookDecorationRetry
+      ? { active: true, generation: traderBookDecorationRetry.generation, attempts: traderBookDecorationRetry.attempts }
+      : { active: false, generation: null, attempts: 0 };
+  }
+
   function handleTraderBookToolsSummaryClick(summary) {
     const tools = summary?.closest?.('details.tsimm-trader-tools');
     const overlay = tools?.closest?.(`#${APP.traderOverlayId}`);
@@ -11208,11 +11309,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     host.dataset.tsimmTraderGeneration = String(generation);
     removeTraderBookDecorations(overlay);
     if (tools.open) return;
-    queueMicrotask(() => {
-      if (!tools.isConnected || !tools.open || !host.isConnected) return;
-      if (traderBookRenderGeneration(overlay) !== generation) return;
-      window.__TSIMM_WATCHLIST_API__?.decorateBook?.(generation);
-    });
+    startTraderBookDecorationRetry(overlay, tools, host, generation);
   }
 
   function traderBookControlsHtml(mode, hiddenCount, avoidCount, renderGeneration = state.traderUi.renderGeneration) {
@@ -11287,6 +11384,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         window.__TSIMM_WATCHLIST_API__?.decorateBook?.(renderGeneration);
       } catch (error) {
         console.error('[TornScripture IMM] Favorite Trader Book decoration failed:', error);
+      }
+      const host = traderBookDecorationHost(overlay, renderGeneration);
+      if (mode === 'detailed' && host && !traderBookDecorationsMounted(host)) {
+        startTraderBookDecorationRetry(overlay, null, host, renderGeneration);
       }
     }, 0);
   }
@@ -11531,7 +11632,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .tsimm-trader-shell{position:relative;z-index:1;width:min(620px,100%);max-width:100%;max-height:100%;min-width:0;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #7a6740;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden}
       .tsimm-trader-top{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;color:#d8caa5}.tsimm-trader-top span{color:#aaa1b7;font-size:10px}
       .tsimm-trader-list{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:0 8px 10px;display:grid;gap:7px}.tsimm-trader-card{min-width:0;border:1px solid #61563e;border-radius:9px;background:#29251e;padding:8px}.tsimm-trader-card-head{display:flex;align-items:center;gap:8px}.tsimm-trader-profile-button{display:grid;flex:1;gap:2px;min-width:0;color:#fff;text-decoration:none}.tsimm-trader-profile-button>strong{font-size:13px}.tsimm-trader-profile-button>.tsimm-trader-stars{color:#f4c95d;letter-spacing:.05em}.tsimm-trader-profile-button.has-banner{position:relative;display:block;min-height:68px;border:1px solid #5d5137;border-radius:6px;overflow:hidden;background:#17140f}.tsimm-trader-profile-button.has-banner img{display:block;width:100%;height:68px;object-fit:cover}.tsimm-trader-banner-label{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:6px;background:linear-gradient(90deg,#0008,#0002 38%,#0002 62%,#0008);text-shadow:0 2px 4px #000,0 0 8px #000;color:#fff!important;letter-spacing:.02em;text-align:center}.tsimm-trader-banner-label strong{font-size:15px;line-height:1.05;overflow-wrap:anywhere}.tsimm-trader-banner-label small{font-size:9px;color:#ded7e6}.tsimm-trader-profile-button.has-banner>.tsimm-trader-stars{position:absolute;left:6px;bottom:3px;padding:1px 4px;border-radius:999px;background:#0009;color:#f4c95d;font-size:10px}.tsimm-trader-card-head b{font-size:10px;color:#e8d8ae;border:1px solid #746442;border-radius:999px;padding:2px 6px;white-space:nowrap}.tsimm-trader-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);gap:3px 8px;margin-top:7px}.tsimm-trader-grid span,.tsimm-trader-grid strong{min-width:0;overflow-wrap:anywhere}.tsimm-trader-grid strong{text-align:right}.tsimm-trader-notes{min-width:0;margin-top:7px;padding:6px;border:1px solid #514a3b;border-radius:6px;background:#201d18;color:#d3c9b6;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.tsimm-trader-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.tsimm-trader-actions a,.tsimm-trader-actions button{flex:1;min-width:76px;text-align:center;text-decoration:none;border:1px solid #675c43;border-radius:6px;background:#3a3326;color:#fff;padding:6px;font-weight:700;overflow-wrap:anywhere}.tsimm-trader-actions a:first-child{background:#6f5220;border-color:#ad8133;color:#fff4d1}.tsimm-profile-capture-card{display:flex;align-items:center;gap:8px;margin:7px 0;padding:7px;border:1px solid #6f5220;border-radius:8px;background:#2b2417}.tsimm-profile-capture-card img{width:112px;max-height:44px;object-fit:cover;border-radius:5px}.tsimm-profile-capture-card div{display:grid;min-width:0}.tsimm-profile-capture-card strong{color:#f6d16f}.tsimm-profile-capture-card span{color:#bdb4c8;font-size:10px}.tsimm-btn-gold{background:#775715!important;border-color:#b98c2c!important;color:#fff5cc!important}
-      .tsimm-trader-view-toolbar{display:flex;align-items:flex-end;justify-content:flex-end;gap:8px;padding:0 10px 8px}.tsimm-trader-sort{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;color:#bdb4c8;font-weight:700}.tsimm-trader-sort select,.tsimm-dossier-role select{min-height:36px;max-width:100%;border:1px solid #675c43;border-radius:7px;background:#201d18;color:#fff;padding:6px 28px 6px 8px;font:inherit}.tsimm-trader-mode{display:grid;gap:3px;color:#bdb4c8;font-weight:700}.tsimm-trader-mode>span,.tsimm-trader-compact-toolbar .tsimm-trader-sort>span{font-size:9px}.tsimm-trader-mode>div{display:flex}.tsimm-trader-mode button{min-height:36px;border:1px solid #675c43;background:#201d18;color:#c9c1d0;padding:6px 9px;font:700 10px Arial,sans-serif}.tsimm-trader-mode button:first-child{border-radius:7px 0 0 7px}.tsimm-trader-mode button:last-child{margin-left:-1px;border-radius:0 7px 7px 0}.tsimm-trader-mode button.active{position:relative;border-color:#b98c2c;background:#775715;color:#fff5cc}.tsimm-trader-compact-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 6px;align-items:end;padding:5px 8px 4px;border-bottom:1px solid #413a49;background:#211e26}.tsimm-trader-compact-toolbar .tsimm-trader-sort{display:grid;gap:2px;justify-content:stretch}.tsimm-trader-compact-toolbar .tsimm-trader-sort select{width:100%;min-width:0}.tsimm-trader-tools{min-width:0}.tsimm-trader-tools>summary{min-height:36px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:58px;border:1px solid #675c43;border-radius:7px;background:#332e3a;color:#fff;padding:6px 8px;font-weight:800;list-style:none;cursor:pointer;touch-action:manipulation}.tsimm-trader-tools>summary::-webkit-details-marker{display:none}.tsimm-trader-tools[open]{grid-column:1/-1;max-height:min(62vh,520px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}.tsimm-trader-tools[open]>summary{width:max-content;margin-left:auto}.tsimm-trader-tools .tsimm-ledger-actions{padding:5px 0 0}.tsimm-trader-decoration-host{display:grid;min-width:0;max-width:100%;overflow-x:hidden}.tsimm-trader-decoration-host>#tsimm-favorite-capture-carousel,.tsimm-trader-decoration-host>#tsimm-turnover-preset-panel{margin-left:0;margin-right:0}.tsimm-trader-compact-status{grid-column:1/-1;min-width:0;overflow:hidden;color:#9f96a8;font-size:9px;line-height:1.2;text-overflow:ellipsis;white-space:nowrap}
+      .tsimm-trader-view-toolbar{display:flex;align-items:flex-end;justify-content:flex-end;gap:8px;padding:0 10px 8px}.tsimm-trader-sort{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;color:#bdb4c8;font-weight:700}.tsimm-trader-sort select,.tsimm-dossier-role select{min-height:36px;max-width:100%;border:1px solid #675c43;border-radius:7px;background:#201d18;color:#fff;padding:6px 28px 6px 8px;font:inherit}.tsimm-trader-mode{display:grid;gap:3px;color:#bdb4c8;font-weight:700}.tsimm-trader-mode>span,.tsimm-trader-compact-toolbar .tsimm-trader-sort>span{font-size:9px}.tsimm-trader-mode>div{display:flex}.tsimm-trader-mode button{min-height:36px;border:1px solid #675c43;background:#201d18;color:#c9c1d0;padding:6px 9px;font:700 10px Arial,sans-serif}.tsimm-trader-mode button:first-child{border-radius:7px 0 0 7px}.tsimm-trader-mode button:last-child{margin-left:-1px;border-radius:0 7px 7px 0}.tsimm-trader-mode button.active{position:relative;border-color:#b98c2c;background:#775715;color:#fff5cc}.tsimm-trader-compact-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 6px;align-items:end;padding:5px 8px 4px;border-bottom:1px solid #413a49;background:#211e26}.tsimm-trader-compact-toolbar .tsimm-trader-sort{display:grid;gap:2px;justify-content:stretch}.tsimm-trader-compact-toolbar .tsimm-trader-sort select{width:100%;min-width:0}.tsimm-trader-tools{min-width:0}.tsimm-trader-tools>summary{min-height:36px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:58px;border:1px solid #675c43;border-radius:7px;background:#332e3a;color:#fff;padding:6px 8px;font-weight:800;list-style:none;cursor:pointer;touch-action:manipulation}.tsimm-trader-tools>summary::-webkit-details-marker{display:none}.tsimm-trader-tools[open]{grid-column:1/-1;min-width:0;max-width:100%}.tsimm-trader-tools[open]>summary{position:sticky;top:0;z-index:2;width:max-content;margin-left:auto}.tsimm-trader-tools .tsimm-ledger-actions{padding:5px 0 0}.tsimm-trader-decoration-host{display:grid;min-width:0;max-width:100%;overflow:visible}.tsimm-trader-decoration-host>#tsimm-favorite-capture-carousel,.tsimm-trader-decoration-host>#tsimm-turnover-preset-panel{margin-left:0;margin-right:0}.tsimm-trader-compact-status{grid-column:1/-1;min-width:0;overflow:hidden;color:#9f96a8;font-size:9px;line-height:1.2;text-overflow:ellipsis;white-space:nowrap}
+      .tsimm-trader-book-compact,.tsimm-trader-book-detailed{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}.tsimm-trader-book-compact>*,.tsimm-trader-book-detailed>*{flex:none;min-width:0}.tsimm-trader-book-compact>.tsimm-trader-list-compact,.tsimm-trader-book-detailed>.tsimm-trader-list-detailed{min-height:auto;overflow:visible;overscroll-behavior:auto}
       .tsimm-trader-list-compact{gap:5px;padding-top:5px}.tsimm-trader-compact-row{display:grid;gap:4px;padding:6px}.tsimm-trader-compact-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:start}.tsimm-trader-compact-identity{display:grid;min-width:0;gap:3px}.tsimm-trader-compact-identity>strong{display:-webkit-box;min-width:0;max-height:30px;overflow:hidden;color:#fff;font-size:13px;line-height:1.15;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}.tsimm-trader-compact-identity>strong small{color:#aaa1b7;font-size:9px}.tsimm-trader-compact-chips{display:flex;flex-wrap:wrap;gap:3px}.tsimm-trader-chip{display:inline-flex;align-items:center;min-height:18px;max-width:100%;border:1px solid #5c5365;border-radius:999px;background:#211e26;color:#d4cbdc;padding:1px 5px;font-size:9px;line-height:1.15;overflow-wrap:anywhere}.tsimm-trader-chip-normal{border-color:#4d6548;background:#172017;color:#aaf59d}.tsimm-trader-chip-avoid{border-color:#9a6d1f;background:#211705;color:#ffd166}.tsimm-trader-chip-hidden{border-color:#555b61;background:#151719;color:#b4bdc2}.tsimm-trader-compact-head>.tsimm-favorite-trader-btn{min-width:74px;min-height:36px}.tsimm-trader-compact-reason{color:#b9afc1;font-size:9px;line-height:1.15;overflow-wrap:anywhere}.tsimm-trader-compact-summary{display:flex;flex-wrap:wrap;gap:2px 9px;min-width:0;color:#e6e0eb;font-size:10px;line-height:1.25}.tsimm-trader-compact-summary span{min-width:0;overflow-wrap:anywhere}.tsimm-trader-compact-summary b,.tsimm-trader-compact-freshness b{color:#9f96a8;font-size:9px}.tsimm-trader-compact-footer{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:5px;align-items:center;min-width:0}.tsimm-trader-compact-freshness{display:grid;min-width:0;gap:1px;font-size:9px;line-height:1.15}.tsimm-trader-compact-freshness span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trader-compact-footer>button,.tsimm-trader-compact-footer summary{min-height:36px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #675c43;border-radius:7px;background:#3a3326;color:#fff;padding:6px 7px;font:700 10px/1.2 Arial,sans-serif;cursor:pointer;touch-action:manipulation}.tsimm-trader-compact-footer>button{min-width:92px}.tsimm-trader-row-more{position:relative}.tsimm-trader-row-more summary{min-width:58px;list-style:none}.tsimm-trader-row-more summary::-webkit-details-marker{display:none}.tsimm-trader-row-more[open]{grid-column:1/-1}.tsimm-trader-row-more[open] summary{width:max-content;margin-left:auto}.tsimm-trader-row-more .tsimm-trader-actions{margin-top:5px;padding-top:5px;border-top:1px solid #4d4655}
       .tsimm-trader-dossier-shell{width:min(760px,100%)}.tsimm-dossier-scroll{min-width:0;min-height:0;max-width:100%;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:8px;display:grid;gap:8px}.tsimm-dossier-back button{min-height:38px;border:1px solid #675c43;border-radius:7px;background:#332d23;color:#fff;padding:7px 10px;font-weight:800}.tsimm-dossier-hero{position:relative;display:flex;align-items:center;gap:10px;min-width:0;padding:9px;border:1px solid #746442;border-radius:9px;background:#29251e;overflow:hidden}.tsimm-dossier-hero>img{width:150px;max-width:36%;height:58px;border-radius:6px;object-fit:cover}.tsimm-dossier-hero>div{display:grid;gap:2px;min-width:0}.tsimm-dossier-hero strong{overflow-wrap:anywhere;word-break:break-word;color:#fff;font-size:16px}.tsimm-dossier-hero span,.tsimm-dossier-hero small{min-width:0;overflow-wrap:anywhere;word-break:break-word}.tsimm-dossier-hero span{color:#f4c95d;font-weight:800}.tsimm-dossier-hero small{color:#bdb4c8}
       .tsimm-dossier-actions,.tsimm-dossier-inline-actions{display:flex;flex-wrap:wrap;gap:6px}.tsimm-dossier-actions a,.tsimm-dossier-actions button,.tsimm-dossier-inline-actions a,.tsimm-dossier-inline-actions button{flex:1;min-width:105px;min-height:38px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #675c43;border-radius:7px;background:#3a3326;color:#fff;padding:7px;text-align:center;text-decoration:none;font:700 11px/1.2 Arial,sans-serif}.tsimm-dossier-section{min-width:0;padding:9px;border:1px solid #4f4858;border-radius:9px;background:#25212a}.tsimm-dossier-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}.tsimm-dossier-section-head strong{color:#f4c95d;font-size:13px}.tsimm-dossier-section-head span{color:#9f96a8;font-size:9px;text-align:right}.tsimm-dossier-role{display:grid;grid-template-columns:minmax(0,1fr) minmax(145px,auto);align-items:center;gap:8px;color:#bdb4c8;font-weight:700}
@@ -12384,6 +12486,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       advanceTraderBookRenderGeneration,
       removeTraderBookDecorations,
       traderBookDecorationHost,
+      traderBookDecorationsMounted,
+      traderBookCompactDecorationContextValid,
+      traderBookDecorationContextValid,
+      runTraderBookDecorationRetry,
+      startTraderBookDecorationRetry,
+      cancelTraderBookDecorationRetry,
+      traderBookDecorationRetryState,
       handleTraderBookToolsSummaryClick,
       traderDossierHtml,
       setTraderBookMode,
@@ -14129,6 +14238,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const favorites = favoriteStore();
     renderTurnoverPresetPanel(host);
     renderFavoriteCaptureCarousel(host, traders, favorites);
+    const turnoverPanel = host.querySelector(`#${A.turnoverPanel}`);
+    const priceControl = host.querySelector(`#${A.carousel}`);
+    if (turnoverPanel && priceControl
+      && (host.firstElementChild !== turnoverPanel || turnoverPanel.nextElementSibling !== priceControl)) {
+      host.prepend(turnoverPanel, priceControl);
+    }
     for (const card of book.querySelectorAll('.tsimm-trader-card')) {
       const trader = cardTrader(card, traders);
       let button = card.querySelector('[data-watch-favorite-book]');
