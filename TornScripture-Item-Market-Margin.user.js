@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.26
+// @version      0.19.27
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.26' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.26' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.27' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.27' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.26
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.27
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.26',
+    version: '0.19.27',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -3366,6 +3366,9 @@
         0,
         Math.min(quantity, Number.isFinite(candidateRemaining) ? Math.floor(candidateRemaining) : quantity)
       );
+      const purchaseCaptureId = normalizeWhitespace(
+        candidate?.purchaseCaptureId ?? candidate?.pendingPurchaseId
+      );
       lots.push({
         id: normalizeWhitespace(candidate?.id) || createId('lot'),
         schemaVersion: 2,
@@ -3388,6 +3391,7 @@
         capturedAt: candidate?.capturedAt || candidate?.purchasedAt || new Date().toISOString(),
         purchaseUrl: normalizeWhitespace(candidate?.purchaseUrl),
         captureMethod: normalizeWhitespace(candidate?.captureMethod) || 'import',
+        ...(purchaseCaptureId ? { purchaseCaptureId } : {}),
         status: remainingQuantity > 0 ? 'open' : 'closed',
         notes: scrubItemMarketPurchaseNotes(candidate?.notes, candidate?.source, candidate?.venue),
       });
@@ -3773,6 +3777,9 @@
       capturedAt: source?.capturedAt || new Date().toISOString(),
       purchaseUrl: normalizeWhitespace(source?.purchaseUrl) || location.href,
       captureMethod,
+      ...(normalizeWhitespace(source?.purchaseCaptureId)
+        ? { purchaseCaptureId: normalizeWhitespace(source.purchaseCaptureId) }
+        : {}),
       status: 'open',
       notes: scrubItemMarketPurchaseNotes(source?.notes, source?.source, source?.venue),
     };
@@ -3780,33 +3787,82 @@
 
   function addLedgerLot(lot) {
     if (!lot?.itemName || !(lot.quantity > 0) || !(lot.unitCost > 0)) return false;
+    const previousUpdatedAt = state.ledger.updatedAt;
     state.ledger.lots.unshift(lot);
-    saveLedger();
+    try {
+      saveLedger();
+    } catch (error) {
+      state.ledger.lots = state.ledger.lots.filter((candidate) => candidate !== lot);
+      state.ledger.updatedAt = previousUpdatedAt;
+      throw error;
+    }
     renderLedger();
     renderPanel();
     return true;
   }
 
-  function commitPendingPurchase(captureMethod = 'detected-success', signal = '') {
-    const pending = state.pendingPurchase;
-    if (!pending) return null;
-    const fingerprint = purchaseFingerprint({
+  function pendingPurchaseFingerprint(pending = state.pendingPurchase) {
+    if (!pending) return '';
+    return purchaseFingerprint({
       itemName: pending.itemName,
       quantity: pending.quantity,
       totalCost: pending.totalCost,
     }, pending.itemId);
+  }
+
+  function committedLotForPendingPurchase(pending = state.pendingPurchase) {
+    const purchaseCaptureId = normalizeWhitespace(pending?.id);
+    if (!purchaseCaptureId) return null;
+    return (state.ledger.lots || []).find(
+      (lot) => normalizeWhitespace(lot?.purchaseCaptureId) === purchaseCaptureId
+    ) || null;
+  }
+
+  function finishPendingPurchaseCommit(pending, fingerprint) {
+    if (!pending || state.pendingPurchase?.id !== pending.id) return;
+    if (fingerprint && !hasRecentPurchaseFingerprint(fingerprint)) {
+      rememberPurchaseFingerprint(fingerprint);
+    }
+    state.pendingPurchase = null;
+    savePendingPurchase();
+    activePendingTraderCapture();
+    renderPanel();
+  }
+
+  function reconcileCommittedPendingPurchase() {
+    const pending = state.pendingPurchase;
+    const lot = committedLotForPendingPurchase(pending);
+    if (!pending || !lot) return null;
+    finishPendingPurchaseCommit(pending, pendingPurchaseFingerprint(pending));
+    recordPurchaseSignal(
+      'duplicate-suppressed',
+      'startup-recovery',
+      'Recovered an already committed pending purchase.',
+      pending.purchaseUrl,
+    );
+    return lot;
+  }
+
+  function commitPendingPurchase(captureMethod = 'detected-success', signal = '') {
+    const pending = state.pendingPurchase;
+    if (!pending) return null;
+    const fingerprint = pendingPurchaseFingerprint(pending);
+    const committedLot = committedLotForPendingPurchase(pending);
+    if (committedLot) {
+      finishPendingPurchaseCommit(pending, fingerprint);
+      scheduleScan(30);
+      return committedLot;
+    }
     const lot = buildLedgerLot({
       ...pending,
+      purchaseCaptureId: pending.id,
       marketValueAtPurchase: pending.marketValue,
       traderValueAtPurchase: pending.traderValue,
       capturedAt: new Date().toISOString(),
       notes: signal ? `Capture signal: ${sanitizePurchaseSignalText(signal).slice(0, 180)}` : '',
     }, captureMethod);
-    state.pendingPurchase = null;
-    savePendingPurchase();
-    activePendingTraderCapture();
-    rememberPurchaseFingerprint(fingerprint);
-    addLedgerLot(lot);
+    if (!addLedgerLot(lot)) return null;
+    finishPendingPurchaseCommit(pending, fingerprint);
     scheduleScan(30);
     toast(`Ledger recorded ${formatInteger(lot.quantity)}× ${lot.itemName}.`);
     return lot;
@@ -12419,6 +12475,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       ), 150);
     }
     runPurchasePrivacyMigration();
+    reconcileCommittedPendingPurchase();
     savePendingPurchase();
     bindPanelEvents();
     installNetworkObservers();
@@ -12515,6 +12572,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       linkRecordedSalesToTrader,
       optionalFiniteNumber,
       buildLedgerLot,
+      pendingPurchaseFingerprint,
+      committedLotForPendingPurchase,
+      reconcileCommittedPendingPurchase,
+      commitPendingPurchase,
       ledgerSummary,
       lotProfitProjection,
       sortLedgerLots,
