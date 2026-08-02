@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.29
+// @version      0.19.30
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.29' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.29' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.30' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.30' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.29
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.30
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.29',
+    version: '0.19.30',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2043,6 +2043,7 @@
       schemaVersion: 1,
       fingerprint: normalizeWhitespace(candidate?.fingerprint),
       tradeId: normalizeWhitespace(candidate?.tradeId),
+      tradeCaptureId: normalizeWhitespace(candidate?.tradeCaptureId),
       counterparty: cleanTradeParticipantName(candidate?.counterparty),
       counterpartyId: Math.max(0, Math.floor(Number(candidate?.counterpartyId ?? candidate?.traderId) || 0)) || null,
       counterpartyProfileUrl: normalizeHttpUrl(candidate?.counterpartyProfileUrl ?? candidate?.traderProfileUrl),
@@ -4756,7 +4757,8 @@
     const tradeNetCash = optionalFiniteNumber(candidate.tradeNetCash);
     if (!tradeItems.length || tradeNetCash === null) return null;
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      captureId: normalizeWhitespace(candidate.captureId) || createId('trade-capture'),
       capturedAt: new Date(capturedAtMs).toISOString(),
       tradeId: normalizeWhitespace(candidate.tradeId),
       tradeCounterparty: normalizeWhitespace(candidate.tradeCounterparty),
@@ -4771,12 +4773,18 @@
       tradeItems,
       tradeUnmatchedItems: Math.max(0, Math.floor(Number(candidate.tradeUnmatchedItems) || 0)),
       sourceUrl: normalizeHttpUrl(candidate.sourceUrl),
+      recordedSaleId: normalizeWhitespace(candidate.recordedSaleId),
+      recordedAt: candidate.recordedAt || null,
     };
   }
 
   function loadPendingTradeSale() {
-    const pending = normalizePendingTradeSale(loadJson(APP.pendingTradeSaleStorageKey, null));
+    const stored = loadJson(APP.pendingTradeSaleStorageKey, null);
+    const pending = normalizePendingTradeSale(stored);
     if (!pending) localStorage.removeItem(APP.pendingTradeSaleStorageKey);
+    else if (!normalizeWhitespace(stored?.captureId) || Number(stored?.schemaVersion) < 2) {
+      saveJson(APP.pendingTradeSaleStorageKey, pending);
+    }
     return pending;
   }
 
@@ -4789,24 +4797,50 @@
     const pendingTradeId = normalizeWhitespace(pending.tradeId);
     const statsTradeId = normalizeWhitespace(stats.tradeId || tradeIdFromLocation());
     if (pendingTradeId && statsTradeId) return pendingTradeId === statsTradeId;
-    const pendingFingerprint = saleFingerprintForStats({
-      tradeId: pendingTradeId,
+    const pendingFingerprint = saleContentFingerprintForStats({
       tradeItems: pending.tradeItems,
       tradeNetCash: pending.tradeNetCash,
     });
-    return pendingFingerprint === saleFingerprintForStats(stats);
+    return pendingFingerprint === saleContentFingerprintForStats(stats);
   }
 
-  function clearPendingTradeSaleForStats(stats) {
+  function tradeCaptureIdForStats(stats, create = false) {
+    const current = normalizeWhitespace(stats?.tradeCaptureId);
+    if (current) return current;
     const pending = loadPendingTradeSale();
-    if (pending && pendingTradeSaleMatchesStats(pending, stats)) clearPendingTradeSale();
+    const canReuse = pending
+      && pendingTradeSaleMatchesStats(pending, stats)
+      && (!pending.recordedSaleId || Boolean(stats?.tradeCompleted));
+    if (canReuse) {
+      stats.tradeCaptureId = pending.captureId;
+      return pending.captureId;
+    }
+    if (!create || !stats) return '';
+    stats.tradeCaptureId = createId('trade-capture');
+    return stats.tradeCaptureId;
+  }
+
+  function markPendingTradeSaleRecorded(stats, saleId) {
+    const pending = loadPendingTradeSale();
+    if (!pending || !pendingTradeSaleMatchesStats(pending, stats)) return false;
+    pending.recordedSaleId = normalizeWhitespace(saleId);
+    pending.recordedAt = new Date().toISOString();
+    saveJson(APP.pendingTradeSaleStorageKey, pending);
+    return true;
   }
 
   function savePendingTradeSaleFromStats(stats) {
     if (!stats || stats.pageType !== 'trade' || stats.tradeCompleted) return null;
     if (!Array.isArray(stats.tradeItems) || !stats.tradeItems.length) return null;
     if (stats.tradeUnmatchedItems || optionalFiniteNumber(stats.tradeNetCash) === null) return null;
+    const existing = loadPendingTradeSale();
+    const reuseExisting = existing
+      && !existing.recordedSaleId
+      && pendingTradeSaleMatchesStats(existing, stats);
+    const captureId = normalizeWhitespace(stats.tradeCaptureId)
+      || (reuseExisting ? existing.captureId : createId('trade-capture'));
     const snapshot = normalizePendingTradeSale({
+      captureId,
       capturedAt: new Date().toISOString(),
       tradeId: stats.tradeId || tradeIdFromLocation(),
       tradeCounterparty: stats.tradeCounterparty,
@@ -4823,6 +4857,7 @@
       sourceUrl: location.href,
     });
     if (!snapshot) return null;
+    stats.tradeCaptureId = snapshot.captureId;
     saveJson(APP.pendingTradeSaleStorageKey, snapshot);
     return snapshot;
   }
@@ -4833,6 +4868,7 @@
     const currentTradeId = normalizeWhitespace(tradeIdFromLocation());
     if (pending.tradeId && currentTradeId && pending.tradeId !== currentTradeId) return false;
     stats.tradeId = currentTradeId || pending.tradeId || null;
+    stats.tradeCaptureId = pending.captureId;
     stats.tradeCounterparty = pending.tradeCounterparty || null;
     stats.tradeCounterpartyId = pending.tradeCounterpartyId || null;
     stats.tradeCounterpartyProfileUrl = pending.tradeCounterpartyProfileUrl || '';
@@ -4862,14 +4898,20 @@
     return (hash >>> 0).toString(36);
   }
 
-  function saleFingerprintForStats(stats) {
-    const tradeId = normalizeWhitespace(stats?.tradeId);
-    if (tradeId) return `trade:${tradeId}`;
+  function saleContentFingerprintForStats(stats) {
     const manifest = (stats?.tradeItems || [])
       .map((item) => `${normalizeName(item.name)}:${Number(item.quantity) || 0}`)
       .sort()
       .join('|');
     return `trade-fallback:${stableStringHash(`${manifest}|${Number(stats?.tradeNetCash) || 0}`)}`;
+  }
+
+  function saleFingerprintForStats(stats) {
+    const tradeId = normalizeWhitespace(stats?.tradeId);
+    if (tradeId) return `trade:${tradeId}`;
+    const captureId = tradeCaptureIdForStats(stats);
+    if (captureId) return `trade-capture:${captureId}`;
+    return saleContentFingerprintForStats(stats);
   }
 
   function recordedSaleForStats(stats) {
@@ -5009,6 +5051,7 @@
     if (optionalFiniteNumber(stats.tradeNetCash) === null) {
       throw new Error('Trader cash was not detected.');
     }
+    tradeCaptureIdForStats(stats, true);
 
     const plan = ledgerSalePlan(stats);
     if (!plan.trackedQuantity) {
@@ -5027,6 +5070,7 @@
       id: createId('sale'),
       fingerprint: saleFingerprintForStats(stats),
       tradeId: stats.tradeId || tradeIdFromLocation(),
+      tradeCaptureId: stats.tradeCaptureId,
       counterparty: stats.tradeCounterparty,
       counterpartyId: stats.tradeCounterpartyId,
       counterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
@@ -5063,7 +5107,28 @@
         : `FIFO allocation with ${plan.untrackedQuantity} untracked item${plan.untrackedQuantity === 1 ? '' : 's'}.`,
     });
     state.ledger.sales.unshift(sale);
-    clearPendingTradeSaleForStats(stats);
+    if (!markPendingTradeSaleRecorded(stats, sale.id)) {
+      const snapshot = normalizePendingTradeSale({
+        captureId: stats.tradeCaptureId,
+        capturedAt: new Date().toISOString(),
+        tradeId: stats.tradeId || tradeIdFromLocation(),
+        tradeCounterparty: stats.tradeCounterparty,
+        tradeCounterpartyId: stats.tradeCounterpartyId,
+        tradeCounterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
+        tradeCounterpartyBannerUrl: stats.tradeCounterpartyBannerUrl,
+        tradeMarketTotal: stats.tradeMarketTotal,
+        tradeTargetTotal: stats.tradeTargetTotal,
+        tradeTraderCash: stats.tradeTraderCash,
+        tradeMyCash: stats.tradeMyCash,
+        tradeNetCash: stats.tradeNetCash,
+        tradeItems: stats.tradeItems,
+        tradeUnmatchedItems: stats.tradeUnmatchedItems,
+        sourceUrl: location.href,
+        recordedSaleId: sale.id,
+        recordedAt: new Date().toISOString(),
+      });
+      if (snapshot) saveJson(APP.pendingTradeSaleStorageKey, snapshot);
+    }
     saveLedger();
     applyLedgerSalePreview(stats);
     renderLedger();
@@ -12699,6 +12764,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       ledgerSummary,
       lotProfitProjection,
       sortLedgerLots,
+      normalizePendingTradeSale,
+      loadPendingTradeSale,
+      pendingTradeSaleMatchesStats,
+      tradeCaptureIdForStats,
+      markPendingTradeSaleRecorded,
+      savePendingTradeSaleFromStats,
+      hydrateStatsFromPendingTradeSale,
+      saleContentFingerprintForStats,
+      saleFingerprintForStats,
+      recordedSaleForStats,
       ledgerSalePlan,
       recordTradeSale,
       buildTradeExitAudit,
