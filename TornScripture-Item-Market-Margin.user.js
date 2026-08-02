@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.32
+// @version      0.19.33
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.32' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.32' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.33' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.33' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.32
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.33
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -342,7 +342,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.32',
+    version: '0.19.33',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -1175,10 +1175,18 @@
 
   function weav3rTraderIdentity() {
     const request = captureRequestFromWeav3rPage();
-    const profileAnchor = [...document.querySelectorAll('a[href*="profiles.php?XID=" i]')]
-      .find((anchor) => userIdFromUrl(anchor.href));
     const pathMatch = String(location.pathname || '').match(/\/pricelist\/(\d+)/i);
-    const userId = userIdFromUrl(profileAnchor?.href) || Math.max(0, Math.floor(Number(pathMatch?.[1]) || 0)) || null;
+    const pathUserId = Math.max(0, Math.floor(Number(pathMatch?.[1]) || 0)) || null;
+    const profileAnchors = [...document.querySelectorAll('a[href*="profiles.php?XID=" i]')];
+    const profileAnchor = pathUserId
+      ? profileAnchors.find((anchor) => userIdFromUrl(anchor.href) === pathUserId)
+      : profileAnchors.find((anchor) => /^view profile$/i.test(normalizeWhitespace(
+          anchor.innerText || anchor.textContent || anchor.getAttribute?.('aria-label') || anchor.title,
+        )));
+    const profileUserId = userIdFromUrl(profileAnchor?.href);
+    // The pricelist route owns page identity. Document-wide profile links can
+    // belong to announcements or site attribution and must not override it.
+    const userId = pathUserId || profileUserId || Math.max(0, Math.floor(Number(request?.trader?.userId) || 0)) || null;
     const headings = [...document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')]
       .map((element) => normalizeWhitespace(element.innerText || element.textContent))
       .filter(Boolean);
@@ -1196,9 +1204,10 @@
       traderId: normalizeWhitespace(requested.traderId),
       userId: userId || Math.max(0, Math.floor(Number(requested.userId) || 0)) || null,
       name: name || normalizeWhitespace(requested.name) || (userId ? `Trader ${userId}` : 'Weav3r trader'),
-      profileUrl: normalizeHttpUrl(profileAnchor?.href || requested.profileUrl)
+      profileUrl: normalizeHttpUrl(profileAnchor?.href)
+        || (!pathUserId ? normalizeHttpUrl(requested.profileUrl) : '')
         || (userId ? `https://www.torn.com/profiles.php?XID=${userId}` : ''),
-      tradeUrl: normalizeHttpUrl(requested.tradeUrl)
+      tradeUrl: (!pathUserId ? normalizeHttpUrl(requested.tradeUrl) : '')
         || (userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : ''),
       bannerUrl: normalizeHttpUrl(requested.bannerUrl),
     };

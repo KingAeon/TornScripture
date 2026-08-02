@@ -71,7 +71,6 @@ const toasts = [];
 const prefix = 'TSIMM_PRICE_BRIDGE:';
 let request;
 let identity;
-let mismatch;
 let parsedItems;
 let queue;
 let savedQueue;
@@ -86,8 +85,8 @@ const sandbox = {
   TextEncoder,
   TextDecoder,
   EARLY_CAPTURE: { bridgePrefix: prefix },
-  document: { title: "Korrvack's Pricelist" },
-  location: { href: 'https://weav3r.dev/pricelist/1853324' },
+  document: { title: "Wrong Trader's Pricelist" },
+  location: { href: 'https://weav3r.dev/pricelist/910000002' },
   window: {
     name: '',
     location: {
@@ -114,6 +113,9 @@ const sandbox = {
   normalizeWhitespace(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
   },
+  normalizeName(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  },
   normalizeHttpUrl(value) {
     return /^https?:\/\//i.test(String(value || '')) ? String(value) : '';
   },
@@ -137,9 +139,6 @@ const sandbox = {
   },
   captureWeav3rPriceItems() {
     return parsedItems;
-  },
-  weav3rCaptureIdentityMismatch() {
-    return mismatch;
   },
   renderWeav3rCapturePanel() {},
   toast(message) {
@@ -196,6 +195,7 @@ sandbox.writePriceBridgeWindowName = (payload) => {
 vm.createContext(sandbox);
 for (const name of [
   'consumeEarlyBridgeFailureNotice',
+  'weav3rCaptureIdentityMismatch',
   'returnToTornWithPriceCaptureFailure',
   'createWeav3rCaptureResult',
   'goBackToTornWithWeav3rCapture',
@@ -225,29 +225,22 @@ function runNextTimer() {
 request = {
   type: 'request',
   autoReturn: true,
-  trader: { traderId: 'weaver', userId: 3840107, name: 'Weaver' },
+  trader: { traderId: 'queued-trader', userId: 910000001, name: 'Queued Trader' },
   returnUrl: 'https://www.torn.com/index.php',
 };
-identity = { traderId: 'weaver', userId: 1853324, name: 'Korrvack' };
-mismatch = {
-  expectedName: 'Weaver',
-  actualName: 'Korrvack',
-  expectedUserId: 3840107,
-  actualUserId: 1853324,
-  reason: 'Saved URL points to Torn ID 1853324, not 3840107.',
-};
+identity = { traderId: 'queued-trader', userId: 910000002, name: 'Wrong Trader' };
 parsedItems = [];
 queue = {
   entries: [
-    { traderId: 'weaver', traderName: 'Weaver', userId: 3840107 },
-    { traderId: 'frosty', traderName: 'Frosty', userId: 3934207 },
+    { traderId: 'queued-trader', traderName: 'Queued Trader', userId: 910000001 },
+    { traderId: 'next-trader', traderName: 'Next Trader', userId: 910000003 },
   ],
   cursor: 0,
   completed: [],
   failed: [],
   status: 'launched',
-  currentTraderId: 'weaver',
-  currentTraderName: 'Weaver',
+  currentTraderId: 'queued-trader',
+  currentTraderName: 'Queued Trader',
   lastError: '',
 };
 setRequestBridge();
@@ -261,12 +254,12 @@ assert.equal(bridgeWrites.filter((entry) => entry.type === 'result').length, 0, 
 assert.equal(traderStoreWrites.length, 0, 'mismatch must not write trader prices');
 
 const notice = sandbox.consumeEarlyBridgeFailureNotice();
-assert.equal(notice.expectedTraderId, 'weaver');
+assert.equal(notice.expectedTraderId, 'queued-trader');
 assert.equal(sandbox.window.name, '', 'failure bridge should be consumed after returning to Torn');
 sandbox.continueFavoriteCaptureCarousel(notice);
 
 assert.equal(savedQueue.cursor, 1, 'failed entry should advance exactly once');
-assert.deepEqual(savedQueue.failed, ['Weaver']);
+assert.deepEqual(savedQueue.failed, ['Queued Trader']);
 assert.equal(savedQueue.status, 'ready');
 assert.equal(savedQueue.currentTraderId, '');
 assert.equal(savedQueue.currentTraderName, '');
@@ -274,14 +267,14 @@ assert.equal(continuationCount, 1, 'next queued trader should be scheduled');
 
 sandbox.continueFavoriteCaptureCarousel(notice);
 assert.equal(savedQueue.cursor, 1, 'replayed failure notice must not advance the next trader');
-assert.deepEqual(savedQueue.failed, ['Weaver'], 'failed trader should be recorded once');
+assert.deepEqual(savedQueue.failed, ['Queued Trader'], 'failed trader should be recorded once');
 assert.equal(savedQueue.status, 'ready', 'persisted queue must not reload as stranded/launched');
 
 assignments.length = 0;
 bridgeWrites.length = 0;
 timers.length = 0;
-identity = { traderId: 'weaver', userId: 3840107, name: 'Weaver' };
-mismatch = null;
+identity = { traderId: 'queued-trader', userId: 910000001, name: 'Queued Trader' };
+sandbox.location.href = 'https://weav3r.dev/pricelist/910000001';
 parsedItems = [];
 setRequestBridge();
 sandbox.scheduleWeav3rCaptureScan(0);
@@ -290,7 +283,7 @@ assert.equal(assignments.length, 0, 'matching page with zero prices must wait in
 assert.equal(readBridge()?.type, 'request', 'matching zero-price scan must preserve its request bridge');
 assert.equal(bridgeWrites.length, 0, 'matching zero-price scan must not create a result');
 
-parsedItems = [{ itemId: 258, itemName: 'Crocus', unitPrice: 1000 }];
+parsedItems = [{ itemId: 1, itemName: 'Fixture Item', unitPrice: 1000 }];
 sandbox.scheduleWeav3rCaptureScan(0);
 runNextTimer();
 assert.equal(readBridge()?.type, 'result', 'matching page with prices should create a result bridge');
