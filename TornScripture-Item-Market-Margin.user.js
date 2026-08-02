@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.28
+// @version      0.19.29
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.28' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.28' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.29' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.29' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.28
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.29
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.28',
+    version: '0.19.29',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -9291,6 +9291,14 @@
     const index = state.ledger.lots.findIndex((lot) => lot.id === id);
     if (index < 0) return;
     const existing = state.ledger.lots[index];
+    const allocationSummary = lotAllocationSummary(existing.id);
+    if (allocationSummary.quantity > 0) {
+      alert(
+        `${existing.itemName} is linked to ${formatInteger(allocationSummary.quantity)} sold item${allocationSummary.quantity === 1 ? '' : 's'} across ${formatInteger(allocationSummary.sales)} sale${allocationSummary.sales === 1 ? '' : 's'}.\n\n`
+        + 'Editing this purchase lot could change or orphan its saved FIFO cost basis. The accounting record is locked; Funding can still be changed separately.'
+      );
+      return;
+    }
     const updated = promptLedgerLot(existing);
     if (!updated) return;
     updated.id = existing.id;
@@ -9373,7 +9381,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function deleteLedgerLot(id) {
     const lot = state.ledger.lots.find((entry) => entry.id === id);
-    if (!lot || !confirm(`Delete the recorded purchase of ${lot.quantity}× ${lot.itemName}?`)) return;
+    if (!lot) return;
+    const allocationSummary = lotAllocationSummary(lot.id);
+    if (allocationSummary.quantity > 0) {
+      alert(
+        `${lot.itemName} is linked to ${formatInteger(allocationSummary.quantity)} sold item${allocationSummary.quantity === 1 ? '' : 's'} across ${formatInteger(allocationSummary.sales)} sale${allocationSummary.sales === 1 ? '' : 's'}.\n\n`
+        + 'Deleting it would orphan the sale and receipt history, so this accounting record is locked.'
+      );
+      return;
+    }
+    if (!confirm(`Delete the recorded purchase of ${lot.quantity}× ${lot.itemName}?`)) return;
     state.ledger.lots = state.ledger.lots.filter((entry) => entry.id !== id);
     saveLedger();
     renderLedger();
@@ -9733,6 +9750,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return entries;
   }
 
+  function lotAllocationSummary(lotId) {
+    const entries = saleAllocationsForLot(lotId);
+    return {
+      allocations: entries.length,
+      quantity: entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity) || 0), 0),
+      sales: new Set(entries.map((entry) => entry.sale?.id).filter(Boolean)).size,
+    };
+  }
+
   function ledgerLotHtml(lot) {
     const soldQuantity = Math.max(0, Number(lot.quantity || 0) - Number(lot.remainingQuantity || 0));
     const remaining = Math.max(0, Number(lot.remainingQuantity || 0));
@@ -9746,6 +9772,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Unknown date';
     })();
     const status = remaining > 0 ? (soldQuantity > 0 ? 'partial' : 'open') : 'sold';
+    const allocationSummary = lotAllocationSummary(lot.id);
+    const allocationLocked = allocationSummary.quantity > 0;
+    const historyLabel = allocationLocked
+      ? ` · ${formatInteger(allocationSummary.quantity)} linked to ${formatInteger(allocationSummary.sales)} sale${allocationSummary.sales === 1 ? '' : 's'}`
+      : '';
     const currentProfitText = remaining <= 0
       ? 'Sold out'
       : currentProfit === null
@@ -9767,11 +9798,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <span>Possible profit now${remaining > 0 ? ' on remaining' : ''}</span><strong class="${currentClass}">${escapeHtml(currentProfitText)}</strong>
         </div>
         <div class="tsimm-ledger-lot-foot">
-          <small>${escapeHtml(when)}</small>
+          <small>${escapeHtml(when + historyLabel)}</small>
           <div>
             <button type="button" data-tsimm-action="ledger-funding-edit" data-tsimm-lot-id="${escapeHtml(lot.id)}">Funding</button>
-            <button type="button" data-tsimm-action="ledger-edit" data-tsimm-lot-id="${escapeHtml(lot.id)}">Edit</button>
-            <button type="button" data-tsimm-action="ledger-delete" data-tsimm-lot-id="${escapeHtml(lot.id)}">Delete</button>
+            <button type="button" data-tsimm-action="ledger-edit" data-tsimm-lot-id="${escapeHtml(lot.id)}" ${allocationLocked ? 'disabled title="Locked because this lot supplies saved sale history"' : ''}>Edit</button>
+            <button type="button" data-tsimm-action="ledger-delete" data-tsimm-lot-id="${escapeHtml(lot.id)}" ${allocationLocked ? 'disabled title="Locked because this lot supplies saved sale history"' : ''}>Delete</button>
           </div>
         </div>
       </article>
@@ -12600,6 +12631,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       sanitizePurchaseSignalText,
       scrubItemMarketPurchaseNotes,
       normalizeLedger,
+      analyzeLedgerIntegrity,
       normalizeLedgerInventoryStrategy,
       museumInventoryStrategyPlan,
       normalizeSaleRecord,
@@ -12653,6 +12685,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       linkRecordedSalesToTrader,
       optionalFiniteNumber,
       buildLedgerLot,
+      saleAllocationsForLot,
+      lotAllocationSummary,
+      ledgerLotHtml,
+      editLedgerLot,
+      deleteLedgerLot,
       normalizePendingPurchases,
       pendingPurchaseById,
       pendingPurchaseFingerprint,
@@ -14630,3 +14667,4 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 })();
   }
 
+})();
