@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.24
+// @version      0.19.25
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.24' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.24' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.25' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.25' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.24
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.25
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.24',
+    version: '0.19.25',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -11162,7 +11162,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   const TRADER_BOOK_DECORATION_SELECTOR = '#tsimm-turnover-preset-panel,#tsimm-favorite-capture-carousel';
   // TornPDA may commit native <details> activation after the click microtask.
-  // One bounded owner waits for that toggle and for the watchlist API to exist.
+  // One bounded owner waits for that toggle or Detailed decoration readiness.
   const TRADER_BOOK_DECORATION_RETRY_DELAY_MS = 125;
   const TRADER_BOOK_DECORATION_RETRY_MAX_MS = 4500;
   const TRADER_BOOK_DECORATION_RETRY_MAX_ATTEMPTS = 37;
@@ -11229,12 +11229,20 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return traderBookDecorationHost(overlay, generation) === host;
   }
 
+  function traderBookDecorationContextValid(context) {
+    if (context?.mode === 'compact') return traderBookCompactDecorationContextValid(context);
+    const { overlay, host, generation } = context || {};
+    if (context?.mode !== 'detailed' || !overlay || document.getElementById(APP.traderOverlayId) !== overlay) return false;
+    if (!host?.isConnected || host.parentElement !== overlay.querySelector('.tsimm-trader-book-detailed')) return false;
+    return traderBookDecorationHost(overlay, generation) === host;
+  }
+
   function scheduleTraderBookDecorationRetry(context, delay) {
     context.timer = setTimeout(() => runTraderBookDecorationRetry(context), delay);
   }
 
   function runTraderBookDecorationRetry(context) {
-    if (traderBookDecorationRetry !== context || !traderBookCompactDecorationContextValid(context)) {
+    if (traderBookDecorationRetry !== context || !traderBookDecorationContextValid(context)) {
       if (traderBookDecorationRetry === context) cancelTraderBookDecorationRetry();
       return;
     }
@@ -11250,7 +11258,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       try {
         decorate(context.generation);
       } catch (error) {
-        console.error('[TornScripture IMM] Compact Trader Book decoration attempt failed:', error);
+        console.error('[TornScripture IMM] Trader Book decoration attempt failed:', error);
       }
     }
     if (traderBookDecorationsMounted(context.host)) {
@@ -11266,11 +11274,17 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function startTraderBookDecorationRetry(overlay, tools, host, generation) {
     cancelTraderBookDecorationRetry();
+    const shell = overlay?.querySelector?.('.tsimm-trader-book-shell');
+    const mode = shell?.classList?.contains('tsimm-trader-book-compact')
+      ? 'compact'
+      : shell?.classList?.contains('tsimm-trader-book-detailed') ? 'detailed' : '';
+    if (!mode) return null;
     const context = {
       overlay,
       tools,
       host,
       generation,
+      mode,
       startedAt: Date.now(),
       attempts: 0,
       timer: null,
@@ -11370,6 +11384,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         window.__TSIMM_WATCHLIST_API__?.decorateBook?.(renderGeneration);
       } catch (error) {
         console.error('[TornScripture IMM] Favorite Trader Book decoration failed:', error);
+      }
+      const host = traderBookDecorationHost(overlay, renderGeneration);
+      if (mode === 'detailed' && host && !traderBookDecorationsMounted(host)) {
+        startTraderBookDecorationRetry(overlay, null, host, renderGeneration);
       }
     }, 0);
   }
@@ -12470,6 +12488,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       traderBookDecorationHost,
       traderBookDecorationsMounted,
       traderBookCompactDecorationContextValid,
+      traderBookDecorationContextValid,
       runTraderBookDecorationRetry,
       startTraderBookDecorationRetry,
       cancelTraderBookDecorationRetry,
@@ -14219,6 +14238,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const favorites = favoriteStore();
     renderTurnoverPresetPanel(host);
     renderFavoriteCaptureCarousel(host, traders, favorites);
+    const turnoverPanel = host.querySelector(`#${A.turnoverPanel}`);
+    const priceControl = host.querySelector(`#${A.carousel}`);
+    if (turnoverPanel && priceControl
+      && (host.firstElementChild !== turnoverPanel || turnoverPanel.nextElementSibling !== priceControl)) {
+      host.prepend(turnoverPanel, priceControl);
+    }
     for (const card of book.querySelectorAll('.tsimm-trader-card')) {
       const trader = cardTrader(card, traders);
       let button = card.querySelector('[data-watch-favorite-book]');
