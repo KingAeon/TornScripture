@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.27
+// @version      0.19.28
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.27' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.27' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.28' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.28' });
   }
 
 
@@ -267,7 +267,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.27
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.28
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -287,7 +287,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.27',
+    version: '0.19.28',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -507,6 +507,7 @@
   }
 
   const initialTraderView = normalizeTraderView(loadJson(APP.traderViewStorageKey, {}));
+  const initialPendingPurchases = normalizePendingPurchases(loadJson(APP.pendingPurchaseStorageKey, null));
 
   const state = {
     settings: normalizeSettings(loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS)),
@@ -525,7 +526,8 @@
       renderGeneration: 0,
     },
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
-    pendingPurchase: normalizePendingPurchase(loadJson(APP.pendingPurchaseStorageKey, null)),
+    pendingPurchases: initialPendingPurchases,
+    pendingPurchase: initialPendingPurchases[initialPendingPurchases.length - 1] || null,
     purchaseSignals: [],
     quickMaxOverrideArmed: false,
     quickMaxBusy: false,
@@ -3434,14 +3436,60 @@
     };
   }
 
+  function normalizePendingPurchases(raw) {
+    const candidates = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.purchases)
+        ? raw.purchases
+        : raw
+          ? [raw]
+          : [];
+    const seen = new Set();
+    return candidates
+      .map(normalizePendingPurchase)
+      .filter((pending) => {
+        if (!pending || seen.has(pending.id)) return false;
+        seen.add(pending.id);
+        return true;
+      });
+  }
+
+  function pendingPurchaseQueue() {
+    if (!Array.isArray(state.pendingPurchases)) state.pendingPurchases = [];
+    if (state.pendingPurchase?.id
+      && !state.pendingPurchases.some((pending) => pending.id === state.pendingPurchase.id)) {
+      state.pendingPurchases.push(state.pendingPurchase);
+    }
+    return state.pendingPurchases;
+  }
+
+  function pendingPurchaseById(pendingId = '') {
+    const normalizedId = normalizeWhitespace(pendingId);
+    if (!normalizedId) {
+      const queue = pendingPurchaseQueue();
+      return state.pendingPurchase || queue[queue.length - 1] || null;
+    }
+    return pendingPurchaseQueue().find((pending) => pending.id === normalizedId) || null;
+  }
+
   function saveLedger() {
     state.ledger.updatedAt = new Date().toISOString();
     saveJson(APP.ledgerStorageKey, state.ledger);
   }
 
   function savePendingPurchase() {
-    if (state.pendingPurchase) saveJson(APP.pendingPurchaseStorageKey, state.pendingPurchase);
-    else localStorage.removeItem(APP.pendingPurchaseStorageKey);
+    const queue = pendingPurchaseQueue();
+    if (!queue.length) {
+      state.pendingPurchase = null;
+      localStorage.removeItem(APP.pendingPurchaseStorageKey);
+      return;
+    }
+    if (!state.pendingPurchase || !queue.some((pending) => pending.id === state.pendingPurchase.id)) {
+      state.pendingPurchase = queue[queue.length - 1];
+    }
+    saveJson(APP.pendingPurchaseStorageKey, queue.length === 1
+      ? queue[0]
+      : { schemaVersion: 2, purchases: queue });
   }
 
   function ledgerSummary() {
@@ -3819,32 +3867,39 @@
   }
 
   function finishPendingPurchaseCommit(pending, fingerprint) {
-    if (!pending || state.pendingPurchase?.id !== pending.id) return;
+    if (!pending) return;
     if (fingerprint && !hasRecentPurchaseFingerprint(fingerprint)) {
       rememberPurchaseFingerprint(fingerprint);
     }
-    state.pendingPurchase = null;
+    state.pendingPurchases = pendingPurchaseQueue().filter((candidate) => candidate.id !== pending.id);
+    if (state.pendingPurchase?.id === pending.id) {
+      state.pendingPurchase = state.pendingPurchases[state.pendingPurchases.length - 1] || null;
+    }
     savePendingPurchase();
     activePendingTraderCapture();
     renderPanel();
   }
 
   function reconcileCommittedPendingPurchase() {
-    const pending = state.pendingPurchase;
-    const lot = committedLotForPendingPurchase(pending);
-    if (!pending || !lot) return null;
-    finishPendingPurchaseCommit(pending, pendingPurchaseFingerprint(pending));
-    recordPurchaseSignal(
-      'duplicate-suppressed',
-      'startup-recovery',
-      'Recovered an already committed pending purchase.',
-      pending.purchaseUrl,
-    );
-    return lot;
+    let recoveredLot = null;
+    for (const pending of [...pendingPurchaseQueue()]) {
+      const lot = committedLotForPendingPurchase(pending);
+      if (!lot) continue;
+      finishPendingPurchaseCommit(pending, pendingPurchaseFingerprint(pending));
+      recordPurchaseSignal(
+        'duplicate-suppressed',
+        'startup-recovery',
+        'Recovered an already committed pending purchase.',
+        pending.purchaseUrl,
+        pending.id,
+      );
+      recoveredLot ||= lot;
+    }
+    return recoveredLot;
   }
 
-  function commitPendingPurchase(captureMethod = 'detected-success', signal = '') {
-    const pending = state.pendingPurchase;
+  function commitPendingPurchase(captureMethod = 'detected-success', signal = '', pendingId = '') {
+    const pending = pendingPurchaseById(pendingId);
     if (!pending) return null;
     const fingerprint = pendingPurchaseFingerprint(pending);
     const committedLot = committedLotForPendingPurchase(pending);
@@ -3868,8 +3923,13 @@
     return lot;
   }
 
-  function discardPendingPurchase(message = 'Pending purchase discarded.') {
-    state.pendingPurchase = null;
+  function discardPendingPurchase(message = 'Pending purchase discarded.', pendingId = '') {
+    const pending = pendingPurchaseById(pendingId);
+    if (!pending) return;
+    state.pendingPurchases = pendingPurchaseQueue().filter((candidate) => candidate.id !== pending.id);
+    if (state.pendingPurchase?.id === pending.id) {
+      state.pendingPurchase = state.pendingPurchases[state.pendingPurchases.length - 1] || null;
+    }
     savePendingPurchase();
     renderPanel();
     toast(message);
@@ -8372,8 +8432,11 @@
   }
 
   function clearQuickMaxPendingSilently(pendingId) {
-    if (!pendingId || state.pendingPurchase?.id !== pendingId) return;
-    state.pendingPurchase = null;
+    if (!pendingId || !pendingPurchaseById(pendingId)) return;
+    state.pendingPurchases = pendingPurchaseQueue().filter((pending) => pending.id !== pendingId);
+    if (state.pendingPurchase?.id === pendingId) {
+      state.pendingPurchase = state.pendingPurchases[state.pendingPurchases.length - 1] || null;
+    }
     savePendingPurchase();
     renderPanel();
   }
@@ -8830,7 +8893,7 @@
     const catalog = catalogItemFor(parsed.itemName, itemId);
     const itemName = catalog?.name || resolution.itemName || parsed.itemName;
     const marketValue = Number(catalog?.marketPrice || resolution.value || 0);
-    state.pendingPurchase = {
+    const pending = {
       id: createId('pending'),
       itemId: catalog?.id || itemId || null,
       itemName,
@@ -8846,19 +8909,24 @@
       purchaseUrl: location.href,
       confirmationText: sanitizePurchaseSignalText(parsed.confirmationText),
     };
+    state.pendingPurchases = pendingPurchaseQueue()
+      .filter((candidate) => candidate.id !== pending.id)
+      .concat(pending);
+    state.pendingPurchase = pending;
     savePendingPurchase();
-    recordPurchaseSignal('pending', 'click', parsed.confirmationText, location.href);
+    recordPurchaseSignal('pending', 'click', parsed.confirmationText, location.href, pending.id);
     renderPanel();
+    return pending;
   }
 
-  function recordPurchaseSignal(type, source, snippet = '', url = '') {
+  function recordPurchaseSignal(type, source, snippet = '', url = '', pendingId = '') {
     state.purchaseSignals.unshift({
       at: new Date().toISOString(),
       type,
       source,
       snippet: sanitizePurchaseSignalText(snippet).slice(0, 360),
       url: normalizeWhitespace(url).slice(0, 300),
-      pendingId: state.pendingPurchase?.id || null,
+      pendingId: normalizeWhitespace(pendingId) || state.pendingPurchase?.id || null,
     });
     state.purchaseSignals = state.purchaseSignals.slice(0, 20);
   }
@@ -8919,7 +8987,7 @@
     saveJson(APP.recentPurchaseFingerprintsStorageKey, state.recentPurchaseFingerprints);
   }
 
-  function capturePurchaseDirectlyFromSuccessText(value, source = 'dom-success-fallback', url = '') {
+  function capturePurchaseDirectlyFromSuccessText(value, source = 'dom-success-fallback', url = '', pendingId = '') {
     const overseas = pageLooksLikeOverseasShop();
     if (!pageLooksLikeItemMarket() && !overseas) return null;
     const parsed = parsePurchaseSuccessText(value);
@@ -8929,14 +8997,19 @@
     const resolvedItemId = catalog?.id || locationItemId || null;
     const fingerprint = purchaseFingerprint(parsed, resolvedItemId);
 
-    if (state.pendingPurchase) {
-      const pendingMatches = normalizeName(state.pendingPurchase.itemName) === normalizeName(parsed.itemName)
-        && Number(state.pendingPurchase.quantity) === Number(parsed.quantity)
-        && Math.round(Number(state.pendingPurchase.totalCost)) === Math.round(Number(parsed.totalCost));
-      if (pendingMatches) {
-        recordPurchaseSignal('success', source, parsed.successText, url);
-        return commitPendingPurchase(source, parsed.successText);
-      }
+    const exactPending = pendingId ? pendingPurchaseById(pendingId) : null;
+    const matchingPending = exactPending || pendingPurchaseQueue().find((pending) => (
+      normalizeName(pending.itemName) === normalizeName(parsed.itemName)
+        && Number(pending.quantity) === Number(parsed.quantity)
+        && Math.round(Number(pending.totalCost)) === Math.round(Number(parsed.totalCost))
+    ));
+    const pendingMatches = matchingPending
+      && normalizeName(matchingPending.itemName) === normalizeName(parsed.itemName)
+      && Number(matchingPending.quantity) === Number(parsed.quantity)
+      && Math.round(Number(matchingPending.totalCost)) === Math.round(Number(parsed.totalCost));
+    if (pendingMatches) {
+      recordPurchaseSignal('success', source, parsed.successText, url, matchingPending.id);
+      return commitPendingPurchase(source, parsed.successText, matchingPending.id);
     }
 
     if (hasRecentPurchaseFingerprint(fingerprint)) {
@@ -8977,28 +9050,35 @@
     return /\b(?:you\s+(?:have\s+)?(?:successfully\s+)?(?:bought|purchased)|successfully\s+(?:bought|purchased)|purchase\s+(?:was\s+)?(?:successful|completed)|items?\s+(?:were|have been)\s+(?:bought|purchased)|bought\s+[\d,]+\s*x)\b/i.test(value);
   }
 
-  function inspectPurchaseSignal(value, source = 'dom', url = '') {
+  function inspectPurchaseSignal(value, source = 'dom', url = '', pendingId = '') {
     const text = normalizeWhitespace(value);
     if (!text) return;
-    const directCapture = capturePurchaseDirectlyFromSuccessText(text, source === 'dom' ? 'dom-success-fallback' : source, url);
-    if (directCapture || !state.pendingPurchase) return;
+    const directCapture = capturePurchaseDirectlyFromSuccessText(text, source === 'dom' ? 'dom-success-fallback' : source, url, pendingId);
+    const pending = pendingPurchaseById(pendingId);
+    if (directCapture || !pending) return;
+    if (!pendingId && pendingPurchaseQueue().length > 1) {
+      recordPurchaseSignal('ambiguous', source, text, url);
+      return;
+    }
     if (purchaseFailurePattern(text)) {
-      recordPurchaseSignal('failure', source, text, url);
-      discardPendingPurchase('Purchase was not recorded because Torn reported a failure.');
+      recordPurchaseSignal('failure', source, text, url, pending.id);
+      if (pendingId || pendingPurchaseQueue().length === 1) {
+        discardPendingPurchase('Purchase was not recorded because Torn reported a failure.', pending.id);
+      }
       return;
     }
     if (purchaseSuccessPattern(text)) {
-      recordPurchaseSignal('success', source, text, url);
-      commitPendingPurchase(`${source}-success`, text);
+      recordPurchaseSignal('success', source, text, url, pending.id);
+      commitPendingPurchase(`${source}-success`, text, pending.id);
     }
   }
 
-  function inspectPurchasePayload(payload, source, url) {
-    if (!state.pendingPurchase || payload === null || payload === undefined) return;
+  function inspectPurchasePayload(payload, source, url, pendingId = '') {
+    if (!pendingPurchaseById(pendingId) || payload === null || payload === undefined) return;
     if (typeof payload === 'string') {
-      inspectPurchaseSignal(payload, source, url);
+      inspectPurchaseSignal(payload, source, url, pendingId);
       try {
-        inspectPurchasePayload(JSON.parse(payload), source, url);
+        inspectPurchasePayload(JSON.parse(payload), source, url, pendingId);
       } catch {
         // Non-JSON responses are still checked as text above.
       }
@@ -9009,8 +9089,9 @@
     const message = normalizeWhitespace(
       payload.message ?? payload.text ?? payload.msg ?? payload.error?.error ?? payload.error
     );
-    if (message) inspectPurchaseSignal(message, source, url);
-    if (!state.pendingPurchase) return;
+    if (message) inspectPurchaseSignal(message, source, url, pendingId);
+    const pending = pendingPurchaseById(pendingId);
+    if (!pending) return;
 
     const status = normalizeWhitespace(payload.status ?? payload.result).toLowerCase();
     const explicitFailure = payload.success === false
@@ -9018,8 +9099,8 @@
       || Boolean(payload.error && payload.error !== false)
       || ['error', 'failed', 'failure'].includes(status);
     if (explicitFailure) {
-      recordPurchaseSignal('failure', source, message || status || 'Explicit failure response', url);
-      discardPendingPurchase('Purchase was not recorded because Torn rejected it.');
+      recordPurchaseSignal('failure', source, message || status || 'Explicit failure response', url, pending.id);
+      discardPendingPurchase('Purchase was not recorded because Torn rejected it.', pending.id);
       return;
     }
 
@@ -9027,8 +9108,8 @@
       || payload.ok === true
       || ['success', 'successful', 'ok', 'completed'].includes(status);
     if (explicitSuccess) {
-      recordPurchaseSignal('success', source, message || status || 'Explicit success response', url);
-      commitPendingPurchase(`${source}-success`, message || status || 'success=true');
+      recordPurchaseSignal('success', source, message || status || 'Explicit success response', url, pending.id);
+      commitPendingPurchase(`${source}-success`, message || status || 'success=true', pending.id);
     }
   }
 
@@ -9054,9 +9135,9 @@
           const requestUrl = String(args[0]?.url || args[0] || location.href);
           const pendingIdAtStart = state.pendingPurchase?.id || null;
           const response = await originalFetch.apply(this, args);
-          if (pendingIdAtStart && pendingIdAtStart === state.pendingPurchase?.id && relevantPurchaseRequest(requestUrl)) {
+          if (pendingIdAtStart && pendingPurchaseById(pendingIdAtStart) && relevantPurchaseRequest(requestUrl)) {
             response.clone().text()
-              .then((body) => inspectPurchasePayload(body, 'fetch', requestUrl))
+              .then((body) => inspectPurchasePayload(body, 'fetch', requestUrl, pendingIdAtStart))
               .catch(() => {});
           }
           return response;
@@ -9080,10 +9161,10 @@
         const wrappedSend = function(...args) {
           const pendingIdAtStart = state.pendingPurchase?.id || null;
           this.addEventListener('load', () => {
-            if (!pendingIdAtStart || pendingIdAtStart !== state.pendingPurchase?.id) return;
+            if (!pendingIdAtStart || !pendingPurchaseById(pendingIdAtStart)) return;
             if (!relevantPurchaseRequest(this.__tsimmUrl)) return;
             try {
-              inspectPurchasePayload(this.responseText, 'xhr', this.__tsimmUrl);
+              inspectPurchasePayload(this.responseText, 'xhr', this.__tsimmUrl, pendingIdAtStart);
             } catch {
               // Some response types do not expose responseText.
             }
@@ -11482,20 +11563,20 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function pendingPurchaseHtml() {
-    const pending = state.pendingPurchase;
-    if (!pending) return '';
-    return `
+    const pending = pendingPurchaseQueue();
+    if (!pending.length) return '';
+    return pending.map((purchase, index) => `
       <div class="tsimm-pending-card">
-        <strong>Pending purchase capture</strong>
-        <span>${escapeHtml(pending.itemName)} × ${formatInteger(pending.quantity)}</span>
-        <span>${formatMoney(pending.unitCost)} each · ${formatMoney(pending.totalCost)} total</span>
+        <strong>Pending purchase capture${pending.length > 1 ? ` ${index + 1}/${pending.length}` : ''}</strong>
+        <span>${escapeHtml(purchase.itemName)} × ${formatInteger(purchase.quantity)}</span>
+        <span>${formatMoney(purchase.unitCost)} each · ${formatMoney(purchase.totalCost)} total</span>
         <small>Waiting for Torn's success response. Use Record only if the purchase completed but automatic confirmation was missed.</small>
         <div>
-          <button type="button" data-tsimm-action="pending-record">Record completed</button>
-          <button type="button" data-tsimm-action="pending-discard">Discard</button>
+          <button type="button" data-tsimm-action="pending-record" data-tsimm-pending-id="${escapeHtml(purchase.id)}">Record completed</button>
+          <button type="button" data-tsimm-action="pending-discard" data-tsimm-pending-id="${escapeHtml(purchase.id)}">Discard</button>
         </div>
       </div>
-    `;
+    `).join('');
   }
 
 
@@ -12258,9 +12339,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           toast('Purchase ledger cleared.');
         }
       } else if (action === 'pending-record') {
-        commitPendingPurchase('manual-confirmation', 'User confirmed the completed purchase.');
+        commitPendingPurchase('manual-confirmation', 'User confirmed the completed purchase.', button.dataset.tsimmPendingId);
       } else if (action === 'pending-discard') {
-        discardPendingPurchase();
+        discardPendingPurchase('Pending purchase discarded.', button.dataset.tsimmPendingId);
       }
     }, true);
     document.addEventListener('change', (event) => {
@@ -12572,6 +12653,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       linkRecordedSalesToTrader,
       optionalFiniteNumber,
       buildLedgerLot,
+      normalizePendingPurchases,
+      pendingPurchaseById,
       pendingPurchaseFingerprint,
       committedLotForPendingPurchase,
       reconcileCommittedPendingPurchase,
@@ -14547,4 +14630,3 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 })();
   }
 
-})();
