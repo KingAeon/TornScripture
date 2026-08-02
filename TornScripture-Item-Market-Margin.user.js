@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.31
+// @version      0.19.32
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.31' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.31' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.32' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.32' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.31
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.32
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -342,7 +342,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.31',
+    version: '0.19.32',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -1527,7 +1527,10 @@
       renderWeav3rCapturePanel();
       const request = captureRequestFromWeav3rPage();
       const bridged = readPriceBridgeWindowName();
-      if (request?.autoReturn && items.length && bridged?.type !== 'result' && bridged?.type !== 'failure') {
+      if (request?.autoReturn
+        && (state.weav3rCapturePreview.mismatch || items.length)
+        && bridged?.type !== 'result'
+        && bridged?.type !== 'failure') {
         goBackToTornWithWeav3rCapture({ automatic: true });
       }
     }, Math.max(0, Number(delay) || 0));
