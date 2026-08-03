@@ -1,0 +1,60 @@
+name: Verify Black Ledger API trade recovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .ci/run-ledger-api-recovery-v2.txt
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main tooling
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Preserve patch script and switch to ledger branch
+        run: |
+          cp scripts/apply_imm_v01937_api_trade_recovery.py /tmp/apply_imm_v01937_api_trade_recovery.py
+          git fetch origin agent/ledger-trade-finality
+          git checkout -B agent/ledger-trade-finality origin/agent/ledger-trade-finality
+
+      - name: Apply API recovery patch
+        run: python /tmp/apply_imm_v01937_api_trade_recovery.py
+
+      - name: Run focused and protected regressions
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          node --check tests/imm-trade-api-recovery.test.js
+          node --check tests/imm-trade-finality.test.js
+          node tests/imm-trade-api-recovery.test.js
+          node tests/imm-trade-finality.test.js
+          node tests/imm-carousel-identity-precedence.test.js
+          node tests/imm-carousel-zero-price-mismatch.test.js
+          node tests/imm-inventory-sales-hud-core.test.js
+          git diff --check
+          test "$(grep -o '0\.19\.37' TornScripture-Item-Market-Margin.user.js | wc -l)" -eq 5
+          test "$(grep -o 'new MutationObserver' TornScripture-Item-Market-Margin.user.js | wc -l)" -eq "$(git show HEAD:TornScripture-Item-Market-Margin.user.js | grep -o 'new MutationObserver' | wc -l)"
+          test "$(grep -o 'setInterval(' TornScripture-Item-Market-Margin.user.js | wc -l)" -eq "$(git show HEAD:TornScripture-Item-Market-Margin.user.js | grep -o 'setInterval(' | wc -l)"
+          test "$(grep -o 'setTimeout(' TornScripture-Item-Market-Margin.user.js | wc -l)" -eq "$(git show HEAD:TornScripture-Item-Market-Margin.user.js | grep -o 'setTimeout(' | wc -l)"
+          before_listeners="$(git show HEAD:TornScripture-Item-Market-Margin.user.js | grep -o 'addEventListener(' | wc -l)"
+          after_listeners="$(grep -o 'addEventListener(' TornScripture-Item-Market-Margin.user.js | wc -l)"
+          test "$after_listeners" -eq "$((before_listeners - 1))"
+          before_storage="$(git show HEAD:TornScripture-Item-Market-Margin.user.js | grep -o 'StorageKey:' | wc -l)"
+          after_storage="$(grep -o 'StorageKey:' TornScripture-Item-Market-Margin.user.js | wc -l)"
+          test "$after_storage" -eq "$before_storage"
+
+      - name: Commit verified branch
+        run: |
+          git config user.name 'TornScripture verifier'
+          git config user.email 'actions@users.noreply.github.com'
+          git add TornScripture-Item-Market-Margin.user.js tests/imm-trade-api-recovery.test.js
+          git add -u tests/imm-trade-preaccept.test.js
+          git commit -m 'Recover completed trades through Torn API v2'
+          git push origin HEAD:agent/ledger-trade-finality
