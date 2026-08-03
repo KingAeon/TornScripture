@@ -1,1 +1,2 @@
 Run the proven path-triggered Black Ledger API recovery verifier.
+Synchronize after the workflow is present on main.
