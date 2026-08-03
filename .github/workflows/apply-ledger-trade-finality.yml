@@ -1,0 +1,310 @@
+name: Apply ledger trade finality patch
+
+on:
+  push:
+    branches:
+      - agent/ledger-trade-finality
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/ledger-trade-finality
+          fetch-depth: 2
+
+      - name: Apply focused patch and fixture
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script_path = Path('TornScripture-Item-Market-Margin.user.js')
+          source = script_path.read_text(encoding='utf-8')
+
+          old_function = r'''  function tradeCompletionState() {
+            const hash = String(location.hash || '');
+            if (/(?:^|[&#])step=logview(?:&|$)/i.test(hash)) {
+              return { completed: true, source: 'trade log page' };
+            }
+            const text = normalizeWhitespace(document.body?.innerText || '');
+            const patterns = [
+              /\bthe trade (?:has been|was) successfully completed\b/i,
+              /\bthe trade (?:has been|was) completed\b/i,
+              /\bthe trade was accepted by both parties\b/i,
+              /\btrade completed successfully\b/i,
+            ];
+            const match = patterns.find((pattern) => pattern.test(text));
+            return match
+              ? { completed: true, source: 'completed trade message' }
+              : { completed: false, source: '' };
+          }'''
+
+          new_function = r'''  function tradeCompletionState() {
+            const hash = String(location.hash || '');
+            const onTradeLogPage = /(?:^|[&#])step=logview(?:&|$)/i.test(hash);
+            const text = normalizeWhitespace(document.body?.innerText || '');
+            const patterns = [
+              /\b(?:the|this)\s+trade\s+(?:has\s+been|was|is)\s+(?:successfully\s+)?completed\b/i,
+              /\b(?:the|this)\s+trade\s+(?:has\s+been|was|is)\s+complete\b/i,
+              /\btrade\s+(?:has\s+been|was|is)\s+(?:successfully\s+)?completed\b/i,
+              /\btrade\s+(?:has\s+been|was|is)\s+complete\b/i,
+              /\btrade\s+(?:successfully\s+)?completed\b/i,
+              /\btrade\s+complete\b/i,
+            ];
+            const match = patterns.find((pattern) => pattern.test(text));
+            if (!match) return { completed: false, source: '' };
+            return {
+              completed: true,
+              source: onTradeLogPage
+                ? 'completed trade message on trade log page'
+                : 'completed trade message',
+            };
+          }'''
+
+          if source.count(old_function) != 1:
+              raise SystemExit(f'Expected one original tradeCompletionState, found {source.count(old_function)}')
+          if source.count('0.19.33') != 5:
+              raise SystemExit(f'Expected five 0.19.33 markers, found {source.count("0.19.33")}')
+
+          source = source.replace(old_function, new_function, 1)
+          source = source.replace('0.19.33', '0.19.34')
+          script_path.write_text(source, encoding='utf-8')
+
+          test_source = r'''const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const vm = require('node:vm');
+
+          const scriptPath = process.env.TSIMM_TEST_SCRIPT
+            ? path.resolve(process.env.TSIMM_TEST_SCRIPT)
+            : path.join(__dirname, '..', 'TornScripture-Item-Market-Margin.user.js');
+          const source = fs.readFileSync(scriptPath, 'utf8');
+
+          function extractNamedFunction(name) {
+            const start = source.indexOf(`function ${name}(`);
+            assert.notEqual(start, -1, `${name} should exist in IMM`);
+            const parametersEnd = source.indexOf(')', start);
+            const bodyStart = source.indexOf('{', parametersEnd);
+            assert.notEqual(bodyStart, -1, `${name} should have a body`);
+
+            let depth = 0;
+            let quote = '';
+            let escaped = false;
+            let lineComment = false;
+            let blockComment = false;
+            for (let index = bodyStart; index < source.length; index += 1) {
+              const character = source[index];
+              const next = source[index + 1];
+              if (lineComment) {
+                if (character === '\n') lineComment = false;
+                continue;
+              }
+              if (blockComment) {
+                if (character === '*' && next === '/') {
+                  blockComment = false;
+                  index += 1;
+                }
+                continue;
+              }
+              if (quote) {
+                if (escaped) escaped = false;
+                else if (character === '\\') escaped = true;
+                else if (character === quote) quote = '';
+                continue;
+              }
+              if (character === '/' && next === '/') {
+                lineComment = true;
+                index += 1;
+                continue;
+              }
+              if (character === '/' && next === '*') {
+                blockComment = true;
+                index += 1;
+                continue;
+              }
+              if (character === "'" || character === '"' || character === '`') {
+                quote = character;
+                continue;
+              }
+              if (character === '{') depth += 1;
+              if (character === '}') {
+                depth -= 1;
+                if (depth === 0) return source.slice(start, index + 1);
+              }
+            }
+            throw new Error(`Could not extract ${name}`);
+          }
+
+          let recordedSale = null;
+          let recordCalls = 0;
+          const toasts = [];
+          const sandbox = {
+            console,
+            location: { hash: '', href: 'https://www.torn.com/trade.php#step=logview&ID=123456' },
+            document: { body: { innerText: '' } },
+            normalizeWhitespace(value) {
+              return String(value ?? '').replace(/\s+/g, ' ').trim();
+            },
+            recordedSaleForStats() {
+              return recordedSale;
+            },
+            optionalFiniteNumber(value) {
+              const number = Number(value);
+              return Number.isFinite(number) ? number : null;
+            },
+            ledgerSalePlan() {
+              return {
+                fullCoverage: true,
+                trackedQuantity: 1,
+                untrackedQuantity: 0,
+              };
+            },
+            recordTradeSale(stats, method) {
+              recordCalls += 1;
+              recordedSale = { id: 'sale-fixture', realizedProfit: 250, method };
+              return recordedSale;
+            },
+            toast(message) {
+              toasts.push(message);
+            },
+            formatMoney(value) {
+              return `$${Number(value).toLocaleString('en-US')}`;
+            },
+          };
+
+          vm.createContext(sandbox);
+          for (const name of ['tradeCompletionState', 'maybeAutoRecordCompletedTrade']) {
+            vm.runInContext(extractNamedFunction(name), sandbox, { filename: scriptPath });
+          }
+
+          function completion(hash, text) {
+            sandbox.location.hash = hash;
+            sandbox.document.body.innerText = text;
+            return sandbox.tradeCompletionState();
+          }
+
+          assert.deepEqual(
+            completion('#step=logview&ID=123456', ''),
+            { completed: false, source: '' },
+            'opening the trade log must not prove completion',
+          );
+          assert.equal(
+            completion('#step=logview&ID=123456', 'The trade was accepted by both parties.').completed,
+            false,
+            'the mutual-acceptance stage must not be treated as the final trade state',
+          );
+          assert.equal(
+            completion('#step=logview&ID=123456', 'You have accepted the trade.').completed,
+            false,
+            'the first acceptance must remain pending',
+          );
+
+          for (const message of [
+            'This trade is completed.',
+            'The trade has been successfully completed.',
+            'The trade was completed.',
+            'Trade completed successfully.',
+            'This trade is complete.',
+          ]) {
+            const result = completion('#step=logview&ID=123456', message);
+            assert.equal(result.completed, true, `${message} should prove finality`);
+            assert.equal(result.source, 'completed trade message on trade log page');
+          }
+
+          const delayedRoute = completion('#step=view&ID=123456', 'This trade is completed.');
+          assert.equal(delayedRoute.completed, true, 'the final message should survive a delayed hash transition');
+          assert.equal(delayedRoute.source, 'completed trade message');
+          assert.equal(
+            completion('#step=logview&ID=123456', 'View completed trades in your history.').completed,
+            false,
+            'navigation text about completed trades must not satisfy the finality gate',
+          );
+
+          recordedSale = null;
+          recordCalls = 0;
+          toasts.length = 0;
+          sandbox.document.body.innerText = 'The trade was accepted by both parties.';
+          const stats = {
+            pageType: 'trade',
+            tradeItems: [{ itemId: 1, name: 'Fixture Item', quantity: 1 }],
+            tradeUnmatchedItems: 0,
+            tradeNetCash: 1250,
+            notes: [],
+          };
+          assert.equal(sandbox.maybeAutoRecordCompletedTrade(stats), null);
+          assert.equal(recordCalls, 0, 'auto-record must remain dormant through mutual acceptance');
+          assert.equal(stats.tradeCompleted, false);
+
+          sandbox.document.body.innerText = 'This trade is completed.';
+          const sale = sandbox.maybeAutoRecordCompletedTrade(stats);
+          assert.equal(recordCalls, 1, 'the final message should record exactly one sale');
+          assert.equal(sale.id, 'sale-fixture');
+          assert.equal(sale.method, 'auto-completed-trade');
+          assert.equal(stats.tradeCompleted, true);
+          assert.equal(toasts.length, 1);
+
+          sandbox.maybeAutoRecordCompletedTrade(stats);
+          assert.equal(recordCalls, 1, 'an already-recorded final trade must not duplicate the sale');
+
+          console.log('IMM trade finality tests passed.');
+          '''
+          test_path = Path('tests/imm-trade-finality.test.js')
+          test_path.parent.mkdir(parents=True, exist_ok=True)
+          test_path.write_text(test_source, encoding='utf-8')
+
+          Path('.github/workflows/apply-ledger-trade-finality.yml').unlink()
+          PY
+
+      - name: Validate userscript and regression fixtures
+        shell: bash
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          node --check tests/imm-trade-finality.test.js
+          node tests/imm-trade-finality.test.js
+          node tests/imm-carousel-identity-precedence.test.js
+          node tests/imm-carousel-zero-price-mismatch.test.js
+          if [ -f tests/inventory-sales-core.test.js ]; then node tests/inventory-sales-core.test.js; fi
+          git diff --check
+          python3 - <<'PY'
+          import re
+          import subprocess
+          from pathlib import Path
+
+          current = Path('TornScripture-Item-Market-Margin.user.js').read_text(encoding='utf-8')
+          base = subprocess.check_output(
+              ['git', 'show', 'HEAD^:TornScripture-Item-Market-Margin.user.js'],
+              text=True,
+          )
+          assert current.count('0.19.34') == 5
+          assert current.count('0.19.33') == 0
+          assert current.count('function tradeCompletionState()') == 1
+          assert 'the trade was accepted by both parties' not in current[current.index('function tradeCompletionState()'):current.index('function normalizePendingTradeSale')]
+          for token in [
+              'localStorage.getItem(',
+              'localStorage.setItem(',
+              'addEventListener(',
+              'new MutationObserver(',
+              'setInterval(',
+              'setTimeout(',
+          ]:
+              assert current.count(token) == base.count(token), (token, base.count(token), current.count(token))
+          storage_pattern = re.compile(r"(?:storageKey|Key):\s*'([^']+)'", re.I)
+          assert set(storage_pattern.findall(current)) == set(storage_pattern.findall(base))
+          print('Version, owner-count, and storage-key invariants passed.')
+          PY
+
+      - name: Commit verified patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Fix completed-trade finality gate'
+          git push origin HEAD:agent/ledger-trade-finality
