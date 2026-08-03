@@ -1,1 +1,1 @@
-Capture live trade state before Torn handles an immediate acceptance click.
+Capture live trade state synchronously before Torn handles an immediate acceptance click.
