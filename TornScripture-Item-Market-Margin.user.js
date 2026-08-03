@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.35
+// @version      0.19.36
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.35' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.35' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.36' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.36' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.35
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.36
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -342,7 +342,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.35',
+    version: '0.19.36',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -12339,7 +12339,47 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (nextBody && previousBodyScroll > 0) nextBody.scrollTop = previousBodyScroll;
   }
 
+
+  function tradeAcceptanceActionLabel(label, context = '') {
+    const action = normalizeWhitespace(label);
+    if (/^(?:accept(?:\s+(?:the\s+)?trade)?|confirm(?:\s+(?:the\s+)?trade)?|finali[sz]e(?:\s+(?:the\s+)?trade)?|complete(?:\s+(?:the\s+)?trade)?)(?:\s+and\s+continue)?[.!]?$/i.test(action)) {
+      return true;
+    }
+    if (!/^yes[.!]?$/i.test(action)) return false;
+    const surrounding = normalizeWhitespace(context);
+    return /\b(?:accept(?:ed|ance)?|complete|finali[sz]e)\b.{0,120}\btrade\b/i.test(surrounding)
+      || /\btrade\b.{0,120}\b(?:accept(?:ed|ance)?|complete|finali[sz]e)\b/i.test(surrounding);
+  }
+
+  function nativeTradeAcceptanceControl(target) {
+    const control = target instanceof Element
+      ? target.closest('button,a,[role="button"],input[type="button"],input[type="submit"]')
+      : null;
+    if (!control || control.closest(immUiSelector()) || control.disabled || !visibleElement(control)) return null;
+    const label = normalizeWhitespace(
+      control.value
+      || control.textContent
+      || control.getAttribute('aria-label')
+      || control.getAttribute('title')
+    );
+    if (tradeAcceptanceActionLabel(label)) return control;
+    if (!/^yes[.!]?$/i.test(label)) return null;
+    let node = control;
+    for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+      const context = normalizeWhitespace(node.innerText || node.textContent || '');
+      if (context.length <= 3000 && tradeAcceptanceActionLabel(label, context)) return control;
+    }
+    return null;
+  }
+
+  function captureTradeSnapshotBeforeAcceptance(event) {
+    if (!pageLooksLikeTrade() || !nativeTradeAcceptanceControl(event?.target)) return false;
+    scanPage();
+    return true;
+  }
+
   function bindPanelEvents() {
+    document.addEventListener('click', captureTradeSnapshotBeforeAcceptance, true);
     document.addEventListener('click', handleQuickMaxClick, true);
     document.addEventListener('click', capturePurchaseIntentFromClick, true);
     document.addEventListener('click', capturePricedTradePickerInteraction, true);
