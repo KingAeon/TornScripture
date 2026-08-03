@@ -131,6 +131,7 @@ assert.equal(
 );
 
 for (const message of [
+  'Trade was accepted and is now complete!',
   'This trade is completed.',
   'The trade has been successfully completed.',
   'The trade was completed.',
@@ -167,7 +168,7 @@ assert.equal(sandbox.maybeAutoRecordCompletedTrade(stats), null);
 assert.equal(recordCalls, 0, 'auto-record must remain dormant through mutual acceptance');
 assert.equal(stats.tradeCompleted, false);
 
-sandbox.document.body.innerText = 'This trade is completed.';
+sandbox.document.body.innerText = 'Trade was accepted and is now complete!';
 const sale = sandbox.maybeAutoRecordCompletedTrade(stats);
 assert.equal(recordCalls, 1, 'the final message should record exactly one sale');
 assert.equal(sale.id, 'sale-fixture');

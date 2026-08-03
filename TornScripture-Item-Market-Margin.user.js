@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.34
+// @version      0.19.35
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.34' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.34' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.35' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.35' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.34
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.35
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -342,7 +342,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.34',
+    version: '0.19.35',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -4860,6 +4860,7 @@
     const onTradeLogPage = /(?:^|[&#])step=logview(?:&|$)/i.test(hash);
     const text = normalizeWhitespace(document.body?.innerText || '');
     const patterns = [
+      /\b(?:the\s+)?trade\s+was\s+accepted\s+and\s+is\s+now\s+complete(?:d)?\b/i,
       /\b(?:the|this)\s+trade\s+(?:has\s+been|was|is)\s+(?:successfully\s+)?completed\b/i,
       /\b(?:the|this)\s+trade\s+(?:has\s+been|was|is)\s+complete\b/i,
       /\btrade\s+(?:has\s+been|was|is)\s+(?:successfully\s+)?completed\b/i,
