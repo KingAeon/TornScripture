@@ -1,0 +1,123 @@
+name: Verify ledger trade finality
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ledger-trade-finality'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out head branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply focused finality patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('TornScripture-Item-Market-Margin.user.js')
+          source = path.read_text(encoding='utf-8')
+          old = r'''  function tradeCompletionState() {
+            const hash = String(location.hash || '');
+            if (/(?:^|[&#])step=logview(?:&|$)/i.test(hash)) {
+              return { completed: true, source: 'trade log page' };
+            }
+            const text = normalizeWhitespace(document.body?.innerText || '');
+            const patterns = [
+              /\bthe trade (?:has been|was) successfully completed\b/i,
+              /\bthe trade (?:has been|was) completed\b/i,
+              /\bthe trade was accepted by both parties\b/i,
+              /\btrade completed successfully\b/i,
+            ];
+            const match = patterns.find((pattern) => pattern.test(text));
+            return match
+              ? { completed: true, source: 'completed trade message' }
+              : { completed: false, source: '' };
+          }'''
+          new = r'''  function tradeCompletionState() {
+            const hash = String(location.hash || '');
+            const onTradeLogPage = /(?:^|[&#])step=logview(?:&|$)/i.test(hash);
+            const text = normalizeWhitespace(document.body?.innerText || '');
+            const patterns = [
+              /\b(?:the|this)\s+trade\s+(?:has\s+been|was|is)\s+(?:successfully\s+)?completed\b/i,
+              /\b(?:the|this)\s+trade\s+(?:has\s+been|was|is)\s+complete\b/i,
+              /\btrade\s+(?:has\s+been|was|is)\s+(?:successfully\s+)?completed\b/i,
+              /\btrade\s+(?:has\s+been|was|is)\s+complete\b/i,
+              /\btrade\s+(?:successfully\s+)?completed\b/i,
+              /\btrade\s+complete\b/i,
+            ];
+            const match = patterns.find((pattern) => pattern.test(text));
+            if (!match) return { completed: false, source: '' };
+            return {
+              completed: true,
+              source: onTradeLogPage
+                ? 'completed trade message on trade log page'
+                : 'completed trade message',
+            };
+          }'''
+
+          assert source.count(old) == 1, source.count(old)
+          assert source.count('0.19.33') == 5, source.count('0.19.33')
+          source = source.replace(old, new, 1).replace('0.19.33', '0.19.34')
+          path.write_text(source, encoding='utf-8')
+          Path('.github/workflows/verify-ledger-trade-finality.yml').unlink()
+          PY
+
+      - name: Run focused and protected checks
+        shell: bash
+        run: |
+          node --check TornScripture-Item-Market-Margin.user.js
+          node --check tests/imm-trade-finality.test.js
+          node tests/imm-trade-finality.test.js
+          node tests/imm-carousel-identity-precedence.test.js
+          node tests/imm-carousel-zero-price-mismatch.test.js
+          if [ -f tests/inventory-sales-core.test.js ]; then node tests/inventory-sales-core.test.js; fi
+          git diff --check
+          python3 - <<'PY'
+          import re
+          import subprocess
+          from pathlib import Path
+
+          current = Path('TornScripture-Item-Market-Margin.user.js').read_text(encoding='utf-8')
+          base = subprocess.check_output(
+              ['git', 'show', 'origin/main:TornScripture-Item-Market-Margin.user.js'],
+              text=True,
+          )
+          assert current.count('0.19.34') == 5
+          assert current.count('0.19.33') == 0
+          assert current.count('function tradeCompletionState()') == 1
+          completion = current[current.index('function tradeCompletionState()'):current.index('function normalizePendingTradeSale')]
+          assert 'the trade was accepted by both parties' not in completion
+          for token in [
+              'localStorage.getItem(',
+              'localStorage.setItem(',
+              'addEventListener(',
+              'new MutationObserver(',
+              'setInterval(',
+              'setTimeout(',
+          ]:
+              assert current.count(token) == base.count(token), (token, base.count(token), current.count(token))
+          storage_pattern = re.compile(r"(?:storageKey|Key):\s*'([^']+)'", re.I)
+          assert set(storage_pattern.findall(current)) == set(storage_pattern.findall(base))
+          print('Version, owner-count, and storage-key invariants passed.')
+          PY
+
+      - name: Commit verified result
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Fix completed-trade finality gate'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
