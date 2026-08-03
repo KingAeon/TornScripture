@@ -25,6 +25,39 @@ jobs:
           git fetch origin agent/ledger-trade-finality
           git checkout -B agent/ledger-trade-finality origin/agent/ledger-trade-finality
 
+      - name: Scope completion-source patch to recordTradeSale
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('/tmp/apply_imm_v01937_api_trade_recovery.py')
+          source = path.read_text()
+          old = '''source = replace_once(
+              source,
+              '    const completion = tradeCompletionState();\\n',
+              "    const completion = stats.tradeCompletionSource\\n"
+              "      ? { source: normalizeWhitespace(stats.tradeCompletionSource) }\\n"
+              "      : tradeCompletionState();\\n",
+              'completion source',
+          )'''
+          new = '''record_start = source.index('  function recordTradeSale(')
+          record_end = source.index('  function maybeAutoRecordCompletedTrade(', record_start)
+          record_block = source[record_start:record_end]
+          record_block = replace_once(
+              record_block,
+              '    const completion = tradeCompletionState();\\n',
+              "    const completion = stats.tradeCompletionSource\\n"
+              "      ? { source: normalizeWhitespace(stats.tradeCompletionSource) }\\n"
+              "      : tradeCompletionState();\\n",
+              'completion source',
+          )
+          source = source[:record_start] + record_block + source[record_end:]'''
+          if source.count(old) != 1:
+              raise SystemExit(f'Expected one completion patch block, found {source.count(old)}')
+          path.write_text(source.replace(old, new))
+          compile(path.read_text(), str(path), 'exec')
+          PY
+
       - name: Apply API recovery patch
         run: python /tmp/apply_imm_v01937_api_trade_recovery.py
 
