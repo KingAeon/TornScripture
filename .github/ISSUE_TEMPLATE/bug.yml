@@ -1,0 +1,157 @@
+name: TornScriptures bug report
+description: Report a reproducible defect with environment, data-risk, and recovery information.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Capture what actually happened. Do not manually repair accounting data before preserving screenshots, diagnostics, and a Ledger JSON backup when practical.
+
+  - type: dropdown
+    id: system
+    attributes:
+      label: Affected system
+      options:
+        - Item Market Margin (IMM)
+        - Black Ledger
+        - Trader tools or Priced Trade
+        - Inventory Sales HUD (ISH)
+        - War Intelligence HUD (WIH)
+        - Repository tooling or installation
+        - Multiple systems
+        - Unsure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Script version
+      description: Copy the version shown in the panel or userscript manager.
+      placeholder: IMM 0.19.33
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - TornPDA on Android
+        - Tampermonkey on desktop
+        - Violentmonkey on desktop
+        - Mobile browser userscript environment
+        - Multiple environments
+        - Other or unsure
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: Torn page or external price page
+      description: Include the page type or URL with private data removed when necessary.
+      placeholder: trade.php final screen, item market, inventory, Weav3r pricelist...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open...
+        2. Tap...
+        3. Wait...
+        4. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include exact visible wording and values when possible.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      options:
+        - Every time
+        - Often
+        - Sometimes
+        - Happened once
+        - Unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: data_impact
+    attributes:
+      label: Persistent-data impact
+      options:
+        - Display issue only; no known stored-data change
+        - Preference or classification saved incorrectly
+        - Purchase, lot, sale, receipt, or ledger data may be wrong
+        - Data was duplicated, removed, or corrupted
+        - Unsure
+      default: 4
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots, diagnostics, and console information
+      description: Attach screenshots and paste diagnostics or errors. Remove API keys, cookies, and private exports.
+
+  - type: textarea
+    id: persistence
+    attributes:
+      label: Reload and retry behavior
+      description: State what happened after reloading, reopening, retrying, or revisiting the page.
+
+  - type: input
+    id: last_good
+    attributes:
+      label: Last known good version or date
+      placeholder: 0.19.33, or unknown
+
+  - type: dropdown
+    id: backup
+    attributes:
+      label: Backup status
+      options:
+        - Ledger or relevant data exported before further changes
+        - No persistent data is involved
+        - Backup not yet taken
+        - Backup unavailable
+        - Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround or recovery already attempted
+      description: State whether any manual recovery, cleanup, reinstall, or data edit has already occurred.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety acknowledgement
+      options:
+        - label: I have not included an API key, cookie, private export, or other secret in this report.
+          required: true
+        - label: I understand a bug report authorizes diagnosis, not an automatic merge or irreversible ledger repair.
+          required: true
