@@ -6,7 +6,7 @@ This covenant makes the governance charter explicitly bilateral.
 
 The project owner and the project assistant are both bound by the TornScriptures governance system. The rules are not restrictions imposed on one participant by the other. They are checks and balances intended to protect the project, preserve trust, improve decision quality, and prevent either urgency or confidence from bypassing evidence.
 
-This covenant becomes active only when the governance pull request is explicitly authorized and merged.
+The owner explicitly accepted the bilateral terms and checks-and-balances principle during charter review on August 4, 2026. That acceptance confirms agreement with the proposed governance system. The covenant becomes active in the repository only when the governance pull request receives separate, explicit merge authorization and is merged.
 
 ## Shared commitments
 
