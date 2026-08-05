@@ -1,0 +1,134 @@
+name: TornScriptures feature request
+description: Capture a new idea or improvement with enough structure for discussion, risk classification, and tool choice.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use natural language. The project assistant will refine scope, risk, dependencies, tests, and tool choice before implementation.
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Current project mode
+      description: Choose the closest current state. Most new ideas begin in Discussion.
+      options:
+        - Discussion
+        - Specification
+        - Ready for implementation review
+        - Unsure
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: system
+    attributes:
+      label: Affected system
+      options:
+        - Item Market Margin (IMM)
+        - Black Ledger
+        - Trader tools or Priced Trade
+        - Inventory Sales HUD (ISH)
+        - War Intelligence HUD (WIH)
+        - Bazaar or business workflow
+        - Repository tooling or documentation
+        - Multiple systems
+        - Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or friction
+      description: What is difficult, missing, unreliable, or unnecessarily manual today?
+      placeholder: Describe the real Torn situation that led to the idea.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe what should become easier or possible from the user's point of view.
+      placeholder: After this is complete, I should be able to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Current behavior and evidence
+      description: Include screenshots, wording, URLs, reproduction notes, examples, or prior attempts when available.
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Ideas that appear related
+      description: List related behavior that may belong in the same coherent project. The assistant may split unrelated work.
+      placeholder: |
+        - Primary behavior
+        - Closely related cleanup
+        - Tests or diagnostics that should accompany it
+
+  - type: textarea
+    id: exclusions
+    attributes:
+      label: Things that should not change
+      description: Note boundaries, protected systems, or nearby ideas that should remain separate.
+
+  - type: dropdown
+    id: persistence
+    attributes:
+      label: Could this affect persistent data or accounting?
+      options:
+        - No, it is discussion, documentation, or display only
+        - It may save a preference or classification
+        - It may affect purchases, lots, sales, FIFO, receipts, or recovery
+        - It may require a storage migration or architecture change
+        - Unsure
+      default: 4
+    validations:
+      required: true
+
+  - type: textarea
+    id: success
+    attributes:
+      label: What would prove success?
+      description: Include visible behavior, stored-data expectations, reload behavior, and anything that must not happen.
+      placeholder: |
+        - Expected visible result
+        - Expected persistence result
+        - Reload or retry result
+        - Prohibited behavior
+
+  - type: textarea
+    id: fallback
+    attributes:
+      label: Fallback or manual path
+      description: What should remain possible if the feature is unavailable or fails safely?
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Suggested priority
+      options:
+        - Now, blocks active work or protects data
+        - Next, important after the current project
+        - Later, valuable but not blocking
+        - Parked idea
+        - Unsure
+      default: 4
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Project acknowledgements
+      options:
+        - label: I understand this issue begins as discussion or specification and does not automatically authorize code changes.
+          required: true
+        - label: I understand product code will remain unmerged until the owner explicitly authorizes the exact pull request.
+          required: true
