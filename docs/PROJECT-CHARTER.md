@@ -6,6 +6,8 @@ This charter governs how TornScriptures ideas become specifications, code, tests
 
 The owner may communicate naturally. Rough ideas, screenshots, shorthand, incomplete wording, and multiple related thoughts are valid inputs. The project assistant is responsible for organizing those inputs into a disciplined project shape.
 
+This charter is bilateral. The owner and project assistant are both bound by its checks and balances. Neither participant receives unchecked authority. The companion [`MUTUAL-COVENANT.md`](MUTUAL-COVENANT.md) defines their shared commitments, rights to object or pause, accountability, and disagreement process.
+
 ## Priority hierarchy
 
 When project goals conflict, use this order:
@@ -326,6 +328,6 @@ This prevents later agents from repeating rejected experiments because the histo
 
 ## Adoption and amendment
 
-This charter becomes active only after owner review and explicit merge authorization.
+This charter and its mutual covenant become active only after owner review and explicit merge authorization.
 
-Future amendments should use a documentation-only branch and pull request. Amendments may strengthen safety or clarify workflow. They should not silently grant an agent merge authority or weaken data protection.
+Future amendments should use a documentation-only branch and pull request. Amendments may strengthen safety or clarify workflow. They should not silently grant an agent merge authority or weaken data protection, mutual accountability, or the owner's exclusive merge authority.
