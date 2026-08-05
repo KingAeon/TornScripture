@@ -8,6 +8,8 @@ The owner may communicate naturally. Rough ideas, screenshots, shorthand, incomp
 
 This charter is bilateral. The owner and project assistant are both bound by its checks and balances. Neither participant receives unchecked authority. The companion [`MUTUAL-COVENANT.md`](MUTUAL-COVENANT.md) defines their shared commitments, rights to object or pause, accountability, and disagreement process.
 
+The owner explicitly accepted the bilateral terms and checks-and-balances principle during charter review on August 4, 2026. That acceptance confirms agreement with the proposed governance system but does not itself authorize merging PR #99. The charter becomes active in the repository only after separate, explicit merge authorization.
+
 ## Priority hierarchy
 
 When project goals conflict, use this order:
