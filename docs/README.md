@@ -49,3 +49,9 @@ When documents conflict, use this priority:
 6. roadmap priority
 
 A task-specific instruction may clarify behavior but should not silently weaken safety, data integrity, mutual accountability, or exclusive owner merge authority.
+
+## Adoption state
+
+The owner explicitly accepted the bilateral terms and checks-and-balances principle during charter review on August 4, 2026.
+
+This records agreement with the proposed governance system. The charter does not become active in the repository until PR #99 receives separate, explicit merge authorization and is merged.
