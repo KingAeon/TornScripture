@@ -6,6 +6,7 @@ Use these documents together:
 
 - [`../AGENTS.md`](../AGENTS.md): standing instructions for coding agents and repository contributors.
 - [`PROJECT-CHARTER.md`](PROJECT-CHARTER.md): authority, roles, project modes, interpretation defaults, work limits, and merge authority.
+- [`MUTUAL-COVENANT.md`](MUTUAL-COVENANT.md): bilateral commitments, checks and balances, rights to object or pause, and accountability for both owner and assistant.
 - [`ASSISTANT-OPERATING-RULES.md`](ASSISTANT-OPERATING-RULES.md): restrictions and responsibilities governing the project assistant.
 - [`LEDGER-INVARIANTS.md`](LEDGER-INVARIANTS.md): non-negotiable Black Ledger accounting, FIFO, deduplication, recovery, and integrity rules.
 - [`DEVELOPMENT-WORKFLOW.md`](DEVELOPMENT-WORKFLOW.md): toolchain preflight, implementation, review, manual testing, release, and failure handling.
@@ -18,6 +19,7 @@ Use these documents together:
 | Question | Read |
 |---|---|
 | Who may decide, implement, review, or merge? | Project Charter |
+| How are the owner and assistant both held accountable? | Mutual Governance Covenant |
 | How should the assistant interpret my rough request? | Assistant Operating Rules |
 | What must a coding agent do before editing? | AGENTS.md and Development Workflow |
 | Can this ledger transaction be recorded safely? | Ledger Invariants |
@@ -41,9 +43,9 @@ When documents conflict, use this priority:
 
 1. owner instruction for the specific task
 2. safety and data-protection invariants
-3. project charter
+3. project charter and mutual covenant
 4. assistant and agent operating rules
 5. development workflow
 6. roadmap priority
 
-A task-specific instruction may clarify behavior but should not silently weaken safety, data integrity, or exclusive owner merge authority.
+A task-specific instruction may clarify behavior but should not silently weaken safety, data integrity, mutual accountability, or exclusive owner merge authority.
