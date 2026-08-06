@@ -196,3 +196,92 @@ Each decision records:
 - Repeated failures trigger re-scope rather than unlimited patch cycles.
 
 **Revisit condition:** Usage economics or agent capabilities materially change.
+
+---
+
+## GOV-004: Use optional conversation mode keys
+
+**Date:** 2026-08-06
+
+**Question:** How can the owner quickly signal the intended project mode without being forced into formal specifications?
+
+**Decision:** Adopt the optional keys `[D]`, `[S]`, `[B]`, `[V]`, `[R]`, and `[P]` for Discussion, Specification, Build, Verification, Release, and Pause.
+
+**Evidence:** Short prefixes help separate exploratory conversation from repository action while preserving natural-language input.
+
+**Consequences:**
+
+- The keys are documented in `docs/MODE-KEYS.md`.
+- Forgetting or mistyping a key does not invalidate the request.
+- Keys do not override safety, spending authority, toolchain gates, or owner-exclusive merge authority.
+- `[R]` starts release checks; explicit `Merge PR #<number>` authorization remains required.
+
+**Revisit condition:** The keys create confusion or the owner approves a simpler replacement.
+
+---
+
+## ARCH-001: Prefer a modular monolith with a small domain set
+
+**Date:** 2026-08-06
+
+**Question:** Should TornScriptures become one enormous script, a hub with many small add-ons, or a small internally modular suite?
+
+**Decision:** Prefer one installable TornScriptures suite where practical, implemented internally as a modular monolith with a core hub and a small number of major domains.
+
+**Approved domains:** Core Hub, Market and Trader, Black Ledger, Inventory and Bazaar, and War Intelligence.
+
+**Evidence:** One unstructured file increases entanglement, while dozens of add-ons increase installation, versioning, compatibility, and support burden.
+
+**Consequences:**
+
+- Features default to toggles or components inside an existing domain.
+- Separate scripts require a strong boundary such as permissions, data lifecycle, failure isolation, unrelated audience, or loading cost.
+- Source modules may eventually build into one user-facing installation.
+- Modularization remains a Tier 4 staged migration and does not interrupt Black Ledger recovery.
+
+**Revisit condition:** A formal architecture inventory shows that another domain split or packaging model reduces risk without multiplying installations.
+
+---
+
+## ANALYTICS-001: Build market intelligence in evidence-first stages
+
+**Date:** 2026-08-06
+
+**Question:** How should TornScriptures identify stagnant, rising, falling, and possible bottoming products?
+
+**Decision:** Build market intelligence in stages: historical observation, reproducible calculations, cautious classification, and historical validation.
+
+**Evidence:** A reliable trend signal requires timestamped history, source provenance, freshness, liquidity context, and false-positive measurement. A current low price alone does not prove a bottom.
+
+**Consequences:**
+
+- The first release collects and displays evidence without purchase recommendations.
+- Later classifications may include stagnant, rising, falling, bottoming candidate, early rebound, overheated, and insufficient data.
+- Confidence, sample count, freshness, volatility, and liquidity remain visible.
+- Early language uses `potential accumulation zone` or `bottoming candidate`, not an absolute `buy now` instruction.
+- Stronger decision language requires replay testing and outcome tracking.
+- Analytics remains advisory and never buys, lists, or moves money automatically.
+
+**Revisit condition:** Historical validation demonstrates sufficiently reliable signals and the owner approves stronger wording.
+
+---
+
+## TOOL-001: Trial GitHub Copilot before assigning product work
+
+**Date:** 2026-08-06
+
+**Question:** Which coding environment should TornScriptures test first for mid-level implementation assistance?
+
+**Decision:** Trial GitHub Copilot Pro cloud agent first through a harmless repository preflight. Preserve Codex as the preferred premium candidate for Tier 3 accounting and architecture work unless another agent proves equal capability.
+
+**Evidence:** Copilot is connected directly to GitHub, can work from issues toward pull requests, and provides a lower-cost mid-level route. Its actual repository, terminal, and test behavior must still be proven.
+
+**Consequences:**
+
+- `main` is protected before the trial.
+- Copilot receives a separate documentation-only preflight issue, not Issue #97.
+- The preflight must prove repository materialization, clean baseline, tests, isolated branch, commit, and draft PR.
+- Failure disqualifies Copilot from product work without condemning TornScriptures or other tools.
+- Issue #97 remains reserved until a suitable workspace passes the gate.
+
+**Revisit condition:** Copilot passes or fails the preflight, pricing changes materially, or another coding environment demonstrates a safer and more economical loop.
