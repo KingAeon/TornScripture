@@ -636,6 +636,342 @@ describe('Atomic transaction and rollback', () => {
   });
 });
 
+// ── executeApiTradeRecoveryTransaction — production atomic path ───────────────
+describe('executeApiTradeRecoveryTransaction — atomic production path', () => {
+  function freshStats(detail, overrides = {}) {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    return Object.assign(stats, overrides);
+  }
+
+  test('canonical FIFO: buy 100@10, buy 100@12, sell 150 — consume 100+50, leave 50@12, cost basis 1600', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const lot1 = freshLot({ id: 'lot-fa', itemId: 100, quantity: 100, remainingQuantity: 100, unitCost: 10, totalCost: 1000, capturedAt: new Date(Date.now() - 120000).toISOString() });
+    const lot2 = freshLot({ id: 'lot-fb', itemId: 100, quantity: 100, remainingQuantity: 100, unitCost: 12, totalCost: 1200, capturedAt: new Date(Date.now() - 60000).toISOString() });
+    setupState({});
+    imm.state.ledger.lots = [lot1, lot2];
+    const detail = freshDetail({
+      id: 9100,
+      initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 150 }] },
+      recipient: { userId: 5678, name: 'Bob', money: 2300, items: [] },
+    });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    const result = imm.executeApiTradeRecoveryTransaction(9100, detail, stats, fp);
+    assert.ok(result.ok, `expected ok, got: ${result.message}`);
+    const lots = imm.state.ledger.lots;
+    assert.equal(lots.find((l) => l.id === 'lot-fa').remainingQuantity, 0);
+    assert.equal(lots.find((l) => l.id === 'lot-fb').remainingQuantity, 50);
+    assert.equal(result.sale.trackedCostBasis, 1600);
+    assert.equal(result.sale.trackedQuantity, 150);
+  });
+
+  test('successful API transaction: exact FIFO mutation, exactly one sale, all API metadata before persistence, one persistence', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ id: 9200 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+
+    let saveCount = 0;
+    const origSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = (key, value) => {
+      if (key === 'tornscripture-imm-ledger-v1') saveCount++;
+      origSetItem(key, value);
+    };
+    try {
+      const result = imm.executeApiTradeRecoveryTransaction(9200, detail, stats, fp);
+      assert.ok(result.ok, `expected ok, got: ${result.message}`);
+      const sale = result.sale;
+      assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0, 'lot must be consumed');
+      assert.equal(imm.state.ledger.sales.length, 1, 'exactly one sale');
+      assert.equal(sale.apiTradeId, 9200, 'apiTradeId must be set before persistence');
+      assert.ok(sale.apiCompletedAt, 'apiCompletedAt must be set before persistence');
+      assert.ok(sale.canonicalFingerprint, 'canonicalFingerprint must be set before persistence');
+      assert.equal(sale.provenance, 'api-trade-recovery', 'provenance must be set before persistence');
+      assert.equal(sale.captureMethod, 'api-trade-recovery');
+      assert.equal(sale.soldAt, detail.completedAt);
+      assert.equal(saveCount, 1, 'exactly one ledger persistence on success path');
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+  });
+
+  test('stale review: lot quantity reduced before confirmation — fails with zero mutation', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-stale', quantity: 10, remainingQuantity: 10 })] });
+    const detail = freshDetail({ id: 9300 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    // Reduce lot quantity after review was built but before confirmation
+    imm.state.ledger.lots[0].remainingQuantity = 5;
+    const preLots = JSON.parse(JSON.stringify(imm.state.ledger.lots));
+    const preSales = JSON.parse(JSON.stringify(imm.state.ledger.sales));
+    const result = imm.executeApiTradeRecoveryTransaction(9300, detail, stats, fp);
+    assert.equal(result.ok, false, 'must fail');
+    assert.equal(result.reason, 'stale-review');
+    assert.deepEqual(imm.state.ledger.lots, preLots, 'lots must be unchanged');
+    assert.deepEqual(imm.state.ledger.sales, preSales, 'sales must be unchanged');
+  });
+
+  test('exact-ID duplicate at confirmation time is rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 20, remainingQuantity: 20 })] });
+    const detail = freshDetail({ id: 9400 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    // Record once successfully
+    const first = imm.executeApiTradeRecoveryTransaction(9400, detail, stats, fp);
+    assert.ok(first.ok, 'first record must succeed');
+    // Stamp apiTradeId so the duplicate check fires
+    imm.state.ledger.sales[0].apiTradeId = 9400;
+    // Attempt second record with same ID
+    const lot2 = freshLot({ id: 'lot-extra', quantity: 10, remainingQuantity: 10 });
+    imm.state.ledger.lots.push(lot2);
+    const stats2 = freshStats(detail);
+    const result = imm.executeApiTradeRecoveryTransaction(9400, detail, stats2, fp);
+    assert.equal(result.ok, false, 'must reject duplicate');
+    assert.equal(result.reason, 'exact-id-duplicate');
+    assert.equal(imm.state.ledger.sales.length, 1, 'no second sale added');
+  });
+
+  test('canonical-fingerprint duplicate at confirmation time is rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 20, remainingQuantity: 20 })] });
+    const detail = freshDetail({ id: 9500 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    // Record once and stamp canonical fingerprint
+    const first = imm.executeApiTradeRecoveryTransaction(9500, detail, stats, fp);
+    assert.ok(first.ok, 'first record must succeed');
+    imm.state.ledger.sales[0].canonicalFingerprint = fp;
+    // Attempt second record with different ID but same canonical fingerprint
+    const detail2 = freshDetail({ id: 9501 });
+    const stats2 = freshStats(detail2);
+    const lot2 = freshLot({ id: 'lot-extra2', quantity: 10, remainingQuantity: 10 });
+    imm.state.ledger.lots.push(lot2);
+    const result = imm.executeApiTradeRecoveryTransaction(9501, detail2, stats2, fp);
+    assert.equal(result.ok, false, 'must reject canonical-fp duplicate');
+    assert.equal(result.reason, 'canonical-fp-duplicate');
+  });
+
+  test('likely-manual duplicate at confirmation time is rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 3600000).toISOString();
+    // Plant a recent manual sale that will match
+    setupState({
+      lots: [freshLot()],
+      sales: [{
+        id: 's-manual-dup', fingerprint: 'trade-fallback:manualdup',
+        soldAt: new Date(Date.now() - 7200000).toISOString(),
+        cashReceived: 5000000, counterparty: 'Bob', counterpartyId: 5678,
+        items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
+      }],
+    });
+    const detail = freshDetail({ id: 9600, completedAt });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    const result = imm.executeApiTradeRecoveryTransaction(9600, detail, stats, fp);
+    assert.equal(result.ok, false, 'must be blocked by likely-manual duplicate');
+    assert.equal(result.reason, 'likely-manual-duplicate');
+    assert.equal(imm.state.ledger.sales.length, 1, 'no new sale added');
+  });
+
+  test('failure after sale construction but before commit — exact state rollback', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-precommit' })] });
+    const detail = freshDetail({ id: 9700 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    const preLots = JSON.parse(JSON.stringify(imm.state.ledger.lots));
+    const preSales = JSON.parse(JSON.stringify(imm.state.ledger.sales));
+    // Force saveLedger to fail (which fires after lot mutation + sale add)
+    const origSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = (key, value) => {
+      if (key === 'tornscripture-imm-ledger-v1') throw new Error('Forced persistence failure');
+      origSetItem(key, value);
+    };
+    try {
+      const result = imm.executeApiTradeRecoveryTransaction(9700, detail, stats, fp);
+      assert.equal(result.ok, false, 'must fail');
+      assert.equal(result.reason, 'transaction-failed');
+      assert.deepEqual(imm.state.ledger.lots, preLots, 'lots rolled back');
+      assert.deepEqual(imm.state.ledger.sales, preSales, 'sales rolled back');
+      assert.equal(imm.state.ledger.sales.length, 0, 'no sale left after rollback');
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+  });
+
+  test('failure during lot application — exact state rollback', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-lotfail' })] });
+    const preLots = JSON.parse(JSON.stringify(imm.state.ledger.lots));
+    const preSales = JSON.parse(JSON.stringify(imm.state.ledger.sales));
+    const detail = freshDetail({ id: 9800 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    // Force the lot to throw when remainingQuantity is written inside the try block
+    Object.defineProperty(imm.state.ledger.lots[0], 'remainingQuantity', {
+      configurable: true,
+      get() { return 10; },
+      set() { throw new Error('Forced lot-application failure'); },
+    });
+    const result = imm.executeApiTradeRecoveryTransaction(9800, detail, stats, fp);
+    assert.equal(result.ok, false, 'must fail');
+    assert.equal(result.reason, 'transaction-failed');
+    // state.ledger is replaced with JSON.parse(preLedgerJson) — plain objects, deep equal to pre-state
+    assert.deepEqual(imm.state.ledger.lots, preLots, 'lots rolled back');
+    assert.deepEqual(imm.state.ledger.sales, preSales, 'sales rolled back');
+  });
+
+  test('forced ledger persistence failure — rollback restores previous persisted ledger', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-persist' })] });
+    const detail = freshDetail({ id: 9900 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    // Capture pre-persisted state
+    const preLedgerJson = localStorage.getItem('tornscripture-imm-ledger-v1');
+    const origSetItem = localStorage.setItem.bind(localStorage);
+    let callCount = 0;
+    localStorage.setItem = (key, value) => {
+      if (key === 'tornscripture-imm-ledger-v1') {
+        callCount++;
+        if (callCount === 1) throw new Error('Forced persistence failure');
+        // Allow rollback write to succeed
+      }
+      origSetItem(key, value);
+    };
+    try {
+      const result = imm.executeApiTradeRecoveryTransaction(9900, detail, stats, fp);
+      assert.equal(result.ok, false);
+      // In-memory state is restored
+      assert.equal(imm.state.ledger.sales.length, 0, 'no sale in memory after rollback');
+      assert.equal(imm.state.ledger.lots[0].remainingQuantity, 10, 'lot not consumed after rollback');
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+  });
+
+  test('forced pending-trade persistence failure — exact rollback of pending-trade storage', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-pending' })] });
+    const detail = freshDetail({ id: 9950 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    // Capture pre-transaction pending-trade storage value
+    const prePending = localStorage.getItem('tornscripture-imm-pending-trade-sale-v1');
+    const origSetItem = localStorage.setItem.bind(localStorage);
+    let pendingWriteCount = 0;
+    localStorage.setItem = (key, value) => {
+      if (key === 'tornscripture-imm-pending-trade-sale-v1') {
+        pendingWriteCount++;
+        // Only block the first write (during the try block); allow the rollback write through
+        if (pendingWriteCount === 1) throw new Error('Forced pending-trade persistence failure');
+      }
+      origSetItem(key, value);
+    };
+    try {
+      const result = imm.executeApiTradeRecoveryTransaction(9950, detail, stats, fp);
+      assert.equal(result.ok, false, 'must fail');
+      assert.equal(result.reason, 'transaction-failed');
+      // Pending-trade storage must be exactly restored to the pre-transaction value
+      const afterPending = localStorage.getItem('tornscripture-imm-pending-trade-sale-v1');
+      assert.equal(afterPending, prePending, 'pending-trade storage must be exactly restored');
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+  });
+
+  test('structurally exact full-state rollback after persistence failure', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const lot = freshLot({ id: 'lot-fullstate', quantity: 10, remainingQuantity: 10, unitCost: 90000 });
+    setupState({ lots: [lot] });
+    const detail = freshDetail({ id: 9970 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    const preLotsJson = JSON.stringify(imm.state.ledger.lots);
+    const preSalesJson = JSON.stringify(imm.state.ledger.sales);
+    const origSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = (key, value) => {
+      if (key === 'tornscripture-imm-ledger-v1') throw new Error('Forced failure');
+      origSetItem(key, value);
+    };
+    try {
+      imm.executeApiTradeRecoveryTransaction(9970, detail, stats, fp);
+    } finally {
+      localStorage.setItem = origSetItem;
+    }
+    assert.equal(JSON.stringify(imm.state.ledger.lots), preLotsJson, 'lots structurally identical');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), preSalesJson, 'sales structurally identical');
+  });
+
+  test('repeated confirmation cannot create a second sale', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-repeat', quantity: 20, remainingQuantity: 20 })] });
+    const detail = freshDetail({ id: 9980 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    const first = imm.executeApiTradeRecoveryTransaction(9980, detail, stats, fp);
+    assert.ok(first.ok, 'first must succeed');
+    // Stamp apiTradeId for the duplicate gate to catch it
+    imm.state.ledger.sales[0].apiTradeId = 9980;
+    // Attempt second confirmation
+    const lot2 = freshLot({ id: 'lot-repeat2', quantity: 10, remainingQuantity: 10 });
+    imm.state.ledger.lots.push(lot2);
+    const stats2 = freshStats(detail);
+    const second = imm.executeApiTradeRecoveryTransaction(9980, detail, stats2, fp);
+    assert.equal(second.ok, false, 'second must be rejected');
+    assert.equal(imm.state.ledger.sales.length, 1, 'still exactly one sale');
+  });
+
+  test('existing manual missed-sale path (recordTradeSale) is unchanged after refactor', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-manual' })] });
+    const detail = freshDetail({ id: 9990 });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    // recordTradeSale is the manual path — must work independently
+    const sale = imm.recordTradeSale(stats, 'manual-missed-sale-recovery');
+    assert.ok(sale, 'manual missed-sale path must succeed');
+    assert.equal(sale.captureMethod, 'manual-missed-sale-recovery');
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0);
+    assert.equal(imm.state.ledger.sales.length, 1);
+  });
+
+  test('existing auto completed-trade path (recordTradeSale auto-completed-trade) is unchanged', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-auto' })] });
+    const detail = freshDetail({ id: 9991 });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'auto-completed-trade');
+    assert.ok(sale, 'auto completed-trade path must succeed');
+    assert.equal(sale.captureMethod, 'auto-completed-trade');
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0);
+  });
+
+  test('ID mismatch between detail and requestedId aborts with zero mutation', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-mismatch' })] });
+    const detail = freshDetail({ id: 9001 });
+    const stats = freshStats(detail);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    const preLots = JSON.parse(JSON.stringify(imm.state.ledger.lots));
+    const result = imm.executeApiTradeRecoveryTransaction(9999, detail, stats, fp);
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'id-mismatch');
+    assert.deepEqual(imm.state.ledger.lots, preLots, 'no lot mutation on ID mismatch');
+  });
+});
+
+
+
 // ── Export / import / backup fidelity ────────────────────────────────────────
 describe('Export/import/backup fidelity', () => {
   test('normalizeLedger round-trip preserves lots, sales, quarantine records', () => {
