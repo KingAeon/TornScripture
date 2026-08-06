@@ -5183,7 +5183,7 @@
     return plan;
   }
 
-  function recordTradeSale(stats, captureMethod = 'manual-completed-trade') {
+  function recordTradeSale(stats, captureMethod = 'manual-completed-trade', soldAtOverride = null) {
     if (!stats || stats.pageType !== 'trade') throw new Error('Open a recognized trade before recording a sale.');
     const existing = recordedSaleForStats(stats);
     if (existing) return existing;
@@ -5219,7 +5219,7 @@
       counterparty: stats.tradeCounterparty,
       counterpartyId: stats.tradeCounterpartyId,
       counterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
-      soldAt: new Date().toISOString(),
+      soldAt: soldAtOverride || new Date().toISOString(),
       saleUrl: location.href,
       captureMethod,
       completionSource: completion.source,
@@ -9947,13 +9947,7 @@
 
     // Step 9 — Record the sale through the existing mutation path.
     try {
-      const sale = recordTradeSale(stats, 'api-completed-trade');
-      // Override soldAt with the API completion timestamp now that the sale
-      // record exists in the ledger; this does not affect FIFO coverage.
-      if (result.completedAt && sale) {
-        sale.soldAt = result.completedAt;
-        saveLedger();
-      }
+      const sale = recordTradeSale(stats, 'api-completed-trade', result.completedAt);
       toast(`API trade recovered. Profit ${sale.realizedProfit >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit)}.`);
     } catch (error) {
       alert(`Could not record the sale: ${normalizeWhitespace(error?.message || 'unknown error')}.\n\nThe ledger may be unchanged; check Sale Audits before retrying.`);
