@@ -11008,7 +11008,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     state.ledger.tradePermission = { state: permissionState, validatedAt: new Date().toISOString() };
     if (permissionState !== 'validated') {
       const msg = permissionState === 'insufficient'
-        ? 'API key does not have trade endpoint access (Torn access level too low). A GOBLIN GOD key with trades permission is required.'
+        ? 'API key is invalid or does not have trade endpoint access. A GOBLIN GOD key with trades permission is required.'
         : 'Trade endpoint permission could not be positively confirmed (inconclusive or error). API trade recovery is disabled.';
       renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(msg)}</div>`);
       return;
