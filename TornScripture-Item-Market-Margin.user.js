@@ -5214,35 +5214,14 @@
     return plan;
   }
 
-  function recordTradeSale(stats, captureMethod = 'manual-completed-trade') {
-    if (!stats || stats.pageType !== 'trade') throw new Error('Open a recognized trade before recording a sale.');
-    const existing = recordedSaleForStats(stats);
-    if (existing) return existing;
-    if (!Array.isArray(stats.tradeItems) || !stats.tradeItems.length) {
-      throw new Error('No trade items were available to record.');
-    }
-    if (stats.tradeUnmatchedItems) {
-      throw new Error('Unmatched trade items must be resolved before the ledger can consume lots.');
-    }
-    if (optionalFiniteNumber(stats.tradeNetCash) === null) {
-      throw new Error('Trader cash was not detected.');
-    }
-    tradeCaptureIdForStats(stats, true);
+  // ── Shared ledger accounting primitives ─────────────────────────────────────
+  // Used by both recordTradeSale and executeApiTradeRecoveryTransaction.
+  // The API transaction may supply identity overrides before normalization, but
+  // must not maintain a parallel copy of this algorithm.
 
-    const plan = ledgerSalePlan(stats);
-    if (!plan.trackedQuantity) {
-      throw new Error('None of the sold quantities matched open ledger lots.');
-    }
-
-    for (const allocation of plan.allocations) {
-      const lot = state.ledger.lots.find((candidate) => candidate.id === allocation.lotId);
-      if (!lot) continue;
-      lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity || 0) - Number(allocation.quantity || 0));
-      lot.status = lot.remainingQuantity > 0 ? 'open' : 'closed';
-    }
-
+  function buildSaleFromPlan(stats, plan, captureMethod, soldAtFallback, overrides) {
     const completion = tradeCompletionState();
-    const sale = normalizeSaleRecord({
+    return normalizeSaleRecord({
       id: createId('sale'),
       fingerprint: saleFingerprintForStats(stats),
       tradeId: stats.tradeId || tradeIdFromLocation(),
@@ -5250,7 +5229,7 @@
       counterparty: stats.tradeCounterparty,
       counterpartyId: stats.tradeCounterpartyId,
       counterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
-      soldAt: normalizeWhitespace(stats.soldAt) || new Date().toISOString(),
+      soldAt: normalizeWhitespace(stats.soldAt) || soldAtFallback || new Date().toISOString(),
       saleUrl: location.href,
       captureMethod,
       completionSource: completion.source,
@@ -5281,9 +5260,21 @@
       notes: plan.fullCoverage
         ? 'FIFO purchase-lot allocation.'
         : `FIFO allocation with ${plan.untrackedQuantity} untracked item${plan.untrackedQuantity === 1 ? '' : 's'}.`,
+      ...overrides,
     });
-    state.ledger.sales.unshift(sale);
-    if (!markPendingTradeSaleRecorded(stats, sale.id)) {
+  }
+
+  function applyPlanAllocations(plan) {
+    for (const allocation of plan.allocations) {
+      const lot = state.ledger.lots.find((candidate) => candidate.id === allocation.lotId);
+      if (!lot) throw new Error(`Lot ${allocation.lotId} was not found during application — ledger may have changed between plan and commit.`);
+      lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity || 0) - Number(allocation.quantity || 0));
+      lot.status = lot.remainingQuantity > 0 ? 'open' : 'closed';
+    }
+  }
+
+  function persistPendingTradeSaleAfterSale(stats, saleId) {
+    if (!markPendingTradeSaleRecorded(stats, saleId)) {
       const snapshot = normalizePendingTradeSale({
         captureId: stats.tradeCaptureId,
         capturedAt: new Date().toISOString(),
@@ -5300,11 +5291,37 @@
         tradeItems: stats.tradeItems,
         tradeUnmatchedItems: stats.tradeUnmatchedItems,
         sourceUrl: location.href,
-        recordedSaleId: sale.id,
+        recordedSaleId: saleId,
         recordedAt: new Date().toISOString(),
       });
       if (snapshot) saveJson(APP.pendingTradeSaleStorageKey, snapshot);
     }
+  }
+
+  function recordTradeSale(stats, captureMethod = 'manual-completed-trade') {
+    if (!stats || stats.pageType !== 'trade') throw new Error('Open a recognized trade before recording a sale.');
+    const existing = recordedSaleForStats(stats);
+    if (existing) return existing;
+    if (!Array.isArray(stats.tradeItems) || !stats.tradeItems.length) {
+      throw new Error('No trade items were available to record.');
+    }
+    if (stats.tradeUnmatchedItems) {
+      throw new Error('Unmatched trade items must be resolved before the ledger can consume lots.');
+    }
+    if (optionalFiniteNumber(stats.tradeNetCash) === null) {
+      throw new Error('Trader cash was not detected.');
+    }
+    tradeCaptureIdForStats(stats, true);
+
+    const plan = ledgerSalePlan(stats);
+    if (!plan.trackedQuantity) {
+      throw new Error('None of the sold quantities matched open ledger lots.');
+    }
+
+    applyPlanAllocations(plan);
+    const sale = buildSaleFromPlan(stats, plan, captureMethod);
+    state.ledger.sales.unshift(sale);
+    persistPendingTradeSaleAfterSale(stats, sale.id);
     saveLedger();
     applyLedgerSalePreview(stats);
     renderLedger();
@@ -11243,108 +11260,77 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return { ok: false, reason: 'stale-review', message: 'Full FIFO coverage is no longer available. Please start over.' };
     }
 
-    // Capture a structurally exact snapshot of every surface this transaction can change.
+    // Capture exact raw storage values before the first potentially mutating call.
     const preLedgerJson = JSON.stringify(state.ledger);
+    const preLedgerStorage = localStorage.getItem(APP.ledgerStorageKey);
     const prePendingTradeSale = localStorage.getItem(APP.pendingTradeSaleStorageKey);
 
-    // Stage the complete final sale — including all API identity fields — before any mutation.
-    tradeCaptureIdForStats(stats, true);
-    const completion = tradeCompletionState();
-    const sale = normalizeSaleRecord({
-      id: createId('sale'),
-      fingerprint: saleFingerprintForStats(stats),
-      tradeId: stats.tradeId || tradeIdFromLocation(),
-      tradeCaptureId: stats.tradeCaptureId,
-      counterparty: stats.tradeCounterparty,
-      counterpartyId: stats.tradeCounterpartyId,
-      counterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
-      soldAt: normalizeWhitespace(stats.soldAt) || detail.completedAt,
-      saleUrl: location.href,
-      captureMethod: 'api-trade-recovery',
-      completionSource: completion.source,
-      cashReceived: Number(stats.tradeNetCash),
-      myCash: Number(stats.tradeMyCash) || 0,
-      marketTotal: Number(stats.tradeMarketTotal) || 0,
-      targetTotal: Number(stats.tradeTargetTotal) || 0,
-      trackedCostBasis: plan.trackedCostBasis,
-      realizedProfit: plan.realizedProfit,
-      trackedProfit: plan.trackedProfit,
-      requestedQuantity: plan.requestedQuantity,
-      trackedQuantity: plan.trackedQuantity,
-      untrackedQuantity: plan.untrackedQuantity,
-      fullCoverage: plan.fullCoverage,
-      items: plan.items.map((item) => ({
-        itemId: item.itemId || null,
-        itemName: item.name,
-        quantity: item.quantity,
-        trackedQuantity: item.trackedQuantity,
-        untrackedQuantity: item.untrackedQuantity,
-        marketTotal: item.marketTotal,
-        targetTotal: item.targetTotal,
-        costBasis: item.costBasis,
-        proceeds: item.proceeds,
-        realizedProfit: item.realizedProfit,
-        allocations: item.allocations,
-      })),
-      notes: 'FIFO purchase-lot allocation.',
-      apiTradeId: detail.id,
-      apiCompletedAt: detail.completedAt,
-      canonicalFingerprint: canonicalFp,
-      provenance: 'api-trade-recovery',
-    });
-
     try {
+      // Staging — all inside the guarded transaction.
+      tradeCaptureIdForStats(stats, true);
+
+      // Build the complete normalized sale using the shared helper, then attach
+      // API identity fields before any mutation occurs.
+      const sale = buildSaleFromPlan(stats, plan, 'api-trade-recovery', detail.completedAt, {
+        apiTradeId: detail.id,
+        apiCompletedAt: detail.completedAt,
+        canonicalFingerprint: canonicalFp,
+        provenance: 'api-trade-recovery',
+      });
+
       // Apply the exact FIFO lot changes.
-      for (const allocation of plan.allocations) {
-        const lot = state.ledger.lots.find((candidate) => candidate.id === allocation.lotId);
-        if (!lot) throw new Error(`Lot ${allocation.lotId} was not found during application — ledger may have changed between plan and commit.`);
-        lot.remainingQuantity = Math.max(0, Number(lot.remainingQuantity || 0) - Number(allocation.quantity || 0));
-        lot.status = lot.remainingQuantity > 0 ? 'open' : 'closed';
-      }
+      applyPlanAllocations(plan);
 
       // Add exactly one complete sale record.
       state.ledger.sales.unshift(sale);
 
       // Update the pending-trade record consistently.
-      if (!markPendingTradeSaleRecorded(stats, sale.id)) {
-        const snapshot = normalizePendingTradeSale({
-          captureId: stats.tradeCaptureId,
-          capturedAt: new Date().toISOString(),
-          tradeId: stats.tradeId || tradeIdFromLocation(),
-          tradeCounterparty: stats.tradeCounterparty,
-          tradeCounterpartyId: stats.tradeCounterpartyId,
-          tradeCounterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
-          tradeCounterpartyBannerUrl: stats.tradeCounterpartyBannerUrl,
-          tradeMarketTotal: stats.tradeMarketTotal,
-          tradeTargetTotal: stats.tradeTargetTotal,
-          tradeTraderCash: stats.tradeTraderCash,
-          tradeMyCash: stats.tradeMyCash,
-          tradeNetCash: stats.tradeNetCash,
-          tradeItems: stats.tradeItems,
-          tradeUnmatchedItems: stats.tradeUnmatchedItems,
-          sourceUrl: location.href,
-          recordedSaleId: sale.id,
-          recordedAt: new Date().toISOString(),
-        });
-        if (snapshot) saveJson(APP.pendingTradeSaleStorageKey, snapshot);
-      }
+      persistPendingTradeSaleAfterSale(stats, sale.id);
 
       // Persist the complete result exactly once.
       saveLedger();
 
       return { ok: true, sale };
     } catch (error) {
-      // Full rollback — restore structurally exact pre-state.
+      // Restore in-memory ledger from the pre-transaction snapshot.
       state.ledger = JSON.parse(preLedgerJson);
-      if (prePendingTradeSale !== null) {
-        localStorage.setItem(APP.pendingTradeSaleStorageKey, prePendingTradeSale);
-      } else {
-        localStorage.removeItem(APP.pendingTradeSaleStorageKey);
+
+      // Guard each storage restoration independently.
+      let pendingRestoreError = null;
+      let ledgerRestoreError = null;
+
+      try {
+        if (prePendingTradeSale !== null) {
+          localStorage.setItem(APP.pendingTradeSaleStorageKey, prePendingTradeSale);
+        } else {
+          localStorage.removeItem(APP.pendingTradeSaleStorageKey);
+        }
+      } catch (e) {
+        pendingRestoreError = e;
       }
-      // Restore the previous persisted ledger.
-      let storageRestoreError = null;
-      try { saveJson(APP.ledgerStorageKey, state.ledger); } catch (storageError) { storageRestoreError = storageError; }
-      return { ok: false, reason: 'transaction-failed', message: error?.message || 'Unknown error', error, storageRestoreError };
+
+      try {
+        if (preLedgerStorage !== null) {
+          localStorage.setItem(APP.ledgerStorageKey, preLedgerStorage);
+        } else {
+          localStorage.removeItem(APP.ledgerStorageKey);
+        }
+      } catch (e) {
+        ledgerRestoreError = e;
+      }
+
+      if (pendingRestoreError || ledgerRestoreError) {
+        return {
+          ok: false,
+          reason: 'rollback-failed',
+          message: 'Transaction failed and storage could not be fully restored. Do not perform another recovery. Restore your JSON backup.',
+          error,
+          pendingRestoreError: pendingRestoreError || null,
+          ledgerRestoreError: ledgerRestoreError || null,
+        };
+      }
+
+      return { ok: false, reason: 'transaction-failed', message: error?.message || 'Unknown error', error };
     }
   }
 
@@ -11364,8 +11350,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
     const result = executeApiTradeRecoveryTransaction(apiTradeId, detail, stats, canonicalFp);
     if (!result.ok) {
+      if (result.reason === 'rollback-failed') {
+        renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">⚠ INTEGRITY WARNING: ${escapeHtml(result.message)}</div>
+          <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
+        return;
+      }
       const isBlocker = result.reason === 'likely-manual-duplicate' || result.reason === 'stale-review';
-      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(result.message)}${result.reason === 'transaction-failed' ? ' Ledger rolled back.' : ''}</div>
+      const suffix = result.reason === 'transaction-failed' ? ' Ledger rolled back.' : '';
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(result.message)}${suffix}</div>
         <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="${isBlocker ? 'api-trade-recovery-close' : 'api-trade-recovery-back'}">${isBlocker ? 'Close' : '← Back'}</button></div>`);
       return;
     }
@@ -13625,6 +13617,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       detectApiTradeLikelyManualDuplicate,
       quarantineApiTrade,
       createId,
+      buildSaleFromPlan,
+      applyPlanAllocations,
+      persistPendingTradeSaleAfterSale,
       executeApiTradeRecoveryTransaction,
     };
     return;
