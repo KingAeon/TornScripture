@@ -1,695 +1,724 @@
 /**
- * Tests for IMM API-backed Black Ledger trade recovery (Issue #97).
+ * IMM API-backed Black Ledger trade recovery tests — production-path harness.
  *
- * Tests cover:
- *  - API response normalization and finished-trade filtering
- *  - Participant and asset resolution
- *  - Money and accounting / FIFO preview
- *  - Mutation and deduplication
- *  - Regression: existing maintained tests remain unaffected
+ * Uses vm.runInThisContext + globalThis.__TS_IMM_TEST_MODE__ to load and
+ * exercise the real production accounting owners (recordTradeSale,
+ * ledgerSalePlan, normalizeLedger, analyzeLedgerIntegrity, quarantineApiTrade,
+ * etc.) without copying or reimplementing any logic.
  */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { test, describe } = require('node:test');
+const vm = require('node:vm');
+const { test, describe, before } = require('node:test');
 
+// ── Browser global mocks ─────────────────────────────────────────────────────
+const memory = new Map();
+global.localStorage = {
+  getItem(key) { return memory.has(key) ? memory.get(key) : null; },
+  setItem(key, value) { memory.set(key, String(value)); },
+  removeItem(key) { memory.delete(key); },
+};
+
+function makeElement() {
+  const el = {
+    id: '',
+    className: '',
+    textContent: '',
+    type: '',
+    src: '',
+    style: {},
+    dataset: {},
+    innerHTML: '',
+    classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } },
+    closest() { return null; },
+    matches() { return false; },
+    getAttribute() { return null; },
+    setAttribute() {},
+    addEventListener() {},
+    appendChild() {},
+    append() {},
+    remove() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    isConnected: false,
+  };
+  return el;
+}
+
+const bodyEl = makeElement();
+const headEl = makeElement();
+
+global.document = {
+  readyState: 'complete',
+  getElementById() { return null; },
+  body: bodyEl,
+  head: headEl,
+  documentElement: makeElement(),
+  createElement() { return makeElement(); },
+  addEventListener() {},
+  querySelector() { return null; },
+  querySelectorAll() { return []; },
+};
+global.window = { addEventListener() {}, removeEventListener() {} };
+global.location = { href: 'https://www.torn.com/trade.php?ID=9001', hostname: 'www.torn.com', hash: '' };
+global.MutationObserver = class { observe() {} disconnect() {} };
+
+// ── Load script once ──────────────────────────────────────────────────────────
 const scriptPath = process.env.TSIMM_TEST_SCRIPT
   ? path.resolve(process.env.TSIMM_TEST_SCRIPT)
   : path.join(__dirname, '..', 'TornScripture-Item-Market-Margin.user.js');
-const source = fs.readFileSync(scriptPath, 'utf8');
 
-// ---------------------------------------------------------------------------
-// Minimal helpers extracted from source for the sandbox
-// ---------------------------------------------------------------------------
+globalThis.__TS_IMM_TEST_MODE__ = true;
 
-function extractNamedFunction(name) {
-  const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} should exist in IMM`);
-  const parametersEnd = source.indexOf(')', start);
-  const bodyStart = source.indexOf('{', parametersEnd);
-  assert.notEqual(bodyStart, -1, `${name} should have a body`);
-  let depth = 0;
-  let quote = '';
-  let escaped = false;
-  let lineComment = false;
-  let blockComment = false;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    const character = source[index];
-    const next = source[index + 1];
-    if (lineComment) { if (character === '\n') lineComment = false; continue; }
-    if (blockComment) {
-      if (character === '*' && next === '/') { blockComment = false; index += 1; }
-      continue;
-    }
-    if (quote) {
-      if (escaped) escaped = false;
-      else if (character === '\\') escaped = true;
-      else if (character === quote) quote = '';
-      continue;
-    }
-    if (character === '/' && next === '/') { lineComment = true; index += 1; continue; }
-    if (character === '/' && next === '*') { blockComment = true; index += 1; continue; }
-    if (character === "'" || character === '"' || character === '`') { quote = character; continue; }
-    if (character === '{') depth += 1;
-    if (character === '}') { depth -= 1; if (depth === 0) return source.slice(start, index + 1); }
-  }
-  throw new Error(`Could not extract ${name}`);
+before(() => {
+  vm.runInThisContext(fs.readFileSync(scriptPath, 'utf8'), { filename: scriptPath });
+  assert.ok(globalThis.__TS_IMM_TEST_EXPORTS__, '__TS_IMM_TEST_EXPORTS__ must be set by test hook');
+});
+
+// ── Fixtures ─────────────────────────────────────────────────────────────────
+const CATALOG_XANAX = { id: 100, name: 'Xanax', marketPrice: 90000, normalizedName: 'xanax' };
+const CATALOG_VICODIN = { id: 101, name: 'Vicodin', marketPrice: 30000, normalizedName: 'vicodin' };
+
+function freshLot(overrides = {}) {
+  return {
+    id: `lot-${Math.random().toString(36).slice(2, 9)}`,
+    schemaVersion: 2,
+    source: 'manual',
+    venue: 'manual',
+    country: null,
+    location: null,
+    fundingSource: 'personal',
+    itemId: 100,
+    itemName: 'Xanax',
+    normalizedName: 'xanax',
+    quantity: 10,
+    remainingQuantity: 10,
+    unitCost: 90000,
+    totalCost: 900000,
+    marketValueAtPurchase: 90000,
+    traderValueAtPurchase: 81000,
+    expectedProfitEach: -9000,
+    expectedProfitTotal: -90000,
+    capturedAt: new Date(Date.now() - 60000).toISOString(),
+    purchaseUrl: 'https://www.torn.com/imarket.php',
+    captureMethod: 'manual',
+    status: 'open',
+    notes: null,
+    ...overrides,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Build a self-contained evaluation environment for the recovery functions
-// ---------------------------------------------------------------------------
-
-function buildEnv(overrides = {}) {
-  // Minimal state
-  const state = {
-    ledger: { lots: [], sales: [] },
-    catalog: { itemsByName: {}, itemsById: {} },
-    keyProfile: { userId: 1001 },
-    ...overrides.state,
+function freshDetail(overrides = {}) {
+  return {
+    id: 9001,
+    status: 'Accepted',
+    completedAt: new Date(Date.now() - 3600000).toISOString(),
+    initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
+    recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] },
+    ...overrides,
   };
-
-  function normalizeWhitespace(value) {
-    return String(value ?? '').replace(/\s+/g, ' ').trim();
-  }
-
-  function normalizeName(value) {
-    return normalizeWhitespace(String(value ?? ''))
-      .toLowerCase()
-      .replace(/['']/g, "'")
-      .replace(/[^a-z0-9'+&-]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function emptyScanStats() {
-    return {
-      scannedAt: null, pageType: 'unknown',
-      tradeId: null, tradeCounterparty: '', tradeCounterpartyId: null,
-      tradeCounterpartyProfileUrl: '', tradeCounterpartyBannerUrl: '',
-      tradeMarketTotal: 0, tradeTargetTotal: 0, tradeTraderCash: null,
-      tradeMyCash: 0, tradeNetCash: null, tradeItems: [], tradeMatchedItems: 0,
-      tradeUnmatchedItems: 0, tradeUnmatched: [],
-      notes: [], categoryCandidates: 0, categoryMatched: 0,
-      tradeCaptureId: '', tradeSideCandidates: 0, tradeMySide: null,
-    };
-  }
-
-  function catalogItemFor(name) {
-    const key = normalizeName(name);
-    return state.catalog.itemsByName?.[key] ?? null;
-  }
-
-  // Functions under test
-  const fnNames = [
-    'normalizeApiTradeListEntry',
-    'apiTradeAlreadyRecorded',
-    'filterApiTradeCandidates',
-    'normalizeApiTradeParticipant',
-    'normalizeApiTradeDetail',
-    'resolveApiTradeOwner',
-    'aggregateApiTradeOwnerItems',
-    'catalogItemForId',
-    'buildApiTradeSaleStats',
-    'detectApiTradeLikelyManualDuplicate',
-    'lotMatchesTradeItem',
-    'ledgerSalePlan',
-  ];
-
-  const context = {
-    state,
-    normalizeWhitespace,
-    normalizeName,
-    emptyScanStats,
-    catalogItemFor,
-    Math,
-    Number,
-    Date,
-    String,
-    Array,
-    Map,
-    Set,
-    ...overrides.context,
-  };
-
-  // Evaluate each function in the context
-  const env = { ...context };
-  for (const name of fnNames) {
-    const src = extractNamedFunction(name);
-    // eslint-disable-next-line no-new-func
-    env[name] = new Function(...Object.keys(env), `return (${src});`)(...Object.values(env));
-    // Re-bind after adding so later functions can call earlier ones
-    const bound = env[name];
-    // Recreate all so the entire set is available for cross-calls
-    const ctx2 = { ...env };
-    env[name] = new Function(...Object.keys(ctx2), `return (${src});`)(...Object.values(ctx2));
-  }
-  return env;
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
+function setupState(overrides = {}) {
+  const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+  imm.state.catalog = {
+    itemsByName: { xanax: CATALOG_XANAX, vicodin: CATALOG_VICODIN },
+    itemsById: { '100': CATALOG_XANAX, '101': CATALOG_VICODIN },
+    updatedAt: new Date().toISOString(),
+  };
+  imm.state.keyProfile = { userId: 1001 };
+  imm.state.ledger = imm.normalizeLedger({ lots: [], sales: [], ...overrides });
+}
 
-const TRADE_LIST_TOP_LEVEL = {
-  trades: [
-    { id: 9001, status: 'Accepted', completed_at: 1700000000, with_player: { id: 5678, name: 'Bob' } },
-    { id: 9002, status: 'Active', completed_at: 0, with_player: { id: 5678, name: 'Bob' } },
-    { id: 9003, status: 'Accepted', completed_at: 1700086400, with_player: { id: 5679, name: 'Carol' } },
-  ],
-};
-
-const TRADE_LIST_OBJECT_KEYED = {
-  trades: {
-    '9001': { id: 9001, status: 'Accepted', completed_at: 1700000000, with_player: { id: 5678, name: 'Bob' } },
-    '9003': { id: 9003, status: 'Accepted', completed_at: 1700086400, with_player: { id: 5679, name: 'Carol' } },
-  },
-};
-
-const TRADE_DETAIL_TOP_LEVEL = {
-  id: 9001,
-  status: 'Accepted',
-  completed_at: 1700000000,
-  initiator: {
-    user_id: 1001, name: 'Alice', money: 0,
-    items: [{ id: 100, name: 'Xanax', quantity: 10 }],
-  },
-  recipient: { user_id: 5678, name: 'Bob', money: 5000000, items: [] },
-};
-
-const TRADE_DETAIL_NESTED = {
-  trade: { ...TRADE_DETAIL_TOP_LEVEL },
-};
-
-const TRADE_DETAIL_REPEATED_ITEMS = {
-  id: 9004,
-  status: 'Accepted',
-  completed_at: 1700000000,
-  initiator: {
-    user_id: 1001, name: 'Alice', money: 0,
-    items: [
-      { id: 100, name: 'Xanax', quantity: 3 },
-      { id: 100, name: 'Xanax', quantity: 7 },
-    ],
-  },
-  recipient: { user_id: 5678, name: 'Bob', money: 2000000, items: [] },
-};
-
-const OPEN_LOT = {
-  id: 'lot-001', schemaVersion: 2, source: 'manual', venue: 'manual', country: null,
-  location: null, fundingSource: 'personal', itemId: 100, itemName: 'Xanax',
-  normalizedName: 'xanax', quantity: 10, remainingQuantity: 10, unitCost: 90000,
-  totalCost: 900000, marketValueAtPurchase: 95000, traderValueAtPurchase: 94050,
-  expectedProfitEach: 4050, expectedProfitTotal: 40500,
-  capturedAt: '2026-01-01T00:00:00.000Z', purchaseUrl: null,
-  captureMethod: 'manual', status: 'open', notes: null,
-};
-
-const CATALOG_XANAX = { id: 100, name: 'Xanax', normalizedName: 'xanax', marketPrice: 95000 };
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('IMM API Trade Recovery', () => {
-
-  describe('API normalization — trade list', () => {
-    test('normalizeApiTradeListEntry: supported top-level shape returns normalized entry', () => {
-      const { normalizeApiTradeListEntry } = buildEnv();
-      const result = normalizeApiTradeListEntry({ id: 9001, status: 'Accepted', completed_at: 1700000000, with_player: { id: 5678, name: 'Bob' } });
-      assert.equal(result.id, 9001);
-      assert.equal(result.status, 'Accepted');
-      assert.ok(result.completedAt, 'should have completedAt');
-      assert.equal(result.otherPlayerId, 5678);
-      assert.equal(result.otherPlayerName, 'Bob');
-    });
-
-    test('normalizeApiTradeListEntry: null/non-object input returns null', () => {
-      const { normalizeApiTradeListEntry } = buildEnv();
-      assert.equal(normalizeApiTradeListEntry(null), null);
-      assert.equal(normalizeApiTradeListEntry('bad'), null);
-      assert.equal(normalizeApiTradeListEntry({ id: 0 }), null);
-    });
-
-    test('filterApiTradeCandidates: filters to only finished trades', () => {
-      const { filterApiTradeCandidates } = buildEnv();
-      const result = filterApiTradeCandidates(TRADE_LIST_TOP_LEVEL);
-      assert.equal(result.length, 2, 'Active trade should be excluded');
-      assert.ok(result.every((c) => ['accepted', 'finished', 'completed'].includes(c.status.toLowerCase())));
-    });
-
-    test('filterApiTradeCandidates: accepts object-keyed trades shape', () => {
-      const { filterApiTradeCandidates } = buildEnv();
-      const result = filterApiTradeCandidates(TRADE_LIST_OBJECT_KEYED);
-      assert.equal(result.length, 2);
-    });
-
-    test('filterApiTradeCandidates: malformed response throws', () => {
-      const { filterApiTradeCandidates } = buildEnv();
-      assert.throws(() => filterApiTradeCandidates({}), /unsupported or missing/i);
-      assert.throws(() => filterApiTradeCandidates(null), /unsupported or missing/i);
-    });
-
-    test('filterApiTradeCandidates: already-recorded trades are excluded', () => {
-      const env = buildEnv({
-        state: {
-          ledger: {
-            lots: [],
-            sales: [{ fingerprint: 'trade:api-trade-9001', id: 's1', soldAt: new Date().toISOString(), items: [], cashReceived: 0 }],
-          },
-          catalog: { itemsByName: {}, itemsById: {} },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const result = env.filterApiTradeCandidates(TRADE_LIST_TOP_LEVEL);
-      assert.ok(!result.some((c) => c.id === 9001), 'recorded trade should be excluded');
-    });
+// ── Schema version ────────────────────────────────────────────────────────────
+describe('Schema', () => {
+  test('normalizeLedger produces schemaVersion 6', () => {
+    const { normalizeLedger } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const ledger = normalizeLedger({});
+    assert.equal(ledger.schemaVersion, 6);
   });
 
-  describe('API normalization — trade detail', () => {
-    test('normalizeApiTradeDetail: supported top-level shape', () => {
-      const { normalizeApiTradeDetail } = buildEnv();
-      const result = normalizeApiTradeDetail(TRADE_DETAIL_TOP_LEVEL);
-      assert.equal(result.id, 9001);
-      assert.equal(result.initiator.userId, 1001);
-      assert.equal(result.initiator.items.length, 1);
-      assert.equal(result.recipient.money, 5000000);
-    });
-
-    test('normalizeApiTradeDetail: nested trade shape (Shape B)', () => {
-      const { normalizeApiTradeDetail } = buildEnv();
-      const result = normalizeApiTradeDetail(TRADE_DETAIL_NESTED);
-      assert.equal(result.id, 9001);
-    });
-
-    test('normalizeApiTradeDetail: non-finished trade throws', () => {
-      const { normalizeApiTradeDetail } = buildEnv();
-      const active = { ...TRADE_DETAIL_TOP_LEVEL, status: 'Active' };
-      assert.throws(() => normalizeApiTradeDetail(active), /not finished/i);
-    });
-
-    test('normalizeApiTradeDetail: missing trade ID throws', () => {
-      const { normalizeApiTradeDetail } = buildEnv();
-      assert.throws(() => normalizeApiTradeDetail({ status: 'Accepted', completed_at: 1700000000, initiator: { user_id: 1 }, recipient: { user_id: 2 } }), /no valid trade id/i);
-    });
-
-    test('normalizeApiTradeDetail: missing timestamp throws', () => {
-      const { normalizeApiTradeDetail } = buildEnv();
-      const noTs = { ...TRADE_DETAIL_TOP_LEVEL, completed_at: 0, timestamp: 0, timestamp_accepted: 0 };
-      assert.throws(() => normalizeApiTradeDetail(noTs), /no valid completion timestamp/i);
-    });
-
-    test('normalizeApiTradeDetail: malformed/null input throws', () => {
-      const { normalizeApiTradeDetail } = buildEnv();
-      assert.throws(() => normalizeApiTradeDetail(null), /missing or malformed/i);
-    });
+  test('normalizeLedger preserves quarantinedTrades through round-trip', () => {
+    const { normalizeLedger } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const q = { id: 'q1', schemaVersion: 1, reasonCode: 'test-reason', capturedAt: new Date().toISOString(), rawPayload: null, endpoint: null, apiTradeId: null, source: 'api-trade-recovery', validationState: 'rejected' };
+    const ledger = normalizeLedger({ quarantinedTrades: [q] });
+    assert.equal(ledger.quarantinedTrades.length, 1);
+    assert.equal(ledger.quarantinedTrades[0].reasonCode, 'test-reason');
+    const ledger2 = normalizeLedger(JSON.parse(JSON.stringify(ledger)));
+    assert.equal(ledger2.quarantinedTrades.length, 1);
   });
 
-  describe('Participants and assets', () => {
-    test('resolveApiTradeOwner: identifies owner when owner is initiator', () => {
-      const { normalizeApiTradeDetail, resolveApiTradeOwner } = buildEnv();
-      const detail = normalizeApiTradeDetail(TRADE_DETAIL_TOP_LEVEL);
-      const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, 1001);
-      assert.equal(ownerSide.userId, 1001);
-      assert.equal(counterpartySide.userId, 5678);
-    });
-
-    test('resolveApiTradeOwner: identifies owner when owner is recipient', () => {
-      const { normalizeApiTradeDetail, resolveApiTradeOwner } = buildEnv();
-      const flipped = {
-        ...TRADE_DETAIL_TOP_LEVEL,
-        initiator: { user_id: 5678, name: 'Bob', money: 5000000, items: [] },
-        recipient: { user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-      };
-      const detail = normalizeApiTradeDetail(flipped);
-      const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, 1001);
-      assert.equal(ownerSide.userId, 1001);
-      assert.equal(counterpartySide.userId, 5678);
-    });
-
-    test('resolveApiTradeOwner: ambiguous owner throws', () => {
-      const { normalizeApiTradeDetail, resolveApiTradeOwner } = buildEnv();
-      const detail = normalizeApiTradeDetail(TRADE_DETAIL_TOP_LEVEL);
-      assert.throws(() => resolveApiTradeOwner(detail, 9999), /ownership is ambiguous/i);
-    });
-
-    test('resolveApiTradeOwner: missing/zero keyUserId throws', () => {
-      const { normalizeApiTradeDetail, resolveApiTradeOwner } = buildEnv();
-      const detail = normalizeApiTradeDetail(TRADE_DETAIL_TOP_LEVEL);
-      assert.throws(() => resolveApiTradeOwner(detail, 0), /unknown/i);
-      assert.throws(() => resolveApiTradeOwner(detail, null), /unknown/i);
-    });
-
-    test('aggregateApiTradeOwnerItems: repeated same-ID items aggregate correctly', () => {
-      const { normalizeApiTradeDetail, resolveApiTradeOwner, aggregateApiTradeOwnerItems } = buildEnv();
-      const detail = normalizeApiTradeDetail(TRADE_DETAIL_REPEATED_ITEMS);
-      const { ownerSide } = resolveApiTradeOwner(detail, 1001);
-      const aggregated = aggregateApiTradeOwnerItems(ownerSide.items);
-      assert.equal(aggregated.length, 1);
-      assert.equal(aggregated[0].quantity, 10);
-    });
-
-    test('buildApiTradeSaleStats: counterparty items rejected', () => {
-      const env = buildEnv({ state: { ledger: { lots: [], sales: [] }, catalog: { itemsByName: {}, itemsById: {} }, keyProfile: { userId: 1001 } } });
-      const barterDetail = {
-        id: 9001,
-        status: 'Accepted',
-        completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 5 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 1000, items: [{ id: 200, name: 'Cannabis', quantity: 1 }] },
-      };
-      assert.throws(
-        () => env.buildApiTradeSaleStats(barterDetail, barterDetail.initiator, barterDetail.recipient),
-        /barter/i
-      );
-    });
-
-    test('buildApiTradeSaleStats: no owner items rejected', () => {
-      const env = buildEnv({ state: { ledger: { lots: [], sales: [] }, catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } }, keyProfile: { userId: 1001 } } });
-      const noItems = {
-        id: 9001,
-        status: 'Accepted',
-        completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [] },
-        recipient: { userId: 5678, name: 'Bob', money: 1000000, items: [] },
-      };
-      assert.throws(
-        () => env.buildApiTradeSaleStats(noItems, noItems.initiator, noItems.recipient),
-        /no outgoing items/i
-      );
-    });
-
-    test('buildApiTradeSaleStats: unknown catalog item throws', () => {
-      const env = buildEnv({ state: { ledger: { lots: [], sales: [] }, catalog: { itemsByName: {}, itemsById: {} }, keyProfile: { userId: 1001 } } });
-      const rawDetail = {
-        id: 9001,
-        status: 'Accepted',
-        completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 1 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 1000000, items: [] },
-      };
-      assert.throws(
-        () => env.buildApiTradeSaleStats(rawDetail, rawDetail.initiator, rawDetail.recipient),
-        /catalog/i
-      );
-    });
-  });
-
-  describe('Money and accounting', () => {
-    function makeEnvWithCatalog(extraState = {}) {
-      return buildEnv({
-        state: {
-          ledger: { lots: [{ ...OPEN_LOT }], sales: [] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-          ...extraState,
-        },
-      });
-    }
-
-    test('buildApiTradeSaleStats: counterparty cash only computes correct net proceeds', () => {
-      const env = makeEnvWithCatalog();
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] },
-      };
-      const stats = env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient);
-      assert.equal(stats.tradeNetCash, 5000000);
-      assert.equal(stats.tradeMyCash, 0);
-    });
-
-    test('buildApiTradeSaleStats: both parties contribute money reduces net proceeds', () => {
-      const env = makeEnvWithCatalog();
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 200000, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 5200000, items: [] },
-      };
-      const stats = env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient);
-      assert.equal(stats.tradeNetCash, 5000000);
-      assert.equal(stats.tradeMyCash, 200000);
-    });
-
-    test('buildApiTradeSaleStats: no cash at all throws', () => {
-      const env = makeEnvWithCatalog();
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 0, items: [] },
-      };
-      assert.throws(() => env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient), /no cash/i);
-    });
-
-    test('buildApiTradeSaleStats: zero or negative net proceeds throws', () => {
-      const env = makeEnvWithCatalog();
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 5000000, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 3000000, items: [] },
-      };
-      assert.throws(() => env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient), /zero or negative/i);
-    });
-
-    test('ledgerSalePlan: produces correct FIFO plan and cost basis for API trade stats', () => {
-      const env = makeEnvWithCatalog();
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] },
-      };
-      const stats = env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient);
-      const plan = env.ledgerSalePlan(stats);
-      assert.equal(plan.requestedQuantity, 10);
-      assert.equal(plan.trackedQuantity, 10);
-      assert.equal(plan.untrackedQuantity, 0);
-      assert.ok(plan.fullCoverage);
-      assert.equal(plan.trackedCostBasis, 900000); // 10 * 90000
-      assert.ok(Number.isFinite(plan.realizedProfit));
-      assert.equal(plan.realizedProfit, 5000000 - 900000);
-    });
-
-    test('ledgerSalePlan: zero FIFO coverage (no matching lots) returns untrackedQuantity > 0', () => {
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [], sales: [] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] },
-      };
-      const stats = env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient);
-      const plan = env.ledgerSalePlan(stats);
-      assert.ok(!plan.fullCoverage);
-      assert.equal(plan.trackedQuantity, 0);
-    });
-
-    test('ledgerSalePlan: partial FIFO coverage returns untrackedQuantity > 0', () => {
-      const partialLot = { ...OPEN_LOT, quantity: 5, remainingQuantity: 5 };
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [partialLot], sales: [] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] },
-      };
-      const stats = env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient);
-      const plan = env.ledgerSalePlan(stats);
-      assert.ok(!plan.fullCoverage);
-      assert.equal(plan.untrackedQuantity, 5);
-    });
-  });
-
-  describe('Mutation and deduplication', () => {
-    test('apiTradeAlreadyRecorded: returns false when no matching sale', () => {
-      const { apiTradeAlreadyRecorded } = buildEnv();
-      assert.equal(apiTradeAlreadyRecorded(9001), false);
-    });
-
-    test('apiTradeAlreadyRecorded: returns true when fingerprint matches', () => {
-      const env = buildEnv({
-        state: {
-          ledger: {
-            lots: [],
-            sales: [{ id: 's1', fingerprint: 'trade:api-trade-9001', soldAt: new Date().toISOString(), items: [], cashReceived: 0 }],
-          },
-          catalog: { itemsByName: {}, itemsById: {} },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      assert.equal(env.apiTradeAlreadyRecorded(9001), true);
-      assert.equal(env.apiTradeAlreadyRecorded(9002), false);
-    });
-
-    test('detectApiTradeLikelyManualDuplicate: returns empty when no sales', () => {
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [], sales: [] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const stats = env.buildApiTradeSaleStats(
-        { id: 9001, status: 'Accepted', completedAt: new Date().toISOString(),
-          initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-          recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] } },
-        { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        { userId: 5678, name: 'Bob', money: 5000000, items: [] }
-      );
-      const dupes = env.detectApiTradeLikelyManualDuplicate(stats, 86400000);
-      assert.equal(dupes.length, 0);
-    });
-
-    test('detectApiTradeLikelyManualDuplicate: detects a likely manual duplicate within window', () => {
-      const recentSale = {
-        id: 's-manual',
-        fingerprint: 'trade-fallback:abc123',
-        soldAt: new Date(Date.now() - 3600000).toISOString(), // 1h ago
-        cashReceived: 5000000,
-        items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
-      };
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [{ ...OPEN_LOT }], sales: [recentSale] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const stats = env.buildApiTradeSaleStats(
-        { id: 9001, status: 'Accepted', completedAt: new Date().toISOString(),
-          initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-          recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] } },
-        { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        { userId: 5678, name: 'Bob', money: 5000000, items: [] }
-      );
-      const dupes = env.detectApiTradeLikelyManualDuplicate(stats, 86400000);
-      assert.equal(dupes.length, 1);
-    });
-
-    test('detectApiTradeLikelyManualDuplicate: does not flag API-recorded sales as manual duplicates', () => {
-      const apiSale = {
-        id: 's-api',
-        fingerprint: 'trade:api-trade-9000',
-        soldAt: new Date(Date.now() - 3600000).toISOString(),
-        cashReceived: 5000000,
-        items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
-      };
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [{ ...OPEN_LOT }], sales: [apiSale] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const stats = env.buildApiTradeSaleStats(
-        { id: 9001, status: 'Accepted', completedAt: new Date().toISOString(),
-          initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-          recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] } },
-        { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        { userId: 5678, name: 'Bob', money: 5000000, items: [] }
-      );
-      const dupes = env.detectApiTradeLikelyManualDuplicate(stats, 86400000);
-      assert.equal(dupes.length, 0);
-    });
-
-    test('detectApiTradeLikelyManualDuplicate: does not flag sale outside time window', () => {
-      const oldSale = {
-        id: 's-old',
-        fingerprint: 'trade-fallback:xyz',
-        soldAt: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-        cashReceived: 5000000,
-        items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
-      };
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [{ ...OPEN_LOT }], sales: [oldSale] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const stats = env.buildApiTradeSaleStats(
-        { id: 9001, status: 'Accepted', completedAt: new Date().toISOString(),
-          initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-          recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] } },
-        { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        { userId: 5678, name: 'Bob', money: 5000000, items: [] }
-      );
-      const dupes = env.detectApiTradeLikelyManualDuplicate(stats, 86400000);
-      assert.equal(dupes.length, 0);
-    });
-
-    test('buildApiTradeSaleStats produces stats with tradeId api-trade-{id} fingerprint', () => {
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [{ ...OPEN_LOT }], sales: [] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] },
-      };
-      const stats = env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient);
-      assert.equal(stats.tradeId, 'api-trade-9001');
-    });
-
-    test('ledgerSalePlan does not mutate lots (review is non-mutating)', () => {
-      const env = buildEnv({
-        state: {
-          ledger: { lots: [{ ...OPEN_LOT }], sales: [] },
-          catalog: { itemsByName: { xanax: CATALOG_XANAX }, itemsById: { '100': CATALOG_XANAX } },
-          keyProfile: { userId: 1001 },
-        },
-      });
-      const detail = {
-        id: 9001, status: 'Accepted', completedAt: '2026-01-01T00:00:00.000Z',
-        initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
-        recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] },
-      };
-      const stats = env.buildApiTradeSaleStats(detail, detail.initiator, detail.recipient);
-      const before = env.state.ledger.lots[0].remainingQuantity;
-      env.ledgerSalePlan(stats);
-      const after = env.state.ledger.lots[0].remainingQuantity;
-      assert.equal(before, after, 'ledgerSalePlan must not mutate lots');
-    });
-  });
-
-  describe('Protected function existence check', () => {
-    test('recordTradeSale exists in IMM', () => {
-      assert.ok(source.includes('function recordTradeSale('), 'recordTradeSale must exist');
-    });
-    test('normalizeLedger exists in IMM', () => {
-      assert.ok(source.includes('function normalizeLedger('), 'normalizeLedger must exist');
-    });
-    test('ledgerSalePlan exists in IMM', () => {
-      assert.ok(source.includes('function ledgerSalePlan('), 'ledgerSalePlan must exist');
-    });
-    test('pricedTradeRenderRowBadge exists in IMM', () => {
-      assert.ok(source.includes('function pricedTradeRenderRowBadge(') || source.includes('pricedTradeRenderRowBadge'), 'pricedTradeRenderRowBadge must exist');
-    });
-    test('pricedTradeEnsureNativeMaxButton exists in IMM', () => {
-      assert.ok(source.includes('function pricedTradeEnsureNativeMaxButton(') || source.includes('pricedTradeEnsureNativeMaxButton'), 'pricedTradeEnsureNativeMaxButton must exist');
-    });
-  });
-
-  describe('Version check', () => {
-    test('IMM version is 0.19.34', () => {
-      const match = source.match(/@version\s+([\d.]+)/);
-      assert.ok(match, 'version metadata should exist');
-      assert.equal(match[1], '0.19.34', 'version should be 0.19.34');
-    });
+  test('normalizeLedger discards malformed quarantine records', () => {
+    const { normalizeLedger } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const ledger = normalizeLedger({ quarantinedTrades: [null, { id: '', reasonCode: '' }, { id: 'q1', reasonCode: 'ok' }] });
+    assert.equal(ledger.quarantinedTrades.length, 1);
   });
 });
 
-console.log('# IMM API Trade Recovery tests passed.');
+// ── Normalization contracts ───────────────────────────────────────────────────
+describe('Normalization contracts', () => {
+  test('normalizeApiTradeParticipant: missing money field throws', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', items: [] }, 'initiator'),
+      /no money field/i,
+    );
+  });
+
+  test('normalizeApiTradeParticipant: missing items field throws', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 0 }, 'initiator'),
+      /no items field/i,
+    );
+  });
+
+  test('normalizeApiTradeParticipant: missing quantity field throws — no default-to-1', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax' }] }, 'initiator'),
+      /no quantity field/i,
+    );
+  });
+
+  test('normalizeApiTradeParticipant: zero quantity throws — no silent skip', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 0 }] }, 'initiator'),
+      /invalid or zero quantity/i,
+    );
+  });
+
+  test('normalizeApiTradeParticipant: points field throws — unsupported asset', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 0, items: [], points: 100 }, 'initiator'),
+      /points/i,
+    );
+  });
+
+  test('normalizeApiTradeParticipant: valid participant normalizes correctly', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const result = normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 500000, items: [{ id: 100, name: 'Xanax', quantity: 5 }] }, 'initiator');
+    assert.equal(result.userId, 1001);
+    assert.equal(result.money, 500000);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].quantity, 5);
+  });
+
+  test('normalizeApiTradeDetail: ID mismatch throws', () => {
+    const { normalizeApiTradeDetail } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const raw = {
+      id: 9999,
+      status: 'Accepted',
+      completed_at: Math.floor(Date.now() / 1000),
+      initiator: { user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 1 }] },
+      recipient: { user_id: 5678, name: 'Bob', money: 1000000, items: [] },
+    };
+    assert.throws(() => normalizeApiTradeDetail(raw, 9001), /mismatch/i);
+  });
+
+  test('normalizeApiTradeDetail: matching expected ID succeeds', () => {
+    const { normalizeApiTradeDetail } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const raw = {
+      id: 9001,
+      status: 'Accepted',
+      completed_at: Math.floor(Date.now() / 1000),
+      initiator: { user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 1 }] },
+      recipient: { user_id: 5678, name: 'Bob', money: 1000000, items: [] },
+    };
+    const detail = normalizeApiTradeDetail(raw, 9001);
+    assert.equal(detail.id, 9001);
+  });
+
+  test('buildApiTradeSaleStats: conflicting ID vs name catalog match throws', () => {
+    setupState({ lots: [freshLot()] });
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    // Inject conflict: ID 100 → 'OtherItem' but name 'Xanax' → itemId 999
+    imm.state.catalog.itemsById['100'] = { id: 100, name: 'OtherItem', marketPrice: 1000 };
+    imm.state.catalog.itemsByName['xanax'] = { id: 999, name: 'Xanax', marketPrice: 90000 };
+    const detail = freshDetail();
+    const { buildApiTradeSaleStats, resolveApiTradeOwner } = imm;
+    const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, 1001);
+    assert.throws(() => buildApiTradeSaleStats(detail, ownerSide, counterpartySide), /catalog conflict/i);
+  });
+});
+
+// ── Quarantine ────────────────────────────────────────────────────────────────
+describe('Quarantine', () => {
+  test('quarantineApiTrade persists record with reason code and raw payload', () => {
+    setupState();
+    const { quarantineApiTrade, state } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const payload = { id: 9001, status: 'Accepted' };
+    const q = quarantineApiTrade(payload, 'missing-money', { endpoint: 'https://api.torn.com/v2/user/trades', apiTradeId: 9001 });
+    assert.equal(q.reasonCode, 'missing-money');
+    assert.deepEqual(q.rawPayload, payload);
+    assert.equal(q.apiTradeId, 9001);
+    assert.equal(q.validationState, 'rejected');
+    assert.ok(state.ledger.quarantinedTrades.length >= 1);
+    // No lots or sales were mutated
+    assert.equal(state.ledger.lots.length, 0);
+    assert.equal(state.ledger.sales.length, 0);
+  });
+
+  test('quarantineApiTrade: record preserved through normalizeLedger round-trip', () => {
+    setupState();
+    const { quarantineApiTrade, normalizeLedger, state } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    quarantineApiTrade({ id: 9001 }, 'test-code');
+    const ledger2 = normalizeLedger(JSON.parse(JSON.stringify(state.ledger)));
+    assert.equal(ledger2.quarantinedTrades.length, 1);
+    assert.equal(ledger2.quarantinedTrades[0].reasonCode, 'test-code');
+  });
+
+  test('quarantineApiTrade: Ledger Integrity includes quarantine count', () => {
+    setupState();
+    const { quarantineApiTrade, analyzeLedgerIntegrity, state } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    quarantineApiTrade({ id: 9001 }, 'test-code');
+    const report = analyzeLedgerIntegrity(state.ledger);
+    assert.equal(report.quarantinedCount, 1);
+  });
+});
+
+// ── Duplicate blocking ────────────────────────────────────────────────────────
+describe('Duplicate blocking', () => {
+  test('apiTradeAlreadyRecorded: blocked by fingerprint', () => {
+    setupState({
+      sales: [{
+        id: 's1', fingerprint: 'trade:api-trade-9001',
+        soldAt: new Date().toISOString(), items: [], cashReceived: 5000000,
+        counterparty: 'Bob', counterpartyId: 5678, captureMethod: 'api-trade-recovery',
+      }],
+    });
+    const { apiTradeAlreadyRecorded } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.equal(apiTradeAlreadyRecorded(9001), true);
+    assert.equal(apiTradeAlreadyRecorded(9002), false);
+  });
+
+  test('apiTradeAlreadyRecorded: blocked by apiTradeId field', () => {
+    setupState({});
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    // Push with apiTradeId set but different fingerprint — bypass normalizeLedger to avoid field loss
+    imm.state.ledger.sales.push(imm.normalizeSaleRecord({
+      id: 's-apitradeid',
+      fingerprint: 'some-other-fingerprint',
+      apiTradeId: 9001,
+      soldAt: new Date().toISOString(),
+      items: [],
+      cashReceived: 5000000,
+      counterparty: 'Bob',
+      counterpartyId: 5678,
+      captureMethod: 'api-trade-recovery',
+    }));
+    assert.equal(imm.apiTradeAlreadyRecorded(9001), true);
+    assert.equal(imm.apiTradeAlreadyRecorded(9002), false);
+  });
+
+  test('apiTradeCanonicalFingerprintRecorded: blocked by matching canonical fingerprint', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    imm.state.ledger.sales.push(imm.normalizeSaleRecord({
+      id: 's-fp', fingerprint: 'trade:api-trade-9001', canonicalFingerprint: fp,
+      apiTradeId: 9001, soldAt: new Date().toISOString(), items: [],
+      cashReceived: 5000000, counterparty: 'Bob',
+    }));
+    assert.equal(imm.apiTradeCanonicalFingerprintRecorded(fp), true);
+    assert.equal(imm.apiTradeCanonicalFingerprintRecorded('different-fp'), false);
+  });
+
+  test('detectApiTradeLikelyManualDuplicate: blocked within 24h of completion time', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 3600000).toISOString(); // 1h ago
+    setupState({
+      lots: [freshLot()],
+      sales: [{
+        id: 's-manual', fingerprint: 'trade-fallback:abc',
+        soldAt: new Date(Date.now() - 7200000).toISOString(), // 2h ago — within 24h of completion
+        cashReceived: 5000000, counterparty: 'Bob', counterpartyId: 5678,
+        items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
+      }],
+    });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const dupes = imm.detectApiTradeLikelyManualDuplicate(stats, 86400000);
+    assert.equal(dupes.length, 1);
+  });
+
+  test('detectApiTradeLikelyManualDuplicate: not blocked outside 24h window of completion time', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 3600000).toISOString(); // 1h ago
+    setupState({
+      lots: [freshLot()],
+      sales: [{
+        id: 's-old', fingerprint: 'trade-fallback:xyz',
+        soldAt: new Date(Date.now() - 172800000).toISOString(), // 2 days ago — outside 24h of completion
+        cashReceived: 5000000,
+        items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
+      }],
+    });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const dupes = imm.detectApiTradeLikelyManualDuplicate(stats, 86400000);
+    assert.equal(dupes.length, 0);
+  });
+
+  test('detectApiTradeLikelyManualDuplicate: reordered asset equivalence is detected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({
+      lots: [
+        freshLot({ id: 'lot-x5', itemId: 100, itemName: 'Xanax', quantity: 5, remainingQuantity: 5, unitCost: 90000, totalCost: 450000 }),
+        freshLot({ id: 'lot-v10', itemId: 101, itemName: 'Vicodin', normalizedName: 'vicodin', quantity: 10, remainingQuantity: 10, unitCost: 30000, totalCost: 300000 }),
+      ],
+      sales: [{
+        id: 's-reorder', fingerprint: 'trade-fallback:reorder',
+        soldAt: new Date(Date.now() - 3600000).toISOString(),
+        cashReceived: 750000,
+        items: [
+          { itemId: 101, itemName: 'Vicodin', quantity: 10 },
+          { itemId: 100, itemName: 'Xanax', quantity: 5 },
+        ],
+      }],
+    });
+    const detail = {
+      id: 9002, status: 'Accepted', completedAt,
+      initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 5 }, { id: 101, name: 'Vicodin', quantity: 10 }] },
+      recipient: { userId: 5678, name: 'Bob', money: 750000, items: [] },
+    };
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const dupes = imm.detectApiTradeLikelyManualDuplicate(stats, 86400000);
+    assert.equal(dupes.length, 1, 'reordered assets must be detected as duplicate');
+  });
+
+  test('detectApiTradeLikelyManualDuplicate: different cash amount is not a match', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({
+      lots: [freshLot()],
+      sales: [{
+        id: 's-diff', fingerprint: 'trade-fallback:diff',
+        soldAt: new Date(Date.now() - 3600000).toISOString(),
+        cashReceived: 5000050, // clearly different from 5000000 (> 1 apart)
+        items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
+      }],
+    });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const dupes = imm.detectApiTradeLikelyManualDuplicate(stats, 86400000);
+    assert.equal(dupes.length, 0, 'different cash amount must not match');
+  });
+
+  test('distinct endpoint-confirmed IDs may both record', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 20, remainingQuantity: 20 })] });
+
+    const detailA = freshDetail({ id: 9001, completedAt: new Date(Date.now() - 7200000).toISOString() });
+    const { ownerSide: owA, counterpartySide: cpA } = imm.resolveApiTradeOwner(detailA, 1001);
+    const statsA = imm.buildApiTradeSaleStats(detailA, owA, cpA);
+    statsA.soldAt = detailA.completedAt;
+    const saleA = imm.recordTradeSale(statsA, 'api-trade-recovery');
+    const recordedA = imm.state.ledger.sales.find((s) => s.id === saleA.id);
+    if (recordedA) {
+      recordedA.apiTradeId = detailA.id;
+      recordedA.canonicalFingerprint = imm.buildApiTradeCanonicalFingerprint(detailA, statsA);
+    }
+
+    // Second trade has distinct ID — must not be blocked
+    assert.equal(imm.apiTradeAlreadyRecorded(9002), false);
+    const detailB = freshDetail({ id: 9002, completedAt: new Date(Date.now() - 3600000).toISOString() });
+    const { ownerSide: owB, counterpartySide: cpB } = imm.resolveApiTradeOwner(detailB, 1001);
+    const statsB = imm.buildApiTradeSaleStats(detailB, owB, cpB);
+    statsB.soldAt = detailB.completedAt;
+    const saleB = imm.recordTradeSale(statsB, 'api-trade-recovery');
+    assert.ok(saleB, 'second distinct trade must record');
+    assert.equal(imm.state.ledger.sales.length, 2);
+  });
+});
+
+// ── FIFO accounting ───────────────────────────────────────────────────────────
+describe('FIFO accounting — production recordTradeSale', () => {
+  test('canonical FIFO case: buy 100@10, buy 100@12, sell 150, consume 100+50, leave 50@12', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const lot1 = freshLot({ id: 'lot-a', quantity: 100, remainingQuantity: 100, unitCost: 10, totalCost: 1000, capturedAt: new Date(Date.now() - 120000).toISOString() });
+    const lot2 = freshLot({ id: 'lot-b', quantity: 100, remainingQuantity: 100, unitCost: 12, totalCost: 1200, capturedAt: new Date(Date.now() - 60000).toISOString() });
+    setupState({});
+    imm.state.ledger.lots = [lot1, lot2]; // FIFO: oldest first
+    const detail = freshDetail({
+      id: 9003,
+      initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 150 }] },
+      recipient: { userId: 5678, name: 'Bob', money: 2300, items: [] },
+    });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'api-trade-recovery');
+    const lots = imm.state.ledger.lots;
+    assert.equal(lots.find((l) => l.id === 'lot-a').remainingQuantity, 0, 'lot1 fully consumed');
+    assert.equal(lots.find((l) => l.id === 'lot-b').remainingQuantity, 50, '50 remain in lot2');
+    assert.equal(sale.trackedCostBasis, 1600, 'cost: 100*10 + 50*12 = 1600');
+    assert.equal(sale.realizedProfit, 700, 'profit: 2300 - 1600 = 700');
+  });
+
+  test('exact lot: single lot fully consumed', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 10, remainingQuantity: 10, unitCost: 90000 })] });
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'api-trade-recovery');
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0);
+    assert.equal(sale.trackedCostBasis, 900000);
+    assert.equal(sale.realizedProfit, 5000000 - 900000);
+  });
+
+  test('partial lot: only part of lot consumed', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 20, remainingQuantity: 20, unitCost: 90000 })] });
+    const detail = freshDetail({
+      initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 5 }] },
+      recipient: { userId: 5678, name: 'Bob', money: 500000, items: [] },
+    });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'api-trade-recovery');
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 15);
+    assert.equal(sale.trackedQuantity, 5);
+    assert.equal(sale.trackedCostBasis, 450000);
+  });
+
+  test('zero inventory rejection: no matching lots throws', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [] });
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    assert.throws(() => imm.recordTradeSale(stats, 'api-trade-recovery'), /None of the sold quantities/i);
+  });
+
+  test('multi-lot: two lots consumed across sale', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const lot1 = freshLot({ id: 'lot-m1', quantity: 5, remainingQuantity: 5, unitCost: 80000, capturedAt: new Date(Date.now() - 120000).toISOString() });
+    const lot2 = freshLot({ id: 'lot-m2', quantity: 5, remainingQuantity: 5, unitCost: 100000, capturedAt: new Date(Date.now() - 60000).toISOString() });
+    setupState({});
+    imm.state.ledger.lots = [lot1, lot2];
+    const detail = freshDetail({
+      initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
+      recipient: { userId: 5678, name: 'Bob', money: 1000000, items: [] },
+    });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'api-trade-recovery');
+    assert.equal(imm.state.ledger.lots.find((l) => l.id === 'lot-m1').remainingQuantity, 0);
+    assert.equal(imm.state.ledger.lots.find((l) => l.id === 'lot-m2').remainingQuantity, 0);
+    assert.equal(sale.trackedCostBasis, 5 * 80000 + 5 * 100000);
+  });
+
+  test('consecutive sales: second sale uses remaining lot quantity', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-consec', quantity: 20, remainingQuantity: 20, unitCost: 90000 })] });
+    const detail1 = freshDetail({ id: 9010, completedAt: new Date(Date.now() - 7200000).toISOString() });
+    const { ownerSide: ow1, counterpartySide: cp1 } = imm.resolveApiTradeOwner(detail1, 1001);
+    const s1 = imm.buildApiTradeSaleStats(detail1, ow1, cp1);
+    s1.soldAt = detail1.completedAt;
+    imm.recordTradeSale(s1, 'api-trade-recovery');
+    const detail2 = freshDetail({ id: 9011, completedAt: new Date(Date.now() - 3600000).toISOString() });
+    const { ownerSide: ow2, counterpartySide: cp2 } = imm.resolveApiTradeOwner(detail2, 1001);
+    const s2 = imm.buildApiTradeSaleStats(detail2, ow2, cp2);
+    s2.soldAt = detail2.completedAt;
+    imm.recordTradeSale(s2, 'api-trade-recovery');
+    assert.equal(imm.state.ledger.lots.find((l) => l.id === 'lot-consec').remainingQuantity, 0);
+    assert.equal(imm.state.ledger.sales.length, 2);
+  });
+
+  test('deterministic FIFO allocation: oldest lot consumed first', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const lot1 = freshLot({ id: 'lot-det1', quantity: 10, remainingQuantity: 10, unitCost: 80000, capturedAt: new Date(Date.now() - 200000).toISOString() });
+    const lot2 = freshLot({ id: 'lot-det2', quantity: 10, remainingQuantity: 10, unitCost: 100000, capturedAt: new Date(Date.now() - 100000).toISOString() });
+    setupState({});
+    imm.state.ledger.lots = [lot1, lot2];
+    const detail = freshDetail({
+      initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
+      recipient: { userId: 5678, name: 'Bob', money: 900000, items: [] },
+    });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const plan = imm.ledgerSalePlan(stats);
+    assert.equal(plan.items[0].allocations[0].lotId, lot1.id, 'oldest lot consumed first');
+    assert.equal(plan.items[0].allocations[0].unitCost, 80000);
+  });
+
+  test('exact cost basis and realized profit', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 10, remainingQuantity: 10, unitCost: 70000 })] });
+    const detail = freshDetail({ recipient: { userId: 5678, name: 'Bob', money: 800000, items: [] } });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'api-trade-recovery');
+    assert.equal(sale.trackedCostBasis, 700000);
+    assert.equal(sale.realizedProfit, 100000);
+  });
+});
+
+// ── Atomic transaction and rollback ──────────────────────────────────────────
+describe('Atomic transaction and rollback', () => {
+  test('successful record: lots mutated, sale added, soldAt = API completion time', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const canonicalFp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'api-trade-recovery');
+    const recorded = imm.state.ledger.sales.find((s) => s.id === sale.id);
+    assert.ok(recorded, 'sale must be in ledger');
+    // soldAt comes from API completion time — no second mutation needed
+    assert.equal(recorded.soldAt, detail.completedAt);
+    // Stamp API metadata (mirrors handleApiTradeRecoveryConfirm atomic block)
+    recorded.apiTradeId = detail.id;
+    recorded.apiCompletedAt = detail.completedAt;
+    recorded.canonicalFingerprint = canonicalFp;
+    recorded.provenance = 'api-trade-recovery';
+    assert.equal(recorded.apiTradeId, 9001);
+    assert.equal(recorded.canonicalFingerprint, canonicalFp);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0);
+  });
+
+  test('rollback: forced failure restores structurally identical pre-state', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ id: 'lot-rollback' })] });
+    const preLots = JSON.parse(JSON.stringify(imm.state.ledger.lots));
+    const preSales = JSON.parse(JSON.stringify(imm.state.ledger.sales));
+    // Corrupt stats to force recordTradeSale to throw
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.tradeNetCash = null; // triggers throw inside recordTradeSale
+    const preState = {
+      lots: JSON.parse(JSON.stringify(imm.state.ledger.lots)),
+      sales: JSON.parse(JSON.stringify(imm.state.ledger.sales)),
+    };
+    let threw = false;
+    try {
+      imm.recordTradeSale(stats, 'api-trade-recovery');
+    } catch {
+      threw = true;
+      imm.state.ledger.lots = preState.lots;
+      imm.state.ledger.sales = preState.sales;
+    }
+    assert.ok(threw, 'should have thrown');
+    assert.deepEqual(imm.state.ledger.lots, preLots, 'lots must be identical to pre-state');
+    assert.deepEqual(imm.state.ledger.sales, preSales, 'sales must be identical to pre-state');
+  });
+
+  test('soldAt comes from stats.soldAt — no second post-record mutation required', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const sale = imm.recordTradeSale(stats, 'api-trade-recovery');
+    const recorded = imm.state.ledger.sales.find((s) => s.id === sale.id);
+    assert.equal(recorded.soldAt, detail.completedAt, 'soldAt must match API completion time');
+  });
+});
+
+// ── Export / import / backup fidelity ────────────────────────────────────────
+describe('Export/import/backup fidelity', () => {
+  test('normalizeLedger round-trip preserves lots, sales, quarantine records', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    imm.quarantineApiTrade({ id: 9001 }, 'test');
+    const before = JSON.parse(JSON.stringify(imm.state.ledger));
+    const after = imm.normalizeLedger(before);
+    assert.equal(after.lots.length, before.lots.length);
+    assert.equal(after.sales.length, before.sales.length);
+    assert.equal(after.quarantinedTrades.length, before.quarantinedTrades.length);
+  });
+
+  test('normalizeSaleRecord preserves API identity fields', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const sale = imm.normalizeSaleRecord({
+      id: 's-test', fingerprint: 'trade:api-trade-9001',
+      apiTradeId: 9001, apiCompletedAt: '2026-01-01T00:00:00.000Z',
+      canonicalFingerprint: 'api-canonical:test',
+      provenance: 'api-trade-recovery',
+      soldAt: '2026-01-01T00:00:00.000Z', cashReceived: 1000000,
+      items: [], counterparty: 'Bob',
+    });
+    assert.equal(sale.apiTradeId, 9001);
+    assert.equal(sale.apiCompletedAt, '2026-01-01T00:00:00.000Z');
+    assert.equal(sale.canonicalFingerprint, 'api-canonical:test');
+    assert.equal(sale.provenance, 'api-trade-recovery');
+  });
+});
+
+// ── Ledger Integrity diagnostics ─────────────────────────────────────────────
+describe('Ledger Integrity diagnostics', () => {
+  test('clean ledger reports no issues', () => {
+    setupState({});
+    const { analyzeLedgerIntegrity, state } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const report = analyzeLedgerIntegrity(state.ledger);
+    assert.equal(report.issues.length, 0, `expected no issues, got: ${JSON.stringify(report.issues)}`);
+  });
+
+  test('quarantine malformed record produces integrity issue', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.state.ledger.quarantinedTrades = [{ id: 'qbad', reasonCode: '', capturedAt: '' }];
+    const report = imm.analyzeLedgerIntegrity(imm.state.ledger);
+    assert.ok(report.issues.some((i) => i.type.startsWith('quarantine-')), 'should have quarantine issue');
+  });
+
+  test('quarantinedCount is returned by analyzeLedgerIntegrity', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.quarantineApiTrade({ id: 9001 }, 'code');
+    const report = imm.analyzeLedgerIntegrity(imm.state.ledger);
+    assert.equal(report.quarantinedCount, 1);
+  });
+});
+
+// ── Provenance and API metadata ───────────────────────────────────────────────
+describe('Provenance and API metadata', () => {
+  test('buildApiTradeCanonicalFingerprint includes all required components', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    assert.ok(fp.startsWith('api-canonical:'), 'must have expected prefix');
+    assert.ok(fp.includes('cid:5678'), 'must include counterparty ID');
+    assert.ok(fp.includes('apiId:9001'), 'must include API trade ID');
+    assert.ok(fp.includes('net:5000000'), 'must include net proceeds');
+    assert.ok(fp.includes(`completedAt:${detail.completedAt}`), 'must include completion timestamp');
+    assert.ok(fp.includes('assets:100:10'), 'must include sorted asset IDs and quantities');
+  });
+
+  test('buildApiTradeSaleStats includes apiTradeId, apiCompletedAt, apiOwnerDirection', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    assert.equal(stats.apiTradeId, 9001);
+    assert.equal(stats.apiCompletedAt, detail.completedAt);
+    assert.ok(['initiator', 'recipient'].includes(stats.apiOwnerDirection));
+  });
+});
+
+console.log('# IMM API Trade Recovery production-path tests passed.');

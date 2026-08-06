@@ -103,8 +103,8 @@
 1. Manually record a sale for the same item/quantity/proceeds using **Recover missed sale** (manual path).
 2. Open Ledger → **Recover recent API trade** and select a matching finished API trade.
 3. Verify the review screen shows a ⚠ warning about likely manual duplicates detected.
-4. Verify the confirm button is visually highlighted (amber outline) to indicate caution.
-5. Confirm must not be silently hidden — the user must explicitly decide.
+4. Verify the confirm button is **disabled** (not amber / not enabled with a caution style) — confirmation is unconditionally blocked.
+5. There must be no path to confirm while a likely manual duplicate is present: keyboard, click, and direct invocation must all produce zero mutation.
 
 ---
 

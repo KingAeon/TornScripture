@@ -2213,6 +2213,11 @@
       items,
       receiptAudit: normalizeReceiptAudit(candidate?.receiptAudit ?? candidate?.audit),
       notes: normalizeWhitespace(candidate?.notes),
+      // API trade recovery identity fields — preserved through normalize/import/export.
+      ...(candidate?.apiTradeId != null ? { apiTradeId: Number(candidate.apiTradeId) || null } : {}),
+      ...(candidate?.apiCompletedAt != null ? { apiCompletedAt: normalizeWhitespace(candidate.apiCompletedAt) || null } : {}),
+      ...(candidate?.canonicalFingerprint != null ? { canonicalFingerprint: normalizeWhitespace(candidate.canonicalFingerprint) || null } : {}),
+      ...(candidate?.provenance != null ? { provenance: normalizeWhitespace(candidate.provenance) || null } : {}),
     };
   }
 
@@ -3550,12 +3555,20 @@
     const sales = sourceSales.map(normalizeSaleRecord).filter(Boolean);
     lots.sort((a, b) => Date.parse(b.capturedAt || '') - Date.parse(a.capturedAt || ''));
     sales.sort((a, b) => Date.parse(b.soldAt || '') - Date.parse(a.soldAt || ''));
+    const quarantinedTrades = Array.isArray(raw?.quarantinedTrades)
+      ? raw.quarantinedTrades
+          .filter((q) => q && typeof q === 'object'
+            && normalizeWhitespace(q.id)
+            && normalizeWhitespace(q.reasonCode))
+          .map((q) => ({ ...q, schemaVersion: 1 }))
+      : [];
     return {
       schema: 'tornscripture-imm-ledger',
-      schemaVersion: 5,
+      schemaVersion: 6,
       updatedAt: raw?.updatedAt || null,
       lots,
       sales,
+      quarantinedTrades,
     };
   }
 
@@ -3933,7 +3946,22 @@
       }
     });
 
-    return { issues };
+    const quarantinedTrades = Array.isArray(ledger?.quarantinedTrades) ? ledger.quarantinedTrades : [];
+    quarantinedTrades.forEach((q, index) => {
+      const qId = recordId(q?.id) || `quarantine #${index + 1}`;
+      if (!q || typeof q !== 'object') {
+        addIssue('quarantine-malformed', qId, 'Quarantined trade record is malformed.');
+        return;
+      }
+      if (!normalizeWhitespace(q.reasonCode)) {
+        addIssue('quarantine-missing-reason', qId, 'Quarantined trade record has no reason code.');
+      }
+      if (!normalizeWhitespace(q.capturedAt)) {
+        addIssue('quarantine-missing-timestamp', qId, 'Quarantined trade record has no capture timestamp.');
+      }
+    });
+
+    return { issues, quarantinedCount: quarantinedTrades.length };
   }
 
   function buildLedgerLot(source, captureMethod = 'manual') {
@@ -5222,7 +5250,7 @@
       counterparty: stats.tradeCounterparty,
       counterpartyId: stats.tradeCounterpartyId,
       counterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
-      soldAt: new Date().toISOString(),
+      soldAt: normalizeWhitespace(stats.soldAt) || new Date().toISOString(),
       saleUrl: location.href,
       captureMethod,
       completionSource: completion.source,
@@ -9851,9 +9879,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       for (const lot of imported.lots) mergedLots.set(lot.id, lot);
       const mergedSales = new Map((state.ledger.sales || []).map((sale) => [sale.id, sale]));
       for (const sale of imported.sales) mergedSales.set(sale.id, sale);
+      const mergedQuarantined = new Map((state.ledger.quarantinedTrades || []).map((q) => [q.id, q]));
+      for (const q of (imported.quarantinedTrades || [])) mergedQuarantined.set(q.id, q);
       state.ledger = normalizeLedger({
         lots: [...mergedLots.values()],
         sales: [...mergedSales.values()],
+        quarantinedTrades: [...mergedQuarantined.values()],
       });
       saveLedger();
       renderLedger();
@@ -10655,26 +10686,55 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     ));
     if (userId <= 0) throw new Error(`${label} has no valid Torn ID.`);
     const name = normalizeWhitespace(raw.name ?? raw.player_name ?? '');
-    const money = Math.max(0, Number(raw.money ?? raw.money_offer ?? raw.cash ?? 0) || 0);
-    const rawItems = raw.items ?? raw.items_offered ?? [];
+    // Unsupported non-item assets (e.g. points) must be rejected, not silently ignored.
+    if ('points' in raw && Number(raw.points) > 0) {
+      throw new Error(`${label} includes points (${raw.points}). Points transfers are not supported; only cash-for-items sales can be recovered.`);
+    }
+    // Money field must be explicitly present; do not default to zero.
+    const moneyKey = 'money' in raw ? 'money' : ('money_offer' in raw ? 'money_offer' : ('cash' in raw ? 'cash' : null));
+    if (moneyKey === null) {
+      throw new Error(`${label} has no money field. Cannot determine cash contribution.`);
+    }
+    const moneyRaw = raw[moneyKey];
+    const money = Number(moneyRaw);
+    if (!Number.isFinite(money) || money < 0) {
+      throw new Error(`${label} money value is invalid: ${moneyRaw}`);
+    }
+    // Items field must be explicitly present and an array; do not default to empty.
+    const itemsKey = 'items' in raw ? 'items' : ('items_offered' in raw ? 'items_offered' : null);
+    if (itemsKey === null) {
+      throw new Error(`${label} has no items field. Cannot determine trade contents.`);
+    }
+    const rawItems = raw[itemsKey];
     if (!Array.isArray(rawItems)) throw new Error(`${label} items field is not an array.`);
     const items = [];
     for (const entry of rawItems) {
       if (!entry || typeof entry !== 'object') throw new Error(`${label} items contain a malformed entry.`);
       const itemId = Math.max(0, Math.floor(Number(entry.id ?? entry.item_id ?? 0) || 0));
       if (itemId <= 0) throw new Error(`${label} item entry has no valid item ID.`);
-      const quantity = Math.max(0, Math.floor(Number(entry.quantity ?? 1) || 0));
-      if (quantity <= 0) continue;
+      // Quantity must be explicitly present; do not default to 1.
+      if (!('quantity' in entry)) {
+        throw new Error(`${label} item ID ${itemId} has no quantity field. Cannot determine trade contents.`);
+      }
+      const quantityRaw = entry.quantity;
+      const quantity = Math.floor(Number(quantityRaw));
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new Error(`${label} item ID ${itemId} has invalid or zero quantity: ${quantityRaw}`);
+      }
       items.push({ id: itemId, name: normalizeWhitespace(entry.name ?? ''), quantity });
     }
     return { userId, name, money, items };
   }
 
-  function normalizeApiTradeDetail(raw) {
+  function normalizeApiTradeDetail(raw, expectedId = null) {
     const source = (raw?.trade && typeof raw.trade === 'object') ? raw.trade : raw;
     if (!source || typeof source !== 'object') throw new Error('Trade detail response is missing or malformed.');
     const id = Math.max(0, Math.floor(Number(source.id ?? 0) || 0));
     if (id <= 0) throw new Error('Trade detail response has no valid trade ID.');
+    // The detail-response trade ID must exactly match the candidate's ID.
+    if (expectedId !== null && id !== Math.max(0, Math.floor(Number(expectedId) || 0))) {
+      throw new Error(`Trade detail ID mismatch: expected ${expectedId} but detail response contains ID ${id}. Cannot safely proceed.`);
+    }
     const status = normalizeWhitespace(source.status ?? '');
     const FINISHED = new Set(['accepted', 'finished', 'completed']);
     if (!FINISHED.has(status.toLowerCase())) {
@@ -10732,14 +10792,21 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const tradeItems = [];
     for (const item of aggregated) {
       const byId = catalogItemForId(item.id);
-      const byName = byId ?? catalogItemFor(item.name);
-      if (!byName) {
+      const byNameOnly = catalogItemFor(item.name);
+      // Conflicting ID vs name catalog matches must fail closed.
+      if (byId && byNameOnly && byId.id !== byNameOnly.id) {
+        throw new Error(
+          `Item "${item.name}" (ID ${item.id}) catalog conflict: ID resolves to "${byId.name}" (${byId.id}) but name resolves to "${byNameOnly.name}" (${byNameOnly.id}). Failing closed.`,
+        );
+      }
+      const catalogItem = byId ?? byNameOnly;
+      if (!catalogItem) {
         throw new Error(`Item "${item.name}" (ID ${item.id}) is not in the catalog. Sync the item catalog first.`);
       }
-      const marketPrice = Math.max(0, Number(byName.marketPrice) || 0);
+      const marketPrice = Math.max(0, Number(catalogItem.marketPrice) || 0);
       tradeItems.push({
-        itemId: byName.id,
-        name: byName.name,
+        itemId: catalogItem.id,
+        name: catalogItem.name,
         quantity: item.quantity,
         marketPrice,
         marketTotal: marketPrice * item.quantity,
@@ -10747,8 +10814,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         targetTotal: 0,
       });
     }
-    const counterpartyCash = Math.max(0, counterpartySide.money);
-    const ownerCash = Math.max(0, ownerSide.money);
+    const counterpartyCash = counterpartySide.money;
+    const ownerCash = ownerSide.money;
     const netCash = counterpartyCash - ownerCash;
     if (counterpartyCash === 0 && ownerCash === 0) {
       throw new Error('No cash contribution found in this trade. Net proceeds cannot be determined.');
@@ -10765,6 +10832,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const stats = emptyScanStats();
     stats.pageType = 'trade';
     stats.tradeId = `api-trade-${detail.id}`;
+    stats.apiTradeId = detail.id;
+    stats.apiCompletedAt = detail.completedAt;
+    stats.apiOwnerDirection = ownerSide.userId === detail.initiator.userId ? 'initiator' : 'recipient';
     stats.tradeCounterparty = counterpartySide.name || `Torn ID ${counterpartySide.userId}`;
     stats.tradeCounterpartyId = counterpartySide.userId;
     stats.tradeCounterpartyProfileUrl = `https://www.torn.com/profiles.php?XID=${counterpartySide.userId}`;
@@ -10782,8 +10852,34 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function apiTradeAlreadyRecorded(apiTradeId) {
-    const fingerprint = `trade:api-trade-${apiTradeId}`;
-    return (state.ledger.sales || []).some((s) => s.fingerprint === fingerprint);
+    const id = Number(apiTradeId);
+    const fingerprint = `trade:api-trade-${id}`;
+    return (state.ledger.sales || []).some(
+      (s) => s.fingerprint === fingerprint || Number(s.apiTradeId) === id,
+    );
+  }
+
+  function buildApiTradeCanonicalFingerprint(detail, stats) {
+    const assetKey = (stats.tradeItems || [])
+      .map((i) => `${i.itemId}:${i.quantity}`)
+      .sort()
+      .join('|');
+    const parts = [
+      `cid:${stats.tradeCounterpartyId}`,
+      `dir:${stats.apiOwnerDirection || 'unknown'}`,
+      `assets:${assetKey}`,
+      `ownerCash:${stats.tradeMyCash}`,
+      `cpCash:${stats.tradeTraderCash}`,
+      `net:${stats.tradeNetCash}`,
+      `completedAt:${detail.completedAt}`,
+      `apiId:${detail.id}`,
+    ];
+    return `api-canonical:${parts.join('|')}`;
+  }
+
+  function apiTradeCanonicalFingerprintRecorded(canonicalFingerprint) {
+    if (!canonicalFingerprint) return false;
+    return (state.ledger.sales || []).some((s) => s.canonicalFingerprint === canonicalFingerprint);
   }
 
   function detectApiTradeLikelyManualDuplicate(stats, windowMs = 86400000) {
@@ -10793,11 +10889,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .map((i) => `${i.itemId || normalizeName(i.name)}:${i.quantity}`)
       .sort()
       .join('|');
-    const since = Date.now() - windowMs;
+    // Use the API trade's own completion time as the center of the 24-hour window,
+    // not Date.now(). A manual sale recorded at any time within ±windowMs of the
+    // API completion timestamp is considered a likely duplicate.
+    const completionMs = Date.parse(stats?.apiCompletedAt || '') || Date.now();
     return (state.ledger.sales || []).filter((sale) => {
+      // API-recorded sales are already covered by exact-ID and fingerprint checks.
       if ((sale.fingerprint ?? '').startsWith('trade:api-trade-')) return false;
       const soldAtMs = Date.parse(sale.soldAt || '');
-      if (!Number.isFinite(soldAtMs) || soldAtMs < since) return false;
+      if (!Number.isFinite(soldAtMs)) return false;
+      if (Math.abs(soldAtMs - completionMs) > windowMs) return false;
       if (Math.abs(Number(sale.cashReceived) - netCash) > 1) return false;
       const saleKey = (sale.items || [])
         .map((i) => `${i.itemId || normalizeName(i.itemName)}:${i.quantity}`)
@@ -10805,6 +10906,56 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         .join('|');
       return saleKey === itemKey;
     });
+  }
+
+  function quarantineApiTrade(rawPayload, reasonCode, { endpoint = null, apiTradeId = null, source = 'api-trade-recovery' } = {}) {
+    const record = {
+      id: createId('qtrade'),
+      schemaVersion: 1,
+      reasonCode: String(reasonCode || 'unknown'),
+      rawPayload: rawPayload ?? null,
+      endpoint: endpoint ?? null,
+      apiTradeId: apiTradeId ?? null,
+      capturedAt: new Date().toISOString(),
+      source,
+      validationState: 'rejected',
+    };
+    if (!Array.isArray(state.ledger.quarantinedTrades)) state.ledger.quarantinedTrades = [];
+    state.ledger.quarantinedTrades.unshift(record);
+    saveLedger();
+    return record;
+  }
+
+  // Permission validation for the Torn v2 user/trades endpoint.
+  // Returns one of: 'validated' | 'insufficient' | 'unavailable-or-inconclusive'.
+  // Torn API error code 16 indicates insufficient access level.
+  // Any other failure (network error, malformed response, timeout) is inconclusive.
+  async function validateApiTradeEndpointPermission(key) {
+    if (!key) return 'unavailable-or-inconclusive';
+    try {
+      const url = new URL(APP.tradesUrl);
+      url.searchParams.set('comment', 'TornScripture IMM permission validation');
+      const response = await fetch(url.href, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+      let payload;
+      try { payload = await response.json(); } catch { return 'unavailable-or-inconclusive'; }
+      if (!payload || typeof payload !== 'object') return 'unavailable-or-inconclusive';
+      if (payload.error) {
+        const code = Number(payload.error?.code ?? payload.error);
+        // Torn error code 2 = Incorrect key, 16 = Access level too low.
+        if (code === 16) return 'insufficient';
+        if (code === 2) return 'insufficient';
+        return 'unavailable-or-inconclusive';
+      }
+      if (response.ok) return 'validated';
+      return 'unavailable-or-inconclusive';
+    } catch {
+      return 'unavailable-or-inconclusive';
+    }
   }
 
   function renderApiTradeRecovery(overlayEl, content) {
@@ -10850,7 +11001,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return;
     }
 
-    // Step 1: Fetch candidate list
+    // Positive endpoint-specific permission validation is required before recovery proceeds.
+    // Validation is always run fresh here; result is stored and must be 'validated' to continue.
+    renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">Validating trade endpoint permission…</div>');
+    const permissionState = await validateApiTradeEndpointPermission(key);
+    state.ledger.tradePermission = { state: permissionState, validatedAt: new Date().toISOString() };
+    if (permissionState !== 'validated') {
+      const msg = permissionState === 'insufficient'
+        ? 'API key does not have trade endpoint access (Torn access level too low). A GOBLIN GOD key with trades permission is required.'
+        : 'Trade endpoint permission could not be positively confirmed (inconclusive or error). API trade recovery is disabled.';
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(msg)}</div>`);
+      return;
+    }
+    if (!overlay.isConnected) return;
     let candidates;
     try {
       const listUrl = new URL(APP.tradesUrl);
@@ -10938,7 +11101,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         throw new Error(`Trade detail returned unreadable data (${detailResponse.status}).`);
       }
       if (!detailResponse.ok || detailPayload?.error) throw new Error(apiErrorMessage(detailPayload, detailResponse));
-      detail = normalizeApiTradeDetail(detailPayload);
+      detail = normalizeApiTradeDetail(detailPayload, candidate.id);
     } catch (error) {
       renderApiTradeRecovery(overlay, `
         <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: ${escapeHtml(error?.message || 'Unknown error')}</div>
@@ -10962,6 +11125,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           ? 'None of the outgoing items are covered by open purchase lots.'
           : `Only ${formatInteger(plan.trackedQuantity)} of ${formatInteger(plan.requestedQuantity)} outgoing item units are covered by open lots. Partial recording is not supported.`;
         throw new Error(msg);
+      }
+      // Check exact-ID and canonical fingerprint before showing review.
+      const canonicalFp = buildApiTradeCanonicalFingerprint(detail, stats);
+      if (apiTradeAlreadyRecorded(detail.id) || apiTradeCanonicalFingerprintRecorded(canonicalFp)) {
+        throw new Error(`Trade #${detail.id} has already been recorded (exact-ID or canonical-fingerprint match).`);
       }
       likelyDuplicates = detectApiTradeLikelyManualDuplicate(stats);
     } catch (error) {
@@ -10989,10 +11157,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       `;
     }).join('');
 
-    const dupWarning = likelyDuplicates.length
+    // Likely manual duplicates unconditionally disable confirmation — no override path.
+    const hasDuplicates = likelyDuplicates.length > 0;
+    const dupWarning = hasDuplicates
       ? `<div style="background:#5a2020;border-radius:4px;padding:6px 8px;margin:8px 0;color:#ffcccc">
-          ⚠ ${formatInteger(likelyDuplicates.length)} likely manual duplicate${likelyDuplicates.length === 1 ? '' : 's'} detected within 24h with matching items and proceeds.
-          This trade must not be confirmed unless you are certain those records are distinct.
+          ⚠ ${formatInteger(likelyDuplicates.length)} likely manual duplicate${likelyDuplicates.length === 1 ? '' : 's'} detected within 24h based on API completion time. Confirmation is blocked.
+          Restore a JSON backup to correct the existing record if it is incorrect.
         </div>` : '';
 
     renderApiTradeRecovery(overlay, `
@@ -11015,7 +11185,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       </div>
       <div class="tsimm-ledger-actions">
         <button type="button" data-tsimm-action="api-trade-recovery-back">← Back</button>
-        <button type="button" data-tsimm-action="api-trade-recovery-confirm" data-tsimm-api-trade-id="${escapeHtml(String(detail.id))}" ${likelyDuplicates.length ? 'style="border-color:#c08030;background:#5a3800"' : ''}>
+        <button type="button" data-tsimm-action="api-trade-recovery-confirm"
+          data-tsimm-api-trade-id="${escapeHtml(String(detail.id))}"
+          ${hasDuplicates ? 'disabled aria-disabled="true" style="opacity:0.4;cursor:not-allowed"' : ''}>
           ✓ Record sale — consume ${formatInteger(plan.trackedQuantity)} lot unit${plan.trackedQuantity === 1 ? '' : 's'}
         </button>
       </div>
@@ -11035,26 +11207,61 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty" style="color:#e07070">Review data is stale or mismatched. Please start over.</div>');
       return;
     }
-    // Final duplicate guard
+
+    // Re-run all duplicate gates immediately before mutation — no stale-state bypass.
     if (apiTradeAlreadyRecorded(detail.id)) {
       renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Trade #${escapeHtml(String(detail.id))} was already recorded.</div>`);
       return;
     }
-    try {
-      const sale = recordTradeSale(stats, 'api-trade-recovery');
-      // Stamp the API completion time onto the sale record
-      const recorded = (state.ledger.sales || []).find((s) => s.id === sale.id);
-      if (recorded) recorded.soldAt = detail.completedAt;
-      saveLedger();
-      overlay._tsimmApiTradePendingStats = null;
-      overlay._tsimmApiTradePendingDetail = null;
-      closeApiTradeRecovery();
-      renderLedger();
-      toast(`API trade #${detail.id} recovered. Profit ${Number(sale.realizedProfit) >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit)}.`);
-    } catch (error) {
-      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">Recording failed: ${escapeHtml(error?.message || 'Unknown error')}</div>
-        <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
+    const canonicalFp = buildApiTradeCanonicalFingerprint(detail, stats);
+    if (apiTradeCanonicalFingerprintRecorded(canonicalFp)) {
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Trade #${escapeHtml(String(detail.id))} canonical fingerprint already recorded.</div>`);
+      return;
     }
+    const freshDupes = detectApiTradeLikelyManualDuplicate(stats);
+    if (freshDupes.length) {
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">Likely manual duplicate detected. Confirmation blocked. Please start over.</div>
+        <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
+      return;
+    }
+
+    // Capture exact pre-state for rollback.
+    const preState = {
+      lots: JSON.parse(JSON.stringify(state.ledger.lots)),
+      sales: JSON.parse(JSON.stringify(state.ledger.sales)),
+    };
+
+    // Pass soldAt through stats so recordTradeSale uses the API completion time —
+    // no second post-record mutation is needed.
+    stats.soldAt = detail.completedAt;
+
+    let sale;
+    try {
+      sale = recordTradeSale(stats, 'api-trade-recovery');
+      // Stamp durable API identity fields onto the sale record, then persist once.
+      const recorded = state.ledger.sales.find((s) => s.id === sale.id);
+      if (recorded) {
+        recorded.apiTradeId = detail.id;
+        recorded.apiCompletedAt = detail.completedAt;
+        recorded.canonicalFingerprint = canonicalFp;
+        recorded.provenance = 'api-trade-recovery';
+      }
+      saveLedger();
+    } catch (error) {
+      // Full rollback — restore structurally identical pre-state.
+      state.ledger.lots = preState.lots;
+      state.ledger.sales = preState.sales;
+      try { saveLedger(); } catch { /* best-effort persist of rollback */ }
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">Recording failed: ${escapeHtml(error?.message || 'Unknown error')}. Ledger rolled back.</div>
+        <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
+      return;
+    }
+
+    overlay._tsimmApiTradePendingStats = null;
+    overlay._tsimmApiTradePendingDetail = null;
+    closeApiTradeRecovery();
+    renderLedger();
+    toast(`API trade #${detail.id} recovered. Profit ${Number(sale.realizedProfit) >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit)}.`);
   }
 
   function renderLedger() {
@@ -11089,7 +11296,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     overlay.innerHTML = `
       <div class="tsimm-ledger-shell">
         <div class="tsimm-ledger-head">
-          <div><strong>📒 GOBLIN GOD Ledger</strong><small>What you obtained, what it cost, and what it can earn · schema v5</small></div>
+          <div><strong>📒 GOBLIN GOD Ledger</strong><small>What you obtained, what it cost, and what it can earn · schema v6</small></div>
           <button type="button" data-tsimm-action="ledger-close">×</button>
         </div>
         <div class="tsimm-ledger-scroll">
@@ -13279,6 +13486,35 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     maybeScheduleTraderPriceRecapture();
   }
 
+  if (globalThis.__TS_IMM_TEST_MODE__) {
+    globalThis.__TS_IMM_TEST_EXPORTS__ = {
+      state,
+      normalizeLedger,
+      analyzeLedgerIntegrity,
+      normalizeSaleRecord,
+      emptyScanStats,
+      normalizeName,
+      catalogItemFor,
+      catalogItemForId,
+      ledgerSalePlan,
+      recordTradeSale,
+      normalizeApiTradeListEntry,
+      filterApiTradeCandidates,
+      normalizeApiTradeParticipant,
+      normalizeApiTradeDetail,
+      resolveApiTradeOwner,
+      aggregateApiTradeOwnerItems,
+      buildApiTradeSaleStats,
+      apiTradeAlreadyRecorded,
+      apiTradeCanonicalFingerprintRecorded,
+      buildApiTradeCanonicalFingerprint,
+      detectApiTradeLikelyManualDuplicate,
+      quarantineApiTrade,
+      createId,
+    };
+    return;
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initialize, { once: true });
   } else {
@@ -13388,6 +13624,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       recordTradeSale,
       buildTradeExitAudit,
       tradeExitAuditHtml,
+      normalizeApiTradeListEntry,
+      filterApiTradeCandidates,
+      normalizeApiTradeParticipant,
+      normalizeApiTradeDetail,
+      resolveApiTradeOwner,
+      aggregateApiTradeOwnerItems,
+      catalogItemForId,
+      buildApiTradeSaleStats,
+      apiTradeAlreadyRecorded,
+      apiTradeCanonicalFingerprintRecorded,
+      buildApiTradeCanonicalFingerprint,
+      detectApiTradeLikelyManualDuplicate,
+      quarantineApiTrade,
       _state: state,
     };
   }
