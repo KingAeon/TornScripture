@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.33
+// @version      0.19.34
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.33' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.33' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.34' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.34' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.33
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.34
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -342,7 +342,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.33',
+    version: '0.19.34',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -389,6 +389,8 @@
     keyInfoUrl: 'https://api.torn.com/v2/key/info',
     keyBuilderUrl: 'https://www.torn.com/api.html',
     inventoryPageUrl: 'https://www.torn.com/item.php',
+    tradesListUrl: 'https://api.torn.com/v2/user/trades',
+    tradeDetailBaseUrl: 'https://api.torn.com/v2/user/',
     fastScanDelayMs: 35,
     settleScanDelayMs: 520,
     minimumScanIntervalMs: 90,
@@ -5181,7 +5183,7 @@
     return plan;
   }
 
-  function recordTradeSale(stats, captureMethod = 'manual-completed-trade') {
+  function recordTradeSale(stats, captureMethod = 'manual-completed-trade', soldAtOverride = null) {
     if (!stats || stats.pageType !== 'trade') throw new Error('Open a recognized trade before recording a sale.');
     const existing = recordedSaleForStats(stats);
     if (existing) return existing;
@@ -5217,7 +5219,7 @@
       counterparty: stats.tradeCounterparty,
       counterpartyId: stats.tradeCounterpartyId,
       counterpartyProfileUrl: stats.tradeCounterpartyProfileUrl,
-      soldAt: new Date().toISOString(),
+      soldAt: soldAtOverride || new Date().toISOString(),
       saleUrl: location.href,
       captureMethod,
       completionSource: completion.source,
@@ -9495,6 +9497,463 @@
     return accepted ? stats : null;
   }
 
+  // ─── API TRADE RECOVERY ────────────────────────────────────────────────────
+  //
+  // Normalizes two documented shapes for GET /v2/user/trades.
+  // Shape A: { trades: { "id": { tradeId, status, completedAt, … } } }
+  // Shape B: { trades: [ { tradeId, status, completedAt, … } ] }
+  // Returns an array of { tradeId, status, completedAt } entries or null on failure.
+  function normalizeApiTradesList(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const root = (raw.trades !== undefined ? raw.trades : null)
+      ?? (raw.data && typeof raw.data === 'object' ? raw.data.trades : undefined);
+    if (root === undefined || root === null) return null;
+    let entries;
+    if (Array.isArray(root)) {
+      entries = root;
+    } else if (typeof root === 'object') {
+      entries = Object.values(root);
+    } else {
+      return null;
+    }
+    const result = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const tradeId = Math.max(0, Math.floor(Number(
+        entry.tradeId ?? entry.trade_id ?? entry.id,
+      ) || 0)) || null;
+      const status = normalizeWhitespace(entry.status);
+      if (!tradeId || !status) continue;
+      const completedRaw = entry.completedAt ?? entry.timestamp_completed ?? entry.completed_at ?? null;
+      const completedTs = completedRaw !== null ? Math.max(0, Number(completedRaw) || 0) : 0;
+      result.push({
+        tradeId,
+        status,
+        completedAt: completedTs > 0 ? new Date(completedTs * 1000).toISOString() : null,
+      });
+    }
+    return result;
+  }
+
+  // Normalizes two documented shapes for GET /v2/user/{tradeId}/trade.
+  // Shape A: { trade: { tradeId, status, completedAt, initiator: { id, name, offer: { money, items } }, recipient: … } }
+  // Shape B: same fields at top level (no "trade" wrapper)
+  // Returns a normalized trade object or null on failure.
+  function normalizeApiTradeDetail(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const root = (raw.trade && typeof raw.trade === 'object') ? raw.trade : raw;
+    const tradeId = Math.max(0, Math.floor(Number(
+      root.tradeId ?? root.trade_id,
+    ) || 0)) || null;
+    if (!tradeId) return null;
+    const status = normalizeWhitespace(root.status);
+    if (!status) return null;
+
+    function normalizeParticipant(p) {
+      if (!p || typeof p !== 'object') return null;
+      const id = Math.max(0, Math.floor(Number(p.id ?? p.player_id) || 0)) || null;
+      if (!id) return null;
+      const name = normalizeWhitespace(p.name ?? p.player_name);
+      const offer = (p.offer && typeof p.offer === 'object') ? p.offer : {};
+      const money = Math.max(0, Number(
+        offer.money ?? offer.cash ?? p.cash_offer,
+      ) || 0);
+      const rawItems = Array.isArray(offer.items) ? offer.items
+        : (Array.isArray(p.items_offer) ? p.items_offer : []);
+      const items = rawItems.map((item) => {
+        const itemId = Math.max(0, Math.floor(Number(item?.id ?? item?.item_id) || 0)) || null;
+        const itemName = normalizeWhitespace(item?.name ?? item?.item_name);
+        const quantity = Math.max(0, Math.floor(Number(item?.quantity) || 0));
+        return { itemId, itemName, quantity };
+      }).filter((item) => item.quantity > 0 && (item.itemId !== null || item.itemName));
+      return { id, name, money, items };
+    }
+
+    const initiator = normalizeParticipant(root.initiator ?? root.seller ?? null);
+    const recipient = normalizeParticipant(root.recipient ?? root.buyer ?? null);
+    if (!initiator || !recipient) return null;
+
+    const completedRaw = root.completedAt ?? root.timestamp_completed ?? root.completed_at ?? null;
+    const completedTs = completedRaw !== null ? Math.max(0, Number(completedRaw) || 0) : 0;
+    return {
+      tradeId,
+      status,
+      completedAt: completedTs > 0 ? new Date(completedTs * 1000).toISOString() : null,
+      initiator,
+      recipient,
+    };
+  }
+
+  // Builds a stats object from a normalized API trade detail for use with the
+  // existing ledgerSalePlan and recordTradeSale paths. Returns { stats, … } on
+  // success or { error: string } on any fail-closed condition.
+  function buildApiTradeStats(tradeDetail, ownerId, catalog) {
+    if (!tradeDetail || typeof tradeDetail !== 'object') {
+      return { error: 'Trade detail is missing or invalid.' };
+    }
+    if (!ownerId) return { error: 'API key owner ID is unknown. Check permissions first.' };
+    if (tradeDetail.status !== 'Accepted') {
+      return { error: `Trade ${tradeDetail.tradeId} is not a completed trade (status: ${escapeHtml(tradeDetail.status)}).` };
+    }
+    if (!tradeDetail.completedAt) {
+      return { error: `Trade ${tradeDetail.tradeId} has no completion timestamp.` };
+    }
+
+    const { initiator, recipient } = tradeDetail;
+    let owner, counterparty;
+    if (Number(initiator.id) === Number(ownerId)) {
+      owner = initiator;
+      counterparty = recipient;
+    } else if (Number(recipient.id) === Number(ownerId)) {
+      owner = recipient;
+      counterparty = initiator;
+    } else {
+      return { error: `API key owner (ID ${ownerId}) is not a recognized participant in trade ${tradeDetail.tradeId}.` };
+    }
+
+    if (!owner.items.length) {
+      return { error: 'Owner did not contribute any items. Only item-sale trades are supported.' };
+    }
+    if (counterparty.items.length) {
+      return { error: 'Counterparty contributed items. Barter trades are not supported.' };
+    }
+
+    // Aggregate owner-outgoing items by itemId (or normalized name) to handle repeated entries.
+    const aggregated = new Map();
+    for (const item of owner.items) {
+      const key = item.itemId !== null ? `id:${item.itemId}` : `name:${normalizeName(item.itemName || '')}`;
+      const existing = aggregated.get(key);
+      if (existing) {
+        existing.quantity += item.quantity;
+      } else {
+        aggregated.set(key, { itemId: item.itemId, itemName: item.itemName, quantity: item.quantity });
+      }
+    }
+
+    // Match every aggregated item against the catalog; fail closed on any miss.
+    const tradeItems = [];
+    const unmatchedItems = [];
+    for (const [, item] of aggregated) {
+      const catalogItem = catalog
+        ? ((item.itemId !== null ? (catalog.itemsById?.[String(item.itemId)] || null) : null)
+            ?? (item.itemName ? (catalog.itemsByName?.[normalizeName(item.itemName)] || null) : null))
+        : null;
+      if (!catalogItem) {
+        unmatchedItems.push(item);
+        continue;
+      }
+      const marketPrice = Math.max(0, Number(catalogItem.marketPrice) || 0);
+      tradeItems.push({
+        itemId: Number(catalogItem.id),
+        name: catalogItem.name,
+        quantity: item.quantity,
+        marketPrice,
+        marketTotal: marketPrice * item.quantity,
+        targetEach: 0,
+        targetTotal: 0,
+      });
+    }
+
+    if (unmatchedItems.length) {
+      const names = unmatchedItems.map((i) => i.itemName || `ID ${i.itemId}`).join(', ');
+      return { error: `${unmatchedItems.length} item(s) could not be matched to the catalog: ${names}.` };
+    }
+
+    // Compute net proceeds: counterparty cash − owner cash.
+    const counterpartyCash = Math.max(0, Number(counterparty.money) || 0);
+    const ownerCash = Math.max(0, Number(owner.money) || 0);
+    const netProceeds = counterpartyCash - ownerCash;
+
+    if (counterpartyCash <= 0 && ownerCash <= 0) {
+      return { error: 'No money was exchanged. Only money-for-items trades are supported.' };
+    }
+    if (!(netProceeds > 0)) {
+      return { error: `Net proceeds are zero or negative (counterparty paid $${counterpartyCash.toLocaleString()}, owner contributed $${ownerCash.toLocaleString()}).` };
+    }
+
+    // Distribute target proceeds proportionally by market value so the FIFO
+    // plan can allocate proceeds across items with distinct cost bases.
+    const totalMarket = tradeItems.reduce((s, i) => s + i.marketTotal, 0);
+    for (const item of tradeItems) {
+      const share = totalMarket > 0 ? item.marketTotal / totalMarket : 1 / tradeItems.length;
+      item.targetTotal = netProceeds * share;
+      item.targetEach = item.quantity > 0 ? item.targetTotal / item.quantity : 0;
+    }
+
+    const stats = emptyScanStats();
+    stats.pageType = 'trade';
+    stats.tradeId = `api:${tradeDetail.tradeId}`;
+    stats.tradeCounterparty = counterparty.name || `Trader ${counterparty.id}`;
+    stats.tradeCounterpartyId = counterparty.id;
+    stats.tradeCounterpartyProfileUrl = `https://www.torn.com/profiles.php?XID=${counterparty.id}`;
+    stats.tradeCounterpartyBannerUrl = '';
+    stats.tradeMarketTotal = tradeItems.reduce((s, i) => s + i.marketTotal, 0);
+    stats.tradeTargetTotal = netProceeds;
+    stats.tradeTraderCash = counterpartyCash;
+    stats.tradeMyCash = ownerCash;
+    stats.tradeNetCash = netProceeds;
+    stats.tradeItems = tradeItems;
+    stats.tradeMatchedItems = tradeItems.length;
+    stats.tradeUnmatchedItems = 0;
+    stats.tradeUnmatched = [];
+
+    return {
+      stats,
+      counterpartyCash,
+      ownerCash,
+      netProceeds,
+      completedAt: tradeDetail.completedAt,
+      apiTradeId: tradeDetail.tradeId,
+    };
+  }
+
+  function isApiTradeAlreadyRecorded(apiTradeId) {
+    const fingerprint = `trade:api:${apiTradeId}`;
+    return (state.ledger.sales || []).some((sale) => sale.fingerprint === fingerprint);
+  }
+
+  // Returns the first sale that is a strong content+time match for the given
+  // API trade items, net proceeds, and completion time. Used to surface likely
+  // earlier manual recoveries before confirming an API recovery.
+  function findLikelyManualApiDuplicate(items, netProceeds, completedAt) {
+    const completedTime = completedAt ? Date.parse(completedAt) : 0;
+    const timeWindowMs = 15 * 60 * 1000;
+    const itemKey = (items || [])
+      .filter((i) => Number(i.itemId) > 0)
+      .map((i) => `${i.itemId}:${i.quantity}`)
+      .sort()
+      .join(',');
+    if (!itemKey) return null;
+
+    return (state.ledger.sales || []).find((sale) => {
+      // Skip exact API recovery records.
+      if (sale.fingerprint && sale.fingerprint.startsWith('trade:api:')) return false;
+      // Check item IDs and quantities.
+      const saleKey = (sale.items || [])
+        .filter((i) => Number(i.itemId) > 0)
+        .map((i) => `${i.itemId}:${i.quantity}`)
+        .sort()
+        .join(',');
+      if (saleKey !== itemKey) return false;
+      // Check proceeds within $1.
+      if (Math.abs(Number(sale.cashReceived) - netProceeds) > 1) return false;
+      // Check time proximity when both sides have timestamps.
+      if (completedTime && sale.soldAt) {
+        const saleTime = Date.parse(sale.soldAt);
+        if (Number.isFinite(saleTime) && Math.abs(saleTime - completedTime) > timeWindowMs) return false;
+      }
+      return true;
+    }) || null;
+  }
+
+  // Orchestrates the review-first, confirmation-gated API trade recovery flow.
+  // All network calls and confirmation prompts are here; no ledger mutations
+  // occur until the user passes the final confirm gate.
+  async function recoverRecentApiTrade() {
+    const key = currentApiKey();
+    if (!key) {
+      toast('Paste the dedicated GOBLIN GOD API key first.');
+      setApiKey();
+      return;
+    }
+    const ownerId = state.keyProfile?.userId;
+    if (!ownerId) {
+      alert('API key owner ID is unknown.\n\nRun "Check permissions" under Key identity first, then try again.');
+      return;
+    }
+    if (!Object.keys(state.catalog.itemsByName || {}).length) {
+      alert('Item catalog is not loaded.\n\nSync inventory first to populate the catalog, then try again.');
+      return;
+    }
+
+    // Step 1 — Fetch recent accepted trades.
+    let tradesPayload;
+    try {
+      const url = new URL(APP.tradesListUrl);
+      url.searchParams.set('status', 'accepted');
+      url.searchParams.set('comment', 'TornScripture IMM API trade recovery');
+      const response = await fetch(url.href, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+      tradesPayload = await response.json().catch(() => null);
+      if (!response.ok || tradesPayload?.error) throw new Error(apiErrorMessage(tradesPayload, response));
+    } catch (error) {
+      alert(`Could not fetch recent trades: ${normalizeWhitespace(error?.message || 'network error')}.\n\nNo ledger changes were made.`);
+      return;
+    }
+
+    const trades = normalizeApiTradesList(tradesPayload);
+    if (!trades) {
+      alert('The trades list response could not be read. The API may have changed.\n\nNo ledger changes were made.');
+      return;
+    }
+
+    // Filter to finished trades not already recorded, most recent first.
+    const eligible = trades
+      .filter((t) => t.status === 'Accepted' && !isApiTradeAlreadyRecorded(t.tradeId))
+      .sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''))
+      .slice(0, 20);
+
+    if (!eligible.length) {
+      alert('No recent completed trades were found that have not already been recorded.\n\nNo ledger changes were made.');
+      return;
+    }
+
+    // Step 2 — Let the user select a trade.
+    const listText = eligible.map((t, i) => {
+      const ts = t.completedAt ? new Date(t.completedAt).toLocaleString() : 'unknown time';
+      return `${i + 1}. Trade #${t.tradeId} — completed ${ts}`;
+    }).join('\n');
+    const selectedStr = prompt(
+      `Select a completed trade to review (enter 1–${eligible.length}):\n\n${listText}`,
+      '1',
+    );
+    if (selectedStr === null) return;
+    const selectedIndex = Math.max(1, Math.floor(Number(selectedStr) || 1)) - 1;
+    const selected = eligible[selectedIndex] || null;
+    if (!selected) {
+      alert('Invalid selection. No changes were made.');
+      return;
+    }
+
+    // Step 3 — Fetch full trade detail.
+    let detailPayload;
+    try {
+      const url = new URL(`${APP.tradeDetailBaseUrl}${selected.tradeId}/trade`);
+      url.searchParams.set('comment', 'TornScripture IMM API trade recovery');
+      const response = await fetch(url.href, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+      detailPayload = await response.json().catch(() => null);
+      if (!response.ok || detailPayload?.error) throw new Error(apiErrorMessage(detailPayload, response));
+    } catch (error) {
+      alert(`Could not fetch trade #${selected.tradeId}: ${normalizeWhitespace(error?.message || 'network error')}.\n\nNo ledger changes were made.`);
+      return;
+    }
+
+    const tradeDetail = normalizeApiTradeDetail(detailPayload);
+    if (!tradeDetail) {
+      alert('The trade detail response could not be read. The API may have changed.\n\nNo ledger changes were made.');
+      return;
+    }
+
+    // Step 4 — Validate and build stats.
+    const result = buildApiTradeStats(tradeDetail, ownerId, state.catalog);
+    if (result.error) {
+      alert(`Trade #${selected.tradeId} cannot be recorded:\n\n${result.error}\n\nNo ledger changes were made.`);
+      return;
+    }
+
+    // Guard: already recorded (race / reload protection).
+    if (isApiTradeAlreadyRecorded(result.apiTradeId)) {
+      alert(`Trade #${result.apiTradeId} has already been recorded. No changes were made.`);
+      return;
+    }
+
+    const { stats } = result;
+    const plan = ledgerSalePlan(stats);
+
+    // Step 5 — Validate FIFO coverage.
+    if (!plan.trackedQuantity) {
+      alert(
+        `None of the sold items match open ledger lots.\n\nTrade #${result.apiTradeId} cannot be recorded without FIFO coverage.\n\nNo changes were made.`,
+      );
+      return;
+    }
+    if (!plan.fullCoverage) {
+      alert(
+        `Only ${formatInteger(plan.trackedQuantity)} of ${formatInteger(plan.requestedQuantity)} sold items are covered by open lots.\n\nPartial FIFO coverage is not supported. Add the missing purchase lots first.\n\nNo changes were made.`,
+      );
+      return;
+    }
+
+    // Step 6 — Check for a likely earlier manual duplicate.
+    const manualDup = findLikelyManualApiDuplicate(stats.tradeItems, result.netProceeds, result.completedAt);
+    if (manualDup) {
+      const stopForDup = confirm(
+        `\u26A0\uFE0F Likely earlier manual recovery detected.\n\n`
+        + `A sale already in the ledger closely matches this API trade:\n`
+        + `  Sale ID: ${manualDup.id}\n`
+        + `  Recorded: ${manualDup.soldAt || 'unknown'}\n`
+        + `  Method: ${manualDup.captureMethod || 'unknown'}\n\n`
+        + `Recording this API trade may duplicate an already-recorded sale.\n\n`
+        + `Press OK to stop and review the existing record.\n`
+        + `Press Cancel to continue to the full review anyway.`,
+      );
+      if (stopForDup) return;
+    }
+
+    // Step 7 — Display the non-mutating review.
+    const lotLines = plan.allocations.map((alloc) => {
+      const lot = (state.ledger.lots || []).find((l) => l.id === alloc.lotId);
+      const name = lot ? lot.itemName : alloc.lotId;
+      return `  ${name}: ${formatInteger(alloc.quantity)} × ${formatMoney(alloc.unitCost)} = ${formatMoney(alloc.costBasis)}`;
+    });
+    const reviewText = [
+      'API TRADE RECOVERY REVIEW',
+      '',
+      `Counterparty : ${stats.tradeCounterparty} (ID ${result.stats.tradeCounterpartyId})`,
+      `API Trade ID : ${result.apiTradeId}`,
+      `Completed    : ${result.completedAt}`,
+      '',
+      'Items sold (owner → counterparty):',
+      ...plan.items.map((item) => `  ${item.name} (ID ${item.itemId}) × ${formatInteger(item.quantity)}`),
+      '',
+      `Counterparty cash : ${formatMoney(result.counterpartyCash)}`,
+      ...(result.ownerCash > 0 ? [`Owner cash        : ${formatMoney(result.ownerCash)}`] : []),
+      `Net proceeds      : ${formatMoney(result.netProceeds)}`,
+      '',
+      'FIFO lots proposed for consumption:',
+      ...lotLines,
+      '',
+      `Total FIFO cost basis : ${formatMoney(plan.trackedCostBasis)}`,
+      `Realized profit       : ${plan.realizedProfit >= 0 ? '+' : ''}${formatMoney(plan.realizedProfit)}`,
+    ].join('\n');
+    alert(reviewText);
+
+    // Guard: check again in case another tab recorded this while the user read the review.
+    if (isApiTradeAlreadyRecorded(result.apiTradeId)) {
+      alert(`Trade #${result.apiTradeId} was already recorded while reviewing. No changes were made.`);
+      return;
+    }
+
+    // Step 8 — Final confirmation gate (only mutation path).
+    const itemSummary = plan.items.map((i) => `${i.name} × ${formatInteger(i.quantity)}`).join(', ');
+    const accepted = confirm(
+      `Record sale for Trade #${result.apiTradeId}?\n\n`
+      + `This will consume the FIFO lots shown in the review and create a Sale Audit record.\n\n`
+      + `Counterparty : ${stats.tradeCounterparty}\n`
+      + `Items        : ${itemSummary}\n`
+      + `Net proceeds : ${formatMoney(result.netProceeds)}\n`
+      + `Cost basis   : ${formatMoney(plan.trackedCostBasis)}\n`
+      + `Profit       : ${plan.realizedProfit >= 0 ? '+' : ''}${formatMoney(plan.realizedProfit)}`,
+    );
+    if (!accepted) {
+      toast('API trade recovery canceled. No changes were made.');
+      return;
+    }
+
+    // Final guard before mutating.
+    if (isApiTradeAlreadyRecorded(result.apiTradeId)) {
+      alert(`Trade #${result.apiTradeId} was already recorded. No duplicate was created.`);
+      return;
+    }
+
+    // Step 9 — Record the sale through the existing mutation path.
+    try {
+      const sale = recordTradeSale(stats, 'api-completed-trade', result.completedAt);
+      toast(`API trade recovered. Profit ${sale.realizedProfit >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit)}.`);
+    } catch (error) {
+      alert(`Could not record the sale: ${normalizeWhitespace(error?.message || 'unknown error')}.\n\nThe ledger may be unchanged; check Sale Audits before retrying.`);
+    }
+  }
+
   function editLedgerLot(id) {
     const index = state.ledger.lots.findIndex((lot) => lot.id === id);
     if (index < 0) return;
@@ -10666,6 +11125,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <button type="button" data-tsimm-action="inventory-sync" ${state.inventorySyncing ? 'disabled' : ''}>${state.inventorySyncing ? 'Syncing inventory…' : 'Sync inventory'}</button>
           <button type="button" data-tsimm-action="ledger-add">Add manual lot</button>
           <button type="button" data-tsimm-action="ledger-recover-sale">Recover missed sale</button>
+          <button type="button" data-tsimm-action="ledger-api-recover">Recover recent API trade</button>
           <button type="button" data-tsimm-action="ledger-copy">Copy JSON</button>
           <button type="button" data-tsimm-action="ledger-import">Import JSON</button>
           <button type="button" data-tsimm-action="ledger-default-funding">New money: ${escapeHtml(ledgerFundingSourceLabel(state.settings.ledgerDefaultFundingSource))}</button>
@@ -12555,6 +13015,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
             alert(error?.message || 'IMM could not recover this sale.');
           }
         }
+      } else if (action === 'ledger-api-recover') {
+        recoverRecentApiTrade().catch((error) => {
+          alert(normalizeWhitespace(error?.message || 'IMM could not start API trade recovery.'));
+        });
       } else if (action === 'ledger-funding-edit') {
         editLedgerLotFundingSource(button.dataset.tsimmLotId);
       } else if (action === 'ledger-edit') {
@@ -12919,6 +13383,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       recordedSaleForStats,
       ledgerSalePlan,
       recordTradeSale,
+      normalizeApiTradesList,
+      normalizeApiTradeDetail,
+      buildApiTradeStats,
+      isApiTradeAlreadyRecorded,
+      findLikelyManualApiDuplicate,
       buildTradeExitAudit,
       tradeExitAuditHtml,
       _state: state,
