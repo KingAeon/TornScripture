@@ -10754,7 +10754,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       throw new Error('No cash contribution found in this trade. Net proceeds cannot be determined.');
     }
     if (netCash <= 0) {
-      throw new Error(`Net proceeds are ${netCash <= 0 ? 'zero or negative' : 'missing'} (counterparty cash ${counterpartyCash}, owner cash ${ownerCash}). Cannot record.`);
+      throw new Error(`Net proceeds are zero or negative (counterparty cash ${counterpartyCash}, owner cash ${ownerCash}). Cannot record.`);
     }
     const totalMarket = tradeItems.reduce((sum, item) => sum + item.marketTotal, 0);
     for (const item of tradeItems) {
@@ -10990,7 +10990,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }).join('');
 
     const dupWarning = likelyDuplicates.length
-      ? `<div style="background:#5a2020;border-radius:4px;padding:6px 8px;margin:8px 0;color:#ffccccc">
+      ? `<div style="background:#5a2020;border-radius:4px;padding:6px 8px;margin:8px 0;color:#ffcccc">
           ⚠ ${formatInteger(likelyDuplicates.length)} likely manual duplicate${likelyDuplicates.length === 1 ? '' : 's'} detected within 24h with matching items and proceeds.
           This trade must not be confirmed unless you are certain those records are distinct.
         </div>` : '';
