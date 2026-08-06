@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.33
+// @version      0.19.34
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.33' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.33' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.34' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.34' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.33
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.34
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -332,6 +332,7 @@
    * - Normal purchase capture begins after the user presses Torn's confirmation button.
    * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
+   * - API trade recovery fetches finished trade data from the Torn API and presents a non-mutating review; ledger mutation occurs only after the user presses the explicit confirm button.
    * - Trade Exit Audit comparisons are read-only. Bulk removal runs only after the user presses its button and confirms; it uses Torn's visible item-removal controls and never accepts or completes a trade.
    * - Priced Trade stores an expiring trader handoff, verifies the live counterparty, adds one persistent full-stack payout badge per visible item row, and provides an explicit MAX button beside Torn's native quantity field. It never presses Add to Trade or completes a trade.
    * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, sells items, or completes trades.
@@ -342,7 +343,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.33',
+    version: '0.19.34',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -357,6 +358,7 @@
     ledgerReconcileStyleId: 'tornscripture-imm-ledger-reconcile-style',
     traderOverlayId: 'tornscripture-imm-traders',
     receiptAuditOverlayId: 'tornscripture-imm-receipt-audit',
+    apiTradeRecoveryOverlayId: 'tornscripture-imm-api-trade-recovery',
     tornExchangePanelId: 'tsimm-tx-panel',
     tornExchangeStyleId: 'tsimm-tx-core-style',
     apiKeyStorageKey: 'tornscripture-imm-api-key-v1',
@@ -386,6 +388,8 @@
     catalogUrl: 'https://api.torn.com/v2/torn/items',
     inventoryUrl: 'https://api.torn.com/v2/user/inventory',
     inventoryItemMarketUrl: 'https://api.torn.com/v2/user/itemmarket',
+    tradesUrl: 'https://api.torn.com/v2/user/trades',
+    tradeDetailUrlBase: 'https://api.torn.com/v2/user/',
     keyInfoUrl: 'https://api.torn.com/v2/key/info',
     keyBuilderUrl: 'https://www.torn.com/api.html',
     inventoryPageUrl: 'https://www.torn.com/item.php',
@@ -409,6 +413,7 @@
     traderModal: 2147482000,
     ledgerModal: 2147482100,
     receiptAudit: 2147482200,
+    apiTradeRecovery: 2147482250,
     confirmation: 2147482300,
     toast: 2147482400,
   });
@@ -4623,7 +4628,7 @@
     let best = null;
     for (let depth = 0; node && depth < 9; depth += 1, node = node.parentElement) {
       if (!(node instanceof Element)) continue;
-      if (node.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) continue;
+      if (node.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId}`)) continue;
       const text = normalizeWhitespace(node.innerText || node.textContent);
       if (!text || text.length > 900) continue;
       const prices = countMatches(text, /\$[\d,.]+/g);
@@ -6080,7 +6085,7 @@
   function capturePricedTradeScroll(event) {
     if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return;
     const target = event?.target instanceof Element ? event.target : null;
-    if (target?.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return;
+    if (target?.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return;
     pricedTradeScrollActiveUntil = Date.now() + PRICED_TRADE_SCROLL_QUIET_MS;
     clearTimeout(pricedTradeRepaintSettleTimer);
     clearTimeout(pricedTradeQuantityTimer);
@@ -6566,7 +6571,7 @@
 
   function pricedTradeWritableQuantityControl(row) {
     if (!(row instanceof Element)) return null;
-    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`;
+    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`;
     const controls = [...row.querySelectorAll('input,select,[role="spinbutton"],[contenteditable="true"]')]
       .filter((control) => visibleElement(control) && !control.disabled && !control.closest(ignored));
     return controls.find((control) => {
@@ -7241,7 +7246,7 @@
   function capturePricedTradeQuantityEvent(event) {
     if (!loadPricedTradeSession() || !pageLooksLikeTrade()) return false;
     const target = event.target instanceof Element ? event.target : null;
-    if (!target || target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return false;
+    if (!target || target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId},#${PRICED_TRADE_PANEL_ID},[data-tsimm-generated]`)) return false;
     if (!pricedTradeIsQuantityControl(target)) return false;
     const trader = pricedTradeArmedTrader();
     if (!trader) return false;
@@ -7886,14 +7891,14 @@
   }
 
   function directTextElements(selector = 'span,div,p,strong,b') {
-    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},.${APP.badgeClass},[data-tsimm-generated]`;
+    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId},.${APP.badgeClass},[data-tsimm-generated]`;
     return [...document.querySelectorAll(selector)].filter((element) =>
       ownText(element) && !element.closest(ignored)
     );
   }
 
   function exactTextElements(regex, selector = 'span,div,p,strong,b') {
-    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},.${APP.badgeClass},[data-tsimm-generated]`;
+    const ignored = `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId},.${APP.badgeClass},[data-tsimm-generated]`;
     return [...document.querySelectorAll(selector)].filter((element) => {
       if (element.closest(ignored)) return false;
       const text = normalizeWhitespace(ownText(element) || element.innerText || element.textContent);
@@ -9388,7 +9393,7 @@
   }
 
   function capturePurchaseIntentFromClick(event) {
-    if ((!pageLooksLikeItemMarket() && !pageLooksLikeOverseasShop()) || event.target.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) return;
+    if ((!pageLooksLikeItemMarket() && !pageLooksLikeOverseasShop()) || event.target.closest?.(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId}`)) return;
     const parsed = purchaseConfirmationFromClick(event.target);
     if (!parsed) return;
     beginPendingPurchase(parsed);
@@ -10601,6 +10606,457 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     `;
   }
 
+  // === API Trade Recovery ===
+
+  function normalizeApiTradeListEntry(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = Math.max(0, Math.floor(Number(raw.id ?? raw.trade_id ?? 0) || 0));
+    if (id <= 0) return null;
+    const status = normalizeWhitespace(raw.status ?? raw.trade_status ?? '');
+    const tsRaw = raw.completed_at ?? raw.timestamp_accepted ?? raw.timestamp ?? 0;
+    const completedAtMs = Number(tsRaw) * 1000;
+    const completedAt = Number.isFinite(completedAtMs) && completedAtMs > 0
+      ? new Date(completedAtMs).toISOString() : null;
+    const other = raw.with_player ?? raw.other_player ?? raw.participant ?? {};
+    return {
+      id,
+      status,
+      completedAt,
+      otherPlayerId: Math.max(0, Math.floor(Number(other?.id ?? other?.user_id ?? 0) || 0)) || null,
+      otherPlayerName: normalizeWhitespace(other?.name ?? ''),
+    };
+  }
+
+  function filterApiTradeCandidates(raw) {
+    let entries;
+    if (Array.isArray(raw?.trades)) {
+      entries = raw.trades;
+    } else if (raw?.trades && typeof raw.trades === 'object') {
+      entries = Object.values(raw.trades);
+    } else {
+      throw new Error('Unsupported or missing trades list shape.');
+    }
+    const FINISHED = new Set(['accepted', 'finished', 'completed']);
+    const out = [];
+    for (const entry of entries) {
+      const normalized = normalizeApiTradeListEntry(entry);
+      if (!normalized) continue;
+      if (!FINISHED.has((normalized.status || '').toLowerCase())) continue;
+      if (apiTradeAlreadyRecorded(normalized.id)) continue;
+      out.push(normalized);
+    }
+    return out;
+  }
+
+  function normalizeApiTradeParticipant(raw, label) {
+    if (!raw || typeof raw !== 'object') throw new Error(`${label} is missing or malformed.`);
+    const userId = Math.max(0, Math.floor(
+      Number(raw.user_id ?? raw.id ?? raw.player_id ?? 0) || 0
+    ));
+    if (userId <= 0) throw new Error(`${label} has no valid Torn ID.`);
+    const name = normalizeWhitespace(raw.name ?? raw.player_name ?? '');
+    const money = Math.max(0, Number(raw.money ?? raw.money_offer ?? raw.cash ?? 0) || 0);
+    const rawItems = raw.items ?? raw.items_offered ?? [];
+    if (!Array.isArray(rawItems)) throw new Error(`${label} items field is not an array.`);
+    const items = [];
+    for (const entry of rawItems) {
+      if (!entry || typeof entry !== 'object') throw new Error(`${label} items contain a malformed entry.`);
+      const itemId = Math.max(0, Math.floor(Number(entry.id ?? entry.item_id ?? 0) || 0));
+      if (itemId <= 0) throw new Error(`${label} item entry has no valid item ID.`);
+      const quantity = Math.max(0, Math.floor(Number(entry.quantity ?? 1) || 0));
+      if (quantity <= 0) continue;
+      items.push({ id: itemId, name: normalizeWhitespace(entry.name ?? ''), quantity });
+    }
+    return { userId, name, money, items };
+  }
+
+  function normalizeApiTradeDetail(raw) {
+    const source = (raw?.trade && typeof raw.trade === 'object') ? raw.trade : raw;
+    if (!source || typeof source !== 'object') throw new Error('Trade detail response is missing or malformed.');
+    const id = Math.max(0, Math.floor(Number(source.id ?? 0) || 0));
+    if (id <= 0) throw new Error('Trade detail response has no valid trade ID.');
+    const status = normalizeWhitespace(source.status ?? '');
+    const FINISHED = new Set(['accepted', 'finished', 'completed']);
+    if (!FINISHED.has(status.toLowerCase())) {
+      throw new Error(`Trade ${id} is not finished (status: ${status || 'unknown'}).`);
+    }
+    const tsRaw = source.completed_at ?? source.timestamp_accepted ?? source.timestamp ?? 0;
+    const completedAtMs = Number(tsRaw) * 1000;
+    const completedAt = Number.isFinite(completedAtMs) && completedAtMs > 0
+      ? new Date(completedAtMs).toISOString() : null;
+    if (!completedAt) throw new Error(`Trade ${id} has no valid completion timestamp.`);
+    const initiator = normalizeApiTradeParticipant(source.initiator, `trade ${id} initiator`);
+    const recipient = normalizeApiTradeParticipant(source.recipient, `trade ${id} recipient`);
+    return { id, status, completedAt, initiator, recipient };
+  }
+
+  function resolveApiTradeOwner(detail, keyUserId) {
+    const keyId = Math.max(0, Math.floor(Number(keyUserId) || 0));
+    if (keyId <= 0) throw new Error('API key owner identity is unknown. Verify GOBLIN GOD key permissions first.');
+    if (detail.initiator.userId === keyId) {
+      return { ownerSide: detail.initiator, counterpartySide: detail.recipient };
+    }
+    if (detail.recipient.userId === keyId) {
+      return { ownerSide: detail.recipient, counterpartySide: detail.initiator };
+    }
+    throw new Error(`API key owner (ID ${keyId}) does not appear in trade ${detail.id}. Ownership is ambiguous.`);
+  }
+
+  function aggregateApiTradeOwnerItems(items) {
+    const byId = new Map();
+    for (const item of items) {
+      const existing = byId.get(item.id);
+      if (existing) {
+        existing.quantity += item.quantity;
+      } else {
+        byId.set(item.id, { id: item.id, name: item.name, quantity: item.quantity });
+      }
+    }
+    return [...byId.values()];
+  }
+
+  function catalogItemForId(itemId) {
+    const id = Math.max(0, Math.floor(Number(itemId) || 0));
+    if (id <= 0) return null;
+    return state.catalog?.itemsById?.[String(id)] ?? null;
+  }
+
+  function buildApiTradeSaleStats(detail, ownerSide, counterpartySide) {
+    if (ownerSide.items.length === 0) {
+      throw new Error('Owner has no outgoing items in this trade. This is not a supported sale.');
+    }
+    if (counterpartySide.items.length > 0) {
+      throw new Error('Counterparty contributed items. Barter trades are not supported; only cash-for-items sales can be recovered here.');
+    }
+    const aggregated = aggregateApiTradeOwnerItems(ownerSide.items);
+    const tradeItems = [];
+    for (const item of aggregated) {
+      const byId = catalogItemForId(item.id);
+      const byName = byId ?? catalogItemFor(item.name);
+      if (!byName) {
+        throw new Error(`Item "${item.name}" (ID ${item.id}) is not in the catalog. Sync the item catalog first.`);
+      }
+      const marketPrice = Math.max(0, Number(byName.marketPrice) || 0);
+      tradeItems.push({
+        itemId: byName.id,
+        name: byName.name,
+        quantity: item.quantity,
+        marketPrice,
+        marketTotal: marketPrice * item.quantity,
+        targetEach: 0,
+        targetTotal: 0,
+      });
+    }
+    const counterpartyCash = Math.max(0, counterpartySide.money);
+    const ownerCash = Math.max(0, ownerSide.money);
+    const netCash = counterpartyCash - ownerCash;
+    if (counterpartyCash === 0 && ownerCash === 0) {
+      throw new Error('No cash contribution found in this trade. Net proceeds cannot be determined.');
+    }
+    if (netCash <= 0) {
+      throw new Error(`Net proceeds are ${netCash <= 0 ? 'zero or negative' : 'missing'} (counterparty cash ${counterpartyCash}, owner cash ${ownerCash}). Cannot record.`);
+    }
+    const totalMarket = tradeItems.reduce((sum, item) => sum + item.marketTotal, 0);
+    for (const item of tradeItems) {
+      const fraction = totalMarket > 0 ? item.marketTotal / totalMarket : 1 / tradeItems.length;
+      item.targetEach = netCash * fraction / item.quantity;
+      item.targetTotal = item.targetEach * item.quantity;
+    }
+    const stats = emptyScanStats();
+    stats.pageType = 'trade';
+    stats.tradeId = `api-trade-${detail.id}`;
+    stats.tradeCounterparty = counterpartySide.name || `Torn ID ${counterpartySide.userId}`;
+    stats.tradeCounterpartyId = counterpartySide.userId;
+    stats.tradeCounterpartyProfileUrl = `https://www.torn.com/profiles.php?XID=${counterpartySide.userId}`;
+    stats.tradeCounterpartyBannerUrl = '';
+    stats.tradeMarketTotal = totalMarket;
+    stats.tradeTargetTotal = netCash;
+    stats.tradeTraderCash = counterpartyCash;
+    stats.tradeMyCash = ownerCash;
+    stats.tradeNetCash = netCash;
+    stats.tradeItems = tradeItems;
+    stats.tradeMatchedItems = tradeItems.length;
+    stats.tradeUnmatchedItems = 0;
+    stats.tradeUnmatched = [];
+    return stats;
+  }
+
+  function apiTradeAlreadyRecorded(apiTradeId) {
+    const fingerprint = `trade:api-trade-${apiTradeId}`;
+    return (state.ledger.sales || []).some((s) => s.fingerprint === fingerprint);
+  }
+
+  function detectApiTradeLikelyManualDuplicate(stats, windowMs = 86400000) {
+    const items = stats?.tradeItems ?? [];
+    const netCash = Number(stats?.tradeNetCash);
+    const itemKey = items
+      .map((i) => `${i.itemId || normalizeName(i.name)}:${i.quantity}`)
+      .sort()
+      .join('|');
+    const since = Date.now() - windowMs;
+    return (state.ledger.sales || []).filter((sale) => {
+      if ((sale.fingerprint ?? '').startsWith('trade:api-trade-')) return false;
+      const soldAtMs = Date.parse(sale.soldAt || '');
+      if (!Number.isFinite(soldAtMs) || soldAtMs < since) return false;
+      if (Math.abs(Number(sale.cashReceived) - netCash) > 1) return false;
+      const saleKey = (sale.items || [])
+        .map((i) => `${i.itemId || normalizeName(i.itemName)}:${i.quantity}`)
+        .sort()
+        .join('|');
+      return saleKey === itemKey;
+    });
+  }
+
+  function renderApiTradeRecovery(overlayEl, content) {
+    overlayEl.innerHTML = `
+      <div class="tsimm-ledger-shell">
+        <div class="tsimm-ledger-head">
+          <div><strong>📒 Recover recent API trade</strong></div>
+          <button type="button" data-tsimm-action="api-trade-recovery-close">×</button>
+        </div>
+        <div class="tsimm-ledger-scroll">${content}</div>
+      </div>
+    `;
+  }
+
+  function closeApiTradeRecovery() {
+    document.getElementById(APP.apiTradeRecoveryOverlayId)?.remove();
+  }
+
+  async function openApiTradeRecovery() {
+    injectStyles();
+    let overlay = document.getElementById(APP.apiTradeRecoveryOverlayId);
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = APP.apiTradeRecoveryOverlayId;
+      overlay.dataset.tsimmGenerated = 'true';
+      overlay.style.cssText = `position:fixed;inset:0;z-index:${IMM_LAYERS.apiTradeRecovery};overflow:auto;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px`;
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      (document.documentElement || document.body).appendChild(overlay);
+    }
+
+    renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">Loading recent trades…</div>');
+
+    const key = currentApiKey();
+    if (!key) {
+      renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">No API key configured. Paste a GOBLIN GOD key first.</div>');
+      return;
+    }
+
+    const keyUserId = state.keyProfile?.userId;
+    if (!(Number(keyUserId) > 0)) {
+      renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">API key owner identity is unknown. Run "Check permissions" in the Ledger first.</div>');
+      return;
+    }
+
+    // Step 1: Fetch candidate list
+    let candidates;
+    try {
+      const listUrl = new URL(APP.tradesUrl);
+      listUrl.searchParams.set('comment', 'TornScripture IMM API trade recovery');
+      const listResponse = await fetch(listUrl.href, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+      let listPayload;
+      try { listPayload = await listResponse.json(); } catch {
+        throw new Error(`Trades list returned unreadable data (${listResponse.status}).`);
+      }
+      if (!listResponse.ok || listPayload?.error) throw new Error(apiErrorMessage(listPayload, listResponse));
+      candidates = filterApiTradeCandidates(listPayload);
+    } catch (error) {
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Failed to load trades: ${escapeHtml(error?.message || 'Unknown error')}</div>`);
+      return;
+    }
+
+    if (!overlay.isConnected) return;
+
+    if (!candidates.length) {
+      renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">No unrecorded finished trades found.</div>');
+      return;
+    }
+
+    // Step 2: Show candidate list; selection is done by injecting buttons and handling clicks
+    const listHtml = candidates.slice(0, 50).map((c, index) => `
+      <div class="tsimm-ledger-item" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #2e293a">
+        <div>
+          <strong>Trade #${escapeHtml(String(c.id))}</strong>
+          ${c.otherPlayerName ? ` with ${escapeHtml(c.otherPlayerName)}` : ''}
+          ${c.completedAt ? ` · ${escapeHtml(relativeAge(c.completedAt))}` : ''}
+        </div>
+        <button type="button" data-tsimm-action="api-trade-recovery-select" data-tsimm-api-trade-index="${index}" style="flex-shrink:0">Review</button>
+      </div>
+    `).join('');
+
+    renderApiTradeRecovery(overlay, `
+      <div class="tsimm-ledger-section-title">Select a finished trade to recover (${candidates.length})</div>
+      ${listHtml}
+    `);
+
+    // Store candidates on the overlay element for the click handler
+    overlay._tsimmApiTradeCandidates = candidates;
+  }
+
+  async function handleApiTradeRecoverySelect(candidateIndex) {
+    const overlay = document.getElementById(APP.apiTradeRecoveryOverlayId);
+    if (!overlay) return;
+    const candidates = overlay._tsimmApiTradeCandidates;
+    const candidate = candidates?.[Number(candidateIndex)];
+    if (!candidate) return;
+
+    const key = currentApiKey();
+    const keyUserId = state.keyProfile?.userId;
+    if (!key || !(Number(keyUserId) > 0)) {
+      renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">API key or owner identity is unavailable.</div>');
+      return;
+    }
+
+    // Guard: already recorded since list was loaded
+    if (apiTradeAlreadyRecorded(candidate.id)) {
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Trade #${escapeHtml(String(candidate.id))} has already been recorded in this session.</div>`);
+      return;
+    }
+
+    renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Loading trade #${escapeHtml(String(candidate.id))} details…</div>`);
+
+    // Step 3: Fetch full trade detail
+    let detail;
+    try {
+      const detailUrl = new URL(`${APP.tradeDetailUrlBase}${candidate.id}/trade`);
+      detailUrl.searchParams.set('comment', 'TornScripture IMM API trade recovery');
+      const detailResponse = await fetch(detailUrl.href, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+      let detailPayload;
+      try { detailPayload = await detailResponse.json(); } catch {
+        throw new Error(`Trade detail returned unreadable data (${detailResponse.status}).`);
+      }
+      if (!detailResponse.ok || detailPayload?.error) throw new Error(apiErrorMessage(detailPayload, detailResponse));
+      detail = normalizeApiTradeDetail(detailPayload);
+    } catch (error) {
+      renderApiTradeRecovery(overlay, `
+        <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: ${escapeHtml(error?.message || 'Unknown error')}</div>
+        <div class="tsimm-ledger-actions">
+          <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+        </div>
+      `);
+      return;
+    }
+
+    if (!overlay.isConnected) return;
+
+    // Step 4: Resolve participants and build stats
+    let stats, plan, likelyDuplicates;
+    try {
+      const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, keyUserId);
+      stats = buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+      plan = ledgerSalePlan(stats);
+      if (!plan.fullCoverage) {
+        const msg = plan.trackedQuantity === 0
+          ? 'None of the outgoing items are covered by open purchase lots.'
+          : `Only ${formatInteger(plan.trackedQuantity)} of ${formatInteger(plan.requestedQuantity)} outgoing item units are covered by open lots. Partial recording is not supported.`;
+        throw new Error(msg);
+      }
+      likelyDuplicates = detectApiTradeLikelyManualDuplicate(stats);
+    } catch (error) {
+      renderApiTradeRecovery(overlay, `
+        <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(error?.message || 'Trade cannot be recovered.')}</div>
+        <div class="tsimm-ledger-actions">
+          <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+        </div>
+      `);
+      return;
+    }
+
+    const realizedProfit = plan.realizedProfit;
+
+    // Step 5: Build review HTML
+    const fifoRows = plan.items.map((item) => {
+      const lotDetails = (item.allocations || []).map(
+        (a) => `Lot ${escapeHtml(String(a.lotId).slice(-6))} × ${formatInteger(a.quantity)} @ ${formatMoney(a.unitCost)}`
+      ).join(', ');
+      return `
+        <div style="padding:3px 0;border-bottom:1px solid #2e293a">
+          <strong>${escapeHtml(item.name)}</strong> × ${formatInteger(item.quantity)}
+          <div style="color:#9f96a8;font-size:10px">${lotDetails || 'No matching lots'}</div>
+        </div>
+      `;
+    }).join('');
+
+    const dupWarning = likelyDuplicates.length
+      ? `<div style="background:#5a2020;border-radius:4px;padding:6px 8px;margin:8px 0;color:#ffccccc">
+          ⚠ ${formatInteger(likelyDuplicates.length)} likely manual duplicate${likelyDuplicates.length === 1 ? '' : 's'} detected within 24h with matching items and proceeds.
+          This trade must not be confirmed unless you are certain those records are distinct.
+        </div>` : '';
+
+    renderApiTradeRecovery(overlay, `
+      <div class="tsimm-ledger-section-title">Review before recording</div>
+      <div class="tsimm-ledger-item" style="display:grid;gap:4px;padding:8px 0">
+        <div><strong>API Trade ID:</strong> ${escapeHtml(String(detail.id))}</div>
+        <div><strong>Completed:</strong> ${escapeHtml(detail.completedAt)}</div>
+        <div><strong>Counterparty:</strong> ${escapeHtml(stats.tradeCounterparty)} (ID ${escapeHtml(String(stats.tradeCounterpartyId))})</div>
+        <div><strong>Counterparty cash:</strong> ${formatMoney(stats.tradeTraderCash)}</div>
+        ${stats.tradeMyCash > 0 ? `<div><strong>My cash contributed:</strong> −${formatMoney(stats.tradeMyCash)}</div>` : ''}
+        <div><strong>Net proceeds:</strong> ${formatMoney(stats.tradeNetCash)}</div>
+        <div><strong>FIFO cost basis:</strong> ${formatMoney(plan.trackedCostBasis)}</div>
+        <div><strong>Realized profit:</strong> <strong style="color:${Number(realizedProfit) >= 0 ? '#7ecb7e' : '#e07070'}">${Number(realizedProfit) >= 0 ? '+' : ''}${formatMoney(realizedProfit)}</strong></div>
+      </div>
+      <div class="tsimm-ledger-section-title">Outgoing items &amp; FIFO lots</div>
+      ${fifoRows}
+      ${dupWarning}
+      <div class="tsimm-ledger-future" style="margin:8px 0">
+        Confirm to record this sale and consume the FIFO quantities shown above. This cannot be undone without restoring a JSON backup.
+      </div>
+      <div class="tsimm-ledger-actions">
+        <button type="button" data-tsimm-action="api-trade-recovery-back">← Back</button>
+        <button type="button" data-tsimm-action="api-trade-recovery-confirm" data-tsimm-api-trade-id="${escapeHtml(String(detail.id))}" ${likelyDuplicates.length ? 'style="border-color:#c08030;background:#5a3800"' : ''}>
+          ✓ Record sale — consume ${formatInteger(plan.trackedQuantity)} lot unit${plan.trackedQuantity === 1 ? '' : 's'}
+        </button>
+      </div>
+    `);
+
+    // Store stats and plan for the confirm handler
+    overlay._tsimmApiTradePendingStats = stats;
+    overlay._tsimmApiTradePendingDetail = detail;
+  }
+
+  function handleApiTradeRecoveryConfirm(apiTradeId) {
+    const overlay = document.getElementById(APP.apiTradeRecoveryOverlayId);
+    if (!overlay) return;
+    const stats = overlay._tsimmApiTradePendingStats;
+    const detail = overlay._tsimmApiTradePendingDetail;
+    if (!stats || !detail || String(detail.id) !== String(apiTradeId)) {
+      renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty" style="color:#e07070">Review data is stale or mismatched. Please start over.</div>');
+      return;
+    }
+    // Final duplicate guard
+    if (apiTradeAlreadyRecorded(detail.id)) {
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Trade #${escapeHtml(String(detail.id))} was already recorded.</div>`);
+      return;
+    }
+    try {
+      const sale = recordTradeSale(stats, 'api-trade-recovery');
+      // Stamp the API completion time onto the sale record
+      const recorded = (state.ledger.sales || []).find((s) => s.id === sale.id);
+      if (recorded) recorded.soldAt = detail.completedAt;
+      saveLedger();
+      overlay._tsimmApiTradePendingStats = null;
+      overlay._tsimmApiTradePendingDetail = null;
+      closeApiTradeRecovery();
+      renderLedger();
+      toast(`API trade #${detail.id} recovered. Profit ${Number(sale.realizedProfit) >= 0 ? '+' : ''}${formatMoney(sale.realizedProfit)}.`);
+    } catch (error) {
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">Recording failed: ${escapeHtml(error?.message || 'Unknown error')}</div>
+        <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
+    }
+  }
+
   function renderLedger() {
     const overlay = document.getElementById(APP.ledgerOverlayId);
     if (!overlay) return;
@@ -10666,6 +11122,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <button type="button" data-tsimm-action="inventory-sync" ${state.inventorySyncing ? 'disabled' : ''}>${state.inventorySyncing ? 'Syncing inventory…' : 'Sync inventory'}</button>
           <button type="button" data-tsimm-action="ledger-add">Add manual lot</button>
           <button type="button" data-tsimm-action="ledger-recover-sale">Recover missed sale</button>
+          <button type="button" data-tsimm-action="ledger-recover-api-trade">Recover recent API trade</button>
           <button type="button" data-tsimm-action="ledger-copy">Copy JSON</button>
           <button type="button" data-tsimm-action="ledger-import">Import JSON</button>
           <button type="button" data-tsimm-action="ledger-default-funding">New money: ${escapeHtml(ledgerFundingSourceLabel(state.settings.ledgerDefaultFundingSource))}</button>
@@ -12555,6 +13012,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
             alert(error?.message || 'IMM could not recover this sale.');
           }
         }
+      } else if (action === 'ledger-recover-api-trade') {
+        openApiTradeRecovery();
+      } else if (action === 'api-trade-recovery-close') {
+        closeApiTradeRecovery();
+      } else if (action === 'api-trade-recovery-back') {
+        openApiTradeRecovery();
+      } else if (action === 'api-trade-recovery-select') {
+        handleApiTradeRecoverySelect(button.dataset.tsimmApiTradeIndex);
+      } else if (action === 'api-trade-recovery-confirm') {
+        handleApiTradeRecoveryConfirm(button.dataset.tsimmApiTradeId);
       } else if (action === 'ledger-funding-edit') {
         editLedgerLotFundingSource(button.dataset.tsimmLotId);
       } else if (action === 'ledger-edit') {
@@ -12681,7 +13148,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         }
         return;
       }
-      if (event.target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId}`)) return;
+      if (event.target.closest(`#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId}`)) return;
       if (pageLooksLikeTrade()) scheduleScan(180);
     }, true);
   }
@@ -12696,7 +13163,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function immUiSelector() {
-    return `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},[data-tsimm-generated]`;
+    return `#${APP.panelId},#${APP.ledgerOverlayId},#${APP.traderOverlayId},#${APP.receiptAuditOverlayId},#${APP.apiTradeRecoveryOverlayId},[data-tsimm-generated]`;
   }
 
   function mutationNodeElement(node) {
