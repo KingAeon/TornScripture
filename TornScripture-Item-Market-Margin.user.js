@@ -2183,6 +2183,9 @@
     const trackedCostBasis = Math.max(0, Number(candidate?.trackedCostBasis ?? candidate?.totalCost) || 0);
     const fullCoverage = Boolean(candidate?.fullCoverage);
     const trackedProfit = optionalFiniteNumber(candidate?.trackedProfit);
+    const tradeDirection = ['user', 'trader'].includes(candidate?.tradeDirection ?? candidate?.apiOwnerDirection)
+      ? (candidate.tradeDirection ?? candidate.apiOwnerDirection)
+      : null;
     // Partial-coverage sales do not have a complete actual-profit figure.
     // Older v0.3.2 records accidentally normalized null to $0; this repairs them on load.
     const realizedProfit = fullCoverage ? optionalFiniteNumber(candidate?.realizedProfit) : null;
@@ -2210,6 +2213,7 @@
       trackedQuantity: Math.max(0, Math.floor(Number(candidate?.trackedQuantity) || 0)),
       untrackedQuantity: Math.max(0, Math.floor(Number(candidate?.untrackedQuantity) || 0)),
       fullCoverage,
+      tradeDirection,
       items,
       receiptAudit: normalizeReceiptAudit(candidate?.receiptAudit ?? candidate?.audit),
       notes: normalizeWhitespace(candidate?.notes),
@@ -5250,6 +5254,7 @@
       trackedQuantity: plan.trackedQuantity,
       untrackedQuantity: plan.untrackedQuantity,
       fullCoverage: plan.fullCoverage,
+      tradeDirection: stats.apiOwnerDirection || null,
       items: plan.items.map((item) => ({
         itemId: item.itemId || null,
         itemName: item.name,
@@ -11113,29 +11118,108 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return (state.ledger.sales || []).some((s) => s.canonicalFingerprint === canonicalFingerprint);
   }
 
+  function likelyManualDuplicateIdentityTagged(sale) {
+    if (!sale || typeof sale !== 'object') return false;
+    if (Number(sale.apiTradeId) > 0) return true;
+    if (normalizeWhitespace(sale.canonicalFingerprint)) return true;
+    if (normalizeWhitespace(sale.tradeId).startsWith('api-trade-')) return true;
+    if ((sale.fingerprint ?? '').startsWith('trade:api-trade-')) return true;
+    if (normalizeWhitespace(sale.provenance) === 'api-trade-recovery') return true;
+    return normalizeWhitespace(sale.captureMethod) === 'api-trade-recovery';
+  }
+
+  function saleAppearsLikelyManualForApiRecovery(sale) {
+    if (!sale || likelyManualDuplicateIdentityTagged(sale)) return false;
+    return [
+      'manual',
+      'manual-completed-trade',
+      'manual-partial-trade',
+      'manual-missed-sale-recovery',
+      'import',
+    ].includes(normalizeWhitespace(sale.captureMethod));
+  }
+
+  function buildLikelyManualDuplicateAssetIndex(items) {
+    if (!Array.isArray(items) || !items.length) return null;
+    const entries = [];
+    const byKey = new Map();
+    const byName = new Map();
+    for (const item of items) {
+      const quantity = Math.max(0, Math.floor(Number(item?.quantity) || 0));
+      const itemId = Math.max(0, Math.floor(Number(item?.itemId) || 0)) || null;
+      const normalizedName = normalizeName(item?.itemName ?? item?.name);
+      if (quantity <= 0 || (!itemId && !normalizedName)) return null;
+      const key = itemId ? `id:${itemId}` : `name:${normalizedName}`;
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.quantity += quantity;
+        continue;
+      }
+      const entry = { key, itemId, normalizedName, quantity };
+      entries.push(entry);
+      byKey.set(key, entry);
+      if (normalizedName) {
+        const list = byName.get(normalizedName) || [];
+        list.push(entry);
+        byName.set(normalizedName, list);
+      }
+    }
+    return { entries, byKey, byName };
+  }
+
+  function likelyManualDuplicateCounterpartyMatches(sale, stats) {
+    const saleId = Math.max(0, Math.floor(Number(sale?.counterpartyId) || 0)) || null;
+    const statsId = Math.max(0, Math.floor(Number(stats?.tradeCounterpartyId) || 0)) || null;
+    if (saleId && statsId) return saleId === statsId;
+    const saleName = normalizeApiTradeParticipantComparableName(sale?.counterparty);
+    const statsName = normalizeApiTradeParticipantComparableName(stats?.tradeCounterparty);
+    return Boolean(saleName && statsName && saleName === statsName);
+  }
+
+  function likelyManualDuplicateAssetsMatch(saleItems, tradeItems) {
+    const saleIndex = buildLikelyManualDuplicateAssetIndex(saleItems);
+    const tradeIndex = buildLikelyManualDuplicateAssetIndex(tradeItems);
+    if (!saleIndex || !tradeIndex || saleIndex.entries.length !== tradeIndex.entries.length) return false;
+    const matched = new Set();
+    for (const tradeEntry of tradeIndex.entries) {
+      let saleEntry = tradeEntry.itemId ? saleIndex.byKey.get(`id:${tradeEntry.itemId}`) || null : null;
+      if (!saleEntry && tradeEntry.normalizedName) {
+        const nameMatches = (saleIndex.byName.get(tradeEntry.normalizedName) || []).filter((entry) => !matched.has(entry.key));
+        if (nameMatches.length !== 1) return false;
+        saleEntry = nameMatches[0];
+        if (tradeEntry.itemId && saleEntry.itemId && saleEntry.itemId !== tradeEntry.itemId) return false;
+      }
+      if (!saleEntry || matched.has(saleEntry.key) || saleEntry.quantity !== tradeEntry.quantity) return false;
+      matched.add(saleEntry.key);
+    }
+    return matched.size === saleIndex.entries.length;
+  }
+
   function detectApiTradeLikelyManualDuplicate(stats, windowMs = 86400000) {
-    const items = stats?.tradeItems ?? [];
-    const netCash = Number(stats?.tradeNetCash);
-    const itemKey = items
-      .map((i) => `${i.itemId || normalizeName(i.name)}:${i.quantity}`)
-      .sort()
-      .join('|');
-    // Use the API trade's own completion time as the center of the 24-hour window,
-    // not Date.now(). A manual sale recorded at any time within ±windowMs of the
-    // API completion timestamp is considered a likely duplicate.
     const completionMs = Date.parse(stats?.apiCompletedAt || '') || Date.now();
+    const tradeDirection = stats?.apiOwnerDirection;
+    const ownerCash = optionalFiniteNumber(stats?.tradeMyCash);
+    const counterpartyCash = optionalFiniteNumber(stats?.tradeTraderCash);
+    const netCash = optionalFiniteNumber(stats?.tradeNetCash);
+    const marketTotal = optionalFiniteNumber(stats?.tradeMarketTotal);
+    const targetTotal = optionalFiniteNumber(stats?.tradeTargetTotal);
+    if (!['user', 'trader'].includes(tradeDirection)) return [];
+    if (!Number.isFinite(ownerCash) || !Number.isFinite(counterpartyCash) || !Number.isFinite(netCash)) return [];
+    if (!Number.isFinite(marketTotal) || !Number.isFinite(targetTotal)) return [];
     return (state.ledger.sales || []).filter((sale) => {
-      // API-recorded sales are already covered by exact-ID and fingerprint checks.
-      if ((sale.fingerprint ?? '').startsWith('trade:api-trade-')) return false;
+      if (!saleAppearsLikelyManualForApiRecovery(sale)) return false;
       const soldAtMs = Date.parse(sale.soldAt || '');
       if (!Number.isFinite(soldAtMs)) return false;
       if (Math.abs(soldAtMs - completionMs) > windowMs) return false;
-      if (Math.abs(Number(sale.cashReceived) - netCash) > 1) return false;
-      const saleKey = (sale.items || [])
-        .map((i) => `${i.itemId || normalizeName(i.itemName)}:${i.quantity}`)
-        .sort()
-        .join('|');
-      return saleKey === itemKey;
+      if (!likelyManualDuplicateCounterpartyMatches(sale, stats)) return false;
+      if ((sale.tradeDirection ?? null) !== tradeDirection) return false;
+      if (!likelyManualDuplicateAssetsMatch(sale.items, stats.tradeItems)) return false;
+      if (optionalFiniteNumber(sale.myCash) !== ownerCash) return false;
+      if (optionalFiniteNumber(sale.cashReceived) !== netCash) return false;
+      if (optionalFiniteNumber(sale.myCash) + optionalFiniteNumber(sale.cashReceived) !== counterpartyCash) return false;
+      if (optionalFiniteNumber(sale.marketTotal) !== marketTotal) return false;
+      if (optionalFiniteNumber(sale.targetTotal) !== targetTotal) return false;
+      return true;
     });
   }
 
