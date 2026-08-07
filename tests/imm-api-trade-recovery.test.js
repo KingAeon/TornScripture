@@ -166,18 +166,20 @@ describe('Schema', () => {
 
 // ── Normalization contracts ───────────────────────────────────────────────────
 describe('Normalization contracts', () => {
-  // Official API v2 raw detail fixture: user/trader/items[] typed TradeItem shape.
+  // Official API v2 raw detail fixture: wrapper + user/trader/items[] typed TradeItem shape.
   function rawDetailOfficial(overrides = {}) {
     return {
-      id: 9001,
-      completed_at: Math.floor(Date.now() / 1000) - 3600,
-      user: { id: 1001, name: 'Alice' },
-      trader: { id: 5678, name: 'Bob' },
-      items: [
-        { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
-        { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
-      ],
-      ...overrides,
+      trade: {
+        id: 9001,
+        completed_at: Math.floor(Date.now() / 1000) - 3600,
+        user: { id: 1001, name: 'Alice' },
+        trader: { id: 5678, name: 'Bob' },
+        items: [
+          { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
+          { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+        ],
+        ...overrides,
+      },
     };
   }
 
@@ -1270,15 +1272,17 @@ describe('Provenance and API metadata', () => {
 // User (id: 1001) provides items; trader (id: 5678) provides cash.
 function rawPayload(overrides = {}) {
   return {
-    id: 9001,
-    completed_at: Math.floor(Date.now() / 1000) - 3600,
-    user: { id: 1001, name: 'Alice' },
-    trader: { id: 5678, name: 'Bob' },
-    items: [
-      { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
-      { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
-    ],
-    ...overrides,
+    trade: {
+      id: 9001,
+      completed_at: Math.floor(Date.now() / 1000) - 3600,
+      user: { id: 1001, name: 'Alice' },
+      trader: { id: 5678, name: 'Bob' },
+      items: [
+        { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
+        { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+      ],
+      ...overrides,
+    },
   };
 }
 
@@ -1957,11 +1961,13 @@ describe('Packet 2c: Permission normalization, list quarantine, and guard behavi
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
     assert.throws(
       () => imm.normalizeApiTradeDetail({
-        id: 9001,
-        completed_at: Math.floor(Date.now() / 1000) - 3600,
-        user: { id: 1001, name: 'Alice' },
-        trader: { id: 5678, name: 'Bob' },
-        items: [{ user_id: 1001, type: 'Item', details: { id: 100, amount: 1.5, uid: null } }],
+        trade: {
+          id: 9001,
+          completed_at: Math.floor(Date.now() / 1000) - 3600,
+          user: { id: 1001, name: 'Alice' },
+          trader: { id: 5678, name: 'Bob' },
+          items: [{ user_id: 1001, type: 'Item', details: { id: 100, amount: 1.5, uid: null } }],
+        },
       }),
       /invalid or zero/i,
     );
@@ -1974,11 +1980,13 @@ describe('Packet 2c: Permission normalization, list quarantine, and guard behavi
     for (const q of cases) {
       assert.throws(
         () => imm.normalizeApiTradeDetail({
-          id: 9001,
-          completed_at: Math.floor(Date.now() / 1000) - 3600,
-          user: { id: 1001, name: 'Alice' },
-          trader: { id: 5678, name: 'Bob' },
-          items: [{ user_id: 1001, type: 'Item', details: { id: 100, amount: q, uid: null } }],
+          trade: {
+            id: 9001,
+            completed_at: Math.floor(Date.now() / 1000) - 3600,
+            user: { id: 1001, name: 'Alice' },
+            trader: { id: 5678, name: 'Bob' },
+            items: [{ user_id: 1001, type: 'Item', details: { id: 100, amount: q, uid: null } }],
+          },
         }),
         (err) => /invalid or zero|malformed/i.test(err.message),
         `amount ${q} must be rejected`,
@@ -2149,17 +2157,24 @@ function makeSerializedLedger(key, lots = null) {
 // Helper: build a select-path overlay stub with a candidate at index 0.
 function makeSelectOverlay(candidateId = 9001) {
   const el = makeElement();
-  el._tsimmApiTradeCandidates = [{ id: candidateId, otherPlayerName: 'Bob', completedAt: new Date().toISOString() }];
+  const completedSec = 1700000000;
+  el._tsimmApiTradeCandidates = [{
+    id: candidateId,
+    otherPlayerId: 5678,
+    otherPlayerName: 'Bob',
+    completedAt: new Date(completedSec * 1000).toISOString(),
+  }];
   el.isConnected = true;
   return el;
 }
 
 // Helper: build a valid raw API detail response payload (official Torn API v2 shape) for use with the select handler.
 function makeDetailPayload(tradeId, userId = 1001, traderId = 5678) {
+  const completedSec = 1700000000;
   return {
     trade: {
       id: tradeId,
-      completed_at: Math.floor((Date.now() - 3600000) / 1000), // Unix timestamp
+      completed_at: completedSec,
       user: { id: userId, name: 'Alice' },
       trader: { id: traderId, name: 'Bob' },
       items: [
@@ -2472,11 +2487,13 @@ describe('Packet 2d: Fix 4 — strict pre-coercion cash validation', () => {
 
   function moneyDetail(amountVal) {
     return {
-      id: 9001,
-      completed_at: Math.floor(Date.now() / 1000) - 3600,
-      user: { id: 1001, name: 'Alice' },
-      trader: { id: 5678, name: 'Bob' },
-      items: [{ user_id: 5678, type: 'Money', details: { amount: amountVal } }],
+      trade: {
+        id: 9001,
+        completed_at: Math.floor(Date.now() / 1000) - 3600,
+        user: { id: 1001, name: 'Alice' },
+        trader: { id: 5678, name: 'Bob' },
+        items: [{ user_id: 5678, type: 'Money', details: { amount: amountVal } }],
+      },
     };
   }
 
@@ -2598,16 +2615,20 @@ describe('Packet 2d: Fix 4 — strict pre-coercion cash validation', () => {
     assert.equal(detail.trader.money, 0, 'numeric 0 must be accepted as valid cash');
   });
 
-  test('2d-27: strict integer numeric string "0" is accepted', () => {
+  test('2d-27: strict integer numeric string "0" is rejected', () => {
     const { normalizeApiTradeDetail } = globalThis.__TS_IMM_TEST_EXPORTS__;
-    const detail = normalizeApiTradeDetail(moneyDetail('0'));
-    assert.equal(detail.trader.money, 0, 'strict integer numeric string "0" must be accepted');
+    assert.throws(
+      () => normalizeApiTradeDetail(moneyDetail('0')),
+      /money.*invalid/i,
+    );
   });
 
-  test('2d-28: strict integer numeric string "5000000" is accepted', () => {
+  test('2d-28: strict integer numeric string "5000000" is rejected', () => {
     const { normalizeApiTradeDetail } = globalThis.__TS_IMM_TEST_EXPORTS__;
-    const detail = normalizeApiTradeDetail(moneyDetail('5000000'));
-    assert.equal(detail.trader.money, 5000000, 'strict integer numeric string must be accepted');
+    assert.throws(
+      () => normalizeApiTradeDetail(moneyDetail('5000000')),
+      /money.*invalid/i,
+    );
   });
 
   test('2d-29: plain positive integer is accepted', () => {
@@ -2633,15 +2654,17 @@ function officialListEntry(overrides = {}) {
 // Helper: valid official raw detail response with user providing items, trader providing cash
 function officialRawDetail(overrides = {}) {
   return {
-    id: 9001,
-    completed_at: Math.floor(Date.now() / 1000) - 3600,
-    user: { id: 1001, name: 'Alice' },
-    trader: { id: 5678, name: 'Bob' },
-    items: [
-      { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
-      { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
-    ],
-    ...overrides,
+    trade: {
+      id: 9001,
+      completed_at: Math.floor(Date.now() / 1000) - 3600,
+      user: { id: 1001, name: 'Alice' },
+      trader: { id: 5678, name: 'Bob' },
+      items: [
+        { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
+        { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+      ],
+      ...overrides,
+    },
   };
 }
 
@@ -2950,14 +2973,15 @@ describe('Packet 2e: Official API v2 shape alignment', () => {
   // 20. Fractional/malformed trade ID, user ID, item ID, amount, or timestamp fails closed.
   test('2e-20: fractional/malformed trade ID fails closed', () => {
     const { normalizeApiTradeDetail } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const base = officialRawDetail();
     // Fractional trade ID
-    assert.throws(() => normalizeApiTradeDetail({ ...officialRawDetail(), id: 9001.5 }), /no valid trade ID|malformed/i);
+    assert.throws(() => normalizeApiTradeDetail({ ...base, trade: { ...base.trade, id: 9001.5 } }), /no valid trade ID|malformed/i);
     // Non-integer trade ID
-    assert.throws(() => normalizeApiTradeDetail({ ...officialRawDetail(), id: '9001' }), /no valid trade ID|malformed/i);
+    assert.throws(() => normalizeApiTradeDetail({ ...base, trade: { ...base.trade, id: '9001' } }), /no valid trade ID|malformed/i);
     // Fractional completed_at
-    assert.throws(() => normalizeApiTradeDetail({ ...officialRawDetail(), completed_at: 1700000000.5 }), /timestamp|malformed/i);
+    assert.throws(() => normalizeApiTradeDetail({ ...base, trade: { ...base.trade, completed_at: 1700000000.5 } }), /timestamp|malformed/i);
     // Invalid user ID
-    assert.throws(() => normalizeApiTradeDetail({ ...officialRawDetail(), user: { id: 0, name: 'Alice' } }), /no valid Torn ID|missing or malformed/i);
+    assert.throws(() => normalizeApiTradeDetail({ ...base, trade: { ...base.trade, user: { id: 0, name: 'Alice' } } }), /no valid Torn ID|missing or malformed/i);
     // Fractional item ID
     assert.throws(() => normalizeApiTradeDetail(officialRawDetail({
       items: [{ user_id: 1001, type: 'Item', details: { id: 100.5, amount: 10, uid: null } }],
@@ -3035,5 +3059,369 @@ describe('Packet 2e: Official API v2 shape alignment', () => {
     assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'lots unchanged after all unsupported asset quarantines');
     assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'sales unchanged after all unsupported asset quarantines');
     assert.equal(localStorage.getItem(pendingKey), pendingSnap, 'pending-trade storage unchanged');
+  });
+});
+
+describe('Packet 2f: Strict API boundary enforcement', () => {
+  function permissionEntry(overrides = {}) {
+    return {
+      id: 9001,
+      completed_at: 1700000000,
+      user: { id: 1001, name: 'Alice' },
+      trader: { id: 5678, name: 'Bob' },
+      ...overrides,
+    };
+  }
+
+  function detailWrapper(overrides = {}) {
+    return {
+      trade: {
+        id: 9001,
+        completed_at: 1700000000,
+        user: { id: 1001, name: 'Alice' },
+        trader: { id: 5678, name: 'Bob' },
+        items: [
+          { user_id: 1001, type: 'Item', details: { id: 100, uid: null, amount: 10 } },
+          { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+        ],
+        ...overrides,
+      },
+    };
+  }
+
+  function candidateFromDetail(detail, overrides = {}) {
+    const completedAtIso = new Date(detail.trade.completed_at * 1000).toISOString();
+    return {
+      id: detail.trade.id,
+      otherPlayerId: 5678,
+      otherPlayerName: 'Bob',
+      completedAt: completedAtIso,
+      ...overrides,
+    };
+  }
+
+  async function runSelectFailureCase({ candidate, detailPayload, lots = [freshLot()], keyUserId = 1001 }) {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots });
+    const key = 'packet-2f-select-key';
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, key);
+    imm.state.keyProfile = { userId: keyUserId };
+    imm.saveTradePermissionRecord('validated', key);
+
+    const overlay = makeElement();
+    overlay._tsimmApiTradeCandidates = [candidate];
+    overlay.isConnected = true;
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => detailPayload });
+
+    const pendingKey = 'tornscripture-imm-pending-trade-sale-v1';
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+    const pendingSnap = localStorage.getItem(pendingKey);
+    const qBefore = imm.state.ledger.quarantinedTrades.length;
+
+    await imm.handleApiTradeRecoverySelect(0);
+
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    return {
+      imm,
+      overlay,
+      qBefore,
+      lotsSnap,
+      salesSnap,
+      pendingKey,
+      pendingSnap,
+    };
+  }
+
+  test('2f-1: empty official trades array validates', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'validated');
+  });
+
+  test('2f-2: every valid populated entry validates', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [permissionEntry({ id: 1 }), permissionEntry({ id: 2, trader: { id: 7777, name: 'Carl' } })] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'validated');
+  });
+
+  test('2f-3: first valid and second malformed entry is unavailable-or-inconclusive', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [permissionEntry(), permissionEntry({ completed_at: null })] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'unavailable-or-inconclusive');
+  });
+
+  test('2f-4: missing completed_at fails permission validation', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [permissionEntry({ completed_at: undefined })] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'unavailable-or-inconclusive');
+  });
+
+  test('2f-5: invalid user fails permission validation', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [permissionEntry({ user: { id: 0, name: 'Alice' } })] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'unavailable-or-inconclusive');
+  });
+
+  test('2f-6: invalid trader fails permission validation', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [permissionEntry({ trader: { id: 0, name: 'Bob' } })] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'unavailable-or-inconclusive');
+  });
+
+  test('2f-7: empty participant name fails permission validation', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [permissionEntry({ trader: { id: 5678, name: '   ' } })] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'unavailable-or-inconclusive');
+  });
+
+  test('2f-8: same user and trader ID fails permission validation', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: [permissionEntry({ trader: { id: 1001, name: 'Bob' } })] });
+    assert.equal(await imm.validateApiTradeEndpointPermission('test-key'), 'unavailable-or-inconclusive');
+  });
+
+  test('2f-9: official detail wrapper normalizes', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const detail = imm.normalizeApiTradeDetail(detailWrapper());
+    assert.equal(detail.id, 9001);
+  });
+
+  test('2f-10: bare root trade object fails with MALFORMED_DETAIL_RESPONSE', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => imm.normalizeApiTradeDetail(detailWrapper().trade),
+      (err) => err?.quarantineReasonCode === imm.QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE,
+    );
+  });
+
+  test('2f-11: { trade: null } fails', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => imm.normalizeApiTradeDetail({ trade: null }),
+      (err) => err?.quarantineReasonCode === imm.QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE,
+    );
+  });
+
+  test('2f-12: empty object fails', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => imm.normalizeApiTradeDetail({}),
+      (err) => err?.quarantineReasonCode === imm.QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE,
+    );
+  });
+
+  test('2f-13: money integer 0 accepted', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const detail = imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: 0 } }],
+    }));
+    assert.equal(detail.trader.money, 0);
+  });
+
+  test('2f-14: positive money integer accepted', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const detail = imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: 1234567 } }],
+    }));
+    assert.equal(detail.trader.money, 1234567);
+  });
+
+  test('2f-15: numeric money string rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: '5000000' } }],
+    })), /money.*invalid/i);
+  });
+
+  test('2f-16: null money rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: null } }],
+    })), /money.*invalid/i);
+  });
+
+  test('2f-17: boolean money rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: true } }],
+    })), /money.*invalid/i);
+  });
+
+  test('2f-18: fractional money rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: 1.5 } }],
+    })), /money.*invalid/i);
+  });
+
+  test('2f-19: negative money rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: -1 } }],
+    })), /money.*invalid/i);
+  });
+
+  test('2f-20: Infinity and NaN money rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: Infinity } }],
+    })), /money.*invalid/i);
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 5678, type: 'Money', details: { amount: NaN } }],
+    })), /money.*invalid/i);
+  });
+
+  test('2f-21: item uid null accepted', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const detail = imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 1001, type: 'Item', details: { id: 100, uid: null, amount: 1 } }],
+    }));
+    assert.equal(detail.user.items[0].id, 100);
+  });
+
+  test('2f-22: item integer uid accepted', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const detail = imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 1001, type: 'Item', details: { id: 100, uid: 123, amount: 1 } }],
+    }));
+    assert.equal(detail.user.items[0].quantity, 1);
+  });
+
+  test('2f-23: missing item uid rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 1001, type: 'Item', details: { id: 100, amount: 1 } }],
+    })), /uid must be present/i);
+  });
+
+  test('2f-24: undefined item uid rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 1001, type: 'Item', details: { id: 100, uid: undefined, amount: 1 } }],
+    })), /uid must be present/i);
+  });
+
+  test('2f-25: string item uid rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 1001, type: 'Item', details: { id: 100, uid: '123', amount: 1 } }],
+    })), /uid must be integer or null/i);
+  });
+
+  test('2f-26: fractional item uid rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(() => imm.normalizeApiTradeDetail(detailWrapper({
+      items: [{ user_id: 1001, type: 'Item', details: { id: 100, uid: 1.5, amount: 1 } }],
+    })), /uid must be integer or null/i);
+  });
+
+  test('2f-27: matching candidate/detail reconciliation succeeds', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const raw = detailWrapper();
+    const detail = imm.normalizeApiTradeDetail(raw);
+    const candidate = candidateFromDetail(raw);
+    assert.equal(imm.reconcileApiTradeDetailWithCandidate(detail, candidate, 1001), true);
+  });
+
+  test('2f-28: counterparty ID mismatch quarantines', async () => {
+    const detailPayload = detailWrapper();
+    const candidate = candidateFromDetail(detailPayload, { otherPlayerId: 7777 });
+    const { imm, qBefore } = await runSelectFailureCase({ candidate, detailPayload });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, qBefore + 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.SOURCE_DATA_CONFLICT);
+  });
+
+  test('2f-29: counterparty name mismatch quarantines', async () => {
+    const detailPayload = detailWrapper();
+    const candidate = candidateFromDetail(detailPayload, { otherPlayerName: 'Not Bob' });
+    const { imm, qBefore } = await runSelectFailureCase({ candidate, detailPayload });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, qBefore + 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.SOURCE_DATA_CONFLICT);
+  });
+
+  test('2f-30: completion timestamp mismatch quarantines', async () => {
+    const detailPayload = detailWrapper();
+    const candidate = candidateFromDetail(detailPayload, { completedAt: new Date((detailPayload.trade.completed_at + 1) * 1000).toISOString() });
+    const { imm, qBefore } = await runSelectFailureCase({ candidate, detailPayload });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, qBefore + 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.SOURCE_DATA_CONFLICT);
+  });
+
+  test('2f-31: same participant ID on user/trader fails closed', async () => {
+    const detailPayload = detailWrapper({
+      trader: { id: 1001, name: 'Bob' },
+      items: [
+        { user_id: 1001, type: 'Item', details: { id: 100, uid: null, amount: 10 } },
+        { user_id: 1001, type: 'Money', details: { amount: 5000000 } },
+      ],
+    });
+    const candidate = candidateFromDetail(detailPayload, { otherPlayerId: 1001 });
+    const { imm, qBefore } = await runSelectFailureCase({ candidate, detailPayload });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, qBefore + 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.SOURCE_DATA_CONFLICT);
+  });
+
+  test('2f-32: detail owner absent or ambiguous fails closed', async () => {
+    const detailPayload = detailWrapper({
+      user: { id: 2222, name: 'Alice' },
+      trader: { id: 3333, name: 'Bob' },
+      items: [
+        { user_id: 2222, type: 'Item', details: { id: 100, uid: null, amount: 10 } },
+        { user_id: 3333, type: 'Money', details: { amount: 5000000 } },
+      ],
+    });
+    const candidate = candidateFromDetail(detailPayload, { otherPlayerId: 3333 });
+    const { imm, qBefore } = await runSelectFailureCase({ candidate, detailPayload });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, qBefore + 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.SOURCE_DATA_CONFLICT);
+  });
+
+  test('2f-33: every reconciliation failure leaves lots, sales, and pending-trade storage unchanged', async () => {
+    const baseDetail = detailWrapper();
+    const cases = [
+      { candidate: candidateFromDetail(baseDetail, { otherPlayerId: 0 }), detailPayload: baseDetail },
+      { candidate: candidateFromDetail(baseDetail, { otherPlayerName: 'Wrong' }), detailPayload: baseDetail },
+      { candidate: candidateFromDetail(baseDetail, { completedAt: new Date((baseDetail.trade.completed_at + 5) * 1000).toISOString() }), detailPayload: baseDetail },
+      {
+        candidate: candidateFromDetail(baseDetail),
+        detailPayload: detailWrapper({
+          trader: { id: 1001, name: 'Bob' },
+          items: [
+            { user_id: 1001, type: 'Item', details: { id: 100, uid: null, amount: 10 } },
+            { user_id: 1001, type: 'Money', details: { amount: 5000000 } },
+          ],
+        }),
+      },
+      {
+        candidate: candidateFromDetail(baseDetail),
+        detailPayload: detailWrapper({
+          user: { id: 9991, name: 'Alice' },
+          trader: { id: 9992, name: 'Bob' },
+          items: [
+            { user_id: 9991, type: 'Item', details: { id: 100, uid: null, amount: 10 } },
+            { user_id: 9992, type: 'Money', details: { amount: 5000000 } },
+          ],
+        }),
+      },
+    ];
+    for (const c of cases) {
+      const res = await runSelectFailureCase(c);
+      assert.equal(JSON.stringify(res.imm.state.ledger.lots), res.lotsSnap, 'lots must be unchanged');
+      assert.equal(JSON.stringify(res.imm.state.ledger.sales), res.salesSnap, 'sales must be unchanged');
+      assert.equal(localStorage.getItem(res.pendingKey), res.pendingSnap, 'pending-trade storage must be unchanged');
+    }
+  });
+
+  test('2f-34: handleApiTradeRecoverySelect runs reconciliation before semantic validation', async () => {
+    const detailPayload = detailWrapper();
+    const candidate = candidateFromDetail(detailPayload, { otherPlayerName: 'Mismatch' });
+    const { imm, overlay, qBefore } = await runSelectFailureCase({ candidate, detailPayload, lots: [] });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, qBefore + 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.SOURCE_DATA_CONFLICT);
+    assert.ok(!overlay._tsimmApiTradePendingStats, 'semantic review stats must not be stored on reconciliation failure');
   });
 });
