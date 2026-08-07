@@ -11224,6 +11224,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (saleCashReceived !== netCash) return false;
       if (hasLikelyManualDuplicateStoredValue(sale.tradeDirection) && sale.tradeDirection !== tradeDirection) return false;
       if (saleMyCash !== ownerCash) return false;
+      // Explicit Packet 3 invariant: counterparty gross = net + owner. Logically follows from the two checks
+      // above (netCash = counterpartyCash - ownerCash), but stated directly to document the contract.
       if (saleCashReceived + saleMyCash !== counterpartyCash) return false;
       if (saleMarketTotal !== marketTotal) return false;
       if (saleTargetTotal !== targetTotal) return false;
