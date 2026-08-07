@@ -374,7 +374,8 @@ describe('Duplicate blocking', () => {
       sales: [{
         id: 's-manual', fingerprint: 'trade-fallback:abc',
         soldAt: new Date(Date.now() - 7200000).toISOString(), // 2h ago — within 24h of completion
-        cashReceived: 5000000, counterparty: 'Bob', counterpartyId: 5678,
+        cashReceived: 5000000, myCash: 0, marketTotal: 900000, targetTotal: 5000000,
+        counterparty: 'Bob', counterpartyId: 5678,
         items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
       }],
     });
@@ -415,7 +416,7 @@ describe('Duplicate blocking', () => {
       sales: [{
         id: 's-reorder', fingerprint: 'trade-fallback:reorder',
         soldAt: new Date(Date.now() - 3600000).toISOString(),
-        cashReceived: 750000,
+        cashReceived: 750000, myCash: 0, marketTotal: 750000, targetTotal: 750000,
         counterparty: 'Bob',
         counterpartyId: 5678,
         items: [
@@ -512,6 +513,215 @@ describe('Duplicate blocking', () => {
     const saleB = imm.recordTradeSale(statsB, 'api-trade-recovery');
     assert.ok(saleB, 'second distinct trade must record');
     assert.equal(imm.state.ledger.sales.length, 2);
+  });
+
+  // ── Packet 3 contract: exact economic equality, fail-closed on missing fields ─
+
+  test('p3-1: fully matching manual sale still blocks', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 1, 'fully matching manual sale must block');
+  });
+
+  test('p3-2: sale.myCash = 0 does NOT match API owner cash > 0', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    // API: owner contributed money (ownerCash > 0), so use a detail where user has money and net > 0
+    const detail = freshDetail({
+      completedAt,
+      user: { userId: 1001, name: 'Alice', money: 200000, items: [{ id: 100, quantity: 10 }] },
+      trader: { userId: 5678, name: 'Bob', money: 5200000, items: [] },
+    });
+    setupState({ lots: [freshLot()] });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    // Store a sale with myCash: 0 but API has ownerCash > 0 — must not match
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, { myCash: 0 }))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'myCash=0 must not match non-zero API owner cash');
+  });
+
+  test('p3-3: different owner cash fails', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    // myCash differs from tradeMyCash
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, { myCash: stats.tradeMyCash + 1 }))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'different myCash must not match');
+  });
+
+  test('p3-4: derived counterparty gross cash mismatch fails', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    // cashReceived correct but myCash wrong → derived gross (cashReceived + myCash) != tradeTraderCash
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, { myCash: stats.tradeMyCash + 500 }))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'derived counterparty gross mismatch must not match');
+  });
+
+  test('p3-5: sale.marketTotal = 0 does NOT match nonzero API market total', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    assert.ok(stats.tradeMarketTotal > 0, 'fixture must have non-zero market total');
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, { marketTotal: 0 }))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'marketTotal=0 must not match nonzero API market total');
+  });
+
+  test('p3-6: different market total fails', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, { marketTotal: stats.tradeMarketTotal + 1 }))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'different marketTotal must not match');
+  });
+
+  test('p3-7: sale.targetTotal = 0 does NOT match nonzero API target total', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    assert.ok(stats.tradeTargetTotal > 0, 'fixture must have non-zero target total');
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, { targetTotal: 0 }))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'targetTotal=0 must not match nonzero API target total');
+  });
+
+  test('p3-8: different target total fails', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, { targetTotal: stats.tradeTargetTotal + 1 }))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'different targetTotal must not match');
+  });
+
+  test('p3-9: malformed/unavailable raw economic field does not create false positive', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    // Sale with non-finite/missing economic fields must not be treated as a likely duplicate
+    const malformedSale = buildLikelyManualDuplicateSale(stats, { myCash: 'not-a-number', marketTotal: undefined, targetTotal: null });
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(malformedSale)];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'malformed/unavailable economic field must not produce false positive');
+  });
+
+  test('p3-10: zero owner cash matches zero owner cash', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    // freshDetail has user.money = 0 (ownerCash = 0)
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    assert.equal(stats.tradeMyCash, 0, 'fixture must have zero owner cash');
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 1, 'zero owner cash must match zero owner cash');
+  });
+
+  test('p3-11: API-tagged otherwise-identical sale is excluded from manual heuristic', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    // Mark the sale as already API-tagged (captureMethod: 'api-trade-recovery')
+    const apiTaggedSale = buildLikelyManualDuplicateSale(stats, {
+      fingerprint: `trade:api-trade-${detail.id}`,
+      captureMethod: 'api-trade-recovery',
+    });
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(apiTaggedSale)];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 0, 'API-tagged sale must be excluded from manual heuristic');
+  });
+
+  test('p3-12: reordered/repeated equivalent assets still match', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({
+      lots: [
+        freshLot({ id: 'lot-x', itemId: 100, itemName: 'Xanax', quantity: 5, remainingQuantity: 5, unitCost: 90000, totalCost: 450000 }),
+        freshLot({ id: 'lot-v', itemId: 101, itemName: 'Vicodin', normalizedName: 'vicodin', quantity: 10, remainingQuantity: 10, unitCost: 30000, totalCost: 300000 }),
+      ],
+    });
+    const detail = {
+      id: 9012, completedAt,
+      user: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 5 }, { id: 101, name: 'Vicodin', quantity: 10 }] },
+      trader: { userId: 5678, name: 'Bob', money: 750000, items: [] },
+    };
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    // Items in reverse order in stored sale
+    const reorderedSale = buildLikelyManualDuplicateSale(stats, {
+      items: [
+        { itemId: 101, itemName: 'Vicodin', quantity: 10 },
+        { itemId: 100, itemName: 'Xanax', quantity: 5 },
+      ],
+    });
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(reorderedSale)];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 1, 'reordered assets must still match');
+  });
+
+  test('p3-13: likely-manual block before confirmation leaves lots, sales, and pending-trade storage unchanged', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    const lot = freshLot({ quantity: 10, remainingQuantity: 10 });
+    setupState({ lots: [lot] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats))];
+    const lotsBefore = JSON.stringify(imm.state.ledger.lots);
+    const salesBefore = JSON.stringify(imm.state.ledger.sales);
+    // detectApiTradeLikelyManualDuplicate is read-only — must not mutate state
+    const dupes = imm.detectApiTradeLikelyManualDuplicate(stats, 86400000);
+    assert.equal(dupes.length, 1, 'must detect the likely-manual duplicate');
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsBefore, 'lots must be unchanged');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesBefore, 'sales must be unchanged');
+  });
+
+  test('p3-14: two distinct API-tagged completed trades are not blocked by manual heuristic', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 20, remainingQuantity: 20 })] });
+    const d1 = freshDetail({ id: 9101, completedAt: new Date(Date.now() - 7200000).toISOString() });
+    const d2 = freshDetail({ id: 9102, completedAt: new Date(Date.now() - 3600000).toISOString() });
+    const { ownerSide: ow1, counterpartySide: cp1 } = imm.resolveApiTradeOwner(d1, 1001);
+    const { ownerSide: ow2, counterpartySide: cp2 } = imm.resolveApiTradeOwner(d2, 1001);
+    const s1 = imm.buildApiTradeSaleStats(d1, ow1, cp1);
+    const s2 = imm.buildApiTradeSaleStats(d2, ow2, cp2);
+    // Record the first trade as API-tagged in the ledger
+    const sale1 = imm.normalizeSaleRecord({
+      ...buildLikelyManualDuplicateSale(s1),
+      fingerprint: `trade:api-trade-${d1.id}`,
+      captureMethod: 'api-trade-recovery',
+      apiTradeId: d1.id,
+    });
+    imm.state.ledger.sales = [sale1];
+    // The second distinct API trade must not be blocked by the manual heuristic
+    const dupes = imm.detectApiTradeLikelyManualDuplicate(s2, 86400000);
+    assert.equal(dupes.length, 0, 'API-tagged first trade must not block distinct second API trade via manual heuristic');
   });
 });
 
@@ -838,7 +1048,8 @@ describe('executeApiTradeRecoveryTransaction — atomic production path', () => 
       sales: [{
         id: 's-manual-dup', fingerprint: 'trade-fallback:manualdup',
         soldAt: new Date(Date.now() - 7200000).toISOString(),
-        cashReceived: 5000000, counterparty: 'Bob', counterpartyId: 5678,
+        cashReceived: 5000000, myCash: 0, marketTotal: 900000, targetTotal: 5000000,
+        counterparty: 'Bob', counterpartyId: 5678,
         items: [{ itemId: 100, itemName: 'Xanax', quantity: 10 }],
       }],
     });

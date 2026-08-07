@@ -11217,11 +11217,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (Math.abs(soldAtMs - completionMs) > windowMs) return false;
       if (!likelyManualDuplicateCounterpartyMatches(sale, stats)) return false;
       if (!likelyManualDuplicateAssetsMatch(sale.items, stats.tradeItems)) return false;
-      if (optionalFiniteNumber(sale.cashReceived) !== netCash) return false;
+      const saleCashReceived = optionalFiniteNumber(sale.cashReceived);
+      const saleMyCash = optionalFiniteNumber(sale.myCash);
+      const saleMarketTotal = optionalFiniteNumber(sale.marketTotal);
+      const saleTargetTotal = optionalFiniteNumber(sale.targetTotal);
+      if (saleCashReceived !== netCash) return false;
       if (hasLikelyManualDuplicateStoredValue(sale.tradeDirection) && sale.tradeDirection !== tradeDirection) return false;
-      if (Number(sale.myCash) > 0 && optionalFiniteNumber(sale.myCash) !== ownerCash) return false;
-      if (Number(sale.marketTotal) > 0 && optionalFiniteNumber(sale.marketTotal) !== marketTotal) return false;
-      if (Number(sale.targetTotal) > 0 && optionalFiniteNumber(sale.targetTotal) !== targetTotal) return false;
+      if (saleMyCash !== ownerCash) return false;
+      if (saleCashReceived + saleMyCash !== counterpartyCash) return false;
+      if (saleMarketTotal !== marketTotal) return false;
+      if (saleTargetTotal !== targetTotal) return false;
       return true;
     });
   }
