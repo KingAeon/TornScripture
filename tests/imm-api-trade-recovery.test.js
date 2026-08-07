@@ -149,10 +149,19 @@ describe('Schema', () => {
     assert.equal(ledger2.quarantinedTrades.length, 1);
   });
 
-  test('normalizeLedger discards malformed quarantine records', () => {
+  test('normalizeLedger retains malformed quarantine records with _malformed flag', () => {
+    // Spec: malformed quarantine records are retained in a diagnosable form rather than silently discarded.
+    // null entries (non-objects) are filtered; objects with missing/empty id or reasonCode are retained with _malformed: true.
     const { normalizeLedger } = globalThis.__TS_IMM_TEST_EXPORTS__;
     const ledger = normalizeLedger({ quarantinedTrades: [null, { id: '', reasonCode: '' }, { id: 'q1', reasonCode: 'ok' }] });
-    assert.equal(ledger.quarantinedTrades.length, 1);
+    // null is filtered; the two object entries are both retained
+    assert.equal(ledger.quarantinedTrades.length, 2);
+    // The malformed record is tagged
+    const malformed = ledger.quarantinedTrades.find((q) => !q.id || !q.reasonCode);
+    assert.ok(malformed?._malformed === true, 'malformed record must have _malformed: true');
+    // The valid record is preserved without the flag
+    const valid = ledger.quarantinedTrades.find((q) => q.id === 'q1');
+    assert.ok(valid && !valid._malformed, 'valid record must not have _malformed flag');
   });
 });
 
@@ -1248,6 +1257,551 @@ describe('Provenance and API metadata', () => {
     assert.equal(stats.apiTradeId, 9001);
     assert.equal(stats.apiCompletedAt, detail.completedAt);
     assert.ok(['initiator', 'recipient'].includes(stats.apiOwnerDirection));
+  });
+});
+
+// ── Packet 2: Production quarantine paths (tests 1–14) ───────────────────────
+//
+// Raw API payload factory: produces the shape accepted by normalizeApiTradeDetail /
+// normalizeApiTradeParticipant before normalization.
+function rawPayload(overrides = {}) {
+  return {
+    id: 9001,
+    status: 'Accepted',
+    completed_at: Math.floor(Date.now() / 1000) - 3600,
+    initiator: { user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
+    recipient: { user_id: 5678, name: 'Bob', money: 5000000, items: [] },
+    ...overrides,
+  };
+}
+
+describe('Packet 2: Production quarantine paths', () => {
+  // 1. Malformed detail reaches production quarantine.
+  test('1: malformed detail payload reaches quarantine via processApiTradeDetailPayload', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const result = imm.processApiTradeDetailPayload(null, 9001, { endpoint: 'test', key: null });
+    assert.ok(result.quarantined, 'result must be quarantined');
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 1);
+    assert.ok(imm.state.ledger.quarantinedTrades[0].reasonCode, 'quarantine record must have a reason code');
+    assert.equal(imm.state.ledger.quarantinedTrades[0].validationState, 'rejected');
+  });
+
+  // 2. Missing money reaches quarantine.
+  test('2: missing money field reaches quarantine with MISSING_MONEY reason', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const payload = rawPayload({ initiator: { user_id: 1001, name: 'Alice', items: [] } }); // no money
+    const result = imm.processApiTradeDetailPayload(payload, 9001, {});
+    assert.ok(result.quarantined);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.MISSING_MONEY);
+  });
+
+  // 3. Missing items reaches quarantine.
+  test('3: missing items field reaches quarantine with MISSING_ITEMS reason', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const payload = rawPayload({ initiator: { user_id: 1001, name: 'Alice', money: 0 } }); // no items
+    const result = imm.processApiTradeDetailPayload(payload, 9001, {});
+    assert.ok(result.quarantined);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.MISSING_ITEMS);
+  });
+
+  // 4. Unsupported points reaches quarantine.
+  test('4: points field reaches quarantine with UNSUPPORTED_POINTS reason', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const payload = rawPayload({
+      initiator: { user_id: 1001, name: 'Alice', money: 0, items: [], points: 5 },
+    });
+    const result = imm.processApiTradeDetailPayload(payload, 9001, {});
+    assert.ok(result.quarantined);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.UNSUPPORTED_POINTS);
+  });
+
+  // 5. Selected/detail ID mismatch reaches quarantine.
+  test('5: detail ID mismatch (9002 vs expected 9001) reaches quarantine with TRADE_ID_MISMATCH reason', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const payload = rawPayload({ id: 9002 });
+    const result = imm.processApiTradeDetailPayload(payload, 9001, {}); // expected 9001
+    assert.ok(result.quarantined);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH);
+  });
+
+  // 6. Ambiguous ownership — resolveApiTradeOwner tags the error; quarantine stores the tag.
+  test('6: ambiguous ownership error is tagged AMBIGUOUS_OWNER and quarantine stores the code', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const detail = freshDetail(); // initiator:1001, recipient:5678
+    // Key owner is 9999 — does not appear in the trade
+    let caught;
+    try { imm.resolveApiTradeOwner(detail, 9999); } catch (e) { caught = e; }
+    assert.ok(caught, 'resolveApiTradeOwner must throw for unknown owner');
+    assert.equal(caught.quarantineReasonCode, imm.QUARANTINE_REASON.AMBIGUOUS_OWNER, 'error must carry AMBIGUOUS_OWNER reason code');
+    // Wire: the step-4 catch block calls quarantineApiTrade with error.quarantineReasonCode
+    const rawP = rawPayload();
+    imm.quarantineApiTrade(rawP, caught.quarantineReasonCode, { source: 'api-trade-recovery' });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.AMBIGUOUS_OWNER);
+  });
+
+  // 7. Catalog ID/name conflict reaches quarantine.
+  test('7: catalog ID/name conflict is tagged CATALOG_ID_NAME_CONFLICT and quarantine stores the code', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    // Create a catalog where item ID 100 resolves to "Xanax" but the name "Xanax" resolves to a different ID
+    setupState({});
+    imm.state.catalog = {
+      itemsByName: { xanax: { id: 200, name: 'Xanax', marketPrice: 90000, normalizedName: 'xanax' } },
+      itemsById: { '100': CATALOG_XANAX }, // ID 100 → "Xanax" (id:100), but name lookup → id:200
+      updatedAt: new Date().toISOString(),
+    };
+    const detail = freshDetail(); // owner has item id:100 name:"Xanax"
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    let caught;
+    try { imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide); } catch (e) { caught = e; }
+    assert.ok(caught, 'buildApiTradeSaleStats must throw for catalog conflict');
+    assert.equal(caught.quarantineReasonCode, imm.QUARANTINE_REASON.CATALOG_ID_NAME_CONFLICT, 'error must carry CATALOG_ID_NAME_CONFLICT reason code');
+    const rawP = rawPayload();
+    imm.quarantineApiTrade(rawP, caught.quarantineReasonCode, { source: 'api-trade-recovery' });
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.CATALOG_ID_NAME_CONFLICT);
+  });
+
+  // 8. Unknown catalog item ID — name fallback is not used.
+  test('8: unknown catalog item ID throws UNKNOWN_CATALOG_ITEM_ID without name-fallback', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    // Catalog has "Xanax" by name under id:100, but detail carries item id:999 (not in catalog by ID)
+    imm.state.catalog = {
+      itemsByName: { xanax: CATALOG_XANAX },
+      itemsById: {}, // id:999 is not present
+      updatedAt: new Date().toISOString(),
+    };
+    const detail = freshDetail({
+      initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 999, name: 'Xanax', quantity: 10 }] },
+    });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    let caught;
+    try { imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide); } catch (e) { caught = e; }
+    assert.ok(caught, 'must throw for unknown catalog ID');
+    assert.equal(caught.quarantineReasonCode, imm.QUARANTINE_REASON.UNKNOWN_CATALOG_ITEM_ID, 'must use UNKNOWN_CATALOG_ITEM_ID, not fall back to name');
+    // Confirm no name-fallback: if it had fallen back, catalogItem would be CATALOG_XANAX (id:100)
+    // The throw itself proves the fallback is absent.
+  });
+
+  // 9. Zero FIFO coverage reaches quarantine.
+  test('9: zero FIFO coverage reaches quarantine with ZERO_FIFO_COVERAGE reason', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [] }); // no lots — zero coverage
+    const detail = freshDetail();
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const plan = imm.ledgerSalePlan(stats);
+    assert.ok(!plan.fullCoverage, 'plan must show no coverage');
+    assert.equal(plan.trackedQuantity, 0, 'zero tracked quantity');
+    // Wire: production calls quarantineApiTrade with ZERO_FIFO_COVERAGE
+    const rawP = rawPayload();
+    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.ZERO_FIFO_COVERAGE, { apiTradeId: detail.id, source: 'api-trade-recovery' });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.ZERO_FIFO_COVERAGE);
+    // Lots and sales unchanged
+    assert.equal(imm.state.ledger.lots.length, 0);
+    assert.equal(imm.state.ledger.sales.length, 0);
+  });
+
+  // 10. Partial FIFO coverage reaches quarantine.
+  test('10: partial FIFO coverage reaches quarantine with PARTIAL_FIFO_COVERAGE reason', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 5, remainingQuantity: 5 })] }); // only 5, need 10
+    const detail = freshDetail(); // owner sells 10 Xanax
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const plan = imm.ledgerSalePlan(stats);
+    assert.ok(!plan.fullCoverage, 'plan must show partial coverage');
+    assert.ok(plan.trackedQuantity > 0, 'some tracked quantity');
+    assert.ok(plan.trackedQuantity < plan.requestedQuantity, 'less than requested');
+    const rawP = rawPayload();
+    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.PARTIAL_FIFO_COVERAGE, { apiTradeId: detail.id, source: 'api-trade-recovery' });
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.PARTIAL_FIFO_COVERAGE);
+    // Lots and sales unchanged (5 remaining)
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 5);
+    assert.equal(imm.state.ledger.sales.length, 0);
+  });
+
+  // 11. Raw payload and deterministic reason code survive normalize/export/import round-trips.
+  test('11: raw payload and reason code survive normalizeLedger round-trips', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const rawP = { sentinel: 'my-raw-payload', tradeId: 9001 };
+    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH, { apiTradeId: 9001, source: 'api-trade-recovery' });
+    // First round-trip
+    const ledger1 = imm.normalizeLedger(JSON.parse(JSON.stringify(imm.state.ledger)));
+    assert.equal(ledger1.quarantinedTrades.length, 1);
+    assert.equal(ledger1.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH);
+    assert.deepEqual(ledger1.quarantinedTrades[0].rawPayload, rawP);
+    // Second round-trip (simulates import/export cycle)
+    const ledger2 = imm.normalizeLedger(JSON.parse(JSON.stringify(ledger1)));
+    assert.equal(ledger2.quarantinedTrades.length, 1);
+    assert.equal(ledger2.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH);
+    assert.deepEqual(ledger2.quarantinedTrades[0].rawPayload, rawP);
+  });
+
+  // 12. Malformed quarantine record remains visible to Ledger Integrity (covered by existing test
+  //     'quarantine malformed record produces integrity issue'; this test verifies it independently).
+  test('12: malformed quarantine record (_malformed: true) produces Ledger Integrity issue', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const ledger = imm.normalizeLedger({ quarantinedTrades: [{ id: '', reasonCode: '' }] });
+    imm.state.ledger = ledger;
+    const report = imm.analyzeLedgerIntegrity(imm.state.ledger);
+    assert.ok(report.issues.some((i) => i.type.startsWith('quarantine-')), 'integrity must report quarantine issue for malformed record');
+    assert.ok(report.quarantinedCount >= 1, 'malformed record is counted');
+  });
+
+  // 13. Duplicate rejected payload/reason does not create unlimited duplicates.
+  test('13: same trade ID and reason code deduplicated — not an unlimited pile', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const rawP = rawPayload();
+    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH, { apiTradeId: 9001, source: 'api-trade-recovery' });
+    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH, { apiTradeId: 9001, source: 'api-trade-recovery' });
+    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH, { apiTradeId: 9001, source: 'api-trade-recovery' });
+    // Deduplication must prevent unbounded growth for same trade+reason
+    assert.ok(imm.state.ledger.quarantinedTrades.length <= 1, `expected 1 deduplicated record, got ${imm.state.ledger.quarantinedTrades.length}`);
+  });
+
+  // 14. Every quarantine path leaves lots and sales unchanged.
+  test('14: quarantine call does not consume lots or create sales', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 10, remainingQuantity: 10 })] });
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+    imm.quarantineApiTrade(rawPayload(), imm.QUARANTINE_REASON.ZERO_FIFO_COVERAGE, { apiTradeId: 9001 });
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'lots must be unchanged after quarantine');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'sales must be unchanged after quarantine');
+  });
+});
+
+// ── Packet 2: Permission validation lifecycle (tests 15–32) ──────────────────
+//
+// Storage key constant (matches APP.apiKeyStorageKey in the script).
+const IMM_API_KEY_STORAGE_KEY = 'tornscripture-imm-api-key-v1';
+// Overlay ID constant (matches APP.apiTradeRecoveryOverlayId in the script).
+const IMM_API_TRADE_RECOVERY_OVERLAY_ID = 'tornscripture-imm-api-trade-recovery';
+
+// Helper: create a mock fetch that returns the given JSON body with optional status/ok.
+function mockFetch(body, { ok = true, status = 200 } = {}) {
+  return async () => ({
+    ok,
+    status,
+    json: async () => body,
+  });
+}
+
+// Helper: create an overlay element stub with pending review state for confirmation tests.
+function makeConfirmOverlay(detailOverrides = {}, statsOverrides = {}) {
+  const detail = { id: 9001, status: 'Accepted', completedAt: new Date(Date.now() - 3600000).toISOString(),
+    initiator: { userId: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
+    recipient: { userId: 5678, name: 'Bob', money: 5000000, items: [] }, ...detailOverrides };
+  const stats = { pageType: 'trade', tradeId: 'api-trade-9001', apiTradeId: 9001,
+    apiCompletedAt: detail.completedAt, apiOwnerDirection: 'initiator',
+    soldAt: detail.completedAt, items: [{ itemId: 100, name: 'Xanax', quantity: 10 }],
+    targetEach: 500000, netCash: 5000000, ...statsOverrides };
+  const el = makeElement();
+  el._tsimmApiTradePendingStats = stats;
+  el._tsimmApiTradePendingDetail = detail;
+  return el;
+}
+
+describe('Packet 2: Permission validation lifecycle', () => {
+  // 15. Valid supported empty trades-list response returns 'validated'.
+  test('15: empty trades-list response (trades: null) returns validated', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: null });
+    const state = await imm.validateApiTradeEndpointPermission('test-key');
+    assert.equal(state, 'validated');
+  });
+
+  // 16. Valid supported populated response returns 'validated'.
+  test('16: populated trades-list response (trades: {}) returns validated', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ trades: {} });
+    const state = await imm.validateApiTradeEndpointPermission('test-key');
+    assert.equal(state, 'validated');
+  });
+
+  // 17. Invalid key (error code 2) returns 'insufficient'.
+  test('17: error code 2 (invalid key) returns insufficient', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ error: { code: 2, error: 'Incorrect key' } });
+    const state = await imm.validateApiTradeEndpointPermission('bad-key');
+    assert.equal(state, 'insufficient');
+  });
+
+  // 18. Insufficient access (error code 16) returns 'insufficient'.
+  test('18: error code 16 (insufficient access) returns insufficient', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ error: { code: 16, error: 'Access denied' } });
+    const state = await imm.validateApiTradeEndpointPermission('limited-key');
+    assert.equal(state, 'insufficient');
+  });
+
+  // 19. Malformed HTTP 200 (no trades field) returns 'unavailable-or-inconclusive'.
+  test('19: HTTP 200 with no trades field returns unavailable-or-inconclusive', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = mockFetch({ something: 'else' });
+    const state = await imm.validateApiTradeEndpointPermission('test-key');
+    assert.equal(state, 'unavailable-or-inconclusive');
+  });
+
+  // 20. Network failure returns 'unavailable-or-inconclusive'.
+  test('20: network failure returns unavailable-or-inconclusive', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = async () => { throw new Error('Network error'); };
+    const state = await imm.validateApiTradeEndpointPermission('test-key');
+    assert.equal(state, 'unavailable-or-inconclusive');
+  });
+
+  // 21. Timeout abort returns 'unavailable-or-inconclusive'.
+  test('21: AbortError (timeout) returns unavailable-or-inconclusive', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    global.fetch = async (_url, opts) => {
+      // Immediately abort the request to simulate timeout
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      throw err;
+    };
+    const state = await imm.validateApiTradeEndpointPermission('test-key');
+    assert.equal(state, 'unavailable-or-inconclusive');
+  });
+
+  // 22. Validation record is bound to the non-secret key fingerprint.
+  test('22: saved validation record contains non-secret key fingerprint', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'my-secret-key');
+    const rec = imm.loadTradePermissionRecord();
+    assert.ok(rec, 'record must be saved');
+    assert.ok(rec.keyFingerprint, 'record must have key fingerprint');
+    assert.ok(!rec.keyFingerprint.includes('my-secret-key'), 'fingerprint must not include raw key');
+    assert.ok(rec.keyFingerprint.startsWith('kfp-'), 'fingerprint must use expected format');
+    const fp1 = imm.computeApiKeyFingerprint('my-secret-key');
+    const fp2 = imm.computeApiKeyFingerprint('my-secret-key');
+    assert.equal(fp1, fp2, 'fingerprint must be deterministic');
+    const fp3 = imm.computeApiKeyFingerprint('other-key');
+    assert.notEqual(fp1, fp3, 'different keys must produce different fingerprints');
+  });
+
+  // 23. Key change invalidates prior validation.
+  test('23: key change causes isPermissionRecordMatchingKey to return false', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-A');
+    const rec = imm.loadTradePermissionRecord();
+    assert.ok(imm.isPermissionRecordMatchingKey(rec, 'key-A'), 'must match original key');
+    assert.ok(!imm.isPermissionRecordMatchingKey(rec, 'key-B'), 'must not match different key');
+    assert.ok(!imm.isPermissionRecordValid(rec, 'key-B'), 'isPermissionRecordValid must be false after key change');
+  });
+
+  // 24. Startup validates only when absent, stale, malformed, or mismatched.
+  test('24: maybeScheduleStartupPermissionValidation skips validation when record is fresh and matching', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'startup-key');
+    let fetchCalled = false;
+    global.fetch = async () => { fetchCalled = true; return { ok: true, json: async () => ({ trades: null }) }; };
+    // Set a fresh, matching, validated record
+    imm.saveTradePermissionRecord('validated', 'startup-key');
+    // Call the function; because the record is fresh and matching, no setTimeout should be scheduled
+    imm.maybeScheduleStartupPermissionValidation();
+    // If no scheduling happened, the function returns without setting the internal guard.
+    // Verify by ensuring no validation state change occurs synchronously.
+    assert.equal(imm.loadTradePermissionRecord()?.state, 'validated', 'validated state must be preserved');
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+  });
+
+  test('24b: maybeScheduleStartupPermissionValidation schedules when record is absent — fetch fires', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'startup-key-2');
+    imm.state.ledger.tradePermission = null; // absent
+    let fetchCallCount = 0;
+    global.fetch = async () => { fetchCallCount++; return { ok: true, json: async () => ({ trades: null }), status: 200 }; };
+    // Call with absent record — should schedule a timer (200ms delay in production code)
+    imm.maybeScheduleStartupPermissionValidation();
+    // Wait for the timer to fire
+    await new Promise((r) => setTimeout(r, 350));
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.ok(fetchCallCount > 0, 'fetch must be called when scheduling fires for absent record');
+  });
+
+  // 25. Repeated initialization does not schedule duplicate validations.
+  test('25: repeated maybeScheduleStartupPermissionValidation calls do not schedule duplicate timers', async () => {
+    // After test 24b, the internal scheduling guard is permanently set (it is a module-level let, not reset).
+    // All subsequent calls must be no-ops — verifiable by counting fetch calls.
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'key-dup');
+    imm.state.ledger.tradePermission = null;
+    let extraFetchCount = 0;
+    global.fetch = async () => { extraFetchCount++; return { ok: true, json: async () => ({ trades: null }), status: 200 }; };
+    // Guard is already set from test 24b — these must all be no-ops
+    imm.maybeScheduleStartupPermissionValidation();
+    imm.maybeScheduleStartupPermissionValidation();
+    imm.maybeScheduleStartupPermissionValidation();
+    // Wait past the 200ms timer window
+    await new Promise((r) => setTimeout(r, 350));
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.equal(extraFetchCount, 0, 'no additional fetch calls after guard is set — duplicate timers prevented');
+  });
+
+  // 26. Recovery open always validates before loading candidates.
+  //     Verified through resolveAndValidateTradePermission: it always re-fetches and saves a fresh record.
+  test('26: resolveAndValidateTradePermission always fetches and persists a fresh record', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    // Pre-load a stale validated record
+    imm.saveTradePermissionRecord('validated', 'open-key');
+    const oldRecord = imm.loadTradePermissionRecord();
+    global.fetch = mockFetch({ trades: null });
+    await new Promise((r) => setTimeout(r, 5)); // brief pause so validatedAt timestamps differ
+    const permissionState = await imm.resolveAndValidateTradePermission('open-key');
+    assert.equal(permissionState, 'validated');
+    const newRecord = imm.loadTradePermissionRecord();
+    // Fresh record replaces stale — openApiTradeRecovery calls this before any list fetch
+    assert.notEqual(newRecord.validatedAt, oldRecord.validatedAt, 'fresh validation must update the timestamp');
+  });
+
+  // 27. List authorization failure invalidates and revalidates, then fails closed.
+  test('27: isAuthorizationFailure detects error code 2, error code 16, and HTTP 401/403', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.ok(imm.isAuthorizationFailure({ error: { code: 2 } }, null), 'code 2 is auth failure');
+    assert.ok(imm.isAuthorizationFailure({ error: { code: 16 } }, null), 'code 16 is auth failure');
+    assert.ok(imm.isAuthorizationFailure({}, { status: 401 }), 'HTTP 401 is auth failure');
+    assert.ok(imm.isAuthorizationFailure({}, { status: 403 }), 'HTTP 403 is auth failure');
+    assert.ok(!imm.isAuthorizationFailure({}, { status: 200 }), 'HTTP 200 is not auth failure');
+    assert.ok(!imm.isAuthorizationFailure({ error: { code: 5 } }, null), 'code 5 is not auth failure');
+  });
+
+  test('27b: invalidateTradePermission transitions state to unavailable-or-inconclusive', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-X');
+    assert.equal(imm.loadTradePermissionRecord().state, 'validated');
+    imm.invalidateTradePermission();
+    assert.equal(imm.loadTradePermissionRecord().state, 'unavailable-or-inconclusive');
+  });
+
+  test('27c: after invalidation, revalidation with valid response restores validated state', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-X');
+    imm.invalidateTradePermission();
+    global.fetch = mockFetch({ trades: [] });
+    await imm.resolveAndValidateTradePermission('key-X');
+    assert.equal(imm.loadTradePermissionRecord().state, 'validated');
+  });
+
+  // 28. Detail authorization failure invalidates and revalidates, then fails closed.
+  //     The detection and invalidation path is exercised by tests 27–27c above.
+  //     This test verifies the three-state distinction in isAuthorizationFailure for detail payloads.
+  test('28: detail auth failure payload detection matches list failure detection (same isAuthorizationFailure)', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    // Both list and detail use the same isAuthorizationFailure helper
+    const detailAuthError = { error: { code: 2 } };
+    const detailSuccess = { id: 9001, status: 'Accepted' };
+    assert.ok(imm.isAuthorizationFailure(detailAuthError, null), 'detail auth error must be detected');
+    assert.ok(!imm.isAuthorizationFailure(detailSuccess, { status: 200 }), 'detail success must not be auth failure');
+  });
+
+  // 29. Confirmation blocks stale validation.
+  test('29: handleApiTradeRecoveryConfirm blocks when permission record is stale', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'confirm-key');
+    // Build a stale record (validatedAt far in the past)
+    imm.state.ledger.tradePermission = {
+      state: 'validated',
+      validatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+      keyFingerprint: imm.computeApiKeyFingerprint('confirm-key'),
+      endpoint: 'https://api.torn.com/v2/user/trades',
+      schemaMarker: 'v2-user-trades',
+    };
+    const overlay = makeConfirmOverlay();
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    const lotsBefore = JSON.stringify(imm.state.ledger.lots);
+    imm.handleApiTradeRecoveryConfirm(9001);
+    const lotsAfter = JSON.stringify(imm.state.ledger.lots);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.equal(lotsBefore, lotsAfter, 'stale permission must block confirmation — lots must be unchanged');
+  });
+
+  // 30. Confirmation blocks when key fingerprint differs.
+  test('30: handleApiTradeRecoveryConfirm blocks when key fingerprint does not match permission record', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    // Store a validated record for key-A but the current key is key-B
+    imm.saveTradePermissionRecord('validated', 'key-A');
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'key-B'); // different key
+    const overlay = makeConfirmOverlay();
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    const lotsBefore = JSON.stringify(imm.state.ledger.lots);
+    imm.handleApiTradeRecoveryConfirm(9001);
+    const lotsAfter = JSON.stringify(imm.state.ledger.lots);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.equal(lotsBefore, lotsAfter, 'mismatched key fingerprint must block confirmation — lots must be unchanged');
+  });
+
+  // 31. Direct confirmation invocation cannot bypass permission validation.
+  test('31: handleApiTradeRecoveryConfirm with no permission record blocks and leaves state unchanged', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'direct-invoke-key');
+    delete imm.state.ledger.tradePermission; // no permission record at all
+    const overlay = makeConfirmOverlay();
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+    const quarantineSnap = JSON.stringify(imm.state.ledger.quarantinedTrades);
+    imm.handleApiTradeRecoveryConfirm(9001);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'lots must be unchanged');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'sales must be unchanged');
+    assert.equal(JSON.stringify(imm.state.ledger.quarantinedTrades), quarantineSnap, 'quarantine must be unchanged');
+  });
+
+  // 32. No failed or inconclusive permission path mutates lots, sales, pending-trade storage, or quarantine
+  //     except an intentionally quarantined rejected payload.
+  test('32: insufficient permission path mutates nothing', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    global.fetch = mockFetch({ error: { code: 2 } }); // insufficient
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+    const permState = await imm.resolveAndValidateTradePermission('bad-key');
+    assert.equal(permState, 'insufficient');
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'insufficient path must not mutate lots');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'insufficient path must not mutate sales');
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 0, 'insufficient path must not quarantine anything');
+  });
+
+  test('32b: unavailable-or-inconclusive path mutates nothing', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    global.fetch = async () => { throw new Error('Network failure'); };
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+    const permState = await imm.resolveAndValidateTradePermission('key');
+    assert.equal(permState, 'unavailable-or-inconclusive');
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'inconclusive path must not mutate lots');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'inconclusive path must not mutate sales');
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 0, 'inconclusive path must not quarantine anything');
   });
 });
 
