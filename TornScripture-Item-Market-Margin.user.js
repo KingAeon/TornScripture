@@ -9908,6 +9908,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         lots: [...mergedLots.values()],
         sales: [...mergedSales.values()],
         quarantinedTrades: [...mergedQuarantined.values()],
+        tradePermission: imported.tradePermission,
       });
       saveLedger();
       renderLedger();
@@ -10792,6 +10793,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       throw taggedError(`${label} has no money field. Cannot determine cash contribution.`, QUARANTINE_REASON.MISSING_MONEY);
     }
     const moneyRaw = raw[moneyKey];
+    // Reject pre-coercion: only plain numbers or strict integer numeric strings are accepted.
+    // null, booleans, objects, arrays, empty/whitespace strings, and arbitrary coercible strings
+    // are all invalid regardless of what Number() would produce.
+    const moneyRawType = typeof moneyRaw;
+    if (moneyRawType !== 'number' && moneyRawType !== 'string') {
+      throw taggedError(`${label} money value is invalid: ${String(moneyRaw)}`, QUARANTINE_REASON.MISSING_MONEY);
+    }
+    if (moneyRawType === 'string' && !/^\d+$/.test(moneyRaw)) {
+      throw taggedError(`${label} money value is invalid: ${moneyRaw}`, QUARANTINE_REASON.MISSING_MONEY);
+    }
     const money = Number(moneyRaw);
     if (!Number.isFinite(money) || !Number.isSafeInteger(money) || money < 0) {
       throw taggedError(`${label} money value is invalid: ${moneyRaw}`, QUARANTINE_REASON.MISSING_MONEY);
@@ -11417,10 +11428,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       try { listPayload = await listResponse.json(); } catch {
         throw new Error(`Trades list returned unreadable data (${listResponse.status}).`);
       }
-      // Authorization failure on list: invalidate, re-validate, then fail closed.
+      // Authorization failure on list: invalidate, re-validate (awaited), then fail closed.
       if (isAuthorizationFailure(listPayload, listResponse)) {
         invalidateTradePermission();
-        resolveAndValidateTradePermission(key).catch(() => {});
+        await resolveAndValidateTradePermission(key).catch(() => {});
         renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty" style="color:#e07070">Authorization failure loading trades list. Permission invalidated. Reopen to retry after validation succeeds.</div>');
         return;
       }
@@ -11491,7 +11502,6 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Loading trade #${escapeHtml(String(candidate.id))} details…</div>`);
 
     const detailEndpoint = `${APP.tradeDetailUrlBase}${candidate.id}/trade`;
-    const keyFp = computeApiKeyFingerprint(key);
 
     // Step 3: Fetch full trade detail
     let detail;
@@ -11516,10 +11526,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         `);
         return;
       }
-      // Authorization failure on detail: invalidate, re-validate, then fail closed.
+      // Authorization failure on detail: invalidate, re-validate (awaited), then fail closed.
       if (isAuthorizationFailure(detailPayload, detailResponse)) {
         invalidateTradePermission();
-        resolveAndValidateTradePermission(key).catch(() => {});
+        await resolveAndValidateTradePermission(key).catch(() => {});
         renderApiTradeRecovery(overlay, `
           <div class="tsimm-ledger-empty" style="color:#e07070">Authorization failure loading trade #${escapeHtml(String(candidate.id))} detail. Permission invalidated. Reopen to retry after validation succeeds.</div>
           <div class="tsimm-ledger-actions">
@@ -11566,68 +11576,29 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
     if (!overlay.isConnected) return;
 
-    // Step 4: Resolve participants and build stats; semantic failures here also quarantine.
-    let stats, plan, likelyDuplicates;
-    try {
-      const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, keyUserId);
-      stats = buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
-      plan = ledgerSalePlan(stats);
-      if (!plan.fullCoverage) {
-        const zeroFifo = plan.trackedQuantity === 0;
-        const msg = zeroFifo
-          ? 'None of the outgoing items are covered by open purchase lots.'
-          : `Only ${formatInteger(plan.trackedQuantity)} of ${formatInteger(plan.requestedQuantity)} outgoing item units are covered by open lots. Partial recording is not supported.`;
-        // FIFO coverage failures are quarantine-worthy: quarantine the normalized detail payload.
-        const reasonCode = zeroFifo ? QUARANTINE_REASON.ZERO_FIFO_COVERAGE : QUARANTINE_REASON.PARTIAL_FIFO_COVERAGE;
-        quarantineApiTrade(detailPayload, reasonCode, {
-          endpoint: detailEndpoint,
-          apiTradeId: detail.id,
-          source: 'api-trade-recovery',
-          summary: msg,
-          keyFingerprint: keyFp,
-          permissionValidationState: loadTradePermissionRecord()?.state ?? null,
-        });
-        renderApiTradeRecovery(overlay, `
-          <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(msg)} Trade payload quarantined for diagnostics.</div>
-          <div class="tsimm-ledger-actions">
-            <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
-          </div>
-        `);
-        return;
-      }
-      // Check exact-ID and canonical fingerprint before showing review.
-      const canonicalFp = buildApiTradeCanonicalFingerprint(detail, stats);
-      if (apiTradeAlreadyRecorded(detail.id) || apiTradeCanonicalFingerprintRecorded(canonicalFp)) {
-        throw new Error(`Trade #${detail.id} has already been recorded (exact-ID or canonical-fingerprint match).`);
-      }
-      likelyDuplicates = detectApiTradeLikelyManualDuplicate(stats);
-    } catch (error) {
-      // Semantic failures with a quarantineReasonCode go to quarantine.
-      if (error.quarantineReasonCode) {
-        quarantineApiTrade(detailPayload, error.quarantineReasonCode, {
-          endpoint: detailEndpoint,
-          apiTradeId: detail.id,
-          source: 'api-trade-recovery',
-          summary: error.message,
-          keyFingerprint: keyFp,
-          permissionValidationState: loadTradePermissionRecord()?.state ?? null,
-        });
-        renderApiTradeRecovery(overlay, `
-          <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(error.message || 'Trade cannot be recovered.')} Payload quarantined.</div>
-          <div class="tsimm-ledger-actions">
-            <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
-          </div>
-        `);
-        return;
-      }
+    // Step 4: Semantic validation via the shared production path.
+    const semResult = processApiTradeSemanticValidation(detail, keyUserId, detailPayload, {
+      endpoint: detailEndpoint, key,
+    });
+    if (semResult.quarantined) {
       renderApiTradeRecovery(overlay, `
-        <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(error?.message || 'Trade cannot be recovered.')}</div>
+        <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(semResult.error?.message || 'Trade cannot be recovered.')} Payload quarantined.</div>
         <div class="tsimm-ledger-actions">
           <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
         </div>
       `);
       return;
     }
+    if (semResult.failed) {
+      renderApiTradeRecovery(overlay, `
+        <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(semResult.error?.message || 'Trade cannot be recovered.')}</div>
+        <div class="tsimm-ledger-actions">
+          <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+        </div>
+      `);
+      return;
+    }
+    const { stats, plan, canonicalFp, likelyDuplicates } = semResult;
 
     const realizedProfit = plan.realizedProfit;
 
@@ -14135,6 +14106,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       processApiTradeSemanticValidation,
       isAuthorizationFailure,
       handleApiTradeRecoveryConfirm,
+      handleApiTradeRecoverySelect,
+      openApiTradeRecovery,
+      importLedgerJson,
     };
     return;
   }

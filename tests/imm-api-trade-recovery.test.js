@@ -2103,3 +2103,496 @@ describe('Packet 2c: Permission normalization, list quarantine, and guard behavi
     assert.equal(ledger2.tradePermission, null, 'null tradePermission must stay null');
   });
 });
+
+// ── Packet 2d: Four targeted defect fixes ────────────────────────────────────
+
+// Helper: build a minimal valid serialized ledger JSON string with an embedded permission record.
+function makePermissionRecord(key) {
+  const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+  return {
+    state: 'validated',
+    validatedAt: new Date().toISOString(),
+    keyFingerprint: imm.computeApiKeyFingerprint(key),
+    endpoint: 'https://api.torn.com/v2/user/trades',
+    schemaMarker: 'v2-user-trades',
+  };
+}
+
+// Helper: build a serialized ledger with at least one lot and a permission record.
+function makeSerializedLedger(key, lots = null) {
+  const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+  const lot = freshLot();
+  return JSON.stringify(imm.normalizeLedger({
+    lots: lots || [lot],
+    sales: [],
+    tradePermission: makePermissionRecord(key),
+  }));
+}
+
+// Helper: build a select-path overlay stub with a candidate at index 0.
+function makeSelectOverlay(candidateId = 9001) {
+  const el = makeElement();
+  el._tsimmApiTradeCandidates = [{ id: candidateId, otherPlayerName: 'Bob', completedAt: new Date().toISOString() }];
+  el.isConnected = true;
+  return el;
+}
+
+// Helper: build a valid raw API detail response payload for use with the select handler.
+function makeDetailPayload(tradeId, initiatorId = 1001, recipientId = 5678) {
+  return {
+    trade: {
+      id: tradeId,
+      status: 'Accepted',
+      completed_at: Math.floor((Date.now() - 3600000) / 1000), // Unix timestamp
+      initiator: { user_id: initiatorId, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 10 }] },
+      recipient: { user_id: recipientId, name: 'Bob', money: 5000000, items: [] },
+    },
+  };
+}
+
+describe('Packet 2d: Fix 1 — importLedgerJson preserves tradePermission', () => {
+  test('2d-1: valid imported permission survives importLedgerJson', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [] });
+    const serialized = makeSerializedLedger('import-key-1');
+    global.prompt = () => serialized;
+    imm.importLedgerJson();
+    global.prompt = undefined;
+    assert.ok(imm.state.ledger.tradePermission, 'tradePermission must be preserved after importLedgerJson');
+    assert.equal(imm.state.ledger.tradePermission.state, 'validated', 'imported permission state must be validated');
+    assert.ok(imm.state.ledger.tradePermission.keyFingerprint, 'imported permission must have keyFingerprint');
+  });
+
+  test('2d-2: malformed imported permission becomes null — fail-closed', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [] });
+    const malformed = JSON.stringify(imm.normalizeLedger({
+      lots: [freshLot()],
+      sales: [],
+      tradePermission: { state: 'bad-state', validatedAt: null },
+    }));
+    global.prompt = () => malformed;
+    imm.importLedgerJson();
+    global.prompt = undefined;
+    assert.equal(imm.state.ledger.tradePermission, null, 'malformed imported permission must produce null — fail-closed');
+  });
+
+  test('2d-3: raw API key is never present in stored ledger after import', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [] });
+    const apiKey = 'supersecretapikey123456';
+    const serialized = makeSerializedLedger(apiKey);
+    global.prompt = () => serialized;
+    imm.importLedgerJson();
+    global.prompt = undefined;
+    const stored = JSON.stringify(imm.state.ledger);
+    assert.ok(!stored.includes(apiKey), 'raw API key must never appear in stored ledger');
+  });
+
+  test('2d-4: lots, sales, and quarantine merging unchanged by permission preservation fix', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const existingLot = freshLot({ id: 'lot-existing', itemName: 'Xanax', remainingQuantity: 5 });
+    setupState({ lots: [existingLot] });
+    const importedLot = freshLot({ id: 'lot-imported', itemName: 'Vicodin', itemId: 101, normalizedName: 'vicodin', unitCost: 30000, totalCost: 300000 });
+    const serialized = JSON.stringify(imm.normalizeLedger({
+      lots: [importedLot],
+      sales: [],
+      tradePermission: makePermissionRecord('merge-key'),
+    }));
+    global.prompt = () => serialized;
+    imm.importLedgerJson();
+    global.prompt = undefined;
+    // Both lots must be present after merge
+    const ids = imm.state.ledger.lots.map((l) => l.id);
+    assert.ok(ids.includes('lot-existing'), 'existing lot must survive import merge');
+    assert.ok(ids.includes('lot-imported'), 'imported lot must be added by import merge');
+    assert.ok(imm.state.ledger.tradePermission, 'permission must also be preserved alongside merge');
+  });
+});
+
+describe('Packet 2d: Fix 2 — handleApiTradeRecoverySelect wired to processApiTradeSemanticValidation', () => {
+  test('2d-5: select handler routes through processApiTradeSemanticValidation — success path shows review', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'select-key');
+    imm.state.keyProfile = { userId: 1001 };
+    imm.saveTradePermissionRecord('validated', 'select-key');
+    const overlay = makeSelectOverlay(9001);
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    global.fetch = async () => ({
+      ok: true, status: 200,
+      json: async () => makeDetailPayload(9001),
+    });
+    await imm.handleApiTradeRecoverySelect(0);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    // Verify review content is rendered and stats/plan are stored on overlay
+    assert.ok(overlay._tsimmApiTradePendingStats, 'stats must be stored on overlay after semantic validation');
+    assert.ok(overlay._tsimmApiTradePendingDetail, 'detail must be stored on overlay after semantic validation');
+  });
+
+  test('2d-6: select handler quarantines via processApiTradeSemanticValidation — zero FIFO coverage', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    // No lots: FIFO coverage will be zero → quarantine
+    setupState({ lots: [] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'select-key2');
+    imm.state.keyProfile = { userId: 1001 };
+    imm.saveTradePermissionRecord('validated', 'select-key2');
+    const overlay = makeSelectOverlay(9002);
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    global.fetch = async () => ({
+      ok: true, status: 200,
+      json: async () => makeDetailPayload(9002),
+    });
+    const quarantineBefore = imm.state.ledger.quarantinedTrades.length;
+    await imm.handleApiTradeRecoverySelect(0);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    // A quarantine record must have been created via processApiTradeSemanticValidation
+    assert.ok(imm.state.ledger.quarantinedTrades.length > quarantineBefore, 'zero-FIFO trade must be quarantined via semantic validation path');
+    assert.ok(!overlay._tsimmApiTradePendingStats, 'stats must NOT be stored on overlay after quarantine');
+  });
+
+  test('2d-7: select handler fails closed with semantic failure — no quarantine for already-recorded', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'select-key3');
+    imm.state.keyProfile = { userId: 1001 };
+    imm.saveTradePermissionRecord('validated', 'select-key3');
+    // Pre-record the sale so the canonical fingerprint check fails
+    const detail = imm.normalizeApiTradeDetail(makeDetailPayload(9003), 9003);
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    const plan = imm.ledgerSalePlan(stats);
+    const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
+    // Record using transaction to mark it as already recorded
+    imm.executeApiTradeRecoveryTransaction(9003, detail, stats, fp);
+    const overlay = makeSelectOverlay(9003);
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    global.fetch = async () => ({
+      ok: true, status: 200,
+      json: async () => makeDetailPayload(9003),
+    });
+    await imm.handleApiTradeRecoverySelect(0);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.ok(!overlay._tsimmApiTradePendingStats, 'stats must NOT be stored for already-recorded trade');
+  });
+});
+
+describe('Packet 2d: Fix 3 — list/detail auth failures await revalidation', () => {
+  test('2d-8: list auth failure invalidates permission, awaits revalidation, does not resume, leaves lots unchanged', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'list-auth-key');
+    imm.state.keyProfile = { userId: 1001 };
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+    const pendingKey = 'tornscripture-imm-pending-trade-sale-v1';
+    const pendingSnap = localStorage.getItem(pendingKey);
+
+    let revalidateCalled = false;
+    let fetchCallCount = 0;
+    global.fetch = async (url) => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        // Permission validation fetch
+        return { ok: true, status: 200, json: async () => ({ trades: null }) };
+      }
+      if (fetchCallCount === 2) {
+        // List fetch — return 401 authorization failure
+        return { ok: false, status: 401, json: async () => ({ error: { code: 2, error: 'Unauthorized' } }) };
+      }
+      // Revalidation fetch
+      revalidateCalled = true;
+      return { ok: true, status: 200, json: async () => ({ trades: null }) };
+    };
+
+    const overlay = makeElement();
+    overlay.isConnected = false;
+    const origGetById = global.document.getElementById;
+    const origCreateElement = global.document.createElement;
+    const origAppendChild = global.document.documentElement.appendChild;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? null : origGetById(id);
+    global.document.createElement = () => { const el = makeElement(); el.isConnected = true; return el; };
+    global.document.documentElement = { ...global.document.documentElement, appendChild: () => {} };
+
+    await imm.openApiTradeRecovery();
+
+    global.document.getElementById = origGetById;
+    global.document.createElement = origCreateElement;
+    global.document.documentElement.appendChild = origAppendChild;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+
+    assert.ok(revalidateCalled, 'revalidation fetch must be awaited after list auth failure');
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'lots must be unchanged after list auth failure');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'sales must be unchanged after list auth failure');
+    assert.equal(localStorage.getItem(pendingKey), pendingSnap, 'pending-trade storage must be unchanged after list auth failure');
+  });
+
+  test('2d-9: detail auth failure invalidates permission, awaits revalidation, does not resume, leaves lots unchanged', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'detail-auth-key');
+    imm.state.keyProfile = { userId: 1001 };
+    imm.saveTradePermissionRecord('validated', 'detail-auth-key');
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+
+    let revalidateCalled = false;
+    let fetchCallCount = 0;
+    global.fetch = async (url) => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        // Detail fetch — return 401 authorization failure
+        return { ok: false, status: 401, json: async () => ({ error: { code: 2, error: 'Unauthorized' } }) };
+      }
+      // Revalidation fetch
+      revalidateCalled = true;
+      return { ok: true, status: 200, json: async () => ({ trades: null }) };
+    };
+
+    const overlay = makeSelectOverlay(9004);
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    await imm.handleApiTradeRecoverySelect(0);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+
+    assert.ok(revalidateCalled, 'revalidation fetch must be awaited after detail auth failure');
+    assert.equal(fetchCallCount, 2, 'exactly 2 fetches: detail (auth fail) + revalidation — action must not resume');
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'lots must be unchanged after detail auth failure');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'sales must be unchanged after detail auth failure');
+    // Handler must have returned without storing pending stats (action did not continue to review)
+    assert.ok(!overlay._tsimmApiTradePendingStats, 'pending stats must NOT be stored — action must not continue after auth failure');
+  });
+
+  test('2d-10: successful revalidation after list auth failure does not resume list fetch', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'list-auth-key-2');
+    imm.state.keyProfile = { userId: 1001 };
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+
+    let secondListFetchAttempted = false;
+    let fetchCallCount = 0;
+    global.fetch = async (url) => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        // Permission validation fetch
+        return { ok: true, status: 200, json: async () => ({ trades: null }) };
+      }
+      if (fetchCallCount === 2) {
+        // List fetch → auth failure
+        return { ok: false, status: 401, json: async () => ({ error: { code: 2, error: 'Unauthorized' } }) };
+      }
+      if (fetchCallCount === 3) {
+        // Revalidation fetch — succeeds
+        return { ok: true, status: 200, json: async () => ({ trades: null }) };
+      }
+      // Any further fetch would be a resumed list fetch — must not happen
+      secondListFetchAttempted = true;
+      return { ok: true, status: 200, json: async () => ({ trades: null }) };
+    };
+
+    const overlay = makeElement();
+    overlay.isConnected = false;
+    const origGetById2d10 = global.document.getElementById;
+    const origCreateElement2d10 = global.document.createElement;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? null : origGetById2d10(id);
+    global.document.createElement = () => { const el = makeElement(); el.isConnected = true; return el; };
+
+    await imm.openApiTradeRecovery();
+
+    global.document.getElementById = origGetById2d10;
+    global.document.createElement = origCreateElement2d10;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+
+    assert.ok(!secondListFetchAttempted, 'successful revalidation must NOT automatically resume list fetch');
+    assert.equal(fetchCallCount, 3, 'exactly 3 fetches: validation, list (auth fail), revalidation');
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'lots must be unchanged even after successful revalidation');
+  });
+
+  test('2d-11: no quarantine record is invented merely because authorization failed on list', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'list-auth-key-3');
+    imm.state.keyProfile = { userId: 1001 };
+    const quarantineBefore = imm.state.ledger.quarantinedTrades.length;
+
+    let fetchCallCount = 0;
+    global.fetch = async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) return { ok: true, status: 200, json: async () => ({ trades: null }) };
+      if (fetchCallCount === 2) return { ok: false, status: 401, json: async () => ({ error: { code: 2 } }) };
+      return { ok: true, status: 200, json: async () => ({ trades: null }) };
+    };
+
+    const origGetById2d11 = global.document.getElementById;
+    const origCreateElement2d11 = global.document.createElement;
+    global.document.getElementById = (_id) => null;
+    global.document.createElement = () => { const el = makeElement(); el.isConnected = true; return el; };
+
+    await imm.openApiTradeRecovery();
+
+    global.document.getElementById = origGetById2d11;
+    global.document.createElement = origCreateElement2d11;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+
+    assert.equal(imm.state.ledger.quarantinedTrades.length, quarantineBefore,
+      'authorization failure on list must not invent a quarantine record');
+  });
+});
+
+describe('Packet 2d: Fix 4 — strict pre-coercion cash validation', () => {
+  // normalizeApiTradeParticipant is the production owner of the money-validation path.
+  // The tests exercise it directly via participant construction.
+
+  function participant(moneyValue) {
+    return {
+      user_id: 1001,
+      name: 'Alice',
+      [typeof moneyValue === 'string' ? 'money_offer' : 'money']: moneyValue,
+      items: [],
+    };
+  }
+
+  test('2d-12: null cash is rejected before Number() coercion', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: null, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-13: boolean true is rejected before Number() coercion', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: true, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-14: boolean false is rejected before Number() coercion', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: false, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-15: empty string is rejected before Number() coercion', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: '', items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-16: whitespace-only string is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: '   ', items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-17: object is rejected before Number() coercion', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: {}, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-18: array is rejected before Number() coercion', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: [], items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-19: NaN numeric value is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: NaN, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-20: Infinity is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: Infinity, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-21: negative number is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: -1, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-22: fractional number is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 1.5, items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-23: numeric string with decimal is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: '5000.00', items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-24: non-numeric string is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 'abc', items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-25: numeric string with leading/trailing spaces is rejected', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: ' 5000000 ', items: [] }, 'p'),
+      /money value is invalid/i,
+    );
+  });
+
+  test('2d-26: plain number 0 is accepted — zero cash is valid', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const result = normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 0, items: [] }, 'p');
+    assert.equal(result.money, 0, 'numeric 0 must be accepted as valid cash');
+  });
+
+  test('2d-27: strict integer numeric string "0" is accepted', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const result = normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: '0', items: [] }, 'p');
+    assert.equal(result.money, 0, 'strict integer numeric string "0" must be accepted');
+  });
+
+  test('2d-28: strict integer numeric string "5000000" is accepted', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const result = normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: '5000000', items: [] }, 'p');
+    assert.equal(result.money, 5000000, 'strict integer numeric string must be accepted');
+  });
+
+  test('2d-29: plain positive integer is accepted', () => {
+    const { normalizeApiTradeParticipant } = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const result = normalizeApiTradeParticipant({ user_id: 1001, name: 'Alice', money: 5000000, items: [] }, 'p');
+    assert.equal(result.money, 5000000, 'positive integer must be accepted');
+  });
+});
