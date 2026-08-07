@@ -297,6 +297,27 @@ describe('Quarantine', () => {
 
 // ── Duplicate blocking ────────────────────────────────────────────────────────
 describe('Duplicate blocking', () => {
+  function buildLikelyManualDuplicateSale(stats, overrides = {}) {
+    return {
+      id: 's-manual-matrix',
+      fingerprint: 'trade-fallback:matrix',
+      soldAt: stats.apiCompletedAt,
+      cashReceived: stats.tradeNetCash,
+      myCash: stats.tradeMyCash,
+      marketTotal: stats.tradeMarketTotal,
+      targetTotal: stats.tradeTargetTotal,
+      tradeDirection: stats.apiOwnerDirection,
+      counterparty: stats.tradeCounterparty,
+      counterpartyId: stats.tradeCounterpartyId,
+      items: stats.tradeItems.map((item) => ({
+        itemId: item.itemId,
+        itemName: item.name,
+        quantity: item.quantity,
+      })),
+      ...overrides,
+    };
+  }
+
   test('apiTradeAlreadyRecorded: blocked by fingerprint', () => {
     setupState({
       sales: [{
@@ -395,6 +416,8 @@ describe('Duplicate blocking', () => {
         id: 's-reorder', fingerprint: 'trade-fallback:reorder',
         soldAt: new Date(Date.now() - 3600000).toISOString(),
         cashReceived: 750000,
+        counterparty: 'Bob',
+        counterpartyId: 5678,
         items: [
           { itemId: 101, itemName: 'Vicodin', quantity: 10 },
           { itemId: 100, itemName: 'Xanax', quantity: 5 },
@@ -410,6 +433,40 @@ describe('Duplicate blocking', () => {
     const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
     const dupes = imm.detectApiTradeLikelyManualDuplicate(stats, 86400000);
     assert.equal(dupes.length, 1, 'reordered assets must be detected as duplicate');
+  });
+
+  test('detectApiTradeLikelyManualDuplicate: strengthened fields block only when present and changed', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const completedAt = new Date(Date.now() - 1800000).toISOString();
+    setupState({ lots: [freshLot()] });
+    const detail = freshDetail({ completedAt });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+
+    const changedFieldCases = [
+      { label: 'tradeDirection', sale: { tradeDirection: 'trader' } },
+      { label: 'myCash', sale: { myCash: 1 } },
+      { label: 'marketTotal', sale: { marketTotal: stats.tradeMarketTotal + 1 } },
+      { label: 'targetTotal', sale: { targetTotal: stats.tradeTargetTotal + 1 } },
+      { label: 'counterpartyId', sale: { counterpartyId: stats.tradeCounterpartyId + 1 } },
+      { label: 'counterparty name fallback', sale: { counterpartyId: null, counterparty: 'Mallory' } },
+      { label: 'cashReceived', sale: { cashReceived: stats.tradeNetCash + 1 } },
+      {
+        label: 'asset quantity',
+        sale: {
+          items: [{ itemId: 100, itemName: 'Xanax', quantity: 9 }],
+        },
+      },
+    ];
+
+    for (const changed of changedFieldCases) {
+      imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats, changed.sale))];
+      const dupes = imm.detectApiTradeLikelyManualDuplicate(stats, 86400000);
+      assert.equal(dupes.length, 0, `${changed.label} mismatch must not be treated as duplicate`);
+    }
+
+    imm.state.ledger.sales = [imm.normalizeSaleRecord(buildLikelyManualDuplicateSale(stats))];
+    assert.equal(imm.detectApiTradeLikelyManualDuplicate(stats, 86400000).length, 1, 'fully matching strengthened fields must still block');
   });
 
   test('detectApiTradeLikelyManualDuplicate: different cash amount is not a match', () => {

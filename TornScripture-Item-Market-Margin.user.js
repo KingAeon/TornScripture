@@ -11139,6 +11139,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     ].includes(normalizeWhitespace(sale.captureMethod));
   }
 
+  function hasLikelyManualDuplicateStoredValue(value) {
+    return value !== null && value !== undefined && value !== '';
+  }
+
   function buildLikelyManualDuplicateAssetIndex(items) {
     if (!Array.isArray(items) || !items.length) return null;
     const entries = [];
@@ -11212,13 +11216,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (!Number.isFinite(soldAtMs)) return false;
       if (Math.abs(soldAtMs - completionMs) > windowMs) return false;
       if (!likelyManualDuplicateCounterpartyMatches(sale, stats)) return false;
-      if ((sale.tradeDirection ?? null) !== tradeDirection) return false;
       if (!likelyManualDuplicateAssetsMatch(sale.items, stats.tradeItems)) return false;
-      if (optionalFiniteNumber(sale.myCash) !== ownerCash) return false;
       if (optionalFiniteNumber(sale.cashReceived) !== netCash) return false;
-      if (optionalFiniteNumber(sale.myCash) + optionalFiniteNumber(sale.cashReceived) !== counterpartyCash) return false;
-      if (optionalFiniteNumber(sale.marketTotal) !== marketTotal) return false;
-      if (optionalFiniteNumber(sale.targetTotal) !== targetTotal) return false;
+      if (hasLikelyManualDuplicateStoredValue(sale.tradeDirection) && sale.tradeDirection !== tradeDirection) return false;
+      if (Number(sale.myCash) > 0 && optionalFiniteNumber(sale.myCash) !== ownerCash) return false;
+      if (Number(sale.myCash) > 0 && optionalFiniteNumber(sale.myCash) + optionalFiniteNumber(sale.cashReceived) !== counterpartyCash) return false;
+      if (Number(sale.marketTotal) > 0 && optionalFiniteNumber(sale.marketTotal) !== marketTotal) return false;
+      if (Number(sale.targetTotal) > 0 && optionalFiniteNumber(sale.targetTotal) !== targetTotal) return false;
       return true;
     });
   }
