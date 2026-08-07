@@ -10675,6 +10675,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     INVALID_ITEM_QUANTITY: 'invalid-item-quantity',
     UNSUPPORTED_POINTS: 'unsupported-points',
     UNSUPPORTED_BARTER: 'unsupported-barter',
+    UNSUPPORTED_ASSET_TYPE: 'unsupported-asset-type',
+    UNKNOWN_ASSET_TYPE: 'unknown-asset-type',
     AMBIGUOUS_OWNER: 'ambiguous-owner',
     CATALOG_ID_NAME_CONFLICT: 'catalog-id-name-conflict',
     UNKNOWN_CATALOG_ITEM_ID: 'unknown-catalog-item-id',
@@ -10736,136 +10738,184 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return err;
   }
 
-  function normalizeApiTradeListEntry(raw) {
-    if (!raw || typeof raw !== 'object') return null;
-    const id = Math.max(0, Math.floor(Number(raw.id ?? raw.trade_id ?? 0) || 0));
-    if (id <= 0) return null;
-    const status = normalizeWhitespace(raw.status ?? raw.trade_status ?? '');
-    const tsRaw = raw.completed_at ?? raw.timestamp_accepted ?? raw.timestamp ?? 0;
-    const completedAtMs = Number(tsRaw) * 1000;
-    const completedAt = Number.isFinite(completedAtMs) && completedAtMs > 0
-      ? new Date(completedAtMs).toISOString() : null;
-    const other = raw.with_player ?? raw.other_player ?? raw.participant ?? {};
-    return {
-      id,
-      status,
-      completedAt,
-      otherPlayerId: Math.max(0, Math.floor(Number(other?.id ?? other?.user_id ?? 0) || 0)) || null,
-      otherPlayerName: normalizeWhitespace(other?.name ?? ''),
-    };
+  // Validate a UserTrade or UserTradeResponse participant header (user or trader).
+  // Returns { userId, name } on success; throws a tagged error on failure.
+  function normalizeApiParticipantHeader(raw, label) {
+    if (!raw || typeof raw !== 'object') throw taggedError(`${label} is missing or malformed.`, QUARANTINE_REASON.MISSING_PARTICIPANT);
+    const userId = raw.id;
+    if (!Number.isInteger(userId) || userId <= 0 || !Number.isSafeInteger(userId)) {
+      throw taggedError(`${label} has no valid Torn ID.`, QUARANTINE_REASON.MISSING_PARTICIPANT);
+    }
+    const name = normalizeWhitespace(raw.name ?? '');
+    return { userId, name };
   }
 
-  function filterApiTradeCandidates(raw) {
-    let entries;
-    if (Array.isArray(raw?.trades)) {
-      entries = raw.trades;
-    } else if (raw?.trades && typeof raw.trades === 'object') {
-      entries = Object.values(raw.trades);
+  // Normalize a single UserTrade list entry per the current official Torn API v2 schema.
+  // keyOwnerUserId: the numeric ID of the API key owner, used to identify the counterparty.
+  // Returns null when the entry is malformed or ownership is ambiguous/unresolvable.
+  // Callers must treat null as a hard failure (quarantine the entire payload, not silently skip).
+  function normalizeApiTradeListEntry(raw, keyOwnerUserId) {
+    if (!raw || typeof raw !== 'object') return null;
+    // id must be a positive safe integer — no flooring or defaulting.
+    const id = raw.id;
+    if (!Number.isInteger(id) || id <= 0 || !Number.isSafeInteger(id)) return null;
+    // completed_at is the finished-trade proof; must be a positive integer.
+    const completedAtRaw = raw.completed_at;
+    if (!Number.isInteger(completedAtRaw) || completedAtRaw <= 0 || !Number.isSafeInteger(completedAtRaw)) return null;
+    const completedAt = new Date(completedAtRaw * 1000).toISOString();
+    // user and trader must be present with valid IDs and usable names.
+    const user = raw.user;
+    const trader = raw.trader;
+    if (!user || typeof user !== 'object') return null;
+    if (!trader || typeof trader !== 'object') return null;
+    const userId = user.id;
+    const traderId = trader.id;
+    if (!Number.isInteger(userId) || userId <= 0 || !Number.isSafeInteger(userId)) return null;
+    if (!Number.isInteger(traderId) || traderId <= 0 || !Number.isSafeInteger(traderId)) return null;
+    const userName = normalizeWhitespace(user.name ?? '');
+    const traderName = normalizeWhitespace(trader.name ?? '');
+    if (!userName || !traderName) return null;
+    // Determine counterparty using the API key owner ID.
+    // If neither or both participants match the key owner, return null so the caller quarantines.
+    const keyId = Number(keyOwnerUserId);
+    let otherPlayerId, otherPlayerName;
+    if (Number.isInteger(keyId) && keyId > 0 && userId === keyId && traderId !== keyId) {
+      otherPlayerId = traderId;
+      otherPlayerName = traderName;
+    } else if (Number.isInteger(keyId) && keyId > 0 && traderId === keyId && userId !== keyId) {
+      otherPlayerId = userId;
+      otherPlayerName = userName;
     } else {
-      throw new Error('Unsupported or missing trades list shape.');
+      return null; // ambiguous — caller will quarantine
     }
-    const FINISHED = new Set(['accepted', 'finished', 'completed']);
+    return { id, completedAt, otherPlayerId, otherPlayerName };
+  }
+
+  function filterApiTradeCandidates(raw, keyOwnerUserId) {
+    if (!Array.isArray(raw?.trades)) {
+      throw new Error('Unsupported or missing trades list shape; trades must be an array.');
+    }
+    const entries = raw.trades;
     const out = [];
     for (const entry of entries) {
-      const normalized = normalizeApiTradeListEntry(entry);
+      const normalized = normalizeApiTradeListEntry(entry, keyOwnerUserId);
       if (!normalized) continue;
-      if (!FINISHED.has((normalized.status || '').toLowerCase())) continue;
       if (apiTradeAlreadyRecorded(normalized.id)) continue;
       out.push(normalized);
     }
     return out;
   }
 
-  function normalizeApiTradeParticipant(raw, label) {
-    if (!raw || typeof raw !== 'object') throw taggedError(`${label} is missing or malformed.`, QUARANTINE_REASON.MISSING_PARTICIPANT);
-    const userId = Math.max(0, Math.floor(
-      Number(raw.user_id ?? raw.id ?? raw.player_id ?? 0) || 0
-    ));
-    if (userId <= 0) throw taggedError(`${label} has no valid Torn ID.`, QUARANTINE_REASON.MISSING_PARTICIPANT);
-    const name = normalizeWhitespace(raw.name ?? raw.player_name ?? '');
-    // Unsupported non-item assets (e.g. points) must be rejected, not silently ignored.
-    if ('points' in raw && Number(raw.points) > 0) {
-      throw taggedError(`${label} includes points (${raw.points}). Points transfers are not supported; only cash-for-items sales can be recovered.`, QUARANTINE_REASON.UNSUPPORTED_POINTS);
-    }
-    // Money field must be explicitly present; do not default to zero.
-    const moneyKey = 'money' in raw ? 'money' : ('money_offer' in raw ? 'money_offer' : ('cash' in raw ? 'cash' : null));
-    if (moneyKey === null) {
-      throw taggedError(`${label} has no money field. Cannot determine cash contribution.`, QUARANTINE_REASON.MISSING_MONEY);
-    }
-    const moneyRaw = raw[moneyKey];
-    // Reject pre-coercion: only plain numbers or strict integer numeric strings are accepted.
-    // null, booleans, objects, arrays, empty/whitespace strings, and arbitrary coercible strings
-    // are all invalid regardless of what Number() would produce.
-    const moneyRawType = typeof moneyRaw;
-    if (moneyRawType !== 'number' && moneyRawType !== 'string') {
-      throw taggedError(`${label} money value is invalid: ${String(moneyRaw)}`, QUARANTINE_REASON.MISSING_MONEY);
-    }
-    if (moneyRawType === 'string' && !/^\d+$/.test(moneyRaw)) {
-      throw taggedError(`${label} money value is invalid: ${moneyRaw}`, QUARANTINE_REASON.MISSING_MONEY);
-    }
-    const money = Number(moneyRaw);
-    if (!Number.isFinite(money) || !Number.isSafeInteger(money) || money < 0) {
-      throw taggedError(`${label} money value is invalid: ${moneyRaw}`, QUARANTINE_REASON.MISSING_MONEY);
-    }
-    // Items field must be explicitly present and an array; do not default to empty.
-    const itemsKey = 'items' in raw ? 'items' : ('items_offered' in raw ? 'items_offered' : null);
-    if (itemsKey === null) {
-      throw taggedError(`${label} has no items field. Cannot determine trade contents.`, QUARANTINE_REASON.MISSING_ITEMS);
-    }
-    const rawItems = raw[itemsKey];
-    if (!Array.isArray(rawItems)) throw taggedError(`${label} items field is not an array.`, QUARANTINE_REASON.MISSING_ITEMS);
-    const items = [];
-    for (const entry of rawItems) {
-      if (!entry || typeof entry !== 'object') throw taggedError(`${label} items contain a malformed entry.`, QUARANTINE_REASON.MISSING_ITEMS);
-      const itemId = Math.max(0, Math.floor(Number(entry.id ?? entry.item_id ?? 0) || 0));
-      if (itemId <= 0) throw taggedError(`${label} item entry has no valid item ID.`, QUARANTINE_REASON.MISSING_ITEMS);
-      // Quantity must be explicitly present; do not default to 1.
-      if (!('quantity' in entry)) {
-        throw taggedError(`${label} item ID ${itemId} has no quantity field. Cannot determine trade contents.`, QUARANTINE_REASON.INVALID_ITEM_QUANTITY);
-      }
-      const quantityRaw = entry.quantity;
-      const quantityNum = Number(quantityRaw);
-      if (!Number.isFinite(quantityNum) || !Number.isSafeInteger(quantityNum) || quantityNum <= 0) {
-        throw taggedError(`${label} item ID ${itemId} has invalid or zero quantity: ${quantityRaw}`, QUARANTINE_REASON.INVALID_ITEM_QUANTITY);
-      }
-      const quantity = quantityNum;
-      items.push({ id: itemId, name: normalizeWhitespace(entry.name ?? ''), quantity });
-    }
-    return { userId, name, money, items };
-  }
-
+  // Normalize a raw UserTradeResponse per the current official Torn API v2 typed TradeItem schema.
+  // Accepts raw.trade or raw directly. Returns a normalized detail object on success.
+  // Throws a tagged error on any validation failure (caller must quarantine).
   function normalizeApiTradeDetail(raw, expectedId = null) {
     const source = (raw?.trade && typeof raw.trade === 'object') ? raw.trade : raw;
     if (!source || typeof source !== 'object') throw taggedError('Trade detail response is missing or malformed.', QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
-    const id = Math.max(0, Math.floor(Number(source.id ?? 0) || 0));
-    if (id <= 0) throw taggedError('Trade detail response has no valid trade ID.', QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
-    // The detail-response trade ID must exactly match the candidate's ID.
-    if (expectedId !== null && id !== Math.max(0, Math.floor(Number(expectedId) || 0))) {
-      throw taggedError(`Trade detail ID mismatch: expected ${expectedId} but detail response contains ID ${id}. Cannot safely proceed.`, QUARANTINE_REASON.TRADE_ID_MISMATCH);
+    // id must be a positive safe integer.
+    const id = source.id;
+    if (!Number.isInteger(id) || id <= 0 || !Number.isSafeInteger(id)) {
+      throw taggedError('Trade detail response has no valid trade ID.', QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
     }
-    const status = normalizeWhitespace(source.status ?? '');
-    const FINISHED = new Set(['accepted', 'finished', 'completed']);
-    if (!FINISHED.has(status.toLowerCase())) {
-      throw taggedError(`Trade ${id} is not finished (status: ${status || 'unknown'}).`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+    // The detail-response trade ID must exactly match the candidate's ID when provided.
+    if (expectedId !== null) {
+      const expectedIdNum = typeof expectedId === 'number' ? expectedId : Number(expectedId);
+      if (id !== expectedIdNum) {
+        throw taggedError(`Trade detail ID mismatch: expected ${expectedId} but detail response contains ID ${id}. Cannot safely proceed.`, QUARANTINE_REASON.TRADE_ID_MISMATCH);
+      }
     }
-    const tsRaw = source.completed_at ?? source.timestamp_accepted ?? source.timestamp ?? 0;
-    const completedAtMs = Number(tsRaw) * 1000;
-    const completedAt = Number.isFinite(completedAtMs) && completedAtMs > 0
-      ? new Date(completedAtMs).toISOString() : null;
-    if (!completedAt) throw taggedError(`Trade ${id} has no valid completion timestamp.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
-    const initiator = normalizeApiTradeParticipant(source.initiator, `trade ${id} initiator`);
-    const recipient = normalizeApiTradeParticipant(source.recipient, `trade ${id} recipient`);
-    return { id, status, completedAt, initiator, recipient };
+    // completed_at is the finished-trade proof; must be a positive safe integer Unix timestamp.
+    const completedAtRaw = source.completed_at;
+    if (!Number.isInteger(completedAtRaw) || completedAtRaw <= 0 || !Number.isSafeInteger(completedAtRaw)) {
+      throw taggedError(`Trade ${id} has no valid completion timestamp.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+    }
+    const completedAt = new Date(completedAtRaw * 1000).toISOString();
+    // user and trader participant headers.
+    const userHeader = normalizeApiParticipantHeader(source.user, `trade ${id} user`);
+    const traderHeader = normalizeApiParticipantHeader(source.trader, `trade ${id} trader`);
+    // items[] must be an array.
+    if (!Array.isArray(source.items)) {
+      throw taggedError(`Trade ${id} items field is missing or not an array.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+    }
+    // Initialize per-participant accumulators keyed by userId.
+    const sides = new Map([
+      [userHeader.userId, { userId: userHeader.userId, name: userHeader.name, money: 0, items: [] }],
+      [traderHeader.userId, { userId: traderHeader.userId, name: traderHeader.name, money: 0, items: [] }],
+    ]);
+    for (const item of source.items) {
+      if (!item || typeof item !== 'object') {
+        throw taggedError(`Trade ${id} has a malformed item entry.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+      }
+      // user_id must correspond to exactly one of the two trade participants.
+      const itemUserId = item.user_id;
+      if (!Number.isInteger(itemUserId) || itemUserId <= 0 || !Number.isSafeInteger(itemUserId)) {
+        throw taggedError(`Trade ${id} item has invalid user_id.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+      }
+      const side = sides.get(itemUserId);
+      if (!side) {
+        throw taggedError(`Trade ${id} item user_id ${itemUserId} does not correspond to either trade participant.`, QUARANTINE_REASON.MISSING_PARTICIPANT);
+      }
+      const type = item.type;
+      if (typeof type !== 'string' || !type) {
+        throw taggedError(`Trade ${id} item has missing or invalid type.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+      }
+      const details = item.details;
+      if (!details || typeof details !== 'object') {
+        throw taggedError(`Trade ${id} item (type ${type}) has missing or invalid details.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+      }
+      if (type === 'Money') {
+        // details.amount must be a non-negative safe integer.
+        // Reject pre-coercion: only plain numbers or strict integer numeric strings are accepted.
+        const amountRaw = details.amount;
+        const amountType = typeof amountRaw;
+        if (amountType !== 'number' && amountType !== 'string') {
+          throw taggedError(`Trade ${id} Money details.amount is invalid: ${String(amountRaw)}`, QUARANTINE_REASON.MISSING_MONEY);
+        }
+        if (amountType === 'string' && !/^\d+$/.test(amountRaw)) {
+          throw taggedError(`Trade ${id} Money details.amount is invalid: ${amountRaw}`, QUARANTINE_REASON.MISSING_MONEY);
+        }
+        const amount = Number(amountRaw);
+        if (!Number.isFinite(amount) || !Number.isSafeInteger(amount) || amount < 0) {
+          throw taggedError(`Trade ${id} Money details.amount is invalid: ${amountRaw}`, QUARANTINE_REASON.MISSING_MONEY);
+        }
+        side.money += amount;
+      } else if (type === 'Item') {
+        // details.id must be a positive safe integer item ID.
+        const itemId = details.id;
+        if (!Number.isInteger(itemId) || itemId <= 0 || !Number.isSafeInteger(itemId)) {
+          throw taggedError(`Trade ${id} Item details.id is invalid.`, QUARANTINE_REASON.MISSING_ITEMS);
+        }
+        // details.amount must be a positive safe integer quantity.
+        const amount = details.amount;
+        if (!Number.isInteger(amount) || amount <= 0 || !Number.isSafeInteger(amount)) {
+          throw taggedError(`Trade ${id} Item details.amount is invalid or zero: ${amount}`, QUARANTINE_REASON.INVALID_ITEM_QUANTITY);
+        }
+        // details.uid may be a positive integer or null per the official schema.
+        if (details.uid !== null && details.uid !== undefined && !Number.isInteger(details.uid)) {
+          throw taggedError(`Trade ${id} Item details.uid must be integer or null.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
+        }
+        side.items.push({ id: itemId, quantity: amount });
+      } else if (type === 'Faction' || type === 'Company' || type === 'Property' || type === 'NAP') {
+        // Unsupported asset types: fail closed and quarantine the entire raw trade.
+        throw taggedError(`Trade ${id} contains unsupported asset type: ${type}. Only cash and ordinary items are supported by Black Ledger recovery.`, QUARANTINE_REASON.UNSUPPORTED_ASSET_TYPE);
+      } else {
+        // Unknown future TradeItem types: fail closed.
+        throw taggedError(`Trade ${id} contains unknown asset type: ${type}. Failing closed.`, QUARANTINE_REASON.UNKNOWN_ASSET_TYPE);
+      }
+    }
+    const userSide = sides.get(userHeader.userId);
+    const traderSide = sides.get(traderHeader.userId);
+    return { id, completedAt, user: userSide, trader: traderSide };
   }
 
   function resolveApiTradeOwner(detail, keyUserId) {
     const keyId = Math.max(0, Math.floor(Number(keyUserId) || 0));
     if (keyId <= 0) throw taggedError('API key owner identity is unknown. Verify GOBLIN GOD key permissions first.', QUARANTINE_REASON.AMBIGUOUS_OWNER);
-    if (detail.initiator.userId === keyId) {
-      return { ownerSide: detail.initiator, counterpartySide: detail.recipient };
+    if (detail.user.userId === keyId) {
+      return { ownerSide: detail.user, counterpartySide: detail.trader };
     }
-    if (detail.recipient.userId === keyId) {
-      return { ownerSide: detail.recipient, counterpartySide: detail.initiator };
+    if (detail.trader.userId === keyId) {
+      return { ownerSide: detail.trader, counterpartySide: detail.user };
     }
     throw taggedError(`API key owner (ID ${keyId}) does not appear in trade ${detail.id}. Ownership is ambiguous.`, QUARANTINE_REASON.AMBIGUOUS_OWNER);
   }
@@ -10900,19 +10950,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const tradeItems = [];
     for (const item of aggregated) {
       const byId = catalogItemForId(item.id);
-      const byNameOnly = catalogItemFor(item.name);
-      // Conflicting ID vs name catalog matches must fail closed.
-      if (byId && byNameOnly && byId.id !== byNameOnly.id) {
-        throw taggedError(
-          `Item "${item.name}" (ID ${item.id}) catalog conflict: ID resolves to "${byId.name}" (${byId.id}) but name resolves to "${byNameOnly.name}" (${byNameOnly.id}). Failing closed.`,
-          QUARANTINE_REASON.CATALOG_ID_NAME_CONFLICT,
-        );
-      }
-      // An API item carrying an ID must resolve through that exact catalog ID.
-      // The name may be used for validation only — it must not substitute for an unknown ID.
+      // Catalog resolution is exact by item ID. Name fallback is not permitted.
       if (!byId) {
         throw taggedError(
-          `Item "${item.name}" (ID ${item.id}) is not in the catalog by ID. Sync the item catalog first. Name-only lookup is not permitted.`,
+          `Item ID ${item.id} is not in the catalog. Sync the item catalog first. Name-only lookup is not permitted.`,
           QUARANTINE_REASON.UNKNOWN_CATALOG_ITEM_ID,
         );
       }
@@ -10948,7 +10989,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     stats.tradeId = `api-trade-${detail.id}`;
     stats.apiTradeId = detail.id;
     stats.apiCompletedAt = detail.completedAt;
-    stats.apiOwnerDirection = ownerSide.userId === detail.initiator.userId ? 'initiator' : 'recipient';
+    stats.apiOwnerDirection = ownerSide.userId === detail.user.userId ? 'user' : 'trader';
     stats.tradeCounterparty = counterpartySide.name || `Torn ID ${counterpartySide.userId}`;
     stats.tradeCounterpartyId = counterpartySide.userId;
     stats.tradeCounterpartyProfileUrl = `https://www.torn.com/profiles.php?XID=${counterpartySide.userId}`;
@@ -11080,6 +11121,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const url = new URL(APP.tradesUrl);
+      url.searchParams.set('cat', 'finished');
       url.searchParams.set('comment', 'TornScripture IMM permission validation');
       const response = await fetch(url.href, {
         method: 'GET',
@@ -11097,16 +11139,22 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         if (code === 2 || code === 16) return 'insufficient';
         return 'unavailable-or-inconclusive';
       }
-      // Validate supported response shape: must have a trades field (array, object, or null for empty).
+      // Validate supported response shape per current official UserTradesResponse:
+      // trades must be an array; empty array is valid; populated entries must have a recognizable shape.
       if (!response.ok) return 'unavailable-or-inconclusive';
       if (!('trades' in payload)) return 'unavailable-or-inconclusive';
       const trades = payload.trades;
-      // Accept array, object (id-keyed map), or null/empty — all are supported list shapes.
-      if (trades !== null && !Array.isArray(trades) && typeof trades !== 'object') return 'unavailable-or-inconclusive';
+      if (!Array.isArray(trades)) return 'unavailable-or-inconclusive';
+      // Populated array: verify at least one entry has a recognizable UserTrade shape.
+      if (trades.length > 0) {
+        const first = trades[0];
+        if (!first || typeof first !== 'object' || !Number.isInteger(first.id) || first.id <= 0) {
+          return 'unavailable-or-inconclusive';
+        }
+      }
       return 'validated';
     } catch (err) {
       clearTimeout(timeoutId);
-      // AbortError covers both timeout-triggered aborts and signal-triggered aborts.
       return 'unavailable-or-inconclusive';
     }
   }
@@ -11236,7 +11284,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   // Returns { candidates } on success (may be empty), { quarantined: true, error } when the payload is
   // malformed/unsupported and is quarantined, or { failed: true, error } for non-usable inputs.
   // Malformed individual entries quarantine the entire payload — do not silently skip.
-  function processApiTradeListPayload(rawPayload, { endpoint = null, key = null } = {}) {
+  function processApiTradeListPayload(rawPayload, { endpoint = null, key = null, keyOwnerUserId = null } = {}) {
     const keyFp = key ? computeApiKeyFingerprint(key) : null;
     const perm = loadTradePermissionRecord();
     const permState = perm?.state ?? null;
@@ -11260,27 +11308,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return { quarantined: true, error: new Error('Trades list response has no trades field.') };
     }
     const trades = rawPayload.trades;
-    // null is a valid empty-list form.
-    if (trades === null) return { candidates: [] };
-    // Determine the entry array: support array and ID-keyed-map forms.
-    let entries;
-    if (Array.isArray(trades)) {
-      entries = trades;
-    } else if (typeof trades === 'object') {
-      entries = Object.values(trades);
-    } else {
+    // Per the current official UserTradesResponse, trades must be an array.
+    if (!Array.isArray(trades)) {
       quarantineApiTrade(rawPayload, QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {
         endpoint,
         keyFingerprint: keyFp,
         permissionValidationState: permState,
-        summary: `Trades list field has unsupported type: ${typeof trades}.`,
+        summary: `Trades list field has unsupported type: ${typeof trades}. Expected array per current official Swagger.`,
       });
-      return { quarantined: true, error: new Error(`Trades list field has unsupported type: ${typeof trades}.`) };
+      return { quarantined: true, error: new Error(`Trades list field has unsupported type: ${typeof trades}. Expected array per current official Swagger.`) };
     }
-    if (entries.length === 0) return { candidates: [] };
-    const FINISHED = new Set(['accepted', 'finished', 'completed']);
+    if (trades.length === 0) return { candidates: [] };
     const candidates = [];
-    for (const entry of entries) {
+    for (const entry of trades) {
       // Non-object or null entry is malformed — quarantine the entire payload.
       if (!entry || typeof entry !== 'object') {
         quarantineApiTrade(rawPayload, QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {
@@ -11292,18 +11332,18 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         return { quarantined: true, error: new Error('Trades list contains a non-object entry.') };
       }
       // Entry normalization failure → malformed entry → quarantine the entire payload.
-      const normalized = normalizeApiTradeListEntry(entry);
+      const normalized = normalizeApiTradeListEntry(entry, keyOwnerUserId);
       if (!normalized) {
         quarantineApiTrade(rawPayload, QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {
           endpoint,
           keyFingerprint: keyFp,
           permissionValidationState: permState,
-          summary: 'Trades list entry failed normalization (missing or invalid ID).',
+          summary: 'Trades list entry failed normalization (missing, invalid, or ambiguous participant/ID).',
         });
-        return { quarantined: true, error: new Error('Trades list entry failed normalization (missing or invalid ID).') };
+        return { quarantined: true, error: new Error('Trades list entry failed normalization (missing, invalid, or ambiguous participant/ID).') };
       }
-      // Filter to finished trades only; already-recorded trades are silently excluded.
-      if (!FINISHED.has((normalized.status || '').toLowerCase())) continue;
+      // completed_at is the finished-trade proof; already validated by normalizeApiTradeListEntry.
+      // Already-recorded trades are silently excluded.
       if (apiTradeAlreadyRecorded(normalized.id)) continue;
       candidates.push(normalized);
     }
@@ -11417,6 +11457,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     let candidates;
     try {
       const listUrl = new URL(APP.tradesUrl);
+      listUrl.searchParams.set('cat', 'finished');
       listUrl.searchParams.set('comment', 'TornScripture IMM API trade recovery');
       const listResponse = await fetch(listUrl.href, {
         method: 'GET',
@@ -11437,7 +11478,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       }
       if (!listResponse.ok || listPayload?.error) throw new Error(apiErrorMessage(listPayload, listResponse));
       // Route through the production list-payload quarantine pipeline.
-      const listResult = processApiTradeListPayload(listPayload, { endpoint: listUrl.href, key });
+      const listResult = processApiTradeListPayload(listPayload, { endpoint: listUrl.href, key, keyOwnerUserId: keyUserId });
       if (listResult.quarantined) {
         renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">Trades list payload was quarantined: ${escapeHtml(listResult.error?.message || 'Malformed response')}. Raw payload retained for diagnostics.</div>`);
         return;
@@ -14070,7 +14111,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       recordTradeSale,
       normalizeApiTradeListEntry,
       filterApiTradeCandidates,
-      normalizeApiTradeParticipant,
+      normalizeApiParticipantHeader,
       normalizeApiTradeDetail,
       resolveApiTradeOwner,
       aggregateApiTradeOwnerItems,
@@ -14224,7 +14265,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       tradeExitAuditHtml,
       normalizeApiTradeListEntry,
       filterApiTradeCandidates,
-      normalizeApiTradeParticipant,
+      normalizeApiParticipantHeader,
       normalizeApiTradeDetail,
       resolveApiTradeOwner,
       aggregateApiTradeOwnerItems,
