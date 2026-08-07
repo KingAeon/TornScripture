@@ -1,5 +1,8 @@
 # TESTING-v0.19.34.md — Manual Verification Plan
 
+> Superseded by `/home/runner/work/TornScripture/TornScripture/TESTING-v0.19.35.md`.
+> Version `0.19.34` was an intermediate draft plan and is not the current release-candidate manual test document.
+
 **Feature:** IMM API-backed Black Ledger completed-trade recovery  
 **Issue:** #97  
 **IMM version:** 0.19.34  

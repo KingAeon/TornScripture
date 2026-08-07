@@ -11122,7 +11122,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!sale || typeof sale !== 'object') return false;
     if (Number(sale.apiTradeId) > 0) return true;
     if (normalizeWhitespace(sale.canonicalFingerprint)) return true;
-    if (normalizeWhitespace(sale.tradeId).startsWith('api-trade-')) return true;
+    if (normalizeWhitespace(sale.tradeId)?.startsWith('api-trade-')) return true;
     if ((sale.fingerprint ?? '').startsWith('trade:api-trade-')) return true;
     if (normalizeWhitespace(sale.provenance) === 'api-trade-recovery') return true;
     return normalizeWhitespace(sale.captureMethod) === 'api-trade-recovery';
