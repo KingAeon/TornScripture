@@ -11220,7 +11220,6 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (optionalFiniteNumber(sale.cashReceived) !== netCash) return false;
       if (hasLikelyManualDuplicateStoredValue(sale.tradeDirection) && sale.tradeDirection !== tradeDirection) return false;
       if (Number(sale.myCash) > 0 && optionalFiniteNumber(sale.myCash) !== ownerCash) return false;
-      if (Number(sale.myCash) > 0 && optionalFiniteNumber(sale.myCash) + optionalFiniteNumber(sale.cashReceived) !== counterpartyCash) return false;
       if (Number(sale.marketTotal) > 0 && optionalFiniteNumber(sale.marketTotal) !== marketTotal) return false;
       if (Number(sale.targetTotal) > 0 && optionalFiniteNumber(sale.targetTotal) !== targetTotal) return false;
       return true;
