@@ -2285,7 +2285,6 @@ describe('Packet 2d: Fix 2 — handleApiTradeRecoverySelect wired to processApiT
     const detail = imm.normalizeApiTradeDetail(makeDetailPayload(9003), 9003);
     const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
     const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
-    const plan = imm.ledgerSalePlan(stats);
     const fp = imm.buildApiTradeCanonicalFingerprint(detail, stats);
     // Record using transaction to mark it as already recorded
     imm.executeApiTradeRecoveryTransaction(9003, detail, stats, fp);

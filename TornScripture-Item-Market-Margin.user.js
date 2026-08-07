@@ -10799,7 +10799,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const out = [];
     for (const entry of entries) {
       const normalized = normalizeApiTradeListEntry(entry, keyOwnerUserId);
-      if (!normalized) continue;
+      if (!normalized) throw new Error('Trades list entry failed normalization (missing, invalid, or ambiguous participant/ID).');
       if (apiTradeAlreadyRecorded(normalized.id)) continue;
       out.push(normalized);
     }
