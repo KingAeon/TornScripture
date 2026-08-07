@@ -1329,25 +1329,23 @@ describe('Packet 2: Production quarantine paths', () => {
     assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.TRADE_ID_MISMATCH);
   });
 
-  // 6. Ambiguous ownership — resolveApiTradeOwner tags the error; quarantine stores the tag.
-  test('6: ambiguous ownership error is tagged AMBIGUOUS_OWNER and quarantine stores the code', () => {
+  // 6. Ambiguous ownership — resolveApiTradeOwner tags the error; quarantined via production semantic validation.
+  test('6: ambiguous ownership is quarantined through processApiTradeSemanticValidation', () => {
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
     setupState({});
     const detail = freshDetail(); // initiator:1001, recipient:5678
-    // Key owner is 9999 — does not appear in the trade
-    let caught;
-    try { imm.resolveApiTradeOwner(detail, 9999); } catch (e) { caught = e; }
-    assert.ok(caught, 'resolveApiTradeOwner must throw for unknown owner');
-    assert.equal(caught.quarantineReasonCode, imm.QUARANTINE_REASON.AMBIGUOUS_OWNER, 'error must carry AMBIGUOUS_OWNER reason code');
-    // Wire: the step-4 catch block calls quarantineApiTrade with error.quarantineReasonCode
-    const rawP = rawPayload();
-    imm.quarantineApiTrade(rawP, caught.quarantineReasonCode, { source: 'api-trade-recovery' });
+    // Key owner is 9999 — does not appear in the trade → AMBIGUOUS_OWNER quarantine.
+    const result = imm.processApiTradeSemanticValidation(detail, 9999, rawPayload(), { source: 'api-trade-recovery' });
+    assert.ok(result.quarantined, 'must be quarantined');
+    assert.equal(result.error.quarantineReasonCode, imm.QUARANTINE_REASON.AMBIGUOUS_OWNER, 'error must carry AMBIGUOUS_OWNER reason code');
     assert.equal(imm.state.ledger.quarantinedTrades.length, 1);
     assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.AMBIGUOUS_OWNER);
+    assert.equal(imm.state.ledger.lots.length, 0, 'lots unchanged');
+    assert.equal(imm.state.ledger.sales.length, 0, 'sales unchanged');
   });
 
-  // 7. Catalog ID/name conflict reaches quarantine.
-  test('7: catalog ID/name conflict is tagged CATALOG_ID_NAME_CONFLICT and quarantine stores the code', () => {
+  // 7. Catalog ID/name conflict is quarantined via production semantic validation.
+  test('7: catalog ID/name conflict is quarantined through processApiTradeSemanticValidation', () => {
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
     // Create a catalog where item ID 100 resolves to "Xanax" but the name "Xanax" resolves to a different ID
     setupState({});
@@ -1357,14 +1355,12 @@ describe('Packet 2: Production quarantine paths', () => {
       updatedAt: new Date().toISOString(),
     };
     const detail = freshDetail(); // owner has item id:100 name:"Xanax"
-    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
-    let caught;
-    try { imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide); } catch (e) { caught = e; }
-    assert.ok(caught, 'buildApiTradeSaleStats must throw for catalog conflict');
-    assert.equal(caught.quarantineReasonCode, imm.QUARANTINE_REASON.CATALOG_ID_NAME_CONFLICT, 'error must carry CATALOG_ID_NAME_CONFLICT reason code');
-    const rawP = rawPayload();
-    imm.quarantineApiTrade(rawP, caught.quarantineReasonCode, { source: 'api-trade-recovery' });
+    const result = imm.processApiTradeSemanticValidation(detail, 1001, rawPayload(), {});
+    assert.ok(result.quarantined, 'must be quarantined');
+    assert.equal(result.error.quarantineReasonCode, imm.QUARANTINE_REASON.CATALOG_ID_NAME_CONFLICT, 'error must carry CATALOG_ID_NAME_CONFLICT reason code');
     assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.CATALOG_ID_NAME_CONFLICT);
+    assert.equal(imm.state.ledger.lots.length, 0, 'lots unchanged');
+    assert.equal(imm.state.ledger.sales.length, 0, 'sales unchanged');
   });
 
   // 8. Unknown catalog item ID — name fallback is not used.
@@ -1389,19 +1385,13 @@ describe('Packet 2: Production quarantine paths', () => {
     // The throw itself proves the fallback is absent.
   });
 
-  // 9. Zero FIFO coverage reaches quarantine.
-  test('9: zero FIFO coverage reaches quarantine with ZERO_FIFO_COVERAGE reason', () => {
+  // 9. Zero FIFO coverage is quarantined via production semantic validation.
+  test('9: zero FIFO coverage is quarantined through processApiTradeSemanticValidation', () => {
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
     setupState({ lots: [] }); // no lots — zero coverage
     const detail = freshDetail();
-    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
-    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
-    const plan = imm.ledgerSalePlan(stats);
-    assert.ok(!plan.fullCoverage, 'plan must show no coverage');
-    assert.equal(plan.trackedQuantity, 0, 'zero tracked quantity');
-    // Wire: production calls quarantineApiTrade with ZERO_FIFO_COVERAGE
-    const rawP = rawPayload();
-    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.ZERO_FIFO_COVERAGE, { apiTradeId: detail.id, source: 'api-trade-recovery' });
+    const result = imm.processApiTradeSemanticValidation(detail, 1001, rawPayload(), { apiTradeId: detail.id, source: 'api-trade-recovery' });
+    assert.ok(result.quarantined, 'must be quarantined with zero coverage');
     assert.equal(imm.state.ledger.quarantinedTrades.length, 1);
     assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.ZERO_FIFO_COVERAGE);
     // Lots and sales unchanged
@@ -1409,21 +1399,15 @@ describe('Packet 2: Production quarantine paths', () => {
     assert.equal(imm.state.ledger.sales.length, 0);
   });
 
-  // 10. Partial FIFO coverage reaches quarantine.
-  test('10: partial FIFO coverage reaches quarantine with PARTIAL_FIFO_COVERAGE reason', () => {
+  // 10. Partial FIFO coverage is quarantined via production semantic validation.
+  test('10: partial FIFO coverage is quarantined through processApiTradeSemanticValidation', () => {
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
     setupState({ lots: [freshLot({ quantity: 5, remainingQuantity: 5 })] }); // only 5, need 10
     const detail = freshDetail(); // owner sells 10 Xanax
-    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
-    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
-    const plan = imm.ledgerSalePlan(stats);
-    assert.ok(!plan.fullCoverage, 'plan must show partial coverage');
-    assert.ok(plan.trackedQuantity > 0, 'some tracked quantity');
-    assert.ok(plan.trackedQuantity < plan.requestedQuantity, 'less than requested');
-    const rawP = rawPayload();
-    imm.quarantineApiTrade(rawP, imm.QUARANTINE_REASON.PARTIAL_FIFO_COVERAGE, { apiTradeId: detail.id, source: 'api-trade-recovery' });
+    const result = imm.processApiTradeSemanticValidation(detail, 1001, rawPayload(), { apiTradeId: detail.id, source: 'api-trade-recovery' });
+    assert.ok(result.quarantined, 'must be quarantined with partial coverage');
     assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.PARTIAL_FIFO_COVERAGE);
-    // Lots and sales unchanged (5 remaining)
+    // Lots and sales unchanged (5 remaining untouched)
     assert.equal(imm.state.ledger.lots[0].remainingQuantity, 5);
     assert.equal(imm.state.ledger.sales.length, 0);
   });
@@ -1606,6 +1590,7 @@ describe('Packet 2: Permission validation lifecycle', () => {
   // 24. Startup validates only when absent, stale, malformed, or mismatched.
   test('24: maybeScheduleStartupPermissionValidation skips validation when record is fresh and matching', () => {
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm._resetStartupGuard();
     setupState({});
     localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'startup-key');
     let fetchCalled = false;
@@ -1622,6 +1607,7 @@ describe('Packet 2: Permission validation lifecycle', () => {
 
   test('24b: maybeScheduleStartupPermissionValidation schedules when record is absent — fetch fires', async () => {
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm._resetStartupGuard();
     setupState({});
     localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'startup-key-2');
     imm.state.ledger.tradePermission = null; // absent
@@ -1636,23 +1622,21 @@ describe('Packet 2: Permission validation lifecycle', () => {
   });
 
   // 25. Repeated initialization does not schedule duplicate validations.
-  test('25: repeated maybeScheduleStartupPermissionValidation calls do not schedule duplicate timers', async () => {
-    // After test 24b, the internal scheduling guard is permanently set (it is a module-level let, not reset).
-    // All subsequent calls must be no-ops — verifiable by counting fetch calls.
+  test('25: repeated maybeScheduleStartupPermissionValidation with same key schedules exactly one validation', async () => {
     const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm._resetStartupGuard();
     setupState({});
     localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'key-dup');
     imm.state.ledger.tradePermission = null;
-    let extraFetchCount = 0;
-    global.fetch = async () => { extraFetchCount++; return { ok: true, json: async () => ({ trades: null }), status: 200 }; };
-    // Guard is already set from test 24b — these must all be no-ops
+    let fetchCount = 0;
+    global.fetch = async () => { fetchCount++; return { ok: true, json: async () => ({ trades: null }), status: 200 }; };
+    // Three calls for the same pending key must schedule exactly one validation.
     imm.maybeScheduleStartupPermissionValidation();
     imm.maybeScheduleStartupPermissionValidation();
     imm.maybeScheduleStartupPermissionValidation();
-    // Wait past the 200ms timer window
     await new Promise((r) => setTimeout(r, 350));
     localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
-    assert.equal(extraFetchCount, 0, 'no additional fetch calls after guard is set — duplicate timers prevented');
+    assert.equal(fetchCount, 1, 'three calls with same pending key must schedule exactly one validation');
   });
 
   // 26. Recovery open always validates before loading candidates.
@@ -1806,3 +1790,316 @@ describe('Packet 2: Permission validation lifecycle', () => {
 });
 
 console.log('# IMM API Trade Recovery production-path tests passed.');
+
+// ── Packet 2c: Additional requirements ──────────────────────────────────────
+
+describe('Packet 2c: Permission normalization, list quarantine, and guard behavior', () => {
+  // --- Test 1: Permission record survives normalizeLedger ---
+  test('2c-1: permission record survives normalizeLedger round-trip', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-norm');
+    const ledger = imm.normalizeLedger(JSON.parse(JSON.stringify(imm.state.ledger)));
+    assert.ok(ledger.tradePermission, 'permission record must survive normalizeLedger');
+    assert.equal(ledger.tradePermission.state, 'validated');
+    assert.ok(ledger.tradePermission.keyFingerprint);
+    assert.ok(ledger.tradePermission.endpoint);
+    assert.ok(ledger.tradePermission.schemaMarker);
+    assert.ok(ledger.tradePermission.validatedAt);
+  });
+
+  // --- Test 2: Permission record survives export/import ---
+  test('2c-2: permission record survives JSON export/import round-trip', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-ei');
+    // Simulate export: JSON.stringify the ledger
+    const exported = JSON.stringify(imm.state.ledger);
+    // Simulate import: parse and normalize
+    const imported = imm.normalizeLedger(JSON.parse(exported));
+    assert.ok(imported.tradePermission, 'permission record must survive JSON export/import');
+    assert.equal(imported.tradePermission.state, 'validated');
+    assert.equal(imported.tradePermission.keyFingerprint, imm.computeApiKeyFingerprint('key-ei'));
+  });
+
+  // --- Test 3: Wrong endpoint blocks isPermissionRecordValid ---
+  test('2c-3: wrong endpoint causes isPermissionRecordValid to return false', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-ep');
+    const rec = imm.loadTradePermissionRecord();
+    // Tamper with endpoint
+    const badRec = { ...rec, endpoint: 'https://api.torn.com/v2/user/WRONG' };
+    assert.equal(imm.isPermissionRecordValid(badRec, 'key-ep'), false, 'wrong endpoint must be rejected');
+    // Correct endpoint must still work
+    assert.equal(imm.isPermissionRecordValid(rec, 'key-ep'), true, 'correct endpoint must be accepted');
+  });
+
+  // --- Test 4: Wrong schema marker blocks isPermissionRecordValid ---
+  test('2c-4: wrong schema marker causes isPermissionRecordValid to return false', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-sm');
+    const rec = imm.loadTradePermissionRecord();
+    const badRec = { ...rec, schemaMarker: 'v1-wrong-marker' };
+    assert.equal(imm.isPermissionRecordValid(badRec, 'key-sm'), false, 'wrong schema marker must be rejected');
+    assert.equal(imm.isPermissionRecordValid(rec, 'key-sm'), true, 'correct schema marker must be accepted');
+  });
+
+  // --- Test 5: Startup validates endpoint/schema mismatches ---
+  test('2c-5: maybeScheduleStartupPermissionValidation schedules when endpoint is mismatched', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm._resetStartupGuard();
+    setupState({});
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'key-mismatch');
+    let fetchCalled = false;
+    global.fetch = async () => { fetchCalled = true; return { ok: true, json: async () => ({ trades: null }), status: 200 }; };
+    // Store a record with a mismatched endpoint
+    imm.state.ledger.tradePermission = {
+      state: 'validated',
+      validatedAt: new Date().toISOString(),
+      keyFingerprint: imm.computeApiKeyFingerprint('key-mismatch'),
+      endpoint: 'https://api.torn.com/v2/user/WRONG',
+      schemaMarker: 'v2-user-trades',
+    };
+    imm.maybeScheduleStartupPermissionValidation();
+    await new Promise((r) => setTimeout(r, 350));
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.ok(fetchCalled, 'endpoint mismatch must trigger startup revalidation');
+  });
+
+  // --- Test 6: Startup guard resets and supports a later key change ---
+  test('2c-6: startup guard resets after completion and allows a new key to reschedule', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm._resetStartupGuard();
+    setupState({});
+    // First key schedules and completes
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'key-first');
+    imm.state.ledger.tradePermission = null;
+    let firstCount = 0;
+    global.fetch = async () => { firstCount++; return { ok: true, json: async () => ({ trades: null }), status: 200 }; };
+    imm.maybeScheduleStartupPermissionValidation();
+    await new Promise((r) => setTimeout(r, 350)); // guard resets after completion
+    assert.equal(firstCount, 1, 'first key must trigger one fetch');
+    // After guard reset, a new key can schedule
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'key-second');
+    imm.state.ledger.tradePermission = null;
+    let secondCount = 0;
+    global.fetch = async () => { secondCount++; return { ok: true, json: async () => ({ trades: null }), status: 200 }; };
+    imm.maybeScheduleStartupPermissionValidation();
+    await new Promise((r) => setTimeout(r, 350));
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.equal(secondCount, 1, 'second key must trigger one fetch after guard reset');
+  });
+
+  // --- Test 7: Confirmation performs fresh async validation before transaction ---
+  test('2c-7: handleApiTradeRecoveryConfirm revalidates before executing transaction', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'valid-key');
+    global.fetch = mockFetch({ trades: null }); // will return validated
+    // Save a validated record that matches
+    imm.saveTradePermissionRecord('validated', 'valid-key');
+    // Build real stats using production paths
+    const detail = freshDetail({ id: 9001 });
+    const { ownerSide, counterpartySide } = imm.resolveApiTradeOwner(detail, 1001);
+    const stats = imm.buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+    stats.soldAt = detail.completedAt;
+    const overlay = makeElement();
+    overlay._tsimmApiTradePendingStats = stats;
+    overlay._tsimmApiTradePendingDetail = detail;
+    overlay.isConnected = false;
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    await imm.handleApiTradeRecoveryConfirm(9001);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    // A successful confirm with valid permission should consume the lot
+    assert.equal(imm.state.ledger.sales.length, 1, 'sale must be recorded on success');
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0, 'lot must be consumed');
+  });
+
+  // --- Test 8: Failed confirmation revalidation leaves all accounting state unchanged ---
+  test('2c-8: failed confirmation revalidation leaves lots, sales, and quarantine unchanged', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'bad-key');
+    // Revalidation will return insufficient → confirm blocked
+    global.fetch = mockFetch({ error: { code: 2 } });
+    delete imm.state.ledger.tradePermission; // absent permission → triggers revalidation
+    const overlay = makeConfirmOverlay();
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    const lotsSnap = JSON.stringify(imm.state.ledger.lots);
+    const salesSnap = JSON.stringify(imm.state.ledger.sales);
+    const quarantineSnap = JSON.stringify(imm.state.ledger.quarantinedTrades);
+    await imm.handleApiTradeRecoveryConfirm(9001);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.equal(JSON.stringify(imm.state.ledger.lots), lotsSnap, 'lots must be unchanged');
+    assert.equal(JSON.stringify(imm.state.ledger.sales), salesSnap, 'sales must be unchanged');
+    assert.equal(JSON.stringify(imm.state.ledger.quarantinedTrades), quarantineSnap, 'quarantine must be unchanged');
+  });
+
+  // --- Test 9: Fractional quantity is rejected ---
+  test('2c-9: fractional item quantity is rejected with INVALID_ITEM_QUANTITY', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.throws(
+      () => imm.normalizeApiTradeParticipant(
+        { user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: 1.5 }] },
+        'initiator',
+      ),
+      /invalid or zero quantity/i,
+    );
+  });
+
+  // --- Test 10: Zero, negative, malformed, and infinite quantity are rejected ---
+  test('2c-10: zero, negative, NaN, and infinite quantity are all rejected', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const cases = [0, -1, -10, NaN, Infinity, -Infinity, 'abc', null, undefined];
+    for (const q of cases) {
+      assert.throws(
+        () => imm.normalizeApiTradeParticipant(
+          { user_id: 1001, name: 'Alice', money: 0, items: [{ id: 100, name: 'Xanax', quantity: q }] },
+          'initiator',
+        ),
+        (err) => /invalid or zero quantity|no quantity field/i.test(err.message),
+        `quantity ${q} must be rejected`,
+      );
+    }
+  });
+
+  // --- Test 11: Malformed list payload reaches quarantine through the production list processor ---
+  test('2c-11: malformed list payload (no trades field) reaches quarantine via processApiTradeListPayload', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const badPayload = { something: 'else' };
+    const result = imm.processApiTradeListPayload(badPayload, { endpoint: 'https://api.torn.com/v2/user/trades' });
+    assert.ok(result.quarantined, 'must be quarantined');
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE);
+    assert.equal(imm.state.ledger.lots.length, 0, 'lots unchanged');
+    assert.equal(imm.state.ledger.sales.length, 0, 'sales unchanged');
+  });
+
+  // --- Test 12: Malformed individual list entry fails closed instead of being silently skipped ---
+  test('2c-12: malformed list entry quarantines the entire payload through processApiTradeListPayload', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    // trades array with one valid-looking entry followed by a malformed entry (null id)
+    const badPayload = { trades: [{ id: null, status: 'Accepted' }] };
+    const result = imm.processApiTradeListPayload(badPayload, {});
+    assert.ok(result.quarantined, 'malformed entry must quarantine the entire payload');
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 1);
+    assert.equal(imm.state.ledger.quarantinedTrades[0].reasonCode, imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE);
+    assert.equal(imm.state.ledger.lots.length, 0, 'lots unchanged');
+    assert.equal(imm.state.ledger.sales.length, 0, 'sales unchanged');
+  });
+
+  // --- Test 13: ID-less quarantine records deduplicate ---
+  test('2c-13: repeated ID-less quarantine of same payload and reason deduplicates', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const badPayload = { sentinel: 'dedup-test' };
+    imm.quarantineApiTrade(badPayload, imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, { endpoint: 'https://api.torn.com/v2/user/trades' });
+    imm.quarantineApiTrade(badPayload, imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, { endpoint: 'https://api.torn.com/v2/user/trades' });
+    imm.quarantineApiTrade(badPayload, imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, { endpoint: 'https://api.torn.com/v2/user/trades' });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 1, 'repeated ID-less quarantine must deduplicate to 1 record');
+  });
+
+  // --- Test 14: Different ID-less payloads remain separate ---
+  test('2c-14: different ID-less payloads with same reason remain separate quarantine records', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({});
+    const payload1 = { sentinel: 'payload-one' };
+    const payload2 = { sentinel: 'payload-two' };
+    imm.quarantineApiTrade(payload1, imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, { endpoint: 'https://api.torn.com/v2/user/trades' });
+    imm.quarantineApiTrade(payload2, imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, { endpoint: 'https://api.torn.com/v2/user/trades' });
+    assert.equal(imm.state.ledger.quarantinedTrades.length, 2, 'different payloads must remain as separate quarantine records');
+  });
+
+  // --- Test 15: Hanging fetch is aborted by the production timeout signal ---
+  test('2c-15: hanging fetch is aborted by AbortController signal within injectable timeout', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    // Mock a fetch that hangs until the AbortSignal fires.
+    global.fetch = async (_url, opts) => new Promise((_resolve, reject) => {
+      opts.signal.addEventListener('abort', () => {
+        const err = new Error('Aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+      // Never resolves without abort
+    });
+    const start = Date.now();
+    const result = await imm.validateApiTradeEndpointPermission('test-key', { timeoutMs: 80 });
+    const elapsed = Date.now() - start;
+    assert.equal(result, 'unavailable-or-inconclusive', 'aborted fetch must return unavailable-or-inconclusive');
+    assert.ok(elapsed < 2000, `must abort quickly (${elapsed}ms)`);
+  });
+
+  // --- Test 16: Authorization handlers invalidate, await revalidation, and do not auto-resume ---
+  test('2c-16: isAuthorizationFailure correctly identifies failure codes and statuses', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    // These are the failure codes that trigger invalidate+revalidate in production handlers
+    assert.ok(imm.isAuthorizationFailure({ error: { code: 2 } }, null), 'code 2 is auth failure');
+    assert.ok(imm.isAuthorizationFailure({ error: { code: 16 } }, null), 'code 16 is auth failure');
+    assert.ok(imm.isAuthorizationFailure({}, { status: 401 }), 'HTTP 401 is auth failure');
+    assert.ok(imm.isAuthorizationFailure({}, { status: 403 }), 'HTTP 403 is auth failure');
+    assert.ok(!imm.isAuthorizationFailure({}, { status: 200 }), '200 is not auth failure');
+    // Verify that invalidateTradePermission correctly sets the state without resuming anything
+    setupState({});
+    imm.saveTradePermissionRecord('validated', 'key-auth');
+    imm.invalidateTradePermission();
+    const rec = imm.loadTradePermissionRecord();
+    assert.equal(rec.state, 'unavailable-or-inconclusive', 'invalidated state must be unavailable-or-inconclusive');
+    // isPermissionRecordValid must reject the invalidated record
+    assert.equal(imm.isPermissionRecordValid(rec, 'key-auth'), false, 'invalidated record must not be valid');
+  });
+
+  // --- Test 17: Pending-trade storage unchanged on blocked quarantine and permission paths ---
+  test('2c-17: pending-trade storage unchanged after quarantine and permission failures', async () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot()] });
+    const pendingKey = 'tornscripture-imm-pending-trade-sale-v1';
+    const prePending = localStorage.getItem(pendingKey);
+    // Quarantine path
+    imm.quarantineApiTrade(rawPayload(), imm.QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {});
+    assert.equal(localStorage.getItem(pendingKey), prePending, 'quarantine must not touch pending-trade storage');
+    // Permission failure via list processor
+    imm.processApiTradeListPayload({ something: 'else' }, {});
+    assert.equal(localStorage.getItem(pendingKey), prePending, 'list processor quarantine must not touch pending-trade storage');
+    // Confirmation with absent permission and network failure
+    localStorage.setItem(IMM_API_KEY_STORAGE_KEY, 'blocked-key');
+    global.fetch = async () => { throw new Error('Network failure'); };
+    delete imm.state.ledger.tradePermission;
+    const overlay = makeConfirmOverlay();
+    const origGetById = global.document.getElementById;
+    global.document.getElementById = (id) => id === IMM_API_TRADE_RECOVERY_OVERLAY_ID ? overlay : origGetById(id);
+    await imm.handleApiTradeRecoveryConfirm(9001);
+    global.document.getElementById = origGetById;
+    localStorage.removeItem(IMM_API_KEY_STORAGE_KEY);
+    assert.equal(localStorage.getItem(pendingKey), prePending, 'blocked confirmation must not touch pending-trade storage');
+  });
+
+  // Normalizer returns null for malformed permission records
+  test('2c-bonus: normalizeTradePermissionRecord returns null for malformed/incomplete records', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    assert.equal(imm.normalizeTradePermissionRecord(null), null);
+    assert.equal(imm.normalizeTradePermissionRecord({}), null, 'empty object has no valid state');
+    assert.equal(imm.normalizeTradePermissionRecord({ state: 'bad-state', validatedAt: '2024-01-01', keyFingerprint: 'kfp-00000000-16', endpoint: 'https://api.torn.com/v2/user/trades', schemaMarker: 'v2-user-trades' }), null, 'invalid state returns null');
+    assert.equal(imm.normalizeTradePermissionRecord({ state: 'validated', validatedAt: null, keyFingerprint: 'kfp-00000000-16', endpoint: 'https://api.torn.com/v2/user/trades', schemaMarker: 'v2-user-trades' }), null, 'null validatedAt returns null');
+    // Valid record normalizes correctly
+    const valid = imm.normalizeTradePermissionRecord({ state: 'validated', validatedAt: '2026-01-01T00:00:00.000Z', keyFingerprint: 'kfp-00000000-16', endpoint: 'https://api.torn.com/v2/user/trades', schemaMarker: 'v2-user-trades' });
+    assert.ok(valid, 'valid record must normalize');
+    assert.equal(valid.state, 'validated');
+  });
+
+  // normalizeLedger drops permission records that are null/invalid after normalization
+  test('2c-bonus2: normalizeLedger drops invalid permission record (wrong state, null fields)', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const ledger = imm.normalizeLedger({ tradePermission: { state: 'bad-state' } });
+    assert.equal(ledger.tradePermission, null, 'bad state must produce null tradePermission');
+    const ledger2 = imm.normalizeLedger({ tradePermission: null });
+    assert.equal(ledger2.tradePermission, null, 'null tradePermission must stay null');
+  });
+});

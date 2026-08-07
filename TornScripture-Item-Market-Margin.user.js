@@ -3571,6 +3571,7 @@
       lots,
       sales,
       quarantinedTrades,
+      tradePermission: normalizeTradePermissionRecord(raw?.tradePermission),
     };
   }
 
@@ -10684,6 +10685,34 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   // Permission validation constants.
   const PERMISSION_STALE_MS = 30 * 60 * 1000; // 30 minutes
   const PERMISSION_SCHEMA_MARKER = 'v2-user-trades';
+  const VALID_PERMISSION_STATES = new Set(['validated', 'insufficient', 'unavailable-or-inconclusive']);
+
+  // Normalize a raw trade permission record from storage or a round-trip.
+  // Returns null when the record is missing, malformed, or has an unrecognized state.
+  // All five required fields must be present and non-empty for the record to survive.
+  function normalizeTradePermissionRecord(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const st = String(raw.state || '');
+    if (!VALID_PERMISSION_STATES.has(st)) return null;
+    const validatedAt = raw.validatedAt ? String(raw.validatedAt) : null;
+    const keyFingerprint = raw.keyFingerprint ? String(raw.keyFingerprint) : null;
+    const endpoint = raw.endpoint ? String(raw.endpoint) : null;
+    const schemaMarker = raw.schemaMarker ? String(raw.schemaMarker) : null;
+    if (!validatedAt || !keyFingerprint || !endpoint || !schemaMarker) return null;
+    return { state: st, validatedAt, keyFingerprint, endpoint, schemaMarker };
+  }
+
+  // FNV-1a 32-bit hash of a raw payload's JSON representation.
+  // Used for deterministic deduplication of ID-less quarantine records.
+  function computePayloadFnv32(rawPayload) {
+    const s = rawPayload != null ? JSON.stringify(rawPayload) : '';
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  }
 
   // Produce a deterministic non-reversible fingerprint of an API key.
   // Uses FNV-1a 32-bit with length suffix — suitable only for detecting key changes.
@@ -10764,7 +10793,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }
     const moneyRaw = raw[moneyKey];
     const money = Number(moneyRaw);
-    if (!Number.isFinite(money) || money < 0) {
+    if (!Number.isFinite(money) || !Number.isSafeInteger(money) || money < 0) {
       throw taggedError(`${label} money value is invalid: ${moneyRaw}`, QUARANTINE_REASON.MISSING_MONEY);
     }
     // Items field must be explicitly present and an array; do not default to empty.
@@ -10784,10 +10813,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         throw taggedError(`${label} item ID ${itemId} has no quantity field. Cannot determine trade contents.`, QUARANTINE_REASON.INVALID_ITEM_QUANTITY);
       }
       const quantityRaw = entry.quantity;
-      const quantity = Math.floor(Number(quantityRaw));
-      if (!Number.isFinite(quantity) || quantity <= 0) {
+      const quantityNum = Number(quantityRaw);
+      if (!Number.isFinite(quantityNum) || !Number.isSafeInteger(quantityNum) || quantityNum <= 0) {
         throw taggedError(`${label} item ID ${itemId} has invalid or zero quantity: ${quantityRaw}`, QUARANTINE_REASON.INVALID_ITEM_QUANTITY);
       }
+      const quantity = quantityNum;
       items.push({ id: itemId, name: normalizeWhitespace(entry.name ?? ''), quantity });
     }
     return { userId, name, money, items };
@@ -10993,7 +11023,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (dupIdx !== -1) {
         state.ledger.quarantinedTrades.splice(dupIdx, 1);
       }
+    } else {
+      // ID-less deduplication: same endpoint + reason + canonical payload hash must not grow indefinitely.
+      const payloadHash = computePayloadFnv32(rawPayload);
+      const dedupKey = `${endpoint || ''}|${normalizedReason}|${payloadHash}`;
+      const dupIdx = state.ledger.quarantinedTrades.findIndex((q) => q._dedupKey === dedupKey);
+      if (dupIdx !== -1) {
+        state.ledger.quarantinedTrades.splice(dupIdx, 1);
+      }
     }
+    const payloadHash2 = apiTradeId === null ? computePayloadFnv32(rawPayload) : null;
+    const dedupKeyForRecord = apiTradeId === null
+      ? `${endpoint || ''}|${normalizedReason}|${payloadHash2}`
+      : null;
     const record = {
       id: createId('qtrade'),
       schemaVersion: 1,
@@ -11008,6 +11050,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       permissionValidationState: permissionValidationState ?? null,
       diagnostics: diagnostics ?? null,
       validationState: 'rejected',
+      ...(dedupKeyForRecord !== null ? { _dedupKey: dedupKeyForRecord } : {}),
     };
     state.ledger.quarantinedTrades.unshift(record);
     saveLedger();
@@ -11020,10 +11063,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   // Any other failure (network error, timeout, malformed response) is inconclusive.
   // An HTTP 200 alone is not sufficient — the response shape is validated.
   const VALIDATE_PERMISSION_TIMEOUT_MS = 10000;
-  async function validateApiTradeEndpointPermission(key) {
+  async function validateApiTradeEndpointPermission(key, { timeoutMs = VALIDATE_PERMISSION_TIMEOUT_MS } = {}) {
     if (!key) return 'unavailable-or-inconclusive';
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), VALIDATE_PERMISSION_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const url = new URL(APP.tradesUrl);
       url.searchParams.set('comment', 'TornScripture IMM permission validation');
@@ -11089,12 +11132,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return rec.keyFingerprint === computeApiKeyFingerprint(key);
   }
 
-  // Returns true only when the record is validated, fresh, and matches the current key.
+  // Returns true only when the record is validated, fresh, matching the current key,
+  // targeting the correct endpoint, and carrying the correct schema marker.
   function isPermissionRecordValid(rec, key) {
     if (!rec || typeof rec !== 'object') return false;
     if (rec.state !== 'validated') return false;
     if (!isPermissionRecordFresh(rec)) return false;
     if (!isPermissionRecordMatchingKey(rec, key)) return false;
+    if (rec.endpoint !== APP.tradesUrl) return false;
+    if (rec.schemaMarker !== PERMISSION_SCHEMA_MARKER) return false;
     return true;
   }
 
@@ -11115,22 +11161,29 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   // Schedule one startup permission validation only when the stored record is absent,
-  // stale, malformed, or associated with a different key fingerprint.
-  // Repeated initialization must not schedule duplicate validations.
-  let _startupPermissionValidationScheduled = false;
+  // stale, malformed, mismatched, or has a different endpoint/schema marker.
+  // Tracks the pending key rather than a simple boolean so:
+  //   – repeated calls for the same pending key schedule exactly one request,
+  //   – the guard resets after completion so a later key change can reschedule,
+  //   – tests that reset the guard are independent of execution order.
+  let _startupPermissionPendingKey = null;
   function maybeScheduleStartupPermissionValidation() {
-    if (_startupPermissionValidationScheduled) return;
     const key = currentApiKey();
     if (!key) return;
+    if (_startupPermissionPendingKey === key) return; // already pending for this key
     const rec = loadTradePermissionRecord();
     const needsValidation = !rec
       || rec.state === undefined
       || !isPermissionRecordFresh(rec)
-      || !isPermissionRecordMatchingKey(rec, key);
+      || !isPermissionRecordMatchingKey(rec, key)
+      || rec.endpoint !== APP.tradesUrl
+      || rec.schemaMarker !== PERMISSION_SCHEMA_MARKER;
     if (!needsValidation) return;
-    _startupPermissionValidationScheduled = true;
+    _startupPermissionPendingKey = key;
     setTimeout(() => {
-      resolveAndValidateTradePermission(currentApiKey() || key).catch(() => {});
+      resolveAndValidateTradePermission(currentApiKey() || key).catch(() => {}).finally(() => {
+        if (_startupPermissionPendingKey === key) _startupPermissionPendingKey = null;
+      });
     }, 200);
   }
 
@@ -11164,6 +11217,134 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         permissionValidationState: permState,
       });
       return { quarantined: true, error: err };
+    }
+  }
+
+  // Production list-payload quarantine pipeline.
+  // Call this after a successful HTTP response (not for network/auth failures where no usable JSON was obtained).
+  // Returns { candidates } on success (may be empty), { quarantined: true, error } when the payload is
+  // malformed/unsupported and is quarantined, or { failed: true, error } for non-usable inputs.
+  // Malformed individual entries quarantine the entire payload — do not silently skip.
+  function processApiTradeListPayload(rawPayload, { endpoint = null, key = null } = {}) {
+    const keyFp = key ? computeApiKeyFingerprint(key) : null;
+    const perm = loadTradePermissionRecord();
+    const permState = perm?.state ?? null;
+    // No usable JSON was obtained → fail closed without quarantine.
+    if (rawPayload == null || typeof rawPayload !== 'object') {
+      return { failed: true, error: new Error('No usable list payload obtained.') };
+    }
+    // API error field present → upstream already handles; no quarantine for API-level errors.
+    if (rawPayload.error) {
+      return { failed: true, error: new Error(String(rawPayload.error?.error || rawPayload.error || 'API error')) };
+    }
+    // No trades field at all → malformed list response → quarantine.
+    if (!('trades' in rawPayload)) {
+      quarantineApiTrade(rawPayload, QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {
+        endpoint,
+        keyFingerprint: keyFp,
+        permissionValidationState: permState,
+        summary: 'Trades list response has no trades field.',
+        diagnostics: { shape: typeof rawPayload },
+      });
+      return { quarantined: true, error: new Error('Trades list response has no trades field.') };
+    }
+    const trades = rawPayload.trades;
+    // null is a valid empty-list form.
+    if (trades === null) return { candidates: [] };
+    // Determine the entry array: support array and ID-keyed-map forms.
+    let entries;
+    if (Array.isArray(trades)) {
+      entries = trades;
+    } else if (typeof trades === 'object') {
+      entries = Object.values(trades);
+    } else {
+      quarantineApiTrade(rawPayload, QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {
+        endpoint,
+        keyFingerprint: keyFp,
+        permissionValidationState: permState,
+        summary: `Trades list field has unsupported type: ${typeof trades}.`,
+      });
+      return { quarantined: true, error: new Error(`Trades list field has unsupported type: ${typeof trades}.`) };
+    }
+    if (entries.length === 0) return { candidates: [] };
+    const FINISHED = new Set(['accepted', 'finished', 'completed']);
+    const candidates = [];
+    for (const entry of entries) {
+      // Non-object or null entry is malformed — quarantine the entire payload.
+      if (!entry || typeof entry !== 'object') {
+        quarantineApiTrade(rawPayload, QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {
+          endpoint,
+          keyFingerprint: keyFp,
+          permissionValidationState: permState,
+          summary: 'Trades list contains a non-object entry.',
+        });
+        return { quarantined: true, error: new Error('Trades list contains a non-object entry.') };
+      }
+      // Entry normalization failure → malformed entry → quarantine the entire payload.
+      const normalized = normalizeApiTradeListEntry(entry);
+      if (!normalized) {
+        quarantineApiTrade(rawPayload, QUARANTINE_REASON.MALFORMED_LIST_RESPONSE, {
+          endpoint,
+          keyFingerprint: keyFp,
+          permissionValidationState: permState,
+          summary: 'Trades list entry failed normalization (missing or invalid ID).',
+        });
+        return { quarantined: true, error: new Error('Trades list entry failed normalization (missing or invalid ID).') };
+      }
+      // Filter to finished trades only; already-recorded trades are silently excluded.
+      if (!FINISHED.has((normalized.status || '').toLowerCase())) continue;
+      if (apiTradeAlreadyRecorded(normalized.id)) continue;
+      candidates.push(normalized);
+    }
+    return { candidates };
+  }
+
+  // Production semantic validation pipeline for a normalized trade detail.
+  // Resolves owner, builds stats, checks FIFO coverage, and quarantines on failure.
+  // Returns { stats, plan, canonicalFp, likelyDuplicates } on success, or { quarantined: true, error } on failure.
+  function processApiTradeSemanticValidation(detail, keyUserId, rawDetailPayload, { endpoint = null, key = null } = {}) {
+    const keyFp = key ? computeApiKeyFingerprint(key) : null;
+    const perm = loadTradePermissionRecord();
+    const permState = perm?.state ?? null;
+    try {
+      const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, keyUserId);
+      const stats = buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+      const plan = ledgerSalePlan(stats);
+      if (!plan.fullCoverage) {
+        const zeroFifo = plan.trackedQuantity === 0;
+        const msg = zeroFifo
+          ? 'None of the outgoing items are covered by open purchase lots.'
+          : `Only ${plan.trackedQuantity} of ${plan.requestedQuantity} outgoing item units are covered by open lots. Partial recording is not supported.`;
+        const reasonCode = zeroFifo ? QUARANTINE_REASON.ZERO_FIFO_COVERAGE : QUARANTINE_REASON.PARTIAL_FIFO_COVERAGE;
+        quarantineApiTrade(rawDetailPayload, reasonCode, {
+          endpoint,
+          apiTradeId: detail.id,
+          source: 'api-trade-recovery',
+          summary: msg,
+          keyFingerprint: keyFp,
+          permissionValidationState: permState,
+        });
+        return { quarantined: true, error: taggedError(msg, reasonCode) };
+      }
+      const canonicalFp = buildApiTradeCanonicalFingerprint(detail, stats);
+      if (apiTradeAlreadyRecorded(detail.id) || apiTradeCanonicalFingerprintRecorded(canonicalFp)) {
+        throw new Error(`Trade #${detail.id} has already been recorded (exact-ID or canonical-fingerprint match).`);
+      }
+      const likelyDuplicates = detectApiTradeLikelyManualDuplicate(stats);
+      return { stats, plan, canonicalFp, likelyDuplicates };
+    } catch (error) {
+      if (error.quarantineReasonCode) {
+        quarantineApiTrade(rawDetailPayload, error.quarantineReasonCode, {
+          endpoint,
+          apiTradeId: detail?.id ?? null,
+          source: 'api-trade-recovery',
+          summary: error.message,
+          keyFingerprint: keyFp,
+          permissionValidationState: permState,
+        });
+        return { quarantined: true, error };
+      }
+      return { failed: true, error };
     }
   }
 
@@ -11244,7 +11425,16 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         return;
       }
       if (!listResponse.ok || listPayload?.error) throw new Error(apiErrorMessage(listPayload, listResponse));
-      candidates = filterApiTradeCandidates(listPayload);
+      // Route through the production list-payload quarantine pipeline.
+      const listResult = processApiTradeListPayload(listPayload, { endpoint: listUrl.href, key });
+      if (listResult.quarantined) {
+        renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">Trades list payload was quarantined: ${escapeHtml(listResult.error?.message || 'Malformed response')}. Raw payload retained for diagnostics.</div>`);
+        return;
+      }
+      if (listResult.failed) {
+        throw listResult.error || new Error('Failed to process trades list.');
+      }
+      candidates = listResult.candidates;
     } catch (error) {
       renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Failed to load trades: ${escapeHtml(error?.message || 'Unknown error')}</div>`);
       return;
@@ -11614,7 +11804,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }
   }
 
-  function handleApiTradeRecoveryConfirm(apiTradeId) {
+  async function handleApiTradeRecoveryConfirm(apiTradeId) {
     const overlay = document.getElementById(APP.apiTradeRecoveryOverlayId);
     if (!overlay) return;
     const stats = overlay._tsimmApiTradePendingStats;
@@ -11624,19 +11814,26 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return;
     }
 
-    // Permission gate: synchronous check against persisted validation record.
-    // No stale review or direct handler invocation may bypass this gate.
+    // Fresh permission gate: re-validate immediately before invoking the transaction.
+    // If the stored record is absent, stale, or mismatched, run endpoint validation now.
+    // Proceed only if the resulting record is fully valid; otherwise fail closed.
     const key = currentApiKey();
-    const permRec = loadTradePermissionRecord();
+    let permRec = loadTradePermissionRecord();
     if (!isPermissionRecordValid(permRec, key)) {
-      const msg = !permRec || permRec.state !== 'validated'
-        ? 'Trade endpoint permission is not validated. Reopen the recovery dialog to re-validate.'
-        : !isPermissionRecordFresh(permRec)
-          ? 'Permission validation is stale. Reopen the recovery dialog to re-validate.'
-          : 'API key has changed since validation. Reopen the recovery dialog.';
-      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(msg)}</div>
-        <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
-      return;
+      // Disable the confirm button during revalidation to prevent double-submission.
+      const confirmBtn = overlay.querySelector?.('[data-tsimm-action="api-trade-recovery-confirm"]');
+      if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.setAttribute('aria-disabled', 'true'); }
+      renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">Revalidating trade endpoint permission…</div>');
+      const newState = await resolveAndValidateTradePermission(key);
+      permRec = loadTradePermissionRecord();
+      if (!isPermissionRecordValid(permRec, key)) {
+        const msg = newState === 'insufficient'
+          ? 'Trade endpoint permission is insufficient. Confirmation is blocked.'
+          : 'Trade endpoint permission could not be re-confirmed. Confirmation is blocked.';
+        renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(msg)}</div>
+          <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
+        return;
+      }
     }
 
     // Pass soldAt through stats so the transaction uses the API completion time.
@@ -13921,6 +14118,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       QUARANTINE_REASON,
       taggedError,
       computeApiKeyFingerprint,
+      computePayloadFnv32,
+      normalizeTradePermissionRecord,
       validateApiTradeEndpointPermission,
       saveTradePermissionRecord,
       loadTradePermissionRecord,
@@ -13930,7 +14129,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       invalidateTradePermission,
       resolveAndValidateTradePermission,
       maybeScheduleStartupPermissionValidation,
+      _resetStartupGuard: () => { _startupPermissionPendingKey = null; },
       processApiTradeDetailPayload,
+      processApiTradeListPayload,
+      processApiTradeSemanticValidation,
       isAuthorizationFailure,
       handleApiTradeRecoveryConfirm,
     };
