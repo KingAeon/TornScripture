@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.34
+// @version      0.19.35
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.34' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.34' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.35' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.35' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.34
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.35
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -343,7 +343,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.34',
+    version: '0.19.35',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -3557,10 +3557,12 @@
     sales.sort((a, b) => Date.parse(b.soldAt || '') - Date.parse(a.soldAt || ''));
     const quarantinedTrades = Array.isArray(raw?.quarantinedTrades)
       ? raw.quarantinedTrades
-          .filter((q) => q && typeof q === 'object'
-            && normalizeWhitespace(q.id)
-            && normalizeWhitespace(q.reasonCode))
-          .map((q) => ({ ...q, schemaVersion: 1 }))
+          .filter((q) => q && typeof q === 'object')
+          .map((q) => {
+            const valid = normalizeWhitespace(q.id) && normalizeWhitespace(q.reasonCode);
+            // Malformed quarantine records are retained in a diagnosable form rather than silently discarded.
+            return valid ? { ...q, schemaVersion: 1 } : { ...q, schemaVersion: 1, _malformed: true };
+          })
       : [];
     return {
       schema: 'tornscripture-imm-ledger',
@@ -3952,6 +3954,9 @@
       if (!q || typeof q !== 'object') {
         addIssue('quarantine-malformed', qId, 'Quarantined trade record is malformed.');
         return;
+      }
+      if (q._malformed) {
+        addIssue('quarantine-malformed', qId, 'Quarantined trade record was retained in diagnosable form (missing id or reasonCode).');
       }
       if (!normalizeWhitespace(q.reasonCode)) {
         addIssue('quarantine-missing-reason', qId, 'Quarantined trade record has no reason code.');
@@ -10656,6 +10661,51 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   // === API Trade Recovery ===
 
+  // Stable reason codes for quarantine records. Always use these constants;
+  // do not scatter arbitrary strings through handlers.
+  const QUARANTINE_REASON = Object.freeze({
+    MALFORMED_LIST_RESPONSE: 'malformed-list-response',
+    MALFORMED_DETAIL_RESPONSE: 'malformed-detail-response',
+    TRADE_ID_MISMATCH: 'trade-id-mismatch',
+    MISSING_PARTICIPANT: 'missing-participant',
+    MISSING_MONEY: 'missing-money',
+    MISSING_ITEMS: 'missing-items',
+    INVALID_ITEM_QUANTITY: 'invalid-item-quantity',
+    UNSUPPORTED_POINTS: 'unsupported-points',
+    UNSUPPORTED_BARTER: 'unsupported-barter',
+    AMBIGUOUS_OWNER: 'ambiguous-owner',
+    CATALOG_ID_NAME_CONFLICT: 'catalog-id-name-conflict',
+    UNKNOWN_CATALOG_ITEM_ID: 'unknown-catalog-item-id',
+    INVALID_NET_PROCEEDS: 'invalid-net-proceeds',
+    ZERO_FIFO_COVERAGE: 'zero-fifo-coverage',
+    PARTIAL_FIFO_COVERAGE: 'partial-fifo-coverage',
+  });
+
+  // Permission validation constants.
+  const PERMISSION_STALE_MS = 30 * 60 * 1000; // 30 minutes
+  const PERMISSION_SCHEMA_MARKER = 'v2-user-trades';
+
+  // Produce a deterministic non-reversible fingerprint of an API key.
+  // Uses FNV-1a 32-bit with length suffix — suitable only for detecting key changes.
+  // Never logs or exposes the raw key.
+  function computeApiKeyFingerprint(key) {
+    if (!key) return null;
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < key.length; i++) {
+      h ^= key.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return `kfp-${h.toString(16).padStart(8, '0')}-${key.length}`;
+  }
+
+  // Create an Error tagged with a quarantine reason code so catch blocks can
+  // route the payload to quarantine without re-inspecting the message text.
+  function taggedError(message, reasonCode) {
+    const err = new Error(message);
+    err.quarantineReasonCode = reasonCode;
+    return err;
+  }
+
   function normalizeApiTradeListEntry(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const id = Math.max(0, Math.floor(Number(raw.id ?? raw.trade_id ?? 0) || 0));
@@ -10697,46 +10747,46 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function normalizeApiTradeParticipant(raw, label) {
-    if (!raw || typeof raw !== 'object') throw new Error(`${label} is missing or malformed.`);
+    if (!raw || typeof raw !== 'object') throw taggedError(`${label} is missing or malformed.`, QUARANTINE_REASON.MISSING_PARTICIPANT);
     const userId = Math.max(0, Math.floor(
       Number(raw.user_id ?? raw.id ?? raw.player_id ?? 0) || 0
     ));
-    if (userId <= 0) throw new Error(`${label} has no valid Torn ID.`);
+    if (userId <= 0) throw taggedError(`${label} has no valid Torn ID.`, QUARANTINE_REASON.MISSING_PARTICIPANT);
     const name = normalizeWhitespace(raw.name ?? raw.player_name ?? '');
     // Unsupported non-item assets (e.g. points) must be rejected, not silently ignored.
     if ('points' in raw && Number(raw.points) > 0) {
-      throw new Error(`${label} includes points (${raw.points}). Points transfers are not supported; only cash-for-items sales can be recovered.`);
+      throw taggedError(`${label} includes points (${raw.points}). Points transfers are not supported; only cash-for-items sales can be recovered.`, QUARANTINE_REASON.UNSUPPORTED_POINTS);
     }
     // Money field must be explicitly present; do not default to zero.
     const moneyKey = 'money' in raw ? 'money' : ('money_offer' in raw ? 'money_offer' : ('cash' in raw ? 'cash' : null));
     if (moneyKey === null) {
-      throw new Error(`${label} has no money field. Cannot determine cash contribution.`);
+      throw taggedError(`${label} has no money field. Cannot determine cash contribution.`, QUARANTINE_REASON.MISSING_MONEY);
     }
     const moneyRaw = raw[moneyKey];
     const money = Number(moneyRaw);
     if (!Number.isFinite(money) || money < 0) {
-      throw new Error(`${label} money value is invalid: ${moneyRaw}`);
+      throw taggedError(`${label} money value is invalid: ${moneyRaw}`, QUARANTINE_REASON.MISSING_MONEY);
     }
     // Items field must be explicitly present and an array; do not default to empty.
     const itemsKey = 'items' in raw ? 'items' : ('items_offered' in raw ? 'items_offered' : null);
     if (itemsKey === null) {
-      throw new Error(`${label} has no items field. Cannot determine trade contents.`);
+      throw taggedError(`${label} has no items field. Cannot determine trade contents.`, QUARANTINE_REASON.MISSING_ITEMS);
     }
     const rawItems = raw[itemsKey];
-    if (!Array.isArray(rawItems)) throw new Error(`${label} items field is not an array.`);
+    if (!Array.isArray(rawItems)) throw taggedError(`${label} items field is not an array.`, QUARANTINE_REASON.MISSING_ITEMS);
     const items = [];
     for (const entry of rawItems) {
-      if (!entry || typeof entry !== 'object') throw new Error(`${label} items contain a malformed entry.`);
+      if (!entry || typeof entry !== 'object') throw taggedError(`${label} items contain a malformed entry.`, QUARANTINE_REASON.MISSING_ITEMS);
       const itemId = Math.max(0, Math.floor(Number(entry.id ?? entry.item_id ?? 0) || 0));
-      if (itemId <= 0) throw new Error(`${label} item entry has no valid item ID.`);
+      if (itemId <= 0) throw taggedError(`${label} item entry has no valid item ID.`, QUARANTINE_REASON.MISSING_ITEMS);
       // Quantity must be explicitly present; do not default to 1.
       if (!('quantity' in entry)) {
-        throw new Error(`${label} item ID ${itemId} has no quantity field. Cannot determine trade contents.`);
+        throw taggedError(`${label} item ID ${itemId} has no quantity field. Cannot determine trade contents.`, QUARANTINE_REASON.INVALID_ITEM_QUANTITY);
       }
       const quantityRaw = entry.quantity;
       const quantity = Math.floor(Number(quantityRaw));
       if (!Number.isFinite(quantity) || quantity <= 0) {
-        throw new Error(`${label} item ID ${itemId} has invalid or zero quantity: ${quantityRaw}`);
+        throw taggedError(`${label} item ID ${itemId} has invalid or zero quantity: ${quantityRaw}`, QUARANTINE_REASON.INVALID_ITEM_QUANTITY);
       }
       items.push({ id: itemId, name: normalizeWhitespace(entry.name ?? ''), quantity });
     }
@@ -10745,23 +10795,23 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function normalizeApiTradeDetail(raw, expectedId = null) {
     const source = (raw?.trade && typeof raw.trade === 'object') ? raw.trade : raw;
-    if (!source || typeof source !== 'object') throw new Error('Trade detail response is missing or malformed.');
+    if (!source || typeof source !== 'object') throw taggedError('Trade detail response is missing or malformed.', QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
     const id = Math.max(0, Math.floor(Number(source.id ?? 0) || 0));
-    if (id <= 0) throw new Error('Trade detail response has no valid trade ID.');
+    if (id <= 0) throw taggedError('Trade detail response has no valid trade ID.', QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
     // The detail-response trade ID must exactly match the candidate's ID.
     if (expectedId !== null && id !== Math.max(0, Math.floor(Number(expectedId) || 0))) {
-      throw new Error(`Trade detail ID mismatch: expected ${expectedId} but detail response contains ID ${id}. Cannot safely proceed.`);
+      throw taggedError(`Trade detail ID mismatch: expected ${expectedId} but detail response contains ID ${id}. Cannot safely proceed.`, QUARANTINE_REASON.TRADE_ID_MISMATCH);
     }
     const status = normalizeWhitespace(source.status ?? '');
     const FINISHED = new Set(['accepted', 'finished', 'completed']);
     if (!FINISHED.has(status.toLowerCase())) {
-      throw new Error(`Trade ${id} is not finished (status: ${status || 'unknown'}).`);
+      throw taggedError(`Trade ${id} is not finished (status: ${status || 'unknown'}).`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
     }
     const tsRaw = source.completed_at ?? source.timestamp_accepted ?? source.timestamp ?? 0;
     const completedAtMs = Number(tsRaw) * 1000;
     const completedAt = Number.isFinite(completedAtMs) && completedAtMs > 0
       ? new Date(completedAtMs).toISOString() : null;
-    if (!completedAt) throw new Error(`Trade ${id} has no valid completion timestamp.`);
+    if (!completedAt) throw taggedError(`Trade ${id} has no valid completion timestamp.`, QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE);
     const initiator = normalizeApiTradeParticipant(source.initiator, `trade ${id} initiator`);
     const recipient = normalizeApiTradeParticipant(source.recipient, `trade ${id} recipient`);
     return { id, status, completedAt, initiator, recipient };
@@ -10769,14 +10819,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function resolveApiTradeOwner(detail, keyUserId) {
     const keyId = Math.max(0, Math.floor(Number(keyUserId) || 0));
-    if (keyId <= 0) throw new Error('API key owner identity is unknown. Verify GOBLIN GOD key permissions first.');
+    if (keyId <= 0) throw taggedError('API key owner identity is unknown. Verify GOBLIN GOD key permissions first.', QUARANTINE_REASON.AMBIGUOUS_OWNER);
     if (detail.initiator.userId === keyId) {
       return { ownerSide: detail.initiator, counterpartySide: detail.recipient };
     }
     if (detail.recipient.userId === keyId) {
       return { ownerSide: detail.recipient, counterpartySide: detail.initiator };
     }
-    throw new Error(`API key owner (ID ${keyId}) does not appear in trade ${detail.id}. Ownership is ambiguous.`);
+    throw taggedError(`API key owner (ID ${keyId}) does not appear in trade ${detail.id}. Ownership is ambiguous.`, QUARANTINE_REASON.AMBIGUOUS_OWNER);
   }
 
   function aggregateApiTradeOwnerItems(items) {
@@ -10800,10 +10850,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function buildApiTradeSaleStats(detail, ownerSide, counterpartySide) {
     if (ownerSide.items.length === 0) {
-      throw new Error('Owner has no outgoing items in this trade. This is not a supported sale.');
+      throw taggedError('Owner has no outgoing items in this trade. This is not a supported sale.', QUARANTINE_REASON.MISSING_ITEMS);
     }
     if (counterpartySide.items.length > 0) {
-      throw new Error('Counterparty contributed items. Barter trades are not supported; only cash-for-items sales can be recovered here.');
+      throw taggedError('Counterparty contributed items. Barter trades are not supported; only cash-for-items sales can be recovered here.', QUARANTINE_REASON.UNSUPPORTED_BARTER);
     }
     const aggregated = aggregateApiTradeOwnerItems(ownerSide.items);
     const tradeItems = [];
@@ -10812,14 +10862,20 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       const byNameOnly = catalogItemFor(item.name);
       // Conflicting ID vs name catalog matches must fail closed.
       if (byId && byNameOnly && byId.id !== byNameOnly.id) {
-        throw new Error(
+        throw taggedError(
           `Item "${item.name}" (ID ${item.id}) catalog conflict: ID resolves to "${byId.name}" (${byId.id}) but name resolves to "${byNameOnly.name}" (${byNameOnly.id}). Failing closed.`,
+          QUARANTINE_REASON.CATALOG_ID_NAME_CONFLICT,
         );
       }
-      const catalogItem = byId ?? byNameOnly;
-      if (!catalogItem) {
-        throw new Error(`Item "${item.name}" (ID ${item.id}) is not in the catalog. Sync the item catalog first.`);
+      // An API item carrying an ID must resolve through that exact catalog ID.
+      // The name may be used for validation only — it must not substitute for an unknown ID.
+      if (!byId) {
+        throw taggedError(
+          `Item "${item.name}" (ID ${item.id}) is not in the catalog by ID. Sync the item catalog first. Name-only lookup is not permitted.`,
+          QUARANTINE_REASON.UNKNOWN_CATALOG_ITEM_ID,
+        );
       }
+      const catalogItem = byId;
       const marketPrice = Math.max(0, Number(catalogItem.marketPrice) || 0);
       tradeItems.push({
         itemId: catalogItem.id,
@@ -10835,10 +10891,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const ownerCash = ownerSide.money;
     const netCash = counterpartyCash - ownerCash;
     if (counterpartyCash === 0 && ownerCash === 0) {
-      throw new Error('No cash contribution found in this trade. Net proceeds cannot be determined.');
+      throw taggedError('No cash contribution found in this trade. Net proceeds cannot be determined.', QUARANTINE_REASON.INVALID_NET_PROCEEDS);
     }
     if (netCash <= 0) {
-      throw new Error(`Net proceeds are zero or negative (counterparty cash ${counterpartyCash}, owner cash ${ownerCash}). Cannot record.`);
+      throw taggedError(`Net proceeds are zero or negative (counterparty cash ${counterpartyCash}, owner cash ${ownerCash}). Cannot record.`, QUARANTINE_REASON.INVALID_NET_PROCEEDS);
     }
     const totalMarket = tradeItems.reduce((sum, item) => sum + item.marketTotal, 0);
     for (const item of tradeItems) {
@@ -10925,19 +10981,34 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     });
   }
 
-  function quarantineApiTrade(rawPayload, reasonCode, { endpoint = null, apiTradeId = null, source = 'api-trade-recovery' } = {}) {
+  function quarantineApiTrade(rawPayload, reasonCode, { endpoint = null, apiTradeId = null, source = 'api-trade-recovery', summary = null, keyFingerprint = null, permissionValidationState = null, diagnostics = null } = {}) {
+    const normalizedReason = String(reasonCode || 'unknown');
+    if (!Array.isArray(state.ledger.quarantinedTrades)) state.ledger.quarantinedTrades = [];
+    // Deterministic deduplication: same apiTradeId + reasonCode must not create an unlimited pile.
+    // A new record with different diagnostics or payload supersedes the existing one.
+    if (apiTradeId !== null) {
+      const dupIdx = state.ledger.quarantinedTrades.findIndex(
+        (q) => Number(q.apiTradeId) === Number(apiTradeId) && q.reasonCode === normalizedReason,
+      );
+      if (dupIdx !== -1) {
+        state.ledger.quarantinedTrades.splice(dupIdx, 1);
+      }
+    }
     const record = {
       id: createId('qtrade'),
       schemaVersion: 1,
-      reasonCode: String(reasonCode || 'unknown'),
-      rawPayload: rawPayload ?? null,
+      reasonCode: normalizedReason,
+      summary: summary ?? normalizedReason,
+      rawPayload: rawPayload != null ? JSON.parse(JSON.stringify(rawPayload)) : null,
       endpoint: endpoint ?? null,
       apiTradeId: apiTradeId ?? null,
       capturedAt: new Date().toISOString(),
       source,
+      keyFingerprint: keyFingerprint ?? null,
+      permissionValidationState: permissionValidationState ?? null,
+      diagnostics: diagnostics ?? null,
       validationState: 'rejected',
     };
-    if (!Array.isArray(state.ledger.quarantinedTrades)) state.ledger.quarantinedTrades = [];
     state.ledger.quarantinedTrades.unshift(record);
     saveLedger();
     return record;
@@ -10945,10 +11016,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   // Permission validation for the Torn v2 user/trades endpoint.
   // Returns one of: 'validated' | 'insufficient' | 'unavailable-or-inconclusive'.
-  // Torn API error code 16 indicates insufficient access level.
-  // Any other failure (network error, malformed response, timeout) is inconclusive.
+  // Torn API error code 2 = Incorrect key, 16 = Access level too low → insufficient.
+  // Any other failure (network error, timeout, malformed response) is inconclusive.
+  // An HTTP 200 alone is not sufficient — the response shape is validated.
+  const VALIDATE_PERMISSION_TIMEOUT_MS = 10000;
   async function validateApiTradeEndpointPermission(key) {
     if (!key) return 'unavailable-or-inconclusive';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), VALIDATE_PERMISSION_TIMEOUT_MS);
     try {
       const url = new URL(APP.tradesUrl);
       url.searchParams.set('comment', 'TornScripture IMM permission validation');
@@ -10957,21 +11032,138 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
         credentials: 'omit',
         cache: 'no-store',
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       let payload;
       try { payload = await response.json(); } catch { return 'unavailable-or-inconclusive'; }
       if (!payload || typeof payload !== 'object') return 'unavailable-or-inconclusive';
       if (payload.error) {
         const code = Number(payload.error?.code ?? payload.error);
-        // Torn error code 2 = Incorrect key, 16 = Access level too low.
-        if (code === 16) return 'insufficient';
-        if (code === 2) return 'insufficient';
+        if (code === 2 || code === 16) return 'insufficient';
         return 'unavailable-or-inconclusive';
       }
-      if (response.ok) return 'validated';
+      // Validate supported response shape: must have a trades field (array, object, or null for empty).
+      if (!response.ok) return 'unavailable-or-inconclusive';
+      if (!('trades' in payload)) return 'unavailable-or-inconclusive';
+      const trades = payload.trades;
+      // Accept array, object (id-keyed map), or null/empty — all are supported list shapes.
+      if (trades !== null && !Array.isArray(trades) && typeof trades !== 'object') return 'unavailable-or-inconclusive';
+      return 'validated';
+    } catch (err) {
+      clearTimeout(timeoutId);
+      // AbortError covers both timeout-triggered aborts and signal-triggered aborts.
       return 'unavailable-or-inconclusive';
-    } catch {
-      return 'unavailable-or-inconclusive';
+    }
+  }
+
+  // Save a permission validation record to state.ledger (additive, backward-compatible).
+  // Never stores the raw API key — only the fingerprint.
+  function saveTradePermissionRecord(permissionState, key) {
+    const validStates = new Set(['validated', 'insufficient', 'unavailable-or-inconclusive']);
+    const normalizedState = validStates.has(permissionState) ? permissionState : 'unavailable-or-inconclusive';
+    state.ledger.tradePermission = {
+      state: normalizedState,
+      validatedAt: new Date().toISOString(),
+      keyFingerprint: computeApiKeyFingerprint(key),
+      endpoint: APP.tradesUrl,
+      schemaMarker: PERMISSION_SCHEMA_MARKER,
+    };
+    saveLedger();
+  }
+
+  function loadTradePermissionRecord() {
+    const rec = state.ledger.tradePermission;
+    if (!rec || typeof rec !== 'object') return null;
+    return rec;
+  }
+
+  function isPermissionRecordFresh(rec) {
+    if (!rec?.validatedAt) return false;
+    const age = Date.now() - Date.parse(rec.validatedAt);
+    return Number.isFinite(age) && age >= 0 && age < PERMISSION_STALE_MS;
+  }
+
+  function isPermissionRecordMatchingKey(rec, key) {
+    if (!rec?.keyFingerprint || !key) return false;
+    return rec.keyFingerprint === computeApiKeyFingerprint(key);
+  }
+
+  // Returns true only when the record is validated, fresh, and matches the current key.
+  function isPermissionRecordValid(rec, key) {
+    if (!rec || typeof rec !== 'object') return false;
+    if (rec.state !== 'validated') return false;
+    if (!isPermissionRecordFresh(rec)) return false;
+    if (!isPermissionRecordMatchingKey(rec, key)) return false;
+    return true;
+  }
+
+  function invalidateTradePermission() {
+    if (state.ledger.tradePermission) {
+      state.ledger.tradePermission = { ...state.ledger.tradePermission, state: 'unavailable-or-inconclusive' };
+    } else {
+      state.ledger.tradePermission = { state: 'unavailable-or-inconclusive', validatedAt: null, keyFingerprint: null, endpoint: APP.tradesUrl, schemaMarker: PERMISSION_SCHEMA_MARKER };
+    }
+    saveLedger();
+  }
+
+  // Run validation, save the result, and return the permission state string.
+  async function resolveAndValidateTradePermission(key) {
+    const permissionState = await validateApiTradeEndpointPermission(key);
+    saveTradePermissionRecord(permissionState, key);
+    return permissionState;
+  }
+
+  // Schedule one startup permission validation only when the stored record is absent,
+  // stale, malformed, or associated with a different key fingerprint.
+  // Repeated initialization must not schedule duplicate validations.
+  let _startupPermissionValidationScheduled = false;
+  function maybeScheduleStartupPermissionValidation() {
+    if (_startupPermissionValidationScheduled) return;
+    const key = currentApiKey();
+    if (!key) return;
+    const rec = loadTradePermissionRecord();
+    const needsValidation = !rec
+      || rec.state === undefined
+      || !isPermissionRecordFresh(rec)
+      || !isPermissionRecordMatchingKey(rec, key);
+    if (!needsValidation) return;
+    _startupPermissionValidationScheduled = true;
+    setTimeout(() => {
+      resolveAndValidateTradePermission(currentApiKey() || key).catch(() => {});
+    }, 200);
+  }
+
+  // Detect whether an API error payload or HTTP response signals an authorization failure.
+  function isAuthorizationFailure(payload, response) {
+    const code = Number(payload?.error?.code ?? payload?.error ?? 0);
+    if (code === 2 || code === 16) return true;
+    if (response && (response.status === 401 || response.status === 403)) return true;
+    return false;
+  }
+
+  // Wire quarantine routing into the detail payload validation pipeline.
+  // On success returns { detail }.
+  // On semantic validation failure: quarantines the raw payload and returns { quarantined: true, error }.
+  // On network/auth/HTTP failure: returns { failed: true, error } — no quarantine, no payload.
+  function processApiTradeDetailPayload(rawPayload, candidateId, { endpoint = null, key = null } = {}) {
+    const keyFp = key ? computeApiKeyFingerprint(key) : null;
+    const perm = loadTradePermissionRecord();
+    const permState = perm?.state ?? null;
+    try {
+      const detail = normalizeApiTradeDetail(rawPayload, candidateId);
+      return { detail };
+    } catch (err) {
+      const reasonCode = err.quarantineReasonCode || QUARANTINE_REASON.MALFORMED_DETAIL_RESPONSE;
+      quarantineApiTrade(rawPayload, reasonCode, {
+        endpoint,
+        apiTradeId: candidateId ?? null,
+        source: 'api-trade-recovery',
+        summary: err.message,
+        keyFingerprint: keyFp,
+        permissionValidationState: permState,
+      });
+      return { quarantined: true, error: err };
     }
   }
 
@@ -11021,8 +11213,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     // Positive endpoint-specific permission validation is required before recovery proceeds.
     // Validation is always run fresh here; result is stored and must be 'validated' to continue.
     renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">Validating trade endpoint permission…</div>');
-    const permissionState = await validateApiTradeEndpointPermission(key);
-    state.ledger.tradePermission = { state: permissionState, validatedAt: new Date().toISOString() };
+    const permissionState = await resolveAndValidateTradePermission(key);
     if (permissionState !== 'validated') {
       const msg = permissionState === 'insufficient'
         ? 'API key is invalid or does not have trade endpoint access. A GOBLIN GOD key with trades permission is required.'
@@ -11044,6 +11235,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       let listPayload;
       try { listPayload = await listResponse.json(); } catch {
         throw new Error(`Trades list returned unreadable data (${listResponse.status}).`);
+      }
+      // Authorization failure on list: invalidate, re-validate, then fail closed.
+      if (isAuthorizationFailure(listPayload, listResponse)) {
+        invalidateTradePermission();
+        resolveAndValidateTradePermission(key).catch(() => {});
+        renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty" style="color:#e07070">Authorization failure loading trades list. Permission invalidated. Reopen to retry after validation succeeds.</div>');
+        return;
       }
       if (!listResponse.ok || listPayload?.error) throw new Error(apiErrorMessage(listPayload, listResponse));
       candidates = filterApiTradeCandidates(listPayload);
@@ -11102,24 +11300,56 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
     renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Loading trade #${escapeHtml(String(candidate.id))} details…</div>`);
 
+    const detailEndpoint = `${APP.tradeDetailUrlBase}${candidate.id}/trade`;
+    const keyFp = computeApiKeyFingerprint(key);
+
     // Step 3: Fetch full trade detail
     let detail;
+    let detailPayload;
+    let detailResponse;
     try {
-      const detailUrl = new URL(`${APP.tradeDetailUrlBase}${candidate.id}/trade`);
+      const detailUrl = new URL(detailEndpoint);
       detailUrl.searchParams.set('comment', 'TornScripture IMM API trade recovery');
-      const detailResponse = await fetch(detailUrl.href, {
+      detailResponse = await fetch(detailUrl.href, {
         method: 'GET',
         headers: { Accept: 'application/json', Authorization: `ApiKey ${key}` },
         credentials: 'omit',
         cache: 'no-store',
       });
-      let detailPayload;
       try { detailPayload = await detailResponse.json(); } catch {
-        throw new Error(`Trade detail returned unreadable data (${detailResponse.status}).`);
+        // Unreadable response: not a payload-level failure, no quarantine.
+        renderApiTradeRecovery(overlay, `
+          <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: Trade detail returned unreadable data (${detailResponse.status}).</div>
+          <div class="tsimm-ledger-actions">
+            <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+          </div>
+        `);
+        return;
       }
-      if (!detailResponse.ok || detailPayload?.error) throw new Error(apiErrorMessage(detailPayload, detailResponse));
-      detail = normalizeApiTradeDetail(detailPayload, candidate.id);
+      // Authorization failure on detail: invalidate, re-validate, then fail closed.
+      if (isAuthorizationFailure(detailPayload, detailResponse)) {
+        invalidateTradePermission();
+        resolveAndValidateTradePermission(key).catch(() => {});
+        renderApiTradeRecovery(overlay, `
+          <div class="tsimm-ledger-empty" style="color:#e07070">Authorization failure loading trade #${escapeHtml(String(candidate.id))} detail. Permission invalidated. Reopen to retry after validation succeeds.</div>
+          <div class="tsimm-ledger-actions">
+            <button type="button" data-tsimm-action="api-trade-recovery-close">Close</button>
+          </div>
+        `);
+        return;
+      }
+      // Non-auth HTTP/API errors: no payload to quarantine.
+      if (!detailResponse.ok || detailPayload?.error) {
+        renderApiTradeRecovery(overlay, `
+          <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: ${escapeHtml(apiErrorMessage(detailPayload, detailResponse))}</div>
+          <div class="tsimm-ledger-actions">
+            <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+          </div>
+        `);
+        return;
+      }
     } catch (error) {
+      // Network failure: no payload.
       renderApiTradeRecovery(overlay, `
         <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: ${escapeHtml(error?.message || 'Unknown error')}</div>
         <div class="tsimm-ledger-actions">
@@ -11129,19 +11359,51 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return;
     }
 
+    // We have a valid HTTP success payload: route through processApiTradeDetailPayload for quarantine.
+    const detailResult = processApiTradeDetailPayload(detailPayload, candidate.id, {
+      endpoint: detailEndpoint, key,
+    });
+    if (detailResult.quarantined) {
+      renderApiTradeRecovery(overlay, `
+        <div class="tsimm-ledger-empty" style="color:#e07070">Trade #${escapeHtml(String(candidate.id))} detail payload was quarantined: ${escapeHtml(detailResult.error?.message || 'Validation failed')}. Raw payload retained for diagnostics.</div>
+        <div class="tsimm-ledger-actions">
+          <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+        </div>
+      `);
+      return;
+    }
+    detail = detailResult.detail;
+
     if (!overlay.isConnected) return;
 
-    // Step 4: Resolve participants and build stats
+    // Step 4: Resolve participants and build stats; semantic failures here also quarantine.
     let stats, plan, likelyDuplicates;
     try {
       const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, keyUserId);
       stats = buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
       plan = ledgerSalePlan(stats);
       if (!plan.fullCoverage) {
-        const msg = plan.trackedQuantity === 0
+        const zeroFifo = plan.trackedQuantity === 0;
+        const msg = zeroFifo
           ? 'None of the outgoing items are covered by open purchase lots.'
           : `Only ${formatInteger(plan.trackedQuantity)} of ${formatInteger(plan.requestedQuantity)} outgoing item units are covered by open lots. Partial recording is not supported.`;
-        throw new Error(msg);
+        // FIFO coverage failures are quarantine-worthy: quarantine the normalized detail payload.
+        const reasonCode = zeroFifo ? QUARANTINE_REASON.ZERO_FIFO_COVERAGE : QUARANTINE_REASON.PARTIAL_FIFO_COVERAGE;
+        quarantineApiTrade(detailPayload, reasonCode, {
+          endpoint: detailEndpoint,
+          apiTradeId: detail.id,
+          source: 'api-trade-recovery',
+          summary: msg,
+          keyFingerprint: keyFp,
+          permissionValidationState: loadTradePermissionRecord()?.state ?? null,
+        });
+        renderApiTradeRecovery(overlay, `
+          <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(msg)} Trade payload quarantined for diagnostics.</div>
+          <div class="tsimm-ledger-actions">
+            <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+          </div>
+        `);
+        return;
       }
       // Check exact-ID and canonical fingerprint before showing review.
       const canonicalFp = buildApiTradeCanonicalFingerprint(detail, stats);
@@ -11150,6 +11412,24 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       }
       likelyDuplicates = detectApiTradeLikelyManualDuplicate(stats);
     } catch (error) {
+      // Semantic failures with a quarantineReasonCode go to quarantine.
+      if (error.quarantineReasonCode) {
+        quarantineApiTrade(detailPayload, error.quarantineReasonCode, {
+          endpoint: detailEndpoint,
+          apiTradeId: detail.id,
+          source: 'api-trade-recovery',
+          summary: error.message,
+          keyFingerprint: keyFp,
+          permissionValidationState: loadTradePermissionRecord()?.state ?? null,
+        });
+        renderApiTradeRecovery(overlay, `
+          <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(error.message || 'Trade cannot be recovered.')} Payload quarantined.</div>
+          <div class="tsimm-ledger-actions">
+            <button type="button" data-tsimm-action="api-trade-recovery-back">← Back to list</button>
+          </div>
+        `);
+        return;
+      }
       renderApiTradeRecovery(overlay, `
         <div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(error?.message || 'Trade cannot be recovered.')}</div>
         <div class="tsimm-ledger-actions">
@@ -11341,6 +11621,21 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const detail = overlay._tsimmApiTradePendingDetail;
     if (!stats || !detail || String(detail.id) !== String(apiTradeId)) {
       renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty" style="color:#e07070">Review data is stale or mismatched. Please start over.</div>');
+      return;
+    }
+
+    // Permission gate: synchronous check against persisted validation record.
+    // No stale review or direct handler invocation may bypass this gate.
+    const key = currentApiKey();
+    const permRec = loadTradePermissionRecord();
+    if (!isPermissionRecordValid(permRec, key)) {
+      const msg = !permRec || permRec.state !== 'validated'
+        ? 'Trade endpoint permission is not validated. Reopen the recovery dialog to re-validate.'
+        : !isPermissionRecordFresh(permRec)
+          ? 'Permission validation is stale. Reopen the recovery dialog to re-validate.'
+          : 'API key has changed since validation. Reopen the recovery dialog.';
+      renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty" style="color:#e07070">${escapeHtml(msg)}</div>
+        <div class="tsimm-ledger-actions"><button type="button" data-tsimm-action="api-trade-recovery-close">Close</button></div>`);
       return;
     }
 
@@ -13590,6 +13885,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     });
     scheduleScan(120);
     maybeScheduleTraderPriceRecapture();
+    maybeScheduleStartupPermissionValidation();
   }
 
   if (globalThis.__TS_IMM_TEST_MODE__) {
@@ -13621,6 +13917,22 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       applyPlanAllocations,
       persistPendingTradeSaleAfterSale,
       executeApiTradeRecoveryTransaction,
+      // Packet 2 exports
+      QUARANTINE_REASON,
+      taggedError,
+      computeApiKeyFingerprint,
+      validateApiTradeEndpointPermission,
+      saveTradePermissionRecord,
+      loadTradePermissionRecord,
+      isPermissionRecordFresh,
+      isPermissionRecordMatchingKey,
+      isPermissionRecordValid,
+      invalidateTradePermission,
+      resolveAndValidateTradePermission,
+      maybeScheduleStartupPermissionValidation,
+      processApiTradeDetailPayload,
+      isAuthorizationFailure,
+      handleApiTradeRecoveryConfirm,
     };
     return;
   }
