@@ -18,12 +18,10 @@ jobs:
           ref: agent/v0.19.36-startup-repair
           fetch-depth: 0
 
-      - name: Apply narrowly-scoped startup repair
-        id: patch
+      - name: Validate repaired startup state
         shell: python
         run: |
           from pathlib import Path
-          import os
 
           path = Path('TornScripture-Item-Market-Margin.user.js')
           text = path.read_text(encoding='utf-8')
@@ -31,69 +29,26 @@ jobs:
           old = "if (!VALID_PERMISSION_STATES.has(st)) return null;"
           new = "if (!['validated', 'insufficient', 'unavailable-or-inconclusive'].includes(st)) return null;"
 
-          old_count = text.count(old)
-          v35_count = text.count('0.19.35')
-          v36_count = text.count('0.19.36')
+          if text.count(old) != 0:
+              raise SystemExit('SAFETY STOP: startup TDZ dependency still exists')
+          if text.count(new) != 1:
+              raise SystemExit(f'SAFETY STOP: expected exactly one repaired permission-state check, found {text.count(new)}')
+          if text.count('0.19.35') != 0:
+              raise SystemExit('SAFETY STOP: stale v0.19.35 marker remains')
+          if text.count('0.19.36') != 5:
+              raise SystemExit(f'SAFETY STOP: expected exactly five v0.19.36 markers, found {text.count("0.19.36")}')
 
-          # Second run after the repair commit: prove the expected repaired state and exit without another commit.
-          if old_count == 0 and v35_count == 0 and v36_count == 5:
-              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
-                  out.write('changed=false\n')
-              raise SystemExit(0)
-
-          if old_count != 1:
-              raise SystemExit(f'SAFETY STOP: expected exactly one startup TDZ dependency, found {old_count}')
-          if v35_count != 5:
-              raise SystemExit(f'SAFETY STOP: expected exactly five v0.19.35 markers, found {v35_count}')
-          if v36_count != 0:
-              raise SystemExit(f'SAFETY STOP: unexpected pre-existing v0.19.36 markers: {v36_count}')
-
-          text = text.replace(old, new)
-          text = text.replace('0.19.35', '0.19.36')
-          path.write_text(text, encoding='utf-8', newline='\n')
-
-          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
-              out.write('changed=true\n')
-
-      - name: Verify exact userscript diff scope
-        if: steps.patch.outputs.changed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --check
-          git diff -- TornScripture-Item-Market-Margin.user.js
-
-          changed_files="$(git diff --name-only)"
-          test "$changed_files" = "TornScripture-Item-Market-Margin.user.js"
-
-          test "$(git diff -- TornScripture-Item-Market-Margin.user.js | grep -c '^-.*0\.19\.35')" -eq 5
-          test "$(git diff -- TornScripture-Item-Market-Margin.user.js | grep -c '^+.*0\.19\.36')" -eq 5
-          test "$(git diff -- TornScripture-Item-Market-Margin.user.js | grep -c '^-.*VALID_PERMISSION_STATES\.has(st)')" -eq 1
-          test "$(git diff -- TornScripture-Item-Market-Margin.user.js | grep -c "^+.*\['validated', 'insufficient', 'unavailable-or-inconclusive'\]\.includes(st)")" -eq 1
+      - name: Diff hygiene
+        run: git diff --check HEAD^ HEAD || git diff --check
 
       - name: Node syntax
-        if: steps.patch.outputs.changed == 'true'
         run: node --check TornScripture-Item-Market-Margin.user.js
 
       - name: Persisted-permission startup regression
-        if: steps.patch.outputs.changed == 'true'
         run: node --test tests/imm-startup-persisted-permission.test.js
 
       - name: API recovery regression
-        if: steps.patch.outputs.changed == 'true'
         run: node --test tests/imm-api-trade-recovery.test.js
 
       - name: Protected regressions
-        if: steps.patch.outputs.changed == 'true'
         run: node --test tests/imm-carousel-zero-price-mismatch.test.js tests/imm-carousel-identity-precedence.test.js tests/inventory-sales-core.test.js
-
-      - name: Commit repaired userscript
-        if: steps.patch.outputs.changed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add TornScripture-Item-Market-Margin.user.js
-          git commit -m "fix(imm): prevent persisted permission startup crash in v0.19.36"
-          git push origin HEAD:agent/v0.19.36-startup-repair
