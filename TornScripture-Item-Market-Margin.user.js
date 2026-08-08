@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.35
+// @version      0.19.36
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.35' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.35' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.36' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.36' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.35
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.36
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -343,7 +343,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.35',
+    version: '0.19.36',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -10702,7 +10702,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   function normalizeTradePermissionRecord(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const st = String(raw.state || '');
-    if (!VALID_PERMISSION_STATES.has(st)) return null;
+    if (!['validated', 'insufficient', 'unavailable-or-inconclusive'].includes(st)) return null;
     const validatedAt = raw.validatedAt ? String(raw.validatedAt) : null;
     const keyFingerprint = raw.keyFingerprint ? String(raw.keyFingerprint) : null;
     const endpoint = raw.endpoint ? String(raw.endpoint) : null;
