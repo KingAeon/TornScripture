@@ -266,3 +266,88 @@ The backend has now passed the basic contract, normal reload, Torn navigation, d
 It may proceed to Phase F background/tab-sleep behavior. Phase H remains separately available later if useful.
 
 No production TornScriptures runtime change is authorized by this result.
+
+## Run 005 — Phase G in-place userscript update
+
+**Result:** PASS
+
+**Probe transition:** `0.1.0` → `0.1.1`
+
+**Full preserved evidence:** [`evidence/TORN-PDA-STORAGE-RUN-005-PHASE-G.md`](evidence/TORN-PDA-STORAGE-RUN-005-PHASE-G.md)
+
+The existing persistence marker created under v0.1.0 remained readable and unchanged after TornPDA updated the same installed probe to v0.1.1. `PDA_storage` remained available and the updated probe established a TornPDA tab-state/lifecycle baseline.
+
+- marker ID preserved: `1786363793158-bi95tvi6`
+- first v0.1.1 load ID: `1786365475478-d9eda6xz`
+- baseline logical tab UID: `0b5906f5-dac5-45dc-9fe6-3aedb4472ecb`
+
+### Gate decision
+
+**Phase G: PASS.**
+
+Normal in-place userscript update did not destroy the tested TornPDA native-storage namespace.
+
+No production TornScriptures runtime change is authorized by this result.
+
+## Run 006 — Phase F background/rest-tab WebView recreation
+
+**Result:** PASS
+
+**Probe version:** `0.1.1`
+
+**Full preserved evidence:** [`evidence/TORN-PDA-STORAGE-RUN-006-PHASE-F.md`](evidence/TORN-PDA-STORAGE-RUN-006-PHASE-F.md)
+
+The owner returned a lifecycle report after the controlled multiple-tab/background/rest-tab sequence. The report showed the exact evidence pattern the v0.1.1 probe was designed to distinguish:
+
+- the original native persistence marker remained unchanged
+- the logical probe tab UID remained unchanged
+- the userscript/page load ID changed
+- the same item page loaded again under the same logical tab identity
+- `PDA_storage` remained available after recovery
+
+Key before/after values:
+
+| Signal | Before recreation | After recreation |
+| --- | --- | --- |
+| logical tab UID | `0b5906f5-dac5-45dc-9fe6-3aedb4472ecb` | `0b5906f5-dac5-45dc-9fe6-3aedb4472ecb` |
+| URL | `https://www.torn.com/item.php` | `https://www.torn.com/item.php` |
+| load ID | `1786366359649-r97qu3ys` | `1786366483884-kdp9asjb` |
+| loaded at | `2026-08-10T12:52:39.666Z` | `2026-08-10T12:54:43.895Z` |
+| persistence marker | `1786363793158-bi95tvi6` | `1786363793158-bi95tvi6` |
+
+The changed load ID with a preserved logical tab UID is strong evidence that TornPDA recreated the page/userscript execution context while retaining the tab identity. The original `PDA_storage` marker surviving that transition supports the conclusion that native storage persists below the individual WebView/page execution lifecycle for this tested scenario.
+
+### Gate decision
+
+**Phase F: PASS.**
+
+## First discovery threshold reached
+
+Runs 001–006 now satisfy the protocol's first threshold for calling `PDA_storage` a **live-verified candidate backend for non-critical/reconstructible TornScriptures data on the owner's tested TornPDA environment**.
+
+Verified so far:
+
+- basic storage contract
+- 10 MiB default quota observed live
+- tiny structured/batch operations
+- ordinary page reload
+- normal Torn navigation
+- script disable/re-enable
+- TornPDA force-stop/reopen
+- combined Android app-cache clear during the restart sequence
+- normal in-place userscript update
+- controlled WebView/userscript recreation while logical tab identity survived
+
+Still deliberately unresolved:
+
+- protocol-specific TornPDA browser-cache clear
+- larger-payload throughput and memory behavior
+- quota/error behavior
+- cross-origin/bridge availability relevant to external trader pages
+- export/import and device migration
+- desktop fallback behavior
+- corruption/recovery implications
+- production dataset ownership/classification
+- authoritative Black Ledger storage design
+
+Reaching this threshold authorizes **further storage-source-fit research only**. It does not authorize migration or production runtime changes.
