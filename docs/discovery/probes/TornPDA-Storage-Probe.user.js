@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TornScriptures Discovery - TornPDA Storage Probe
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.0
-// @description  Disposable Age of Discovery probe for TornPDA PDA_storage behavior. Does not touch TornScripture product data.
+// @version      0.1.1
+// @description  Disposable Age of Discovery probe for TornPDA PDA_storage and lifecycle behavior. Does not touch TornScripture product data.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @grant        none
@@ -15,11 +15,13 @@
 
   const APP = Object.freeze({
     name: 'TornPDA Storage Probe',
-    version: '0.1.0',
+    version: '0.1.1',
     panelId: 'ts-discovery-pda-storage-probe',
     styleId: 'ts-discovery-pda-storage-probe-style',
     keyPrefix: 'ts-discovery-storage-probe:',
     persistenceKey: 'ts-discovery-storage-probe:persistence-marker',
+    lifecycleKey: 'ts-discovery-storage-probe:lifecycle-log',
+    maxLifecycleEntries: 12,
   });
 
   const ephemeralKeys = [
@@ -37,10 +39,20 @@
   const state = {
     lastReport: null,
     running: false,
+    currentLoadId: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    currentTabState: null,
+    tabEvents: [],
   };
 
   function hasNativeStorage() {
     return typeof PDA_storage !== 'undefined' && PDA_storage && typeof PDA_storage.get === 'function';
+  }
+
+  function hasTabStateBridge() {
+    return Boolean(
+      window.flutter_inappwebview &&
+      typeof window.flutter_inappwebview.callHandler === 'function'
+    );
   }
 
   function nowIso() {
@@ -61,6 +73,78 @@
     return JSON.stringify(a) === JSON.stringify(b);
   }
 
+  async function getTabStateSnapshot() {
+    if (!hasTabStateBridge()) return null;
+    try {
+      const tab = await window.flutter_inappwebview.callHandler('PDA_getTabState');
+      if (!tab || typeof tab !== 'object') return null;
+      return {
+        capturedAt: nowIso(),
+        uid: tab.uid ?? null,
+        isActiveTab: tab.isActiveTab ?? null,
+        isWebViewVisible: tab.isWebViewVisible ?? null,
+      };
+    } catch (error) {
+      return {
+        capturedAt: nowIso(),
+        error: describeError(error),
+      };
+    }
+  }
+
+  async function refreshTabState(reason = 'manual') {
+    const snapshot = await getTabStateSnapshot();
+    state.currentTabState = snapshot;
+    if (snapshot) {
+      state.tabEvents.push({ reason, ...snapshot });
+      if (state.tabEvents.length > 20) state.tabEvents.shift();
+    }
+    return snapshot;
+  }
+
+  async function recordLifecycleLoad() {
+    if (!hasNativeStorage()) return null;
+
+    const tabState = await refreshTabState('script-load');
+    const entry = {
+      loadId: state.currentLoadId,
+      loadedAt: nowIso(),
+      probeVersion: APP.version,
+      href: location.href,
+      tabState,
+    };
+
+    try {
+      const existing = await PDA_storage.get(APP.lifecycleKey, []);
+      const log = Array.isArray(existing) ? existing.slice(-APP.maxLifecycleEntries + 1) : [];
+      log.push(entry);
+      await PDA_storage.set(APP.lifecycleKey, log);
+      return log;
+    } catch (error) {
+      return { error: describeError(error), attemptedEntry: entry };
+    }
+  }
+
+  async function getLifecycleReport() {
+    const marker = hasNativeStorage() ? await PDA_storage.get(APP.persistenceKey, null) : null;
+    const lifecycleLog = hasNativeStorage() ? await PDA_storage.get(APP.lifecycleKey, []) : [];
+    const tabState = await refreshTabState('manual-check');
+    const report = {
+      checkedAt: nowIso(),
+      probeVersion: APP.version,
+      currentLoadId: state.currentLoadId,
+      currentHref: location.href,
+      nativeStorageAvailable: hasNativeStorage(),
+      tabStateBridgeAvailable: hasTabStateBridge(),
+      currentTabState: tabState,
+      inMemoryTabEvents: state.tabEvents.slice(),
+      persistenceMarker: marker,
+      lifecycleLog: Array.isArray(lifecycleLog) ? lifecycleLog : lifecycleLog,
+    };
+    state.lastReport = report;
+    return report;
+  }
+
   async function cleanupEphemeral() {
     if (!hasNativeStorage()) return;
     for (const key of ephemeralKeys) {
@@ -75,7 +159,7 @@
   async function runSafeTests() {
     if (state.running) return;
     state.running = true;
-    setStatus('Running safe contract tests…');
+    setStatus('Running safe contract tests...');
 
     const report = {
       probe: APP.name,
@@ -84,11 +168,15 @@
       href: location.href,
       userAgent: navigator.userAgent,
       nativeStorageAvailable: hasNativeStorage(),
+      tabStateBridgeAvailable: hasTabStateBridge(),
+      currentLoadId: state.currentLoadId,
       tests: [],
       latency: {},
       usageBefore: null,
       usageAfter: null,
       persistenceMarker: null,
+      lifecycleEntries: null,
+      tabState: null,
       notes: [],
     };
 
@@ -185,9 +273,13 @@
 
     try {
       report.persistenceMarker = await PDA_storage.get(APP.persistenceKey, null);
+      const lifecycle = await PDA_storage.get(APP.lifecycleKey, []);
+      report.lifecycleEntries = Array.isArray(lifecycle) ? lifecycle.length : null;
     } catch (error) {
-      report.notes.push(`Persistence marker read failed: ${describeError(error)}`);
+      report.notes.push(`Persistent diagnostic read failed: ${JSON.stringify(describeError(error))}`);
     }
+
+    report.tabState = await refreshTabState('safe-tests');
 
     await cleanupEphemeral();
 
@@ -198,8 +290,8 @@
     }
 
     report.summary = summarize(report.tests);
-    report.notes.push('Quota exhaustion is intentionally not forced by v0.1.0. usage()/quota are recorded without allocating a 10–50 MiB failure payload.');
-    report.notes.push('Only the persistence marker, if explicitly created by the user, is left behind after safe tests.');
+    report.notes.push('Quota exhaustion is intentionally not forced by v0.1.1. usage()/quota are recorded without allocating a 10-50 MiB failure payload.');
+    report.notes.push('v0.1.1 keeps only the explicit persistence marker and a bounded lifecycle log; ordinary safe-test keys are removed.');
 
     state.lastReport = report;
     renderReport(report);
@@ -231,18 +323,31 @@
         ageMs,
         marker,
       };
+      state.lastReport = payload;
       renderReport(payload);
       setStatus(marker ? `Marker survived. Age: ${Math.round(ageMs / 1000)}s.` : 'No persistence marker found.');
     } catch (error) {
-      setStatus(`Marker check failed: ${describeError(error)}`);
+      setStatus(`Marker check failed: ${JSON.stringify(describeError(error))}`);
+    }
+  }
+
+  async function showLifecycleReport() {
+    try {
+      const report = await getLifecycleReport();
+      renderReport(report);
+      const entries = Array.isArray(report.lifecycleLog) ? report.lifecycleLog.length : 0;
+      const uid = report.currentTabState && report.currentTabState.uid ? report.currentTabState.uid : 'unknown';
+      setStatus(`Lifecycle entries: ${entries}. Tab UID: ${uid}`);
+    } catch (error) {
+      setStatus(`Lifecycle check failed: ${JSON.stringify(describeError(error))}`);
     }
   }
 
   async function clearPersistenceMarker() {
     if (!hasNativeStorage()) return setStatus('PDA_storage unavailable.');
     await PDA_storage.delete(APP.persistenceKey);
-    setStatus('Persistence marker deleted.');
-    renderReport({ clearedAt: nowIso(), persistenceMarker: 'deleted' });
+    setStatus('Persistence marker deleted. Lifecycle log retained for Discovery testing.');
+    renderReport({ clearedAt: nowIso(), persistenceMarker: 'deleted', lifecycleLog: 'retained' });
   }
 
   function describeError(error) {
@@ -273,14 +378,30 @@
   }
 
   async function copyLastReport() {
-    const text = JSON.stringify(state.lastReport || { note: 'No safe-test report has been generated yet.' }, null, 2);
+    const text = JSON.stringify(state.lastReport || { note: 'No report has been generated yet.' }, null, 2);
     try {
       await navigator.clipboard.writeText(text);
-      setStatus('Safe-test report copied to clipboard.');
+      setStatus('Last report copied to clipboard.');
     } catch (_) {
       renderReport({ copyFallback: true, report: state.lastReport });
       setStatus('Clipboard unavailable. Report remains visible below.');
     }
+  }
+
+  function subscribeTabStateEvents() {
+    window.addEventListener('tornpda:tabState', (event) => {
+      const detail = event && event.detail && typeof event.detail === 'object' ? event.detail : {};
+      const snapshot = {
+        reason: 'tornpda:tabState',
+        capturedAt: nowIso(),
+        uid: detail.uid ?? null,
+        isActiveTab: detail.isActiveTab ?? null,
+        isWebViewVisible: detail.isWebViewVisible ?? null,
+      };
+      state.currentTabState = snapshot;
+      state.tabEvents.push(snapshot);
+      if (state.tabEvents.length > 20) state.tabEvents.shift();
+    });
   }
 
   function installUi() {
@@ -321,7 +442,10 @@
         <button type="button" data-action="marker-check">Check marker</button>
         <button type="button" data-action="marker-clear">Delete marker</button>
       </div>
-      <div data-role="status">Ready. PDA_storage detected: ${hasNativeStorage() ? 'YES' : 'NO'}</div>
+      <div class="tsprobe-row">
+        <button type="button" data-action="lifecycle">Check lifecycle / tab state</button>
+      </div>
+      <div data-role="status">Ready. PDA_storage detected: ${hasNativeStorage() ? 'YES' : 'NO'}. Tab-state bridge: ${hasTabStateBridge() ? 'YES' : 'NO'}.</div>
       <pre data-role="report">No test has run yet.</pre>
     `;
 
@@ -334,6 +458,7 @@
         if (button.dataset.action === 'marker-write') await createPersistenceMarker();
         if (button.dataset.action === 'marker-check') await showPersistenceMarker();
         if (button.dataset.action === 'marker-clear') await clearPersistenceMarker();
+        if (button.dataset.action === 'lifecycle') await showLifecycleReport();
       } catch (error) {
         setStatus(`Action failed: ${JSON.stringify(describeError(error))}`);
       }
@@ -342,9 +467,22 @@
     document.body.appendChild(panel);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installUi, { once: true });
-  } else {
+  async function initialize() {
+    subscribeTabStateEvents();
     installUi();
+    const lifecycle = await recordLifecycleLoad();
+    if (lifecycle && lifecycle.error) {
+      setStatus(`Lifecycle log failed: ${JSON.stringify(lifecycle.error)}`);
+    } else if (Array.isArray(lifecycle)) {
+      const marker = hasNativeStorage() ? await PDA_storage.get(APP.persistenceKey, null) : null;
+      const uid = state.currentTabState && state.currentTabState.uid ? state.currentTabState.uid : 'unknown';
+      setStatus(`Ready. Lifecycle entries: ${lifecycle.length}. Marker: ${marker ? 'present' : 'absent'}. Tab UID: ${uid}`);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize, { once: true });
+  } else {
+    initialize();
   }
 })();
