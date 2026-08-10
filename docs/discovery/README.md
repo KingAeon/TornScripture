@@ -10,7 +10,8 @@ Discovery may take as long as necessary. A capability being discovered does **no
 
 ## Canonical records
 
-- [`TORN-CAPABILITY-REGISTRY.md`](TORN-CAPABILITY-REGISTRY.md) records durable capability facts and source-fit assessments.
+- [`TORN-CAPABILITY-REGISTRY.md`](TORN-CAPABILITY-REGISTRY.md) records durable Torn API/game capability facts and source-fit assessments.
+- [`TORN-PDA-CAPABILITY-REGISTRY.md`](TORN-PDA-CAPABILITY-REGISTRY.md) records TornPDA runtime/platform capabilities that may affect storage, portability, networking, injection, or userscript design.
 - [`DISCOVERY-LOG.md`](DISCOVERY-LOG.md) records what was investigated, when it was investigated, and what changed in our understanding.
 - [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) records unknowns that still require documentation review, live observation, or controlled testing.
 
@@ -18,9 +19,13 @@ Discovery may take as long as necessary. A capability being discovered does **no
 
 Every important claim should be classified by the strongest evidence supporting it.
 
-### Official
+### Official Torn
 
 Documented by Torn in the current official API documentation or OpenAPI specification.
+
+### Platform documented
+
+Documented by the maintained runtime/platform used by TornScriptures, such as TornPDA, and where practical cross-checked against that platform's current source implementation.
 
 ### Observed
 
@@ -46,31 +51,32 @@ Provided by a third-party service such as a trader-price provider. External capa
 
 ## Source hierarchy
 
-When sources disagree or overlap, later architecture should begin with this evidence order and then account for freshness and permissions:
+When sources disagree or overlap, later architecture should begin with evidence appropriate to the surface being investigated and then account for freshness, permissions and runtime constraints:
 
-1. Current official Torn OpenAPI contract and API documentation.
-2. Controlled live response from the documented Torn interface.
+1. Current official Torn contract/documentation for Torn capabilities, or maintained platform documentation/source for runtime capabilities such as TornPDA.
+2. Controlled live response or behavior from the documented interface.
 3. Torn page/application information observed by the user on an opened page.
 4. Documented third-party service contract and controlled live response.
 5. Inference from undocumented implementation details.
 
-A lower-ranked source can still be the correct runtime choice when it is materially fresher, requires less privilege, or contains information that a higher-ranked source does not expose. The registry records those tradeoffs rather than assuming `API = better`.
+A lower-ranked source can still be the correct runtime choice when it is materially fresher, requires less privilege, or contains information that a higher-ranked source does not expose. The registries record those tradeoffs rather than assuming `API = better` or `native = better`.
 
 ## Source-fit dimensions
 
-Each capability should eventually record:
+Each capability should eventually record the dimensions relevant to its surface, including:
 
 - authority and evidence class
-- exact endpoint, selection, or page surface
-- API access level and custom-key implications
-- API stability marker
-- service/global cache behavior and practical freshness
-- request and pagination cost
-- schema completeness
+- exact endpoint, selection, platform API, or page surface
+- permission/access implications
+- documented stability or lifecycle guarantees
+- cache/freshness behavior
+- request, bridge, pagination or storage cost
+- schema/data completeness
 - user-data and key-handling implications
 - current TornScriptures consumer, if any
 - current alternative source, if any
-- known failure behavior
+- known failure behavior and destructive lifecycle events
+- portability across TornPDA, Tampermonkey and Violentmonkey where relevant
 - last verification date
 - live-verification status
 - possible replacement or consolidation relevance, without authorizing it
@@ -83,24 +89,27 @@ Initial research snapshot: **2026-08-10**
 - IMM stable version: `0.19.33`
 - Torn API v2 OpenAPI version observed: `6.6.1`
 - Official API base: `https://api.torn.com/v2`
-- Official references:
+- TornPDA baseline additionally reviewed: `3.15.0+673`
+- Official Torn references:
   - `https://www.torn.com/api.html`
   - `https://www.torn.com/swagger/openapi.json`
   - `https://www.torn.com/swagger.php`
+- TornPDA platform references are recorded in `TORN-PDA-CAPABILITY-REGISTRY.md`.
 
-The Torn v2 specification is actively developed. Every capability therefore carries a last-verified date rather than being treated as permanent truth.
+The Torn v2 specification and supported userscript platforms can evolve. Every capability therefore carries a last-verified date rather than being treated as permanent truth.
 
 ## Discovery rule before implementation
 
-Before a new Torn data source becomes architecture, establish at minimum:
+Before a new data source, runtime capability or persistence mechanism becomes architecture, establish at minimum:
 
-1. the exact current official contract when one exists
-2. required access level or custom selection
-3. cache/freshness behavior
-4. ownership and identity semantics
-5. expected success and error shape
-6. a controlled live sample when the data will affect persistent accounting or other high-risk behavior
-7. what the source does **not** prove
-8. why it is preferable to existing official, page-state, or local sources
+1. the exact current documented contract when one exists
+2. required permissions, platform and availability
+3. cache/freshness or persistence/lifecycle behavior
+4. ownership, identity and namespace semantics
+5. expected success and error behavior
+6. a controlled live sample when the capability will affect persistent accounting or other high-risk behavior
+7. what the capability does **not** prove or preserve
+8. portability and failure behavior where relevant
+9. why it is preferable to existing official, page-state, browser, platform-native or local sources
 
-This rule exists to prevent TornScriptures from spending code and maintenance effort recreating data Torn already exposes, and also to prevent a documented-but-unsuitable API from replacing a better live source merely because it looks cleaner.
+This rule exists to prevent TornScriptures from spending code and maintenance effort recreating capabilities Torn or its supported runtimes already expose, and also to prevent a documented-but-unsuitable capability from replacing a better source merely because it looks cleaner.
