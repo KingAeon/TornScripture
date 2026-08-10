@@ -113,7 +113,7 @@ The capability may proceed to Phase B persistence-marker testing under the exist
 
 No production TornScriptures runtime change is authorized by this result.
 
-## Run 002 — Phase C normal Torn navigation persistence
+## Run 002 — Phases B and C reload/navigation persistence
 
 **Result:** PASS
 
@@ -121,7 +121,7 @@ No production TornScriptures runtime change is authorized by this result.
 
 **Probe version:** `0.1.0`
 
-**Owner evidence:** three ordered screenshots supplied from the tested Android/TornPDA environment while moving through Torn screens.
+**Owner evidence:** three ordered screenshots plus explicit owner confirmation of the sequence: write persistence marker, perform a normal Torn page reload, then navigate through several Torn pages and return.
 
 ### Marker identity
 
@@ -132,9 +132,9 @@ The same persistence marker remained readable throughout the observed sequence:
 
 Observed checks showed the marker age advancing approximately:
 
-- first screenshot: ~0 seconds
-- second screenshot: ~26 seconds
-- third screenshot: ~51 seconds
+- first post-reload screenshot: ~0 seconds
+- later navigation screenshot: ~26 seconds
+- final returned-page screenshot: ~51 seconds
 
 The marker ID and original creation timestamp remained unchanged while its age increased. This distinguishes persistence from a new marker being silently created at each checkpoint.
 
@@ -142,21 +142,30 @@ The marker ID and original creation timestamp remained unchanged while its age i
 
 On the owner's tested TornPDA/Android environment:
 
-- `PDA_storage` data remains readable across ordinary Torn navigation for the observed sequence
+- **Phase B ordinary Torn page reload: PASS**
+- **Phase C normal Torn navigation: PASS**
+- `PDA_storage` data remains readable after a normal page reload
+- `PDA_storage` data remains readable across several Torn page changes and return navigation
 - the Torn page/userscript reinjection lifecycle did not replace or lose the native persistence marker
-- the persistence marker remained bound to the same installed userscript namespace during the observed navigation
+- the persistence marker remained bound to the same installed userscript namespace throughout the observed sequence
 
 ### Evidence boundary
 
-The screenshots alone do not independently prove that an explicit browser/page reload occurred before the first image. Therefore:
+This run does not yet establish:
 
-- **Phase C normal Torn navigation: PASS**
-- **Phase B ordinary page reload: awaiting explicit owner confirmation unless separately repeated**
-
-This distinction is intentional so navigation evidence is not silently promoted into reload evidence.
+- script disable/enable persistence
+- full TornPDA application restart persistence
+- tab-sleep/background WebView-release persistence
+- in-place userscript update persistence
+- browser-cache-clear persistence
+- uninstall/reinstall persistence, which is not expected under TornPDA's documented namespace lifecycle
 
 ### Gate decision
 
-The native backend may proceed to the ordinary reload confirmation and, once that is established, disable/enable persistence testing.
+**Phase B: PASS.**
+
+**Phase C: PASS.**
+
+The same marker may proceed to Phase D disable/enable testing without being rewritten.
 
 No production TornScriptures runtime change is authorized by this result.
