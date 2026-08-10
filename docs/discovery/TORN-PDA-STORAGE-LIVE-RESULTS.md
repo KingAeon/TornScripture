@@ -169,3 +169,100 @@ This run does not yet establish:
 The same marker may proceed to Phase D disable/enable testing without being rewritten.
 
 No production TornScriptures runtime change is authorized by this result.
+
+## Run 003 — Phase D disable/re-enable persistence
+
+**Result:** PASS
+
+**Observed:** 2026-08-10, same installed probe and same marker as Runs 001–002.
+
+**Probe version:** `0.1.0`
+
+**Owner-confirmed sequence:**
+
+1. refresh Torn several times
+2. disable the installed storage probe in TornPDA
+3. reload Torn and confirm the probe was absent
+4. re-enable the same installed probe without deleting/reinstalling it
+5. reload Torn
+6. check the existing persistence marker
+
+### Marker evidence
+
+The same marker remained readable after re-enable:
+
+- marker ID: `1786363793158-bi95tvi6`
+- original creation time: `2026-08-10T12:09:53.158Z`
+- observed marker age after re-enable: approximately **290 seconds**
+- screenshot check time: `2026-08-10T12:14:42.910Z`
+
+### What Run 003 establishes
+
+On the owner's tested TornPDA/Android environment:
+
+- disabling an installed userscript does not delete its tested native-storage namespace
+- re-enabling the same installed script restores access to the same persistence marker
+- the observed behavior matches TornPDA's documented/source lifecycle distinction between disabling a script and removing it
+
+### Gate decision
+
+**Phase D: PASS.**
+
+The same marker may proceed to application-restart testing without being rewritten.
+
+No production TornScriptures runtime change is authorized by this result.
+
+## Run 004 — Phase E force-stop/restart with additional Android app-cache clear
+
+**Result:** PASS for Phase E; additional cache-clear evidence recorded with scope caution
+
+**Observed:** 2026-08-10, immediately after Run 003.
+
+**Probe version:** `0.1.0`
+
+**Owner-confirmed sequence:**
+
+1. close TornPDA
+2. force-stop the TornPDA Android app
+3. clear the app cache
+4. reopen TornPDA
+5. return to Torn
+6. check the existing persistence marker
+
+### Marker evidence
+
+The same marker remained readable after the full sequence:
+
+- marker ID: `1786363793158-bi95tvi6`
+- original creation time: `2026-08-10T12:09:53.158Z`
+- observed marker age after reopen: approximately **321 seconds**
+- screenshot check time: `2026-08-10T12:15:14.617Z`
+
+The original marker identity and creation timestamp were unchanged.
+
+### What Run 004 establishes
+
+On the owner's tested TornPDA/Android environment:
+
+- **Phase E TornPDA full application restart/force-stop persistence: PASS**
+- native probe data remained readable after TornPDA was closed and force-stopped
+- native probe data also survived the owner's additional Android app-cache-clear action during the same sequence
+- the native namespace was not dependent on the ordinary WebView/page lifetime for this tested case
+
+### Cache-clear evidence boundary
+
+The owner described an Android app-level cache clear as part of this sequence. This is useful durability evidence, but it is not automatically promoted to **Phase H TornPDA browser-cache-clear PASS**, because the protocol specifically calls for TornPDA's normal browser-cache control and the exact cache target/action was not independently isolated here.
+
+Therefore:
+
+- **Phase E: PASS**
+- **Android app-cache-clear combined durability: PASS for the observed sequence**
+- **Phase H TornPDA browser-cache-clear: still requires the protocol-specific checkpoint or equivalent confirmed action**
+
+### Gate decision
+
+The backend has now passed the basic contract, normal reload, Torn navigation, disable/re-enable, and full app restart/force-stop checkpoints on the owner's device.
+
+It may proceed to Phase F background/tab-sleep behavior. Phase H remains separately available later if useful.
+
+No production TornScriptures runtime change is authorized by this result.
