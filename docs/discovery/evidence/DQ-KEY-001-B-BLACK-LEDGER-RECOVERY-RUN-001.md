@@ -1,6 +1,6 @@
 # DQ-KEY-001-B — Black Ledger Recovery-Only Permission Run 001
 
-Status: **STABLE IMM PERMISSION PASS / NON-MUTATING REVIEW BLOCKED ONLY BY LOCAL CATALOG GAP**
+Status: **FULL PASS FOR DQ-KEY-001 PERMISSION BOUNDARY / REVIEW NOT REACHED ONLY BECAUSE CURRENT LEDGER HAS NO MATCHING OPEN FIFO LOTS**
 
 Date: 2026-08-20
 
@@ -117,7 +117,7 @@ The broad key level remained `0`, reinforcing the DQ-KEY-001 finding that broad 
 
 ## Stable IMM v0.19.36 run
 
-The same capability-limited key was then configured in the stable TornPDA IMM and Black Ledger → **Recover recent API trade** was opened.
+The same capability-limited key was configured in the stable TornPDA IMM and Black Ledger → **Recover recent API trade** was opened.
 
 Observed:
 
@@ -127,45 +127,57 @@ Observed:
 - pre-existing Ledger Integrity UI remained green with **No integrity issues found**;
 - therefore stable IMM's permission validation and finished-trade list path both operate with the recovery-only key and do not require `user:inventory` or `user:itemmarket`.
 
-### Review attempt
+### First review attempt: catalog prerequisite
 
 A finished candidate was opened for review. Stable IMM stopped before constructing the accounting review with the exact fail-closed message:
 
 > Item ID 271 is not in the catalog. Sync the item catalog first. Name-only lookup is not permitted. Payload quarantined.
 
-This is **not a permission failure**. It is a local catalog-state prerequisite failure after permission/list/detail access has already succeeded.
+This was **not a permission failure**. It was a local catalog-state prerequisite failure after permission/list/detail access had already succeeded.
 
-The behavior is consistent with the released Black Ledger safety contract: an exact trade item ID that cannot be resolved in the local catalog must not be guessed by name, and the payload is quarantined rather than partially or inventively interpreted.
+The owner then refreshed the item catalog through stable IMM using the same restricted key.
 
-No accounting confirmation was reached, and no sale recording was authorized during this run.
+### Second review attempt: FIFO prerequisite
 
-## Current conclusion
+After catalog refresh, another finished-trade review attempt advanced past catalog identity resolution and stopped with the exact fail-closed message:
 
-The stable TornScriptures implementation has now proven the critical least-privilege boundary far enough to distinguish permission from local-data readiness:
+> None of the outgoing items are covered by open purchase lots. Payload quarantined.
 
-- restricted Custom key accepted by stable IMM: **PASS**
-- finished-trade permission/list path: **PASS**
-- direct trade-detail API capability under same key: **PASS**
-- `torn:items` API capability under same key: **PASS**
-- review construction: **BLOCKED BY INCOMPLETE LOCAL CATALOG, NOT BY PERMISSION**
-- ledger mutation: **NOT ATTEMPTED / NOT AUTHORIZED**
+This is a local Black Ledger accounting prerequisite, not an API-permission failure. The current Ledger had only two open lots and none covered the selected trade's outgoing items.
 
-This is evidence that `user:inventory` and `user:itemmarket` are not prerequisites for Black Ledger completed-trade recovery permission or trade-source access.
+The transition from a missing-catalog error to a FIFO-coverage error proves stable IMM successfully crossed the following product-side gates under the restricted key:
 
-## Remaining gate before KEY-001-B is fully closed
+1. key acceptance / permission validation;
+2. finished-trade list retrieval;
+3. selected trade detail retrieval;
+4. exact catalog identity resolution after catalog refresh;
+5. entry into FIFO eligibility evaluation.
 
-1. Using the same restricted key, refresh/sync the stable IMM item catalog from Torn.
-2. Confirm the catalog sync succeeds, which should independently exercise the already-proven `torn:items` grant through the product UI.
-3. Reopen Recover recent API trade.
-4. Select a safe finished trade whose outgoing item IDs are present after catalog refresh.
-5. Reach the non-mutating recovery review and verify it populates.
-6. **Stop before `Record sale`.**
+No `user:inventory` or `user:itemmarket` permission was needed to reach that accounting-only boundary.
 
-If a freshly synchronized catalog still omits a trade item ID that the official `/torn/items` response contains, record that separately as catalog normalization/cache debt rather than broadening the API key.
+No accounting confirmation was reached and no sale recording was attempted or authorized.
 
-## Optional evidence improvement
+## DQ-KEY-001-B conclusion
 
-A sanitized `/key/info` User selection array showing `trades` and `trade` would strengthen the retained record, but it is no longer required to prove functional access because both corresponding endpoints returned live HTTP 200 responses under the same key and stable IMM successfully loaded the finished-trade list.
+**FULL PASS for the permission question.**
+
+The exact least-privilege source footprint for the released Black Ledger completed-trade recovery capability is live-proven as:
+
+- `user:trades`
+- `user:trade`
+- `torn:items`
+- local Black Ledger FIFO/accounting state
+
+The following are **not required** for completed-trade recovery permission/source access:
+
+- `user:inventory`
+- `user:itemmarket`
+- `user:log`
+- Full access
+
+A rendered non-mutating accounting review was not reached in this particular run only because the live Ledger had no matching open purchase lots. TornScriptures will not manufacture accounting lots merely to force the UI deeper. The fail-closed FIFO result is the correct product behavior and is sufficient to close the DQ-KEY-001 permission boundary because all permission-dependent product gates were already traversed.
+
+If a naturally suitable future trade with matching open FIFO lots becomes available, reaching the review screen under the same restricted key may be recorded as supplemental evidence, but it is not required to keep DQ-KEY-001-B open.
 
 ## Product effect
 
