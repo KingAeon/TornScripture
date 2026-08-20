@@ -117,7 +117,7 @@ Across the live A-D runs, sanitized `/key/info` repeatedly exposed owner user ID
 
 ### 1. Broad key level is not the permission truth
 
-Custom keys repeatedly operated at broad `level: 0` while exact private selections such as `inventory`, `trades`, `trade`, `items` and `bazaar` were usable.
+Custom keys repeatedly operated at broad `level: 0` while required capabilities spanning exact Custom grants and Public sources, including `inventory`, `trades`, `trade`, `items` and `bazaar`, were usable.
 
 Future TornScriptures permission UX should reason about required capabilities, not simply require a generic Limited/Full label.
 
