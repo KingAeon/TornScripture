@@ -1,6 +1,6 @@
 # TornScriptures Age of Discovery — Current Status
 
-Status: **ACTIVE / SYNCHRONIZED WITH RELEASED IMM v0.19.36**
+Status: **ACTIVE / RELEASED TO MAIN / READY FOR DQ-KEY-001**
 
 Date: 2026-08-20
 
@@ -9,11 +9,14 @@ This file is the current-state index for the Age of Discovery. Historical discov
 ## Current repository baseline
 
 - Stable branch: `main`
-- Stable main SHA: `25fe4936b87697427cfaa1db99fffa907ba07126`
+- Stable main SHA after the Discovery checkpoint release: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
 - Stable IMM: `0.19.36`
-- API-backed Black Ledger completed-trade recovery: released through PR #107
-- Discovery branch sync commit: `17fcff98d03b765fc80eadeafd6baff7b068f85b`
-- Discovery PR: #109, draft and unmerged
+- API-backed Black Ledger completed-trade recovery: released through PR #107; merge commit `25fe4936b87697427cfaa1db99fffa907ba07126`
+- Age of Discovery checkpoint: released through PR #109; exact reviewed head `fffef3e2ae9236d5b8684a029420c989b488d45c`
+- Discovery merge commit on `main`: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
+- Current active repository work: housekeeping only on `docs/housekeeping-2026-08-20`
+
+The Discovery notebook is now durable project knowledge on `main`. Open questions remain open research targets; they are no longer stranded on a research-only branch.
 
 ## Storage chapter
 
@@ -136,16 +139,10 @@ After the permission matrix, priority remains on:
 - portable backup and reconciliation contracts for Class C data;
 - OpenAPI change detection and discovery reverification cadence.
 
-## Merge posture for PR #109
+## Housekeeping checkpoint
 
-PR #109 should be treated as a durable Discovery checkpoint, not as a requirement to solve every open question before merge.
+Before DQ-KEY-001 begins, the project is performing one documentation/bookkeeping-only cleanup pass.
 
-A release review should verify:
+The current branch cleanup map is recorded in `docs/BRANCH-CLEANUP-AUDIT.md`. This housekeeping work does not alter production userscripts, APIs, storage schemas, tests, or runtime behavior.
 
-- all PR changes remain limited to `docs/discovery/` and disposable discovery probes;
-- historical evidence remains preserved;
-- current-status documents accurately supersede stale release-state statements;
-- no production runtime behavior, storage migration, API request, or product version change is introduced;
-- the owner explicitly authorizes merge of the exact reviewed head.
-
-Until that separate release gate occurs, PR #109 remains draft and unmerged.
+After housekeeping is released, Discovery resumes from DQ-KEY-001 unless a severe stable-release defect or owner-approved reprioritization intervenes.
