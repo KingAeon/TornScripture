@@ -285,3 +285,93 @@ Each decision records:
 - Issue #97 remains reserved until a suitable workspace passes the gate.
 
 **Revisit condition:** Copilot passes or fails the preflight, pricing changes materially, or another coding environment demonstrates a safer and more economical loop.
+
+---
+
+## TOOL-002: Use the lightest verified tool for each job
+
+**Date:** 2026-08-20
+
+**Question:** After the Copilot preflight, how should TornScriptures choose between the GitHub connector, Copilot, and Codex?
+
+**Decision:** Use the lightest tool that can safely complete and verify the task. Prefer the GitHub connector for repository inspection, documentation, issue administration, branch bookkeeping, and controlled repository-object operations. Use a full-repository coding agent only when executable implementation, testing, or deeper code reasoning materially requires it.
+
+**Evidence:** PR #103 proved the Copilot repository workflow. Later PR #107 required a stronger implementation/test path for Tier 3 accounting, while PR #109 and the August 20 housekeeping work were safely handled through GitHub without spending coding-agent credits.
+
+**Consequences:**
+
+- Copilot is available but is not the default for routine administration.
+- Codex/premium capacity remains reserved for high-risk or complex implementation.
+- Documentation and Discovery bookkeeping should not consume premium coding budget merely because an agent is available.
+- Tool choice remains subordinate to risk and verification requirements.
+
+**Revisit condition:** Tool capabilities, reliability, or usage economics materially change.
+
+---
+
+## BL-004: Treat IMM v0.19.36 API recovery as the released accounting contract for ordinary completed sales
+
+**Date:** 2026-08-20
+
+**Question:** Did the review-first API recovery architecture become tested, released behavior, or is it still only a proposal?
+
+**Decision:** It is released behavior for the current supported boundary: ordinary completed cash-for-items sales with complete FIFO coverage.
+
+**Evidence:** PR #107 was owner-tested on TornPDA at exact head `9afdf3766e0fbd108f10666c70f92f1916e0f0de` and merged to `main` through commit `25fe4936b87697427cfaa1db99fffa907ba07126`. The controlled sale used exact API trade identity, produced the predicted FIFO cost basis and realized profit, remained non-mutating during review/cancel, persisted once after confirmation, disappeared from the recovery queue after reload, and passed Ledger Integrity.
+
+**Consequences:**
+
+- Exact API trade ID is the primary duplicate identity for this path.
+- Canonical API fingerprint remains a secondary exact guard.
+- Bounded legacy/manual matching remains a protection only where exact API identity is unavailable.
+- Unsupported assets, barter, malformed data, non-positive proceeds, unknown catalog items, and incomplete FIFO remain fail-closed.
+- Manual missed-sale recovery remains the outage/unsupported fallback.
+- Future Discovery must not describe current API recovery as wholly unverified or unimplemented.
+
+**Revisit condition:** Torn changes the relevant API contract, live evidence contradicts the released assumptions, or the owner approves a broader transaction boundary.
+
+---
+
+## STORAGE-001: Use hybrid persistence behind a centralized storage service
+
+**Date:** 2026-08-11; recorded in the main decision register 2026-08-20
+
+**Question:** Should TornScriptures migrate all persistent data to one backend, or choose storage by data consequence and timing?
+
+**Decision:** Use a hybrid persistence architecture behind a centralized storage service. Backend choice is determined by data class and runtime requirements, not by one universal storage mechanism.
+
+**Evidence:** The Age of Discovery completed TornPDA native-storage qualification across lifecycle persistence, scaling, batching, quota rejection, cross-origin continuity, and bounded concurrency. The evidence is preserved under `docs/discovery/` and the architecture is recorded in `TORNSCRIPTURE-STORAGE-ARCHITECTURE-DECISION.md`.
+
+**Consequences:**
+
+- Timing-critical state may remain in synchronous memory/browser/session/URL mechanisms where timing requires it.
+- Substantial reconstructible TornPDA data should eventually prefer `PDA_storage` behind the abstraction.
+- Irreplaceable Black Ledger and user-authored data must never depend on one unbacked copy.
+- Class C data requires portable backup/recovery and integrity guarantees before migration.
+- Do not mechanically move monolithic `localStorage` blobs into native storage.
+- The preferred first eventual storage-abstraction pilot is reconstructible Torn item catalog data, not Black Ledger.
+- No production migration is authorized merely by this decision.
+
+**Revisit condition:** New runtime evidence changes TornPDA storage guarantees, desktop portability requirements demand another backend policy, or a production pilot reveals a material limitation.
+
+---
+
+## DISC-001: Keep Discovery as durable project knowledge on `main`
+
+**Date:** 2026-08-20
+
+**Question:** Should the Age of Discovery remain isolated on a long-running research branch until every open question is solved?
+
+**Decision:** No. Merge verified Discovery checkpoints into `main` while preserving unresolved questions and historical evidence. Use a current-status layer to supersede stale state without rewriting history.
+
+**Evidence:** PR #109 merged the first Age of Discovery checkpoint from exact reviewed head `fffef3e2ae9236d5b8684a029420c989b488d45c` through merge commit `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`. All PR changes were confined to `docs/discovery/` and disposable discovery probes.
+
+**Consequences:**
+
+- Future threads and agents can begin from repository-backed capability knowledge instead of chat memory alone.
+- Historical propositions and open-question wording remain evidence, even when later implementation changes current truth.
+- `docs/discovery/CURRENT-STATUS.md` is the first-stop current state.
+- Open research questions do not block merging accurate Discovery checkpoints.
+- The next recommended chapter is DQ-KEY-001, the minimum permission and source-ownership matrix.
+
+**Revisit condition:** Discovery documentation becomes too large or too stale to function as a useful source of truth, at which point the owner may approve a reorganized index/archive strategy without deleting evidence.
