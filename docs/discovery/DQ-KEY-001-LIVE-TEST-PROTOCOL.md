@@ -1,6 +1,6 @@
 # DQ-KEY-001 — Live Permission Verification Protocol
 
-Status: **DISCOVERY PROTOCOL / NO PRODUCT MUTATION**
+Status: **DISCOVERY PROTOCOL / A-D EXECUTED / NO PRODUCT MUTATION**
 
 Date: 2026-08-20
 
@@ -14,30 +14,30 @@ This protocol is intentionally small. It does not require a new userscript, does
 
 ## Safety rules
 
-1. Never paste an API key into chat, GitHub, issue comments, screenshots, or Discovery evidence.
-2. Use Torn's own API/custom-key UI to create test keys.
+1. Never retain or publish raw API keys in chat excerpts, GitHub evidence, screenshots, or logs.
+2. Use Torn's own API/custom-key UI to create temporary test keys.
 3. Give each temporary key only the exact selections required by that test.
-4. Delete temporary test keys after the evidence is captured if they are no longer needed.
+4. Revoke exposed or no-longer-needed temporary keys after evidence is captured.
 5. Record only sanitized `/key/info` fields and pass/fail behavior.
-6. Do not deliberately create a costly trade, listing, or faction action for this protocol.
-7. No test may mutate Black Ledger simply to prove API permission behavior.
+6. Do not deliberately create a costly trade, Bazaar listing, or faction action solely for this protocol.
+7. No test may mutate Black Ledger merely to prove API permission behavior.
 
 ## Evidence format
 
 For each run record:
 
-- date/time
-- environment: TornPDA or desktop browser
-- test ID
-- custom selections granted, by name only
-- `/key/info` access type and granted-selection arrays, with the raw key removed
-- target endpoint
-- HTTP/API success or Torn error code
-- whether the response contained the expected structural fields
-- cache/freshness notes where relevant
-- conclusion
+- date/time;
+- environment;
+- test ID;
+- intended custom selections by name only;
+- sanitized `/key/info` access type/level and relevant selection arrays;
+- target endpoint;
+- HTTP/API success or Torn error;
+- expected structural fields;
+- cache/freshness notes only when directly observed;
+- conclusion.
 
-Do not retain IP values from `/key/log` for this chapter.
+Do not retain raw keys or `/key/log` IP values for this chapter.
 
 ---
 
@@ -45,34 +45,30 @@ Do not retain IP values from `/key/log` for this chapter.
 
 ### Goal
 
-Confirm the current OpenAPI claim that inventory no longer requires a broad Limited key and that an exact custom grant behaves as expected.
+Confirm that inventory does not require a generic Limited key and that an exact `user:inventory` Custom grant works.
 
 ### Temporary key
 
 Grant only:
 
 - User → `inventory`
-- Torn → `items` only if the test interface/tool also needs catalog enrichment; omit it for the pure permission test
 
-Do not add `itemmarket`, `trades`, `trade`, or `log`.
+Do not add `itemmarket`, `trades`, `trade`, or `log` for the pure permission test.
 
 ### Calls
 
 1. `GET /v2/key/info`
 2. `GET /v2/user/inventory?cat=Flower&limit=20`
 
-A different ordinary inventory category may be used if Flower is inconvenient.
-
 ### Pass criteria
 
-- `/key/info` identifies the key as Custom and reports `user:inventory` among granted selections.
-- `/user/inventory` succeeds without unrelated Limited selections.
-- Response contains the expected inventory structure or an empty valid inventory response rather than permission error 16.
+- `/key/info` identifies the key as Custom and includes `inventory` in the User selections;
+- `/user/inventory` succeeds without unrelated Limited selections;
+- an empty but valid inventory response counts as success.
 
-### Failure interpretation
+### Live disposition
 
-- Error 16 with the exact custom grant means current custom-key behavior differs from our reading of the OpenAPI and must be investigated before correcting onboarding.
-- Empty inventory is not failure if the response is otherwise valid.
+**FULL PASS.** The tested Custom key reported broad level 0 with `inventory` present, and `/user/inventory` returned HTTP 200 with real data.
 
 ---
 
@@ -80,7 +76,7 @@ A different ordinary inventory category may be used if Flower is inconvenient.
 
 ### Goal
 
-Prove that the released completed-trade recovery capability is separable from IMM's broader inventory/listing permission bundle.
+Prove that released completed-trade recovery is separable from IMM's broader inventory/listing permission bundle.
 
 ### Temporary key
 
@@ -99,68 +95,67 @@ Do not add:
 ### Preconditions
 
 - Use an already-finished ordinary trade in which the owner participated.
-- Prefer a previously recorded/tested trade where possible.
 - Do not create an accounting-significant trade solely for this test.
-- The test may stop at list/detail/review evidence. It does not need to record a sale.
+- No ledger mutation is required.
 
 ### Calls/evidence
 
 1. `/key/info`
 2. `/user/trades?cat=finished`
-3. `/user/{tradeId}/trade` for one safe finished candidate
-4. `/torn/items` or the catalog state required by the stable v0.19.36 review path
+3. `/user/{tradeId}/trade`
+4. `/torn/items` or the stable catalog path
+5. stable IMM recovery flow through every permission-dependent gate that the current local accounting state can legitimately reach
 
 ### Pass criteria
 
-- exact grants are visible in `/key/info`;
-- finished-trade list succeeds;
-- selected participated-trade detail succeeds;
-- catalog resolution succeeds;
-- review can be constructed without requiring `user:inventory` or `user:itemmarket`;
-- no ledger mutation is required for the permission test.
+The permission boundary passes when:
 
-### Important product boundary
+- finished-trade list access succeeds;
+- detailed participated-trade access succeeds;
+- exact catalog access/resolution succeeds;
+- stable IMM accepts the restricted key;
+- the flow reaches either a non-mutating review or a clearly local/accounting fail-closed prerequisite after all permission-dependent gates;
+- no `user:inventory` or `user:itemmarket` permission is required.
 
-If stable IMM's current UI refuses the key solely because it assumes a broad Limited key despite the endpoint calls succeeding, record that as **UX validation debt**, not as evidence that the feature itself needs more permission.
+A local FIFO/catalog/accounting prerequisite is not a permission failure when permission-dependent calls and product gates have already succeeded.
+
+### Live disposition
+
+**FULL PASS FOR THE PERMISSION BOUNDARY.** Swagger returned live 200 responses for `user:trades`, `user:trade`, and `torn:items`. Stable IMM accepted the same restricted key, loaded finished trades, resolved trade detail and catalog state, and then correctly stopped on a local FIFO-coverage prerequisite. No sale was recorded.
 
 ---
 
-## KEY-001-C — Public War Intelligence candidate
+## KEY-001-C — Public faction-member capability
 
 ### Goal
 
-Confirm that the structured fields current WIH cares about are available through `faction:members` without privileged faction API access.
+Map what `GET /v2/faction/{id}/members` exposes without faction API privilege before any future War Intelligence source decision.
 
 ### Temporary key
 
-Grant only:
-
-- Faction → `members`
-
-Do not enable faction API permission merely for this test unless a second comparison run explicitly needs it.
+Use a narrow Custom/Public-capability test key. Do not enable faction API privilege solely for this run.
 
 ### Call
 
 `GET /v2/faction/{factionId}/members`
 
-Use a faction whose rendered page can also be observed safely.
-
 ### Pass criteria
 
-For representative members confirm the response includes the fields needed for later source comparison, especially:
+For representative members confirm the response exposes useful structured identity/activity/status fields without faction privilege. Record privilege-dependent or degraded fields separately.
 
-- user ID/name
-- `last_action`
-- current `status`
-- state / until timing where applicable
+### Live disposition
 
-Record `revive_setting` separately.
+**FULL PASS FOR THE PUBLIC CAPABILITY BOUNDARY.** The live response exposed member identity, Online/Idle/Offline activity, Okay/Traveling/Abroad status variants, travel direction/location, aircraft type, faction position and state flags while `access.faction` remained false.
 
-### Optional second run
+Observed limitations:
 
-If the owner legitimately has faction API access, repeat for the owner's own faction only to determine whether the practical response difference is limited to the documented `revive_setting` enrichment.
+- other members' `revive_setting` values were `Unknown`;
+- the key owner's own revive setting remained visible;
+- observed Traveling/Abroad rows had `status.until: null`;
+- Hospital-state shape was not naturally observed;
+- `/key/info` did not enumerate `members`, so exact selection enumeration is not a universal Public-endpoint capability manifest.
 
-Do not request faction privilege solely to enrich TornScriptures.
+Freshness and page-vs-API ownership remain future War Discovery questions.
 
 ---
 
@@ -168,7 +163,7 @@ Do not request faction privilege solely to enrich TornScriptures.
 
 ### Goal
 
-Resolve the legacy `user:bazaar` uncertainty before Inventory/Bazaar architecture uses it.
+Resolve the minimum permission and empty/closed-state behavior of legacy `user:bazaar` without forcing gameplay changes.
 
 ### Temporary key
 
@@ -176,25 +171,36 @@ Grant exactly:
 
 - User → `bazaar`
 
-The selection currently falls back to API v1.
+The selection currently falls back to API v1 behavior.
 
 ### Evidence
 
-1. `/key/info` granted-selection representation
-2. owner `user:bazaar` response shape
-3. whether the response is valid with the exact custom key
-4. timestamped repeated reads sufficient to characterize obvious cache behavior without excessive polling
-5. fields useful to owner inventory/listing features
+1. `/key/info` representation;
+2. owner `user:bazaar` response shape;
+3. whether the exact Custom key is accepted.
 
-### Cache discipline
+Populated listing-row semantics and practical cache behavior are separate evidence and should be collected only from a natural Bazaar state or separately approved Bazaar Discovery run.
 
-Do not poll rapidly. The purpose is to establish the contract, not to hammer Torn's API. A small bounded comparison around a naturally occurring Bazaar change is preferable.
+### Pass criteria for DQ-KEY-001
 
-### Pass criteria
+- exact Custom `user:bazaar` selection is accepted;
+- `/key/info` exposes the grant or the discrepancy is documented;
+- the owner endpoint returns a valid structural response;
+- any unobserved populated-row/cache behavior is explicitly deferred rather than guessed.
 
-- exact custom selection is accepted;
-- response fields can be catalogued;
-- cache behavior can be described without guessing.
+### Live disposition
+
+**PASS FOR PERMISSION + EMPTY/CLOSED-STATE CONTRACT.** `/key/info` reported Custom, broad level 0, and explicitly included `bazaar` in User selections. The owner endpoint returned:
+
+```json
+{
+  "bazaar_is_open": false,
+  "bazaar_exists": true,
+  "bazaar": []
+}
+```
+
+Populated listing schema and practical cache/freshness behavior remain deferred.
 
 ---
 
@@ -202,36 +208,34 @@ Do not poll rapidly. The purpose is to establish the contract, not to hammer Tor
 
 ### Goal
 
-Confirm what Core can learn without `user:basic`.
+Determine what Core can learn from `/key/info` without requiring `user:basic` merely for permission diagnostics.
 
 ### Evidence
 
-From sanitized `/key/info`, record whether the current live response includes:
+Across the A-D live runs, sanitized `/key/info` repeatedly exposed:
 
-- owner user ID
-- faction ID or null
-- company ID or null
-- access type/level
-- faction/company flags
-- per-section granted selections
+- owner user ID;
+- faction ID;
+- company ID;
+- access type/level;
+- faction/company flags;
+- per-section selection arrays.
 
-Do not record the raw key.
+### Current conclusion
 
-### Conclusion rule
-
-If Core only needs stable owner ID and permission diagnostics, `user:basic` is not required. If product UX later requires owner display name or other profile fields, that becomes a separately justified Public selection.
+For stable owner ID and permission diagnostics, `/key/info` is sufficient. `user:basic` remains separately justified only if future UX genuinely needs additional profile/display fields.
 
 ---
 
-## Completion rule for this protocol
+## Completion rule
 
-DQ-KEY-001 does not require every future domain source to be live-tested before useful conclusions can be drawn.
-
-The chapter can reach a checkpoint when:
+DQ-KEY-001 reaches checkpoint when:
 
 - the official-contract matrix is current;
-- inventory custom permission is live-confirmed;
-- Black Ledger's recovery-only custom set is live-confirmed or an exact blocker is documented;
-- `faction:members` Public behavior is live-confirmed for WIH-relevant fields;
-- owner `user:bazaar` is either characterized or explicitly retained as an unresolved legacy edge;
-- remaining source-freshness questions are correctly handed to their existing DQ-MARKET, DQ-WIH, DQ-BAZAAR or DQ-EXT questions rather than silently answered here.
+- inventory minimum permission is live-confirmed;
+- Black Ledger recovery minimum permission is live-confirmed or an exact permission blocker is documented;
+- Public faction-member capability is live-characterized with limitations recorded;
+- owner Bazaar minimum permission/empty-state behavior is characterized or explicitly retained as an unresolved legacy edge;
+- remaining freshness, populated-response, source-ownership, and runtime-packaging questions are handed to their proper Discovery chapters rather than silently answered here.
+
+That completion rule is satisfied by the 2026-08-20 A-D evidence set. This protocol authorizes no product/runtime change.
