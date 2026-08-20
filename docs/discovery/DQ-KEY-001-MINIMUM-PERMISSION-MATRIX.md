@@ -1,6 +1,6 @@
 # DQ-KEY-001 — Minimum API Permission and Source-Ownership Matrix
 
-Status: **ACTIVE DISCOVERY / INITIAL OFFICIAL-CONTRACT PASS COMPLETE / LIVE EDGE CASES OPEN**
+Status: **ACTIVE DISCOVERY / KEY-001-A-B-C LIVE-CONFIRMED / OWNER BAZAAR EDGE OPEN**
 
 Date opened: 2026-08-20
 
@@ -25,18 +25,29 @@ The goal is not to find one broad key that makes every feature work. The goal is
 
 ### Selection permission
 
-A Torn custom key can grant exact selections. For TornScriptures least-privilege design, the selection is the primary unit of permission reasoning.
+A Torn custom key can grant exact selections. For private/custom capabilities, the selection is the primary unit of least-privilege reasoning.
 
 Examples:
 
 - `user:inventory`
 - `user:trades`
+- `user:trade`
 - `torn:items`
-- `faction:members`
+
+### Public capability
+
+KEY-001-C established that Public v2 endpoints are a special case: a Public endpoint may be usable even when its endpoint/selection name is **not** enumerated in `/key/info`.
+
+Therefore TornScriptures must not mechanically interpret `/key/info` selection arrays as a complete manifest of every Public endpoint a key can call.
+
+For Public endpoints, the current safer capability test is:
+
+1. current official Torn access-tier contract; plus
+2. bounded functional endpoint verification where needed.
 
 ### Broad access tier
 
-Torn also exposes Public Only, Minimal Access, Limited Access and Full Access key levels. These are useful compatibility labels, but they are not precise enough to define TornScriptures' minimum trust boundary when custom keys can grant exact selections.
+Torn also exposes Public Only, Minimal Access, Limited Access and Full Access key levels. These are useful compatibility labels, but they are not precise enough to define TornScriptures' minimum trust boundary when Custom keys can grant exact private selections and Public endpoints can remain callable independently of exact selection enumeration.
 
 ### Source owner
 
@@ -50,7 +61,7 @@ Each fact should be classified as one of:
 ### Required versus conditional
 
 - **Required** means the named capability cannot truthfully operate without that source under its current supported contract.
-- **Conditional** means the selection is needed only when a related optional feature is enabled or when that domain assumes ownership of a neighboring concern.
+- **Conditional** means the source/selection is needed only when a related optional feature is enabled or when that domain assumes ownership of a neighboring concern.
 - **Not required** means another current source already owns the fact and the permission should not be requested merely for convenience.
 
 ## 3. Key-introspection foundation
@@ -61,15 +72,19 @@ Current official contract:
 
 - Stable
 - available for any key
-- returns granted selections grouped by section
+- returns selections grouped by section
 - returns key access level and type
 - returns key owner user ID, faction ID and company ID
 - returns faction/company access flags
 - returns log-permission metadata
 
-**DQ-KEY-001 consequence:** TornScriptures can validate actual selection grants instead of guessing capability from a broad key-level label.
+### Live interpretation after KEY-001-A/B/C
 
-For an eventual permission report, the truth source should be `/key/info`, not local inference alone.
+`/key/info` is a strong permission-truth source for exact private/custom capabilities. KEY-001-A and KEY-001-B showed exact custom grants behaving as expected while the broad numeric level remained `0`.
+
+However, KEY-001-C showed that `GET /faction/{id}/members` succeeded as a Public capability even though `members` was absent from the returned Faction selection array.
+
+**DQ-KEY-001 consequence:** `/key/info` should remain the future diagnostic truth source for key identity, broad access flags and exact private grants, but it must not be treated as a universal deny-list for Public endpoints.
 
 ### `/key/log`
 
@@ -82,13 +97,11 @@ Current official contract:
 
 **DQ-KEY-001 consequence:** useful for later request-audit research, but **not required by any current domain baseline**. Because it exposes IP/request-history information and the call itself consumes/logs API usage, it remains optional under DQ-KEY-004.
 
-## 4. Initial minimum matrix
-
-The table below is the first official-contract pass. `OPEN` rows still require live or source-comparison evidence before the chapter can be closed.
+## 4. Current minimum matrix
 
 | Domain / capability | Exact source or selection | Broad tier documented by Torn | Source owner | Requirement | Can capability function without it? | Freshness / trust note | Current conclusion |
 |---|---|---|---|---|---|---|---|
-| Core — inspect key owner and grants | `GET /key/info` | Available for any key | Official API | Required for exact permission diagnostics; not a separately justified broad permission | Core can operate without diagnostics, but cannot truthfully explain grants without it | Stable self-introspection | **BASELINE** |
+| Core — inspect key owner and grants | `GET /key/info` | Available for any key | Official API | Required for exact permission diagnostics; not a separately justified broad permission | Core can operate without diagnostics, but cannot truthfully explain private grants without it | Stable self-introspection; not exhaustive for Public endpoint capability | **BASELINE WITH PUBLIC-ENDPOINT CAVEAT** |
 | Core — display own basic profile/name | `GET /user/basic` / `user:basic` | Public | Official API | Conditional | Yes, if display name is already available from legitimate page/local context; key owner ID itself is already in `/key/info` | Stable | **OPTIONAL** |
 | Core — API request history | `GET /key/log` | Available for any key | Official API | Optional diagnostics only | Yes | Contains IP/request history; up to 250 stored entries | **NOT BASELINE** |
 | Market/Trader — Torn item identity/value catalog | `GET /torn/items` or targeted `GET /torn/{ids}/items`; `torn:items` | Public | Official API | Required wherever exact Torn item IDs/names/catalog values are needed | Current IMM/ISH catalog-dependent behavior cannot fully function without catalog evidence | Stable; broad vs targeted efficiency remains DQ-CATALOG-001 | **BASELINE FOR CATALOG USERS** |
@@ -96,62 +109,75 @@ The table below is the first official-contract pass. `OPEN` rows still require l
 | Market/Trader — Weav3r trader prices | Weav3r price page | No Torn API selection | Third party | Conditional to Weav3r workflows | Yes, if that trader/provider is not used | Freshness/availability contract still open under DQ-EXT | **NO TORN PERMISSION** |
 | Market/Trader — TornExchange trader prices | TornExchange price page | No Torn API selection | Third party | Conditional to TornExchange workflows | Yes | Freshness/availability contract still open under DQ-EXT | **NO TORN PERMISSION** |
 | Market/Trader — owner's active Item Market listings | `GET /user/itemmarket`; `user:itemmarket` | Limited | Official API | Conditional, and may belong more naturally to Inventory/Bazaar reconciliation than Market/Trader | Yes for market/trader pricing itself | Stable; practical post-change freshness not yet measured | **DO NOT PUT IN MARKET BASELINE YET** |
-| Black Ledger — finished trade list | `GET /user/trades?cat=finished`; `user:trades` | Limited | Official API | Required for released API completed-trade recovery | No, not for API recovery | Stable; exact visibility delay after finality remains DQ-TRADE-001 | **REQUIRED** |
-| Black Ledger — exact detailed trade contents | `GET /user/{tradeId}/trade`; `user:trade` | Limited | Official API | Required for released API completed-trade recovery | No | Stable; only participated trades; live ordinary-sale semantics already owner-tested | **REQUIRED** |
-| Black Ledger — exact item catalog identity | `GET /torn/items`; `torn:items` | Public | Official API | Required by current released recovery because unknown trade item IDs fail closed and name fallback is forbidden | Not under current v0.19.36 recovery contract | Stable; could later use targeted IDs without changing the selection name | **REQUIRED BY CURRENT RELEASE** |
+| Black Ledger — finished trade list | `GET /user/trades?cat=finished`; `user:trades` | Limited | Official API | Required for released API completed-trade recovery | No, not for API recovery | Stable; exact visibility delay after finality remains DQ-TRADE-001 | **REQUIRED / LIVE-PROVEN** |
+| Black Ledger — exact detailed trade contents | `GET /user/{tradeId}/trade`; `user:trade` | Limited | Official API | Required for released API completed-trade recovery | No | Stable; only participated trades; live ordinary-sale semantics owner-tested | **REQUIRED / LIVE-PROVEN** |
+| Black Ledger — exact item catalog identity | `GET /torn/items`; `torn:items` | Public | Official API | Required by current released recovery because unknown trade item IDs fail closed and name fallback is forbidden | Not under current v0.19.36 recovery contract | Stable; could later use targeted IDs without changing source ownership | **REQUIRED BY CURRENT RELEASE / LIVE-PROVEN** |
 | Black Ledger — FIFO lots, cost basis, sales, dedupe history | Black Ledger local dataset | None | Local | Required | No | Irreplaceable Class C data; API must not replace local accounting truth | **REQUIRED LOCAL AUTHORITY** |
 | Black Ledger — current inventory snapshot | `user:inventory` | Minimal | Official API | Not required to reconstruct/record an already completed supported sale; conditional for reconciliation | Yes for released trade recovery | Explicit one-hour-per-category cache makes it unsuitable as immediate completion proof | **EXCLUDE FROM RECOVERY MINIMUM** |
 | Black Ledger — owner's active Item Market listings | `user:itemmarket` | Limited | Official API | Not required for completed-trade recovery | Yes | Separate inventory/listing reconciliation concern | **EXCLUDE FROM RECOVERY MINIMUM** |
-| Inventory/Bazaar — user inventory snapshot | `GET /user/inventory`; `user:inventory` | **Minimal** | Official API | Required for API inventory scan/planning | No for API-driven inventory scan; page state could support different narrow features | Explicitly cached one hour per category | **REQUIRED FOR INVENTORY SCAN** |
+| Inventory/Bazaar — user inventory snapshot | `GET /user/inventory`; `user:inventory` | **Minimal** | Official API | Required for API inventory scan/planning | No for API-driven inventory scan; page state could support different narrow features | Explicitly cached one hour per category | **REQUIRED FOR INVENTORY SCAN / LIVE-PROVEN** |
 | Inventory/Bazaar — exact catalog enrichment | `torn:items` | Public | Official API | Required by current ISH enrichment and many inventory classifications | Basic quantity-only inventory can exist without enrichment, but product behavior loses item/value metadata | Stable | **BASELINE WITH INVENTORY** |
 | Inventory/Bazaar — owner's active Item Market listings | `user:itemmarket` | Limited | Official API | Conditional for listing-aware reconciliation | Yes for pure inventory planning | Stable; freshness study still open | **OPTIONAL RECONCILIATION** |
-| Inventory/Bazaar — owner's Bazaar contents | `user:bazaar` v1 fallback | Custom selection supported; broad-tier/freshness behavior requires care | Official API legacy fallback | Conditional for owner-Bazaar inventory/listing features | Yes for inventory-only features | OpenAPI marks `user:bazaar` as v1 fallback. Torn changelog states own-Bazaar global cache was removed for Custom/Limited/Full keys; live current response still needs verification | **OPEN / DO NOT GENERALIZE** |
+| Inventory/Bazaar — owner's Bazaar contents | `user:bazaar` v1 fallback | Custom selection supported; broad-tier/freshness behavior requires care | Official API legacy fallback | Conditional for owner-Bazaar inventory/listing features | Yes for inventory-only features | OpenAPI marks `user:bazaar` as v1 fallback. Current live response/freshness behavior still needs verification | **OPEN / DO NOT GENERALIZE** |
 | Inventory/Bazaar — public Bazaar directory | `GET /market/bazaar`; `market:bazaar` | Public | Official API | Conditional to Bazaar discovery/market-intelligence features | Yes for owner inventory | Stable directory, not owner's Bazaar contents | **OPTIONAL PUBLIC SOURCE** |
 | Inventory/Bazaar — item-specialized Bazaar directory | `GET /market/{id}/bazaar`; `market:bazaar` | Public | Official API | Conditional | Yes | Stable; exact directory semantics/freshness still DQ-BAZAAR-002/003 | **OPTIONAL PUBLIC SOURCE** |
-| War Intelligence — faction-wide structured member/status data | `GET /faction/{id}/members`; `faction:members` | Public | Official API | Candidate baseline API source, not yet authorized runtime source | Yes: current WIH operates entirely from rendered pages | Stable; freshness versus page observer remains DQ-WIH-001 | **PUBLIC CANDIDATE** |
-| War Intelligence — member `revive_setting` enrichment | `faction:members` plus faction API permission when querying own faction | Public endpoint + faction permission for populated field | Official API | Not required for current WIH purpose | Yes | Without faction permission `revive_setting` is `Unknown`; other member/status fields remain available | **DO NOT REQUEST FACTION PRIVILEGE BY DEFAULT** |
+| War Intelligence — faction-wide structured member/status data | `GET /faction/{id}/members` | Public | Official API | Candidate baseline API source, not yet authorized runtime source | Yes: current WIH operates entirely from rendered pages | Live-proven without faction privilege; freshness versus page observer remains DQ-WIH-001 | **PUBLIC CAPABILITY / LIVE-PROVEN** |
+| War Intelligence — activity presence | `last_action.status/timestamp/relative` in faction members | Public | Official API | Candidate source | Yes; current page observer already supplies activity observations | Live examples confirmed `Online`, `Idle`, `Offline` | **LIVE-PROVEN SHAPE** |
+| War Intelligence — Torn state | `status` in faction members | Public | Official API | Candidate source | Yes | Live examples confirmed `Okay`, `Traveling`, `Abroad`; Hospital remains unobserved in this run | **LIVE-PROVEN PARTIAL STATE SET** |
+| War Intelligence — travel direction/vehicle | `status.description`, `plane_image_type` | Public | Official API | Optional enrichment | Yes | Live descriptions identify travel direction/location; plane type observed as `light_aircraft` and `airliner`; `status.until` remained null in all travel/abroad examples | **LIVE-PROVEN, ETA NOT PROVEN** |
+| War Intelligence — member `revive_setting` | faction-members response | Public endpoint; faction privilege affects broader visibility | Official API | Not required for baseline status intelligence | Yes | Live run with `access.faction:false`: key owner's own value visible; other members `Unknown`. This is more nuanced than current OpenAPI wording | **LIMITED WITHOUT FACTION PRIVILEGE / SELF-ROW EXCEPTION** |
 | War Intelligence — rendered status observation/history | Current faction-page observer | None | Rendered/page state + Local | Required by current released WIH behavior | Current WIH would not function as designed without page observations | Runtime freshness and background behavior differ from API and must be measured | **CURRENT AUTHORITY FOR RELEASED WIH** |
 
-## 5. Immediate corrections to earlier Discovery assumptions
+## 5. Corrections and discoveries that change prior assumptions
 
 ### Correction A — `/user/inventory` is Minimal, not Limited
 
-The 2026-08-10 registry recorded `/user/inventory` as Stable/Limited. The current 6.11.1 OpenAPI explicitly states **Requires minimal access key**.
+The 2026-08-10 registry recorded `/user/inventory` as Stable/Limited. Current OpenAPI 6.11.1 states **Requires minimal access key**.
 
-This is a real permission reduction and should be corrected in the Capability Registry.
-
-It also proves why permission requirements must be revalidated against the current official contract rather than copied indefinitely from older notes.
+KEY-001-A then live-confirmed an exact Custom inventory key at broad `level: 0` could successfully call `/user/inventory`.
 
 ### Correction B — released Black Ledger recovery has a smaller feature-specific footprint than current IMM packaging
 
-Stable IMM v0.19.36 currently declares official endpoints for:
+Stable IMM v0.19.36 currently contains official API concerns for catalog, inventory, own Item Market listings and completed-trade recovery. Its current UI packaging still describes a generic Limited key.
 
-- `torn:items`
-- `user:inventory`
-- `user:itemmarket`
-- `user:trades`
-- `user:trade`
-- `/key/info`
-
-The current UI still asks the user to enter a generic **Limited Access API key**.
-
-However, inspection of the released recovery contract shows the completed-trade recovery capability itself requires:
+KEY-001-B live-confirmed that the completed-trade recovery capability itself can operate with:
 
 1. `user:trades`
 2. `user:trade`
-3. `torn:items` under the current exact-ID catalog rule
+3. `torn:items`
 
-`user:inventory` and `user:itemmarket` belong to other IMM reconciliation behavior and are not required to reconstruct and record an already completed supported trade.
+without `user:inventory`, `user:itemmarket`, `user:log` or Full access.
 
-This does **not** authorize a runtime key prompt change. It establishes the first feature-specific least-privilege boundary for later design.
+Stable IMM accepted that restricted key, loaded 86 finished trades, fetched detail/catalog data, and advanced until a legitimate local FIFO precondition stopped review. No accounting mutation was needed.
 
-### Correction C — WIH does not need privileged faction API access for its core structured candidate source
+### Correction C — Public endpoint capability is not fully enumerated by `/key/info`
 
-`GET /faction/{id}/members` requires only Public access. Torn documents additional faction permission only for the `revive_setting` enrichment on the user's own faction.
+KEY-001-C used a Custom key reporting:
 
-Therefore no evidence currently justifies asking War Intelligence users for Limited/Full access or faction API permission merely to obtain the member/status fields we are evaluating.
+- `access.level: 0`
+- `access.faction: false`
+- Faction selection array containing only baseline values such as `timestamp`, `basic`, `lookup`
 
-## 6. Provisional domain permission sets
+Yet `GET /faction/{id}/members` succeeded and returned a real member roster.
+
+Therefore exact `/key/info` selection presence must **not** become a universal Public-endpoint gate.
+
+### Correction D — faction member data is richer without privilege than expected, but revive visibility has a narrow live exception
+
+Without faction API privilege, the live own-faction roster exposed:
+
+- identity, level, faction tenure and position
+- Online/Idle/Offline last-action state and timestamps
+- Okay/Traveling/Abroad Torn status
+- travel direction/location text
+- aircraft type for traveling members
+- revivable/wall/OC/early-discharge flags
+
+Most members' `revive_setting` values were `Unknown`, but the key owner's own row returned the actual value while `access.faction` remained false.
+
+Current OpenAPI 6.11.1 broadly describes `revive_setting` as populated for own-faction requests with faction permission and `Unknown` otherwise. The live self-row is therefore an edge/discrepancy that must be preserved rather than normalized away.
+
+## 6. Provisional domain permission/source sets
 
 These are **research sets**, not key-builder links and not runtime requirements.
 
@@ -165,6 +191,10 @@ Optional only:
 
 - `user:basic` when a trustworthy display name is actually needed
 - `/key/log` for a separately approved diagnostic/audit feature
+
+Public-endpoint caveat:
+
+- absence of a Public endpoint name from `/key/info` is not by itself proof of lack of access.
 
 ### Market / Trader
 
@@ -197,7 +227,7 @@ No current evidence requires `user:inventory`, `user:itemmarket`, `user:log`, or
 Minimum for current API-driven inventory scan:
 
 - `user:inventory` — Minimal
-- `torn:items` — Public
+- `torn:items` — Public for enrichment/catalog identity where needed
 
 Conditional additions:
 
@@ -212,11 +242,28 @@ Current released implementation:
 - no Torn API permission
 - rendered faction page + local observation history
 
-Candidate API source under Discovery:
+Candidate official API source under Discovery:
 
-- `faction:members` — Public
+- Public `GET /faction/{id}/members`
 
-Do not request faction API privilege by default. The only explicitly documented extra benefit identified in the current member contract is populated `revive_setting` for one's own faction.
+Known capability without faction privilege:
+
+- roster identity
+- Online/Idle/Offline activity
+- status state/description/color
+- travel/abroad location direction and plane type
+- position, level, days in faction
+- revivable/wall/OC/early-discharge flags
+
+Known limitations/caveats:
+
+- other members' revive settings are hidden as `Unknown` without faction privilege;
+- key owner's own revive setting was nevertheless visible in the live run;
+- travel/abroad `status.until` was null in all observed examples, so ready-made travel ETA is not proven;
+- Hospital live shape remains unverified;
+- API freshness versus rendered page remains unresolved and is a separate WIH Discovery question.
+
+Do not request faction API privilege by default based on current evidence.
 
 ## 7. One-key versus domain-key architecture is intentionally NOT decided
 
@@ -231,42 +278,61 @@ That decision depends directly on DQ-KEY-002: actual TornPDA managed-key injecti
 
 DQ-KEY-001 should first establish the permission/source truth. Packaging that truth into onboarding comes later.
 
-## 8. Open evidence required before DQ-KEY-001 can close
+## 8. Evidence state before DQ-KEY-001 closes
 
-1. **`user:bazaar` live contract**
-   - capture a sanitized owner-Bazaar response with an exact custom selection;
+### Closed/live-confirmed in this chapter
+
+1. **Inventory minimum permission — KEY-001-A**
+   - Custom key with `user:inventory`
+   - `/key/info` showed Custom level 0 and inventory grant
+   - `/user/inventory` returned HTTP 200
+
+2. **Black Ledger recovery minimum — KEY-001-B**
+   - `user:trades` + `user:trade` + `torn:items`
+   - API list/detail/catalog all succeeded
+   - stable IMM accepted key and traversed recovery until local catalog/FIFO readiness guards
+   - no `user:inventory` or `user:itemmarket` needed
+
+3. **Public faction-members capability — KEY-001-C**
+   - faction API privilege false
+   - public members endpoint succeeded
+   - core member/activity/status fields live-confirmed
+   - Public-endpoint `/key/info` enumeration caveat discovered
+   - revive-setting self-row exception discovered
+
+### Still open
+
+4. **`user:bazaar` live contract — KEY-001-D**
+   - capture sanitized owner-Bazaar response with an exact custom selection;
    - verify current key-info representation;
-   - verify practical cache behavior for owner versus public access;
-   - confirm what useful owner listing fields survive the v1 fallback.
-
-2. **Inventory permission live confirmation**
-   - create/use an exact custom key with `user:inventory` but without unrelated Limited selections;
-   - confirm `/key/info` reports the exact grant;
-   - confirm `/user/inventory` succeeds with the current Minimal/custom permission behavior.
-
-3. **Black Ledger recovery-only custom key**
-   - use a controlled custom key containing only `user:trades`, `user:trade`, and `torn:items` (plus Torn's automatic/default introspection behavior);
-   - verify released recovery can list/review a safe already-finished trade without `user:inventory` or `user:itemmarket`;
-   - do not create an accounting-significant trade solely for this test.
-
-4. **War Intelligence permission proof**
-   - verify `faction:members` with a Public/custom selection key returns the status/last-action fields current WIH cares about without faction API permission;
-   - separately record whether the only observed difference is `revive_setting` or whether other fields vary in practice.
+   - characterize obvious cache behavior without aggressive polling;
+   - catalogue useful owner listing fields that survive the v1 fallback.
 
 5. **Market/Trader ownership boundary**
-   - finish DQ-MARKET-001/002 and DQ-EXT source/freshness work before deciding whether `market:itemmarket` belongs in the default Market/Trader key footprint.
+   - finish DQ-MARKET-001/002 and DQ-EXT source/freshness work before deciding whether `market:itemmarket` belongs in the default Market/Trader footprint.
+
+### Deferred to the future War Intelligence Discovery chapter
+
+- Hospital-state live response shape
+- API-versus-rendered-page freshness
+- update cadence and background behavior
+- whether API, observer, or hybrid should own current status truth
+- product/UI design and final product name
+
+These are not required to prove the permission floor discovered in KEY-001-C.
 
 ## 9. Current chapter conclusions
 
-Already strong enough to carry forward:
+Strong enough to carry forward:
 
-- `/key/info` should be the permission truth source for future diagnostics.
-- Least privilege should be expressed in exact selections, not simply "use a Limited key."
-- `user:inventory` is currently Minimal according to official OpenAPI 6.11.1.
-- Black Ledger completed-trade recovery has a narrower feature-specific permission set than the current monolithic IMM prompt implies.
-- `faction:members` is Public and does not justify privileged faction access for baseline WIH status observation.
-- public market/Bazaar sources should not be confused with owner-private listing/inventory sources.
-- source freshness and source authority remain separate dimensions.
+- `/key/info` should be the permission truth source for exact private/custom grants and key diagnostics, but is not an exhaustive Public endpoint capability manifest.
+- Least privilege should be expressed in exact private selections plus explicit Public capability contracts, not simply "use a Limited key."
+- `user:inventory` is Minimal and live-proven under an exact Custom key.
+- Black Ledger completed-trade recovery has a live-proven feature-specific minimum of `user:trades` + `user:trade` + `torn:items`.
+- Public faction-member data is already rich enough to establish a meaningful future War Intelligence source candidate without faction privilege.
+- Faction privilege is not justified merely for baseline member/status intelligence.
+- Public market/Bazaar sources must not be confused with owner-private listing/inventory sources.
+- Source freshness and source authority remain separate dimensions.
 
 Not yet decided:
 
@@ -274,7 +340,8 @@ Not yet decided:
 - TornPDA managed-key versus custom-key onboarding;
 - whether official Item Market API snapshots should become a default Market/Trader source;
 - owner-Bazaar exact permission/freshness contract;
-- any runtime permission prompt change.
+- any runtime permission prompt change;
+- any War Intelligence architecture or product design.
 
 ## 10. Release posture
 
