@@ -34,10 +34,13 @@ This roadmap records project sequence, dependencies, risk, tool choice, and codi
 
 - Repository: `KingAeon/TornScripture`
 - Stable branch: `main`
-- Governance release commit: `c9888ed6438b9962bbbbe80e2216c7453094961b`
-- IMM release: `0.19.33`
-- Stable product result: favorite trader carousel routing and recovery tested in TornPDA and merged through PR #91
-- Governance result: bilateral charter, agent rules, ledger invariants, workflow, templates, and roadmap released through PR #99
+- Age of Discovery checkpoint merge commit: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
+- IMM release: `0.19.36`
+- API-backed Black Ledger completed-trade recovery: released through PR #107
+- Age of Discovery notebook: released through PR #109
+- TornPDA native-storage qualification: closed for the current Discovery cycle
+- Housekeeping checkpoint: PR #110. This Roadmap is part of that checkpoint; if this version is read from `main`, PR #110 has landed.
+- Next research chapter after the housekeeping cleanup tranche: DQ-KEY-001, minimum API permission and source-ownership matrix
 
 ## Architectural destination
 
@@ -71,113 +74,118 @@ A separate script is justified only when at least one strong boundary exists:
 - a largely separate audience or purpose
 - unacceptable loading or maintenance cost inside the main suite
 
-Developer packaging and user packaging are separate decisions. Future source code may be split into maintained modules and built into one installable userscript without forcing the owner to manage many installations.
+Developer packaging and user packaging are separate decisions. Future source code may be split into maintained modules and built into one user-facing installation without forcing users to manage many installations.
 
-This architecture remains a Tier 4 destination. It must not interrupt Black Ledger recovery or rewrite stable storage without a staged migration, rollback plan, and strong automated coverage.
+This architecture remains a Tier 4 destination. It must not rewrite stable storage without a staged migration, rollback plan, and strong automated coverage.
 
 ## Current projects
 
 | Priority | Project | Problem and outcome | Dependencies | Risk | Recommended tool | Budget | Status | Success evidence | Fallback |
 |---|---|---|---|---|---|---|---|---|---|
-| Released | Project governance charter | Requests, tools, risks, and releases need one shared operating system | Owner review | Tier 1 | Chat + GitHub connector | Light | Released through PR #99 | Governance files present on `main`; owner acceptance; IMM unchanged | Amend through documentation PRs |
-| Now | Roadmap and Copilot guidance amendment | Record architecture, analytics, mode keys, and first coding-agent strategy | Governance release | Tier 1 | Chat + GitHub connector | Light | Implementing, Issue #100 | Documentation-only diff and owner review | Keep released governance unchanged |
-| Next | GitHub Copilot workflow preflight | Copilot must prove the complete repo-to-test-to-PR loop before product work | Issue #100 release; Copilot repository access; protected `main` | Tier 0/1 | GitHub Copilot Pro cloud agent | Light | Toolchain gate | Exact baseline, clean tree, baseline tests, isolated branch, harmless draft PR | Reject Copilot for product work and test Codex or a local agent |
-| Next | API-backed Black Ledger completed-trade recovery | DOM capture cannot reliably preserve finished trade items and cash; recover through official trade data with review before FIFO mutation | Successful toolchain preflight; API contract validation | Tier 3 | Codex or a strong GitHub cloud agent proven by preflight | Premium | Specified, Issue #97 | API parsing, fail-closed tests, live low-value TornPDA test, reload dedup, Ledger Integrity | Manual recovery |
-| After #97 | Black Ledger recovery and audit stabilization | Make failures understandable, repairable, and auditable | API recovery result | Tier 2/3 | Strong agent; split by mutation risk | Standard/Premium | Discussion backlog | Recovery UX, exports, diagnostics, audit consistency | Existing manual tools |
-| Later | Market-history foundation | Begin collecting trustworthy local price and liquidity history that future analytics can evaluate | Stable accounting and data-source design | Tier 2 | Proven Copilot, Codex, or capable local agent | Standard | Discussion backlog | Timestamped snapshots, provenance, freshness, gaps, bounded storage, export | Manual market review and external charts |
+| Released | Project governance charter | Requests, tools, risks, and releases need one shared operating system | Owner review | Tier 1 | Chat + GitHub connector | Light | Released through PR #99 | Governance files present on `main`; owner acceptance | Amend through documentation PRs |
+| Released | Roadmap, mode keys, and Copilot guidance | Record architecture, analytics, mode keys, and coding-agent strategy | Governance release | Tier 1 | Chat + GitHub connector | Light | Released through PR #101 | Documentation present on `main` | Amend through documentation PRs |
+| Released | GitHub Copilot workflow preflight | Prove the repository-to-test-to-PR loop before product work | Governance | Tier 0/1 | GitHub Copilot Pro cloud agent | Light | Released through PR #103 | Repository materialization, baseline checks, isolated branch, draft PR | Use another full-repository agent if needed |
+| Released | API-backed Black Ledger completed-trade recovery | Replace failed mobile-DOM reconstruction with official trade data and explicit review before FIFO mutation | Toolchain proof; API contract; owner TornPDA gate | Tier 3 | Strong full-repository agent | Premium | Released as IMM v0.19.36 through PR #107 | Real trade review/record, exact FIFO, reload dedup, Ledger Integrity | Manual missed-sale recovery |
+| Released | Age of Discovery checkpoint | Preserve capability, runtime, storage, and source knowledge before new architecture | Stable main; controlled live evidence | Tier 1/2 research | Chat + GitHub connector | None/Light | Released through PR #109 | Discovery registries, protocols, evidence, current-status layer | Continue evidence in new Discovery chapters |
+| Checkpoint | Repository housekeeping | Remove stale project-state claims, refresh branch cleanup evidence, and triage open backlog before the next chapter | PR #109 release | Tier 0/1 | Chat + GitHub connector | None/Light | PR #110; treat as released when this version is present on `main`, with branch deletions recorded separately | No runtime diff; current branch audit; accurate roadmap/status/issue state | Leave unverified branches untouched |
+| Next | DQ-KEY-001 minimum permission and source-ownership matrix | Determine the smallest trustworthy permission/source footprint for each TornScriptures domain | Housekeeping checkpoint and cleanup tranche; current Torn API contract | Tier 1/2 research | Chat + GitHub connector + official sources | None/Light | Discussion / Discovery | Domain matrix for Core, Market/Trader, Black Ledger, Inventory/Bazaar, WIH | Preserve current per-script key behavior |
+| After DQ-KEY-001 | Inventory freshness and immediate transaction truth | One-hour category caching means inventory cannot automatically prove immediate post-transaction state | Permission/source matrix | Tier 2 research | Chat + GitHub + controlled owner tests | Standard if implementation follows | Discovery backlog | Measured cache behavior and source comparison | Current inventory snapshots plus transaction-specific sources |
+| Later | Market-history foundation | Collect trustworthy local price/liquidity history for later analytics | Source-contract validation; storage policy | Tier 2 | Proven full-repository agent | Standard | Discussion backlog | Timestamped snapshots, provenance, freshness, gaps, bounded storage, export | Manual market review and external charts |
 | Later | Market trend analytics and classification | Identify stagnant, rising, falling, bottoming-candidate, rebound, and overheated products with visible confidence | Sufficient market-history coverage and validation design | Tier 2/3 | Strong full-repository agent | Standard/Premium | Discussion backlog | Reproducible calculations, confidence, replay tests, false-positive tracking | Raw charts and neutral measurements only |
-| Later | Trader classification and hiding | Exclude undesirable traders while preserving reversible visibility | Stable trader-book storage | Tier 2 | Copilot/Aider/OpenCode/Codex | Standard | Discussion backlog | Persistence, reveal controls, no favorite-routing regression | Manual ignore list |
-| Later | Alternate trader prices on single-item pages | Show top alternatives when a preferred trader is unavailable | Stable trader routing and price-book data | Tier 2 | Capable local or cloud agent | Standard | Discussion backlog | Accurate ranked alternatives, mobile fit, read-only behavior | Existing carousel |
-| Later | Buy-side trader screen and generated purchase receipts | Support profitable inbound offers and purchase-side accounting | Black Ledger sale recovery, receipt foundations, and validated analytics | Tier 3/4 | Codex or strong cloud agent | Premium/Staged | Parked pending accounting foundation | Bid boundaries, confirmed purchase, receipts, dedup, integrity | Manual purchase capture |
+| Later | Bazaar operating system | Inventory selection, presentation, pricing strategy, and public-facing workflow | Reliable accounting, trader workflows, useful analytics | Tier 1-3 by subproject | Mixed tools | Mixed | Discussion backlog | Clear inventory states and measurable profitability | Manual bazaar process |
+| Later | Buy-side trader screen and generated purchase receipts | Support profitable inbound offers and purchase-side accounting | Black Ledger foundations, permission/source map, validated analytics | Tier 3/4 | Strong full-repository agent | Premium/Staged | Parked | Bid boundaries, confirmed purchase, receipts, dedup, integrity | Manual purchase capture |
 | Later | TornScriptures Modular Core and Hub Architecture | Replace single-file entanglement with maintained internal modules while preserving a small user-facing installation set | Stable accounting, proven workspace, automated coverage, migration design | Tier 4 | Strong agent plus architecture review | Staged premium | Discussion destination | Staged migration, compatibility, rollback, equal behavior, bounded modules | Continue stable standalone scripts |
-| Later | Bazaar operating system | Inventory selection, presentation, pricing strategy, and public-facing workflow | Reliable accounting, trader workflows, and useful analytics | Tier 1-3 by subproject | Mixed tools | Mixed | Discussion backlog | Clear inventory states and measurable profitability | Manual bazaar process |
 
-## Phase 0: governance release
+## Phase 0: governance release — COMPLETE
 
-Released through PR #99:
+Released through PR #99 and expanded through PR #101:
 
-- expanded `AGENTS.md`
 - project charter and mutual covenant
-- assistant operating rules
+- assistant and agent operating rules
 - Black Ledger invariants
 - development workflow
-- roadmap
-- coding task template
-- decision register
-- feature and bug issue forms
-- PR template
+- roadmap and decision register
+- issue/PR templates
+- optional mode keys
+- modular-monolith direction
+- coding-agent selection guidance
 
-No userscript or workflow changes occurred.
+No runtime behavior is changed by governance documentation alone.
 
-## Phase 1: prove the coding workspace
+## Phase 1: prove the coding workspace — COMPLETE
 
-The first task for a candidate coding environment is a harmless preflight:
+GitHub Copilot's harmless preflight was released through PR #103. The project has since also demonstrated that routine repository administration and documentation can be handled directly through the GitHub connector without spending coding-agent credits.
 
-1. materialize `KingAeon/TornScripture`
-2. check out the exact requested baseline
-3. read `AGENTS.md` and relevant governance documents
-4. report the current IMM version
-5. show a clean working tree
-6. discover and run existing syntax and relevant tests
-7. create an isolated branch
-8. add only an approved tooling report
-9. open a draft PR containing no product change
-10. report limitations and stop conditions honestly
+Current tooling doctrine remains:
 
-Candidate order:
+- use the lightest tool that can safely complete and verify the task;
+- reserve Codex/premium agents for implementation where executable full-repository reasoning is materially useful;
+- do not use coding agents for naming, issue writing, roadmap cleanup, or routine GitHub administration;
+- no agent may merge without exact owner authorization.
 
-1. GitHub Copilot Pro cloud-agent preflight
-2. Codex cloud or CLI for premium or failed-preflight replacement work
-3. Aider with a capable model
-4. OpenCode with explicit permissions
+## Phase 2: API-backed completed-trade recovery — COMPLETE FOR CURRENT BOUNDARY
 
-A tool that cannot prove the complete loop is not used for Tier 3 work.
+Released as IMM `0.19.36` through PR #107.
 
-## Phase 2: API-backed completed-trade recovery
+Current supported boundary:
 
-Canonical issue: #97.
-
-Required first release:
-
-- user-triggered recent finished-trade lookup
-- detailed trade fetch
-- owner and counterparty identification
-- outgoing item aggregation
+- user-triggered finished-trade lookup
+- detailed trade fetch from official Torn API
+- strict list/detail identity reconciliation
+- Torn-ID participant ownership
+- outgoing item aggregation by exact item ID
 - net cash calculation
-- duplicate detection
 - full-coverage FIFO preview
 - complete review screen
 - explicit confirmation
-- fail-closed unsupported cases
+- exact API trade-ID deduplication plus secondary protections
+- fail-closed unsupported/ambiguous/partial cases
 - manual recovery retained
-- tests and live TornPDA verification
+- owner TornPDA verification and post-reload Ledger Integrity
 
-Out of scope:
+Still open as research, not release blockers:
 
-- more DOM acceptance hooks
-- more touch probes
-- automatic recording without review
-- unrelated trader UI
+- exact measured API visibility delay after visible finality
+- broader policy for unsupported asset combinations
+- recovery-only permission minimum separated from other IMM permissions
+- full portable Class C backup/reconciliation design
 
-## Phase 3: Black Ledger stabilization
+## Phase 3: Age of Discovery — ACTIVE
 
-Potential subprojects:
+The first Discovery checkpoint was released through PR #109.
 
-- visible API/recovery diagnostics
-- transaction provenance display
-- audit repair workflows
-- import/export validation
-- recovery duplicate reconciliation
-- clearer lot allocation views
-- integrity explanations and guided repair
+Completed Discovery work includes:
 
-Classify each subproject separately. Read-only diagnostics may be Tier 1 or Tier 2. Any mutation remains Tier 3.
+- Torn API capability registry and open-question queue
+- TornPDA runtime/storage capability registry
+- native-storage lifecycle, scaling, batching, quota, cross-origin, and bounded concurrency qualification
+- current TornScriptures storage inventory
+- hybrid storage architecture decision with data classes
+- Black Ledger recovery/current-state reconciliation
+- durable evidence and disposable probes
 
-## Phase 4: market-history foundation
+TornPDA native-storage qualification is closed for the current cycle. Discovery does **not** authorize a production storage migration.
 
-The first analytics release should collect and display evidence without recommending purchases.
+The next Discovery chapter after PR #110 and its branch-cleanup tranche is DQ-KEY-001: minimum API permissions and source ownership across all five domains.
 
-Potential observations:
+## Phase 4: source truth, inventory freshness, and market-history foundation
+
+After DQ-KEY-001, prioritize evidence needed to choose truthful sources before implementing shared API/storage infrastructure.
+
+High-value questions include:
+
+- inventory cache behavior after a buy, sale, or trade
+- immediate source of inventory change
+- Item Market cache provenance and practical delay
+- official historical market availability
+- Bazaar owner/directory capabilities and freshness
+- WIH API freshness versus rendered-page observations
+- legitimate structured page/application state already delivered by Torn
+- Weav3r and TornExchange source/freshness guarantees
+
+The first analytics implementation should collect and display evidence without making automatic purchases or account actions.
+
+Potential market observations:
 
 - timestamped item-price snapshots
 - lowest visible prices and listing-depth proxies when available
@@ -222,35 +230,35 @@ Before stronger decision language is considered, the system must:
 
 - replay historical signals
 - track outcomes after each signal
-- measure false positives
+- measure false positives and false negatives
 - separate event shocks from ordinary movement
 - compare multiple time windows
 - display uncertainty and liquidity visibly
 
-Analytics may inform the owner. It must not buy, list, or move money automatically.
+Analytics may inform the owner. It must not buy, list, sell, accept, or move money automatically.
 
-## Phase 6: trader workflow refinement
+## Phase 6: trader and Bazaar workflow refinement
 
-Potential order:
+Potential order depends on Discovery evidence, but likely work includes:
 
-1. trader classification and reversible hiding
-2. alternate price display
-3. availability and status hints
+1. trader refresh reliability and stale-source handling
+2. alternate trader-price display
+3. Bazaar source/capability integration
 4. offer-generation workflow
 5. purchase-side receipts
 
-Do not combine all five into one implementation task.
+Do not combine all of these into one implementation task.
 
-## Phase 7: buy-side and bazaar expansion
+## Phase 7: buy-side and Bazaar expansion
 
-Begin only after accounting foundations are dependable.
+Begin only after accounting foundations and source ownership are dependable.
 
 Potential projects:
 
 - inbound offer boundaries
-- expected margin and capital lock calculations
+- expected margin and capital-lock calculations
 - purchase confirmation and receipts
-- bazaar allocation of inventory
+- Bazaar allocation of inventory
 - stock-aging and sell-through visibility
 - public trader-facing presentation
 
@@ -277,7 +285,7 @@ Do not use modularization as cover for unrelated product redesign.
 Use chat, GitHub, or light tools for:
 
 - naming and branding
-- bazaar descriptions
+- Bazaar descriptions
 - roadmap updates
 - issue and PR writing
 - release notes
@@ -286,7 +294,7 @@ Use chat, GitHub, or light tools for:
 - test plans
 - wording and labels
 - static documentation
-- simple read-only presentation changes
+- source/permission inventory
 
 ## Work that generally warrants premium code usage
 
@@ -329,4 +337,4 @@ Update this file when:
 - a project is released
 - a new major backlog item is accepted
 
-Record architecture decisions separately in `docs/DECISION-REGISTER.md`.
+Record architecture decisions separately in `docs/DECISION-REGISTER.md`. Use `docs/discovery/CURRENT-STATUS.md` as the first-stop current factual state for active Discovery work.

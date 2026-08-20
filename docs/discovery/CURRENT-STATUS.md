@@ -1,6 +1,6 @@
 # TornScriptures Age of Discovery — Current Status
 
-Status: **ACTIVE / SYNCHRONIZED WITH RELEASED IMM v0.19.36**
+Status: **ACTIVE / RELEASED TO MAIN / READY FOR DQ-KEY-001**
 
 Date: 2026-08-20
 
@@ -9,11 +9,13 @@ This file is the current-state index for the Age of Discovery. Historical discov
 ## Current repository baseline
 
 - Stable branch: `main`
-- Stable main SHA: `25fe4936b87697427cfaa1db99fffa907ba07126`
+- Discovery-checkpoint merge commit: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
 - Stable IMM: `0.19.36`
-- API-backed Black Ledger completed-trade recovery: released through PR #107
-- Discovery branch sync commit: `17fcff98d03b765fc80eadeafd6baff7b068f85b`
-- Discovery PR: #109, draft and unmerged
+- API-backed Black Ledger completed-trade recovery: released through PR #107; merge commit `25fe4936b87697427cfaa1db99fffa907ba07126`
+- Age of Discovery checkpoint: released through PR #109; exact reviewed head `fffef3e2ae9236d5b8684a029420c989b488d45c`
+- Housekeeping checkpoint: PR #110. This document is part of that checkpoint. If this version is being read from `main`, PR #110 has necessarily landed; if it is being read from the PR branch, release may still be pending.
+
+The Discovery notebook is durable project knowledge on `main`. Open questions remain research targets; they are no longer stranded on a research-only branch.
 
 ## Storage chapter
 
@@ -136,16 +138,10 @@ After the permission matrix, priority remains on:
 - portable backup and reconciliation contracts for Class C data;
 - OpenAPI change detection and discovery reverification cadence.
 
-## Merge posture for PR #109
+## Housekeeping checkpoint
 
-PR #109 should be treated as a durable Discovery checkpoint, not as a requirement to solve every open question before merge.
+PR #110 is the documentation/bookkeeping-only housekeeping checkpoint that precedes DQ-KEY-001. It refreshes this current-state index, the central Roadmap and Decision Register, and the durable branch-cleanup audit. Its associated issue triage is recorded directly in GitHub.
 
-A release review should verify:
+The housekeeping checkpoint does not alter production userscripts, APIs, storage schemas, tests, product versions, or runtime behavior. Branch deletion is a separate post-merge administrative action governed by `docs/BRANCH-CLEANUP-AUDIT.md`; unverified and evidence branches remain protected.
 
-- all PR changes remain limited to `docs/discovery/` and disposable discovery probes;
-- historical evidence remains preserved;
-- current-status documents accurately supersede stale release-state statements;
-- no production runtime behavior, storage migration, API request, or product version change is introduced;
-- the owner explicitly authorizes merge of the exact reviewed head.
-
-Until that separate release gate occurs, PR #109 remains draft and unmerged.
+Once PR #110 is present on `main` and its authorized branch-cleanup tranche is completed, Discovery resumes from DQ-KEY-001 unless a severe stable-release defect or owner-approved reprioritization intervenes.
