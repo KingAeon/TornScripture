@@ -1,6 +1,6 @@
 # DQ-KEY-001-D — Owner Bazaar Capability Run 001
 
-Status: **PARTIAL PASS / OWNER EMPTY-STATE SHAPE PROVEN / LISTING SHAPE AND CACHE BEHAVIOR OPEN**
+Status: **PASS FOR PERMISSION + EMPTY/CLOSED-STATE CONTRACT / POPULATED LISTING SHAPE AND CACHE BEHAVIOR DEFERRED**
 
 Date: 2026-08-20
 
@@ -10,9 +10,36 @@ Characterize the current owner-Bazaar API behavior under a narrowly scoped Custo
 
 This is capability evidence only. It does not authorize Bazaar implementation, listing automation, or polling.
 
-## Live response observed
+## `/key/info` evidence
 
-The owner supplied the following sanitized owner-Bazaar response:
+The owner supplied a sanitized live `/key/info` response for the same test key.
+
+Observed:
+
+- `access.type`: `Custom`
+- `access.level`: `0`
+- `access.faction`: false
+- `access.company`: false
+- User selections included baseline entries plus explicit `bazaar`
+
+Relevant User selection array:
+
+```json
+[
+  "profile",
+  "timestamp",
+  "lookup",
+  "bazaar"
+]
+```
+
+This confirms owner Bazaar behaves like the private/custom capabilities tested earlier: the exact `user:bazaar` grant is explicitly enumerated in `/key/info` even though the broad numeric key level remains `0`.
+
+This contrasts with the Public faction-members probe, where a usable Public endpoint was not enumerated by endpoint name in `/key/info`.
+
+## Live owner-Bazaar response
+
+The owner supplied the following sanitized response:
 
 ```json
 {
@@ -24,7 +51,9 @@ The owner supplied the following sanitized owner-Bazaar response:
 
 ## What this proves
 
-- the owner-Bazaar request succeeded under the test setup;
+- the owner-Bazaar request succeeds with an exact Custom `user:bazaar` grant;
+- `/key/info` explicitly reports `bazaar` in the User selection array;
+- a broad key level above `0` is not required for this exact Custom capability;
 - Torn distinguishes Bazaar existence from Bazaar open/closed state;
 - a Bazaar can exist while being closed;
 - an existing closed Bazaar with no returned listings produces a valid empty `bazaar` array rather than an error;
@@ -44,9 +73,17 @@ Because the tested Bazaar was closed/empty at capture time, this run does **not*
 
 ## Discovery decision
 
-Do **not** mutate Bazaar state merely to complete this notebook. Listing-shape and freshness evidence should be collected later from a naturally populated Bazaar or during a separately approved Bazaar Discovery run.
+Do **not** mutate Bazaar state merely to complete this notebook. Populated listing-shape and freshness evidence should be collected later from a naturally populated Bazaar or during a separately approved Bazaar Discovery run.
 
-The current DQ-KEY-001 requirement is satisfied far enough to know that the owner-Bazaar capability exists and that its empty/closed-state contract is structurally usable, while the remaining legacy/freshness questions stay explicitly open.
+For DQ-KEY-001, the permission question is closed far enough to establish the least-privilege boundary:
+
+- exact capability: `user:bazaar`
+- Custom key accepted
+- broad level observed: `0`
+- explicit grant visible in `/key/info`
+- owner empty/closed-state response structurally valid
+
+The remaining listing-shape/cache questions belong to Bazaar source-contract/freshness research rather than minimum-permission discovery.
 
 ## Security
 
