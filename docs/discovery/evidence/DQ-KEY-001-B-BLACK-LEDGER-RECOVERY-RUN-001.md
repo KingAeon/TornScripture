@@ -1,12 +1,12 @@
 # DQ-KEY-001-B — Black Ledger Recovery-Only Permission Run 001
 
-Status: **API BOUNDARY PASS / STABLE IMM REVIEW GATE STILL OPEN**
+Status: **STABLE IMM PERMISSION PASS / NON-MUTATING REVIEW BLOCKED ONLY BY LOCAL CATALOG GAP**
 
 Date: 2026-08-20
 
 ## Safety note
 
-The owner supplied Swagger screenshots and sanitized response text from the controlled test. Raw API key material is not copied, retained, quoted, or committed in TornScriptures evidence. Screenshots are not committed.
+The owner supplied Swagger screenshots, sanitized response text, and TornPDA stable-IMM screenshots from the controlled test. Raw API key material is not copied, retained, quoted, or committed in TornScriptures evidence. Screenshots are not committed.
 
 ## Intended temporary custom grants
 
@@ -115,25 +115,58 @@ No evidence from this run requires `user:inventory`, `user:itemmarket`, `user:lo
 
 The broad key level remained `0`, reinforcing the DQ-KEY-001 finding that broad numeric access level is not a sufficient capability test for Custom keys. Required-selection presence plus functional endpoint access is the truthful boundary.
 
+## Stable IMM v0.19.36 run
+
+The same capability-limited key was then configured in the stable TornPDA IMM and Black Ledger → **Recover recent API trade** was opened.
+
+Observed:
+
+- stable IMM accepted the key rather than rejecting it as broadly insufficient;
+- the recovery overlay successfully loaded **86 finished trades**;
+- known completed trades including `7210016` and `7188680` were visible with Review actions;
+- pre-existing Ledger Integrity UI remained green with **No integrity issues found**;
+- therefore stable IMM's permission validation and finished-trade list path both operate with the recovery-only key and do not require `user:inventory` or `user:itemmarket`.
+
+### Review attempt
+
+A finished candidate was opened for review. Stable IMM stopped before constructing the accounting review with the exact fail-closed message:
+
+> Item ID 271 is not in the catalog. Sync the item catalog first. Name-only lookup is not permitted. Payload quarantined.
+
+This is **not a permission failure**. It is a local catalog-state prerequisite failure after permission/list/detail access has already succeeded.
+
+The behavior is consistent with the released Black Ledger safety contract: an exact trade item ID that cannot be resolved in the local catalog must not be guessed by name, and the payload is quarantined rather than partially or inventively interpreted.
+
+No accounting confirmation was reached, and no sale recording was authorized during this run.
+
+## Current conclusion
+
+The stable TornScriptures implementation has now proven the critical least-privilege boundary far enough to distinguish permission from local-data readiness:
+
+- restricted Custom key accepted by stable IMM: **PASS**
+- finished-trade permission/list path: **PASS**
+- direct trade-detail API capability under same key: **PASS**
+- `torn:items` API capability under same key: **PASS**
+- review construction: **BLOCKED BY INCOMPLETE LOCAL CATALOG, NOT BY PERMISSION**
+- ledger mutation: **NOT ATTEMPTED / NOT AUTHORIZED**
+
+This is evidence that `user:inventory` and `user:itemmarket` are not prerequisites for Black Ledger completed-trade recovery permission or trade-source access.
+
 ## Remaining gate before KEY-001-B is fully closed
 
-Test stable IMM v0.19.36 using this same capability-limited key:
+1. Using the same restricted key, refresh/sync the stable IMM item catalog from Torn.
+2. Confirm the catalog sync succeeds, which should independently exercise the already-proven `torn:items` grant through the product UI.
+3. Reopen Recover recent API trade.
+4. Select a safe finished trade whose outgoing item IDs are present after catalog refresh.
+5. Reach the non-mutating recovery review and verify it populates.
+6. **Stop before `Record sale`.**
 
-1. configure the key in stable IMM;
-2. open Black Ledger API trade recovery;
-3. validate permission/list access;
-4. open a safe already-finished trade candidate;
-5. reach the non-mutating recovery review successfully;
-6. **stop before `Record sale`**.
-
-The goal is to prove that the released TornScriptures implementation itself can traverse its recovery path without `user:inventory` or `user:itemmarket`, not merely that Torn's endpoints accept the key.
-
-If stable IMM rejects the key because its UI assumes a generic Limited key despite the endpoint calls passing, record that as **permission-validation/UX debt**, not as evidence that the underlying recovery capability needs broader permission.
+If a freshly synchronized catalog still omits a trade item ID that the official `/torn/items` response contains, record that separately as catalog normalization/cache debt rather than broadening the API key.
 
 ## Optional evidence improvement
 
-A sanitized `/key/info` User selection array showing `trades` and `trade` would strengthen the retained record, but it is no longer required to prove functional access because both corresponding endpoints returned live HTTP 200 responses under the same key.
+A sanitized `/key/info` User selection array showing `trades` and `trade` would strengthen the retained record, but it is no longer required to prove functional access because both corresponding endpoints returned live HTTP 200 responses under the same key and stable IMM successfully loaded the finished-trade list.
 
 ## Product effect
 
-None. This evidence does not authorize changing stable key prompts, recovery behavior, or accounting mutation.
+None. This evidence does not authorize changing stable key prompts, recovery behavior, catalog behavior, or accounting mutation.
