@@ -9,14 +9,13 @@ This file is the current-state index for the Age of Discovery. Historical discov
 ## Current repository baseline
 
 - Stable branch: `main`
-- Stable main SHA after the Discovery checkpoint release: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
+- Discovery-checkpoint merge commit: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
 - Stable IMM: `0.19.36`
 - API-backed Black Ledger completed-trade recovery: released through PR #107; merge commit `25fe4936b87697427cfaa1db99fffa907ba07126`
 - Age of Discovery checkpoint: released through PR #109; exact reviewed head `fffef3e2ae9236d5b8684a029420c989b488d45c`
-- Discovery merge commit on `main`: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
-- Current active repository work: housekeeping only on `docs/housekeeping-2026-08-20`
+- Housekeeping checkpoint: PR #110. This document is part of that checkpoint. If this version is being read from `main`, PR #110 has necessarily landed; if it is being read from the PR branch, release may still be pending.
 
-The Discovery notebook is now durable project knowledge on `main`. Open questions remain open research targets; they are no longer stranded on a research-only branch.
+The Discovery notebook is durable project knowledge on `main`. Open questions remain research targets; they are no longer stranded on a research-only branch.
 
 ## Storage chapter
 
@@ -141,8 +140,8 @@ After the permission matrix, priority remains on:
 
 ## Housekeeping checkpoint
 
-Before DQ-KEY-001 begins, the project is performing one documentation/bookkeeping-only cleanup pass.
+PR #110 is the documentation/bookkeeping-only housekeeping checkpoint that precedes DQ-KEY-001. It refreshes this current-state index, the central Roadmap and Decision Register, and the durable branch-cleanup audit. Its associated issue triage is recorded directly in GitHub.
 
-The current branch cleanup map is recorded in `docs/BRANCH-CLEANUP-AUDIT.md`. This housekeeping work does not alter production userscripts, APIs, storage schemas, tests, or runtime behavior.
+The housekeeping checkpoint does not alter production userscripts, APIs, storage schemas, tests, product versions, or runtime behavior. Branch deletion is a separate post-merge administrative action governed by `docs/BRANCH-CLEANUP-AUDIT.md`; unverified and evidence branches remain protected.
 
-After housekeeping is released, Discovery resumes from DQ-KEY-001 unless a severe stable-release defect or owner-approved reprioritization intervenes.
+Once PR #110 is present on `main` and its authorized branch-cleanup tranche is completed, Discovery resumes from DQ-KEY-001 unless a severe stable-release defect or owner-approved reprioritization intervenes.
