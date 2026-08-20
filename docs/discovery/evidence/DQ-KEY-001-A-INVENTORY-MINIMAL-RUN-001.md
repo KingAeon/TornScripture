@@ -1,6 +1,6 @@
 # DQ-KEY-001-A — Inventory Minimal Permission Run 001
 
-Status: **PARTIAL PASS / FUNCTIONAL ENDPOINT CLAIM LIVE-CONFIRMED / KEY-INFO GRANT CAPTURE STILL OPEN**
+Status: **PARTIAL PASS / FUNCTIONAL ENDPOINT + CUSTOM KEY TYPE LIVE-CONFIRMED / EXACT USER GRANT ARRAY STILL OPEN**
 
 Date: 2026-08-20
 
@@ -20,7 +20,7 @@ The intended temporary custom grant was:
 
 No `itemmarket`, `trades`, `trade`, or `log` grant was intended for this run.
 
-## Observed request
+## Observed inventory request
 
 Swagger executed:
 
@@ -29,7 +29,7 @@ Swagger executed:
 - `offset=0`
 - `limit=20`
 
-## Observed result
+## Observed inventory result
 
 - HTTP status: **200**
 - response contained the expected `inventory.items` structure
@@ -38,23 +38,39 @@ Swagger executed:
 
 The response body contained real owner inventory data, so this was not merely an example/schema response.
 
+## Observed `/key/info` follow-up
+
+A subsequent live Swagger call to `GET /v2/key/info` returned:
+
+- HTTP status: **200**
+- `access.type`: **Custom**
+- `access.level`: **0**
+- `access.faction`: false
+- `access.company`: false
+- key-info response included grouped section-selection data and owner identity fields
+
+The supplied crop did **not** include the User selections array, so the exact `user:inventory` grant is not yet directly visible in retained evidence.
+
+### Discovery significance
+
+This proves that Torn can execute the tested inventory request under an exact-selection **Custom** key even when the broad numeric access level reports `0`. Therefore broad access level alone is not a sufficient capability test for TornScriptures. Exact granted selections are the more truthful permission unit.
+
 ## Conclusion
 
-The **functional endpoint half of KEY-001-A passes**: Torn's current `/user/inventory` endpoint accepts the tested Minimal/custom configuration and returns valid inventory data without requiring the broader Limited-key bundle currently requested by stable IMM.
+Two parts of KEY-001-A now pass:
 
-This supports the DQ-KEY-001 correction that `user:inventory` should be treated as a Minimal, capability-specific permission rather than folded into a generic Limited requirement.
+1. Torn's current `/user/inventory` endpoint succeeds under the tested custom/minimal configuration and returns valid owner inventory data.
+2. `/key/info` identifies the active test key as `Custom` with broad access level `0`.
+
+This strengthens the DQ-KEY-001 rule that `user:inventory` should be treated as a capability-specific exact selection rather than folded into a generic Limited-key requirement.
 
 ## Remaining evidence before KEY-001-A is fully closed
 
-The supplied screenshots did not include a sanitized `/key/info` response proving the exact live granted-selection array. A new temporary key should be used because the first key was exposed in Swagger's curl output.
+Capture only the sanitized portion of the same/new `/key/info` response that shows the **User granted selections array**, specifically whether it contains `inventory`.
 
-For the follow-up, record only sanitized `/key/info` fields sufficient to establish:
+Do not include the generated curl block or authorization header. The exact raw key must not be retained anywhere in Discovery evidence.
 
-- key type/access representation
-- User granted selections includes `inventory`
-- no unrelated User selections were intentionally granted
-
-Do not capture or commit the generated curl authorization header.
+Once `inventory` is directly observed in the User selection array, KEY-001-A can be marked **FULL PASS**.
 
 ## Product effect
 
