@@ -10,10 +10,14 @@ Discovery may take as long as necessary. A capability being discovered does **no
 
 ## Canonical records
 
+- [`CURRENT-STATUS.md`](CURRENT-STATUS.md) is the first-stop current-state index. It records the newest project baseline, which historical questions have since been answered or reclassified, and the recommended next Discovery frontier.
+- [`RECONCILIATION-2026-08-20.md`](RECONCILIATION-2026-08-20.md) records the synchronization with released IMM v0.19.36 and explains which older statements remain historical rather than current.
 - [`TORN-CAPABILITY-REGISTRY.md`](TORN-CAPABILITY-REGISTRY.md) records durable Torn API/game capability facts and source-fit assessments.
 - [`TORN-PDA-CAPABILITY-REGISTRY.md`](TORN-PDA-CAPABILITY-REGISTRY.md) records TornPDA runtime/platform capabilities that may affect storage, portability, networking, injection, or userscript design.
 - [`DISCOVERY-LOG.md`](DISCOVERY-LOG.md) records what was investigated, when it was investigated, and what changed in our understanding.
-- [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) records unknowns that still require documentation review, live observation, or controlled testing.
+- [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) records unknowns that still require documentation review, live observation, or controlled testing. Its historical question text should be read together with `CURRENT-STATUS.md` when later implementation has supplied newer evidence.
+
+Historical records are preserved as evidence. They are not silently rewritten merely because later work changed the current state.
 
 ## Evidence classes
 
@@ -95,6 +99,14 @@ Initial research snapshot: **2026-08-10**
   - `https://www.torn.com/swagger/openapi.json`
   - `https://www.torn.com/swagger.php`
 - TornPDA platform references are recorded in `TORN-PDA-CAPABILITY-REGISTRY.md`.
+
+Current reconciled project baseline as of **2026-08-20**:
+
+- Stable `main`: `25fe4936b87697427cfaa1db99fffa907ba07126`
+- Stable IMM: `0.19.36`
+- API-backed Black Ledger completed-trade recovery: released through PR #107
+- TornPDA native-storage qualification: closed for the current Discovery cycle
+- Current recommended Discovery frontier: minimum permission and source-ownership matrix, beginning with DQ-KEY-001
 
 The Torn v2 specification and supported userscript platforms can evolve. Every capability therefore carries a last-verified date rather than being treated as permanent truth.
 
