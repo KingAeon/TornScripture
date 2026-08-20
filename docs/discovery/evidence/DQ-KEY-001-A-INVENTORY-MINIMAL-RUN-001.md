@@ -1,24 +1,24 @@
 # DQ-KEY-001-A — Inventory Minimal Permission Run 001
 
-Status: **PARTIAL PASS / FUNCTIONAL ENDPOINT + CUSTOM KEY TYPE LIVE-CONFIRMED / EXACT USER GRANT ARRAY STILL OPEN**
+Status: **FULL PASS / LIVE-CONFIRMED**
 
 Date: 2026-08-20
 
 ## Safety note
 
-The owner supplied screenshots of Torn Swagger during the controlled test. Swagger's generated curl example visibly included the temporary API key. The raw key is intentionally **not copied, retained, quoted, or committed** in TornScriptures evidence. The owner was instructed to revoke/delete that temporary key immediately and use a fresh temporary key for any further test.
+The owner supplied screenshots and a sanitized text copy of Torn Swagger output during the controlled test. Swagger's generated curl example exposed the temporary API key in screenshots. The raw key is intentionally **not copied, retained, quoted, or committed** in TornScriptures evidence. No screenshot containing the key is committed to the repository.
 
-No screenshot containing the key is committed to the repository.
+The temporary test key should be revoked/deleted after this run and must not be reused for later Discovery tests.
 
 ## Test intent
 
 Test the current official claim that `GET /v2/user/inventory` operates at Minimal access and can succeed without unrelated Limited selections.
 
-The intended temporary custom grant was:
+The intended custom capability grant was:
 
 - User → `inventory`
 
-No `itemmarket`, `trades`, `trade`, or `log` grant was intended for this run.
+No `itemmarket`, `trades`, `trade`, or `log` capability grant was intentionally added for this run.
 
 ## Observed inventory request
 
@@ -33,45 +33,73 @@ Swagger executed:
 
 - HTTP status: **200**
 - response contained the expected `inventory.items` structure
-- returned ordinary Flower inventory rows with item ID, amount, equipped state, name, UID, and faction-owned state
+- returned real owner Flower inventory rows
+- rows included item ID, amount, equipped state, name, UID, and faction-owned state
 - no permission error was returned
 
-The response body contained real owner inventory data, so this was not merely an example/schema response.
+This was a live owner response, not Swagger's example/schema payload.
 
-## Observed `/key/info` follow-up
+## Observed `/key/info`
 
-A subsequent live Swagger call to `GET /v2/key/info` returned:
+A live `GET /v2/key/info` call returned HTTP **200**.
 
-- HTTP status: **200**
-- `access.type`: **Custom**
-- `access.level`: **0**
-- `access.faction`: false
-- `access.company`: false
-- key-info response included grouped section-selection data and owner identity fields
+Sanitized access fields:
 
-The supplied crop did **not** include the User selections array, so the exact `user:inventory` grant is not yet directly visible in retained evidence.
+- `access.level`: `0`
+- `access.type`: `Custom`
+- `access.faction`: `false`
+- `access.company`: `false`
+- `access.log.custom_permissions`: `false`
+- `access.log.available`: empty
 
-### Discovery significance
+The live grouped selection map included:
 
-This proves that Torn can execute the tested inventory request under an exact-selection **Custom** key even when the broad numeric access level reports `0`. Therefore broad access level alone is not a sufficient capability test for TornScriptures. Exact granted selections are the more truthful permission unit.
+- User: `profile`, `timestamp`, `lookup`, **`inventory`**
+- Company: `timestamp`, `profile`, `companies`, `lookup`
+- Faction: `timestamp`, `basic`, `lookup`
+- Market: `timestamp`, `lookup`
+- Property: `property`, `timestamp`, `lookup`
+- Torn: `timestamp`, `lookup`
+- Racing: `timestamp`, `lookup`
+- Forum: `timestamp`, `lookup`
+- Key: `info`, `log`
+
+Owner identity fields were also present in `/key/info`; numeric owner/faction/company identifiers are deliberately not required for this permission proof and are not repeated here.
+
+## Discovery significance
+
+### 1. `user:inventory` is live-proven under a Custom level-0 key
+
+The functional endpoint and key introspection both pass. A Custom key reporting broad numeric access level `0` successfully called `/user/inventory`, and `/key/info` explicitly contained `inventory` in the User selection array.
+
+Therefore broad access level alone is **not** a sufficient capability test for TornScriptures. Exact granted selections are the more truthful permission unit.
+
+### 2. Selection arrays contain Torn-provided baseline/default capabilities
+
+The live User selection array was not merely `["inventory"]`; it also contained `profile`, `timestamp`, and `lookup`. Other sections similarly exposed baseline Public selections even though those capabilities were not the purpose of the test.
+
+Therefore a future TornScriptures permission validator must:
+
+- test that every required capability selection is **present**;
+- not require the returned selection array to equal only the user's intentional custom choices;
+- distinguish required feature selections from Torn-provided baseline/default selections when explaining permissions to users.
+
+This is an important onboarding/diagnostic rule for later design.
 
 ## Conclusion
 
-Two parts of KEY-001-A now pass:
+**KEY-001-A FULL PASS.**
 
-1. Torn's current `/user/inventory` endpoint succeeds under the tested custom/minimal configuration and returns valid owner inventory data.
-2. `/key/info` identifies the active test key as `Custom` with broad access level `0`.
+Live evidence establishes that:
 
-This strengthens the DQ-KEY-001 rule that `user:inventory` should be treated as a capability-specific exact selection rather than folded into a generic Limited-key requirement.
+1. `GET /user/inventory` succeeds under the tested Custom/Minimal capability configuration.
+2. `/key/info` reports the active key as `Custom` with broad level `0`.
+3. `/key/info` directly reports `inventory` in the User selection array.
+4. Unrelated Limited selections such as `user:itemmarket`, `user:trades`, and `user:trade` are not required for the inventory call.
+5. Torn adds baseline/default selections around the custom capability grant, so presence-based validation is required.
 
-## Remaining evidence before KEY-001-A is fully closed
-
-Capture only the sanitized portion of the same/new `/key/info` response that shows the **User granted selections array**, specifically whether it contains `inventory`.
-
-Do not include the generated curl block or authorization header. The exact raw key must not be retained anywhere in Discovery evidence.
-
-Once `inventory` is directly observed in the User selection array, KEY-001-A can be marked **FULL PASS**.
+This closes the inventory-permission live-confirmation requirement for DQ-KEY-001.
 
 ## Product effect
 
-None. This evidence does not authorize changing stable key prompts or API behavior.
+None. This evidence does not authorize changing stable key prompts, onboarding, API behavior, or storage.
