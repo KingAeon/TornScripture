@@ -1,6 +1,6 @@
 # DQ-KEY-001 — Chapter Checkpoint
 
-Status: **MINIMUM-PERMISSION LIVE PROBES COMPLETE / RECONCILIATION READY**
+Status: **MINIMUM-PERMISSION LIVE PROBES COMPLETE / RELEASE GATE READY**
 
 Date: 2026-08-20
 
@@ -12,9 +12,9 @@ Official Torn OpenAPI baseline rechecked for this chapter: `6.11.1`
 
 ## Purpose
 
-DQ-KEY-001 asks what the smallest truthful Torn API/source footprint is for each TornScriptures domain and where broad key requirements are merely packaging artifacts.
+DQ-KEY-001 asks what the smallest truthful Torn API/source footprint is for each TornScriptsures domain and where broad key requirements are merely packaging artifacts.
 
-This checkpoint records the live minimum-permission evidence gathered during the chapter. It is Discovery evidence only and authorizes no runtime permission, polling, storage or product change.
+This checkpoint records the live minimum-permission evidence gathered during the chapter. It is Discovery evidence only and authorizes no runtime permission, polling, storage, key-manager, or product change.
 
 ## KEY-001-A — Inventory
 
@@ -36,14 +36,14 @@ Conclusion:
 
 Status: **FULL PASS FOR MINIMUM-PERMISSION BOUNDARY**
 
-Live evidence established under the same restricted Custom key:
+Live evidence established under the restricted Custom key:
 
 - `user:trades` successfully returned finished trades;
 - `user:trade` successfully returned authoritative participated-trade detail;
 - `torn:items` successfully returned real catalog data;
 - stable IMM accepted the restricted key and loaded 86 finished trades;
 - stable IMM progressed through key validation, finished-trade listing, detail fetch and catalog resolution;
-- after catalog synchronization, the next stop was a legitimate local FIFO precondition: no outgoing items were covered by open purchase lots;
+- after catalog synchronization, the next stop was a legitimate local FIFO precondition because no outgoing items were covered by open purchase lots;
 - no accounting mutation was performed.
 
 Conclusion:
@@ -53,8 +53,9 @@ The released Black Ledger completed-trade recovery capability requires:
 1. `user:trades`
 2. `user:trade`
 3. `torn:items`
+4. local Black Ledger FIFO/accounting state
 
-No live evidence requires `user:inventory`, `user:itemmarket`, `user:log`, or Full access for this capability.
+No live evidence requires `user:inventory`, `user:itemmarket`, `user:log`, or Full access for this capability. Reaching a rendered accounting review was not required once all permission-dependent gates had succeeded and the flow correctly stopped at a local FIFO prerequisite.
 
 ## KEY-001-C — Faction member/status capability
 
@@ -108,6 +109,10 @@ Conclusions:
 - a closed/empty existing Bazaar returns a valid empty listing array;
 - populated listing-row schema and practical cache/freshness behavior remain intentionally deferred until a naturally populated Bazaar or a separately approved Bazaar Discovery run.
 
+## Core `/key/info` observation
+
+Across the live A-D runs, sanitized `/key/info` repeatedly exposed owner user ID, faction ID, company ID, access type/level, faction/company flags, and per-section selections. For permission diagnostics and stable owner ID, no additional `user:basic` grant is currently justified.
+
 ## Cross-cutting findings
 
 ### 1. Broad key level is not the permission truth
@@ -152,10 +157,11 @@ The live minimum-permission probes required for DQ-KEY-001 have reached a suffic
 - Black Ledger recovery minimum: proven
 - Public faction member/status capability: proven with limitations recorded
 - Owner Bazaar minimum permission and empty-state contract: proven
+- Core `/key/info` diagnostic sufficiency: observed across the same live runs
 
-Remaining open questions are not blockers to the minimum-permission matrix. They have been separated into source freshness, populated-response semantics, runtime packaging and future-domain design work.
+Remaining open questions are not blockers to the minimum-permission matrix. They have been separated into source freshness, populated-response semantics, runtime packaging, TornPDA-managed-key behavior, and future-domain design work.
 
-Before release, reconcile the main matrix/protocol wording so completed probes are no longer listed as open, verify PR scope remains documentation-only, and run the normal TornScriptures release gate.
+The matrix, protocol, evidence files, and PR description have been reconciled for release. The remaining action is the normal TornScriptures release gate and, if it passes, separate exact-head owner merge authorization.
 
 ## Product effect
 
