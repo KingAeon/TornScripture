@@ -12,7 +12,7 @@ Official Torn OpenAPI baseline rechecked for this chapter: `6.11.1`
 
 ## Purpose
 
-DQ-KEY-001 asks what the smallest truthful Torn API/source footprint is for each TornScriptsures domain and where broad key requirements are merely packaging artifacts.
+DQ-KEY-001 asks what the smallest truthful Torn API/source footprint is for each TornScriptures domain and where broad key requirements are merely packaging artifacts.
 
 This checkpoint records the live minimum-permission evidence gathered during the chapter. It is Discovery evidence only and authorizes no runtime permission, polling, storage, key-manager, or product change.
 
