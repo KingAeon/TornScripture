@@ -34,13 +34,13 @@ This roadmap records project sequence, dependencies, risk, tool choice, and codi
 
 - Repository: `KingAeon/TornScripture`
 - Stable branch: `main`
-- Stable main SHA after the Age of Discovery checkpoint: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
+- Age of Discovery checkpoint merge commit: `8944dcd9c9ae5b0d2994322efcff2c8e579b36b5`
 - IMM release: `0.19.36`
 - API-backed Black Ledger completed-trade recovery: released through PR #107
 - Age of Discovery notebook: released through PR #109
 - TornPDA native-storage qualification: closed for the current Discovery cycle
-- Current active work: documentation/bookkeeping housekeeping only on `docs/housekeeping-2026-08-20`
-- Next research chapter after housekeeping: DQ-KEY-001, minimum API permission and source-ownership matrix
+- Housekeeping checkpoint: PR #110. This Roadmap is part of that checkpoint; if this version is read from `main`, PR #110 has landed.
+- Next research chapter after the housekeeping cleanup tranche: DQ-KEY-001, minimum API permission and source-ownership matrix
 
 ## Architectural destination
 
@@ -87,8 +87,8 @@ This architecture remains a Tier 4 destination. It must not rewrite stable stora
 | Released | GitHub Copilot workflow preflight | Prove the repository-to-test-to-PR loop before product work | Governance | Tier 0/1 | GitHub Copilot Pro cloud agent | Light | Released through PR #103 | Repository materialization, baseline checks, isolated branch, draft PR | Use another full-repository agent if needed |
 | Released | API-backed Black Ledger completed-trade recovery | Replace failed mobile-DOM reconstruction with official trade data and explicit review before FIFO mutation | Toolchain proof; API contract; owner TornPDA gate | Tier 3 | Strong full-repository agent | Premium | Released as IMM v0.19.36 through PR #107 | Real trade review/record, exact FIFO, reload dedup, Ledger Integrity | Manual missed-sale recovery |
 | Released | Age of Discovery checkpoint | Preserve capability, runtime, storage, and source knowledge before new architecture | Stable main; controlled live evidence | Tier 1/2 research | Chat + GitHub connector | None/Light | Released through PR #109 | Discovery registries, protocols, evidence, current-status layer | Continue evidence in new Discovery chapters |
-| Now | Repository housekeeping checkpoint | Remove stale project-state claims, refresh branch cleanup evidence, and triage open backlog before the next chapter | PR #109 release | Tier 0/1 | Chat + GitHub connector | None/Light | Implementing | No runtime diff; current branch audit; accurate roadmap/status/issue state | Leave unverified branches untouched |
-| Next | DQ-KEY-001 minimum permission and source-ownership matrix | Determine the smallest trustworthy permission/source footprint for each TornScriptures domain | Housekeeping release; current Torn API contract | Tier 1/2 research | Chat + GitHub connector + official sources | None/Light | Discussion / Discovery | Domain matrix for Core, Market/Trader, Black Ledger, Inventory/Bazaar, WIH | Preserve current per-script key behavior |
+| Checkpoint | Repository housekeeping | Remove stale project-state claims, refresh branch cleanup evidence, and triage open backlog before the next chapter | PR #109 release | Tier 0/1 | Chat + GitHub connector | None/Light | PR #110; treat as released when this version is present on `main`, with branch deletions recorded separately | No runtime diff; current branch audit; accurate roadmap/status/issue state | Leave unverified branches untouched |
+| Next | DQ-KEY-001 minimum permission and source-ownership matrix | Determine the smallest trustworthy permission/source footprint for each TornScriptures domain | Housekeeping checkpoint and cleanup tranche; current Torn API contract | Tier 1/2 research | Chat + GitHub connector + official sources | None/Light | Discussion / Discovery | Domain matrix for Core, Market/Trader, Black Ledger, Inventory/Bazaar, WIH | Preserve current per-script key behavior |
 | After DQ-KEY-001 | Inventory freshness and immediate transaction truth | One-hour category caching means inventory cannot automatically prove immediate post-transaction state | Permission/source matrix | Tier 2 research | Chat + GitHub + controlled owner tests | Standard if implementation follows | Discovery backlog | Measured cache behavior and source comparison | Current inventory snapshots plus transaction-specific sources |
 | Later | Market-history foundation | Collect trustworthy local price/liquidity history for later analytics | Source-contract validation; storage policy | Tier 2 | Proven full-repository agent | Standard | Discussion backlog | Timestamped snapshots, provenance, freshness, gaps, bounded storage, export | Manual market review and external charts |
 | Later | Market trend analytics and classification | Identify stagnant, rising, falling, bottoming-candidate, rebound, and overheated products with visible confidence | Sufficient market-history coverage and validation design | Tier 2/3 | Strong full-repository agent | Standard/Premium | Discussion backlog | Reproducible calculations, confidence, replay tests, false-positive tracking | Raw charts and neutral measurements only |
@@ -166,7 +166,7 @@ Completed Discovery work includes:
 
 TornPDA native-storage qualification is closed for the current cycle. Discovery does **not** authorize a production storage migration.
 
-The next Discovery chapter after housekeeping is DQ-KEY-001: minimum API permissions and source ownership across all five domains.
+The next Discovery chapter after PR #110 and its branch-cleanup tranche is DQ-KEY-001: minimum API permissions and source ownership across all five domains.
 
 ## Phase 4: source truth, inventory freshness, and market-history foundation
 
