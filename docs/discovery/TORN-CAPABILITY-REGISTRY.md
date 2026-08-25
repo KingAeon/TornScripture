@@ -1,14 +1,16 @@
 # Torn Capability Registry
 
-Status: **Age of Discovery / DISCOVERED ONLY**
+Status: **Age of Discovery / LIVE-VERIFIED CAPABILITIES RECORDED / NO NEW PRODUCT AUTHORITY**
 
-Last broad review: **2026-08-10**
+Last broad review: **2026-08-25**
 
 Official baseline reviewed:
 
 - Torn API documentation: `https://www.torn.com/api.html`
 - Torn API v2 OpenAPI: `https://www.torn.com/swagger/openapi.json`
-- OpenAPI version at review: `6.6.1`
+- DQ-KEY-001 live baseline: `6.11.1`
+- DQ-MARKET-001 live-run baseline: `6.12.0`
+- build-time OpenAPI recheck: `6.13.1`
 - API v2 base URL: `https://api.torn.com/v2`
 
 This registry records capabilities before architecture. Nothing in this file authorizes a runtime change.
@@ -27,15 +29,21 @@ The v2 OpenAPI security scheme uses the `Authorization` header with the `ApiKey 
 
 ### Access levels and custom keys
 
-**Evidence:** Official
+**Evidence:** Official + DQ-KEY-001 live + DQ-MARKET-001 live
 
-Torn supports normal access levels as well as custom keys that can grant exact selections. The current key can be introspected with `/key/info`.
+Torn supports normal access levels as well as Custom keys that can grant exact selections. The current key can be introspected with `/key/info`.
 
-A custom key is useful for least-privilege product design, but Torn's guidance still requires strong handling of custom keys. A narrowly selected key should not be treated casually merely because it exposes fewer selections.
+DQ-KEY-001 established that broad access level is not the permission truth for Custom keys. Exact Custom grants including `user:inventory`, `user:trades`, `user:trade` and `user:bazaar` operated while `/key/info` still reported broad `access.level: 0`.
 
-**Architecture relevance:** Future public TornScriptures releases should be able to explain exactly which selection each domain needs and why.
+DQ-MARKET-001 added a complementary Public-tier nuance: a narrow Custom key without Market → `itemmarket` received Torn error 16 from `GET /market/{id}/itemmarket`; adding exact Market → `itemmarket` made the endpoint succeed while broad level remained 0.
 
-**State:** Assessed; live least-privilege matrix not yet built.
+However, DQ-KEY-001 also observed the Public `/faction/{id}/members` endpoint succeeding without `members` being enumerated in `/key/info`. Therefore `/key/info` exact-selection enumeration is powerful for Custom/private grants but is not a universal manifest for every Public capability.
+
+A narrowly selected key still deserves strong handling merely because it exposes fewer selections.
+
+**Architecture relevance:** Future TornScriptures permission UX should explain feature-specific capabilities and validate them according to the endpoint's actual contract rather than requiring a generic Limited/Full label.
+
+**State:** Live least-privilege evidence exists for DQ-KEY-001 A-D and DQ-MARKET-001 Item Market access. Runtime packaging/onboarding remains future work.
 
 ### Request limit
 
@@ -49,11 +57,11 @@ Torn documents a limit of 100 individual requests per minute across a user's API
 
 ### Service and global caching
 
-**Evidence:** Official API documentation and endpoint contracts
+**Evidence:** Official API documentation + endpoint contracts + DQ-MARKET-001 live
 
-Torn documents a normal service cache of up to roughly 30 seconds for many requests. A request `timestamp` parameter exists to bypass applicable service cache. Some selections are globally cached and cannot be forced fresh by the client.
+Torn documents a normal service cache of up to roughly 30 seconds for many requests. A request `timestamp` parameter exists to bypass applicable service-cache reuse. Some selections are globally cached and cannot be forced fresh by the client.
 
-Known globally cached selections listed in the API documentation at this review include:
+Known globally cached selections include:
 
 - `market:itemmarket`
 - `market:properties`
@@ -65,9 +73,11 @@ Known globally cached selections listed in the API documentation at this review 
 
 Individual endpoints can define stronger caching rules. `/user/inventory`, for example, explicitly documents a one-hour cache per category.
 
+DQ-MARKET-001 repeatedly observed `cache_delay: 30` in Item Market responses and advancing cache timestamps/book states. This proves short-timescale refresh behavior for the tested runs, not an exact 30-second rendered-page-to-API propagation guarantee.
+
 **Important:** Browser `fetch(..., { cache: 'no-store' })` controls browser caching. It is not evidence that Torn's server-side or global cache was bypassed.
 
-**State:** Assessed generally; endpoint-specific freshness must be recorded separately.
+**State:** Assessed generally; Item Market cache provenance live-recorded; endpoint-specific freshness must still be recorded separately.
 
 ### Comment parameter and API request history
 
@@ -122,7 +132,7 @@ Major sections expose stable public timestamp selections.
 
 **Endpoint:** `GET /key/info`
 
-**Evidence:** Official
+**Evidence:** Official + DQ-KEY-001 live + DQ-MARKET-001 live
 
 **Permission:** Available to an API key for inspecting itself.
 
@@ -138,11 +148,11 @@ Major sections expose stable public timestamp selections.
 
 **Current TornScriptures use:** IMM already probes this endpoint during key checks.
 
-**Potential value:** Exact permission diagnosis and a future least-privilege setup explanation.
+**Live verification:** DQ-KEY-001 A-D repeatedly captured sanitized `/key/info` responses sufficient for stable owner-ID and Custom-permission diagnostics. DQ-MARKET-001 used `/key/info` to prove the Market `itemmarket` Custom-selection A/B behavior.
 
-**Live verification:** Existing IMM use is evidence that TornScriptures can call it, but the full current response contract has not yet been recorded from a controlled live sample in this discovery phase.
+**Important limitation:** Public capability cannot universally be inferred from exact selection-name enumeration, because DQ-KEY-001 observed faction members working while `members` was absent from the Faction selection array.
 
-**Decision:** DISCOVERED ONLY for any new behavior.
+**Decision:** LIVE VERIFIED FOR DIAGNOSTICS. New runtime permission UX remains future specification.
 
 ### CAP-KEY-002: Inspect recent API requests
 
@@ -168,9 +178,9 @@ Major sections expose stable public timestamp selections.
 
 **Endpoint:** `GET /user/inventory`
 
-**Evidence:** Official + already used by IMM/ISH
+**Evidence:** Official + existing IMM/ISH use + DQ-KEY-001 live
 
-**Permission:** Limited
+**Permission:** Official endpoint requires a Minimal key. DQ-KEY-001 live-proved an exact Custom `user:inventory` grant working while broad `/key/info` level remained 0.
 
 **Stability:** Stable
 
@@ -189,7 +199,7 @@ Major sections expose stable public timestamp selections.
 
 **Possible later comparison:** Planning/reconciliation snapshot versus visible or application-state sources for immediate changes.
 
-**Decision:** Existing use remains unchanged. DISCOVERED ONLY for future architecture.
+**Decision:** Existing use remains unchanged. Minimum permission live-proven; future architecture remains separate.
 
 ### CAP-USER-002: User's active Item Market listings
 
@@ -213,9 +223,9 @@ Major sections expose stable public timestamp selections.
 
 **Endpoint:** `GET /user/trades`
 
-**Evidence:** Official
+**Evidence:** Official + DQ-KEY-001 live + released Black Ledger recovery
 
-**Permission:** Limited
+**Permission:** Official contract is Limited. DQ-KEY-001 live-proved exact Custom `user:trades` capability under broad level 0 for the completed-trade recovery use case.
 
 **Stability:** Stable
 
@@ -223,21 +233,19 @@ Major sections expose stable public timestamp selections.
 
 **Provides:** Trade identity, the two participant records and category-dependent timing information. Finished trades populate `completed_at`. Ongoing trades populate ongoing timing fields.
 
-**Important endpoint behavior:** For ongoing trades, limit/offset/sort are documented as unused. Finished trade requests can use the supported range/list controls.
+**Important endpoint behavior:** Completed-trade recovery must explicitly request `cat=finished`; default category is ongoing.
 
-**Current TornScriptures use:** Not in stable IMM v0.19.33. An API-backed recovery implementation existed briefly in v0.19.34 and was reverted.
+**Current TornScriptures use:** Stable IMM v0.19.36 uses finished-trade listing as part of bounded Black Ledger completed-trade API recovery.
 
-**Discovery lesson:** An endpoint being appropriate in principle is not enough. The exact current response contract and a controlled live finished-trade response must be recorded before another accounting implementation is specified.
-
-**Decision:** DISCOVERED ONLY. High-priority live verification candidate.
+**Decision:** LIVE VERIFIED AND USED BY RELEASED RECOVERY. No broader trade behavior implied.
 
 ### CAP-USER-004: Detailed participated trade
 
 **Endpoint:** `GET /user/{tradeId}/trade`
 
-**Evidence:** Official
+**Evidence:** Official + DQ-KEY-001 live + released Black Ledger recovery
 
-**Permission:** Limited
+**Permission:** Official contract is Limited. DQ-KEY-001 live-proved exact Custom `user:trade` capability under broad level 0 for participated finished trades.
 
 **Stability:** Stable
 
@@ -245,7 +253,7 @@ Major sections expose stable public timestamp selections.
 
 **Current schema:** The detailed trade extends the base trade with `items`, where each trade entry identifies its contributing `user_id`, asset type, and type-specific details.
 
-Known asset variants in the current schema include:
+Known asset variants include:
 
 - Money
 - Item
@@ -256,11 +264,11 @@ Known asset variants in the current schema include:
 
 Money entries carry an amount. Item entries carry item ID, UID when applicable, and amount.
 
-**Why this matters:** Ownership is represented per trade entry. Future reconstruction must follow the official schema rather than inventing a seller/buyer nested-offer shape.
+**Why this matters:** Ownership is represented per trade entry. Reconstruction must follow the official schema rather than inventing a seller/buyer nested-offer shape.
 
-**Current TornScriptures use:** Not in stable v0.19.33.
+**Current TornScriptures use:** Stable IMM v0.19.36 uses participated-trade detail inside completed-trade recovery, subject to Black Ledger's local accounting prerequisites and fail-closed review/mutation rules.
 
-**Decision:** DISCOVERED ONLY. High-priority live verification candidate before Black Ledger recovery is revisited.
+**Decision:** LIVE VERIFIED AND USED BY RELEASED RECOVERY.
 
 ### CAP-USER-005: User logs
 
@@ -276,7 +284,7 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 
 **Potential value:** Logs may contain authoritative historical events unavailable elsewhere.
 
-**Permission warning:** This is not a cheap universal substitute for Limited/Public sources. Permission cost is part of source efficiency.
+**Permission warning:** This is not a cheap universal substitute for lower-privilege sources. Permission cost is part of source efficiency.
 
 **Current TornScriptures use:** None known.
 
@@ -288,7 +296,7 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 
 **Endpoint:** `GET /torn/items`
 
-**Evidence:** Official + currently used by IMM
+**Evidence:** Official + currently used by IMM + DQ-KEY-001 live catalog recovery
 
 **Permission:** Public
 
@@ -309,7 +317,7 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 - circulation
 - equipment details when populated
 
-**Current TornScriptures use:** IMM syncs `GET /torn/items` and stores catalog values locally.
+**Current TornScriptures use:** IMM syncs `GET /torn/items` and stores catalog values locally. Stable Black Ledger recovery can require catalog resolution before review.
 
 **Decision:** Existing use remains unchanged.
 
@@ -317,7 +325,7 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 
 **Endpoint:** `GET /torn/{ids}/items`
 
-**Evidence:** Official + currently used by ISH
+**Evidence:** Official + currently used by ISH + DQ-MARKET-001 live
 
 **Permission:** Public
 
@@ -325,11 +333,13 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 
 **Behavior:** Accepts one or multiple comma-separated item IDs. The contract states that details are populated when available.
 
+**Live DQ-MARKET-001 evidence:** A batched lookup for six specimens returned catalog identity, value references, circulation and populated equipment details for Dual 92G Berettas.
+
 **Current TornScriptures use:** Inventory Sales HUD batches relevant item IDs to enrich inventory data.
 
 **Potential efficiency question:** Later compare full-catalog synchronization against demand-driven specific-ID lookup for each product domain. Do not optimize until actual request/storage/use patterns are measured.
 
-**Decision:** Existing use remains unchanged.
+**Decision:** LIVE VERIFIED; existing use remains unchanged.
 
 ## 6. Public market and Bazaar capabilities
 
@@ -337,23 +347,39 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 
 **Endpoint:** `GET /market/{id}/itemmarket`
 
-**Evidence:** Official
+**Evidence:** Official + DQ-MARKET-001 live
 
-**Permission:** Public
+**Permission:** Official contract: Public. Controlled Custom-key testing showed that a deliberately narrow Custom key required explicit Market → `itemmarket`; absence produced Torn error 16 and adding the selection produced success while broad access remained level 0.
 
 **Stability:** Stable
 
-**Freshness:** Globally cached. The response exposes cache provenance including a cache timestamp and may expose cache delay information.
+**Freshness:** Globally cached. Every DQ-MARKET-001 live response returned `cache_delay: 30`, and repeated Xanax responses advanced to newer cache timestamps and book states. Exact rendered-page-to-API propagation latency was not measured and no exact 30-second freshness guarantee is claimed.
 
-**Capabilities:** Item/listing information, pagination and optional weapon-bonus filtering.
+**Capabilities live-proven:**
 
-**Important limitation:** Because this source is globally cached, it must not automatically replace visible market-page information when immediate listing state matters.
+- item identity and Item Market classification;
+- `item.average_price`;
+- individual listing rows;
+- stackable price and amount;
+- listing-record total and pagination;
+- cache timestamp/delay;
+- nonstackable UID, per-instance stats, bonuses and rarity fields.
 
-**Potential value:** Reproducible market snapshots with explicit cache provenance for later market-history research.
+**Source-semantic findings:**
+
+- listing rows are not aggregated price levels;
+- `_metadata.total` counts listing rows rather than total units;
+- catalog `value.market_price`, Item Market `item.average_price` and executable listing floor are distinct concepts;
+- a one-unit floor is economically different from a quantity-supported floor;
+- thin markets can contain extreme asking-price outliers;
+- nonstackable equipment is a UID/stat-aware valuation problem;
+- identical `type` field names across catalog and Item Market sources can represent different classifications.
+
+**Rendered-page comparison:** Xanax page rows and API rows strongly corresponded to the same underlying listing book. The page exposed seller identity that was absent from the tested public API listing rows.
 
 **Current TornScriptures use:** IMM currently reads visible Item Market information and Torn catalog values rather than using this endpoint as its primary visible-listing source.
 
-**Decision:** DISCOVERED ONLY.
+**Decision:** LIVE VERIFIED FOR SOURCE SEMANTICS AND CACHE PROVENANCE. No runtime source replacement or valuation algorithm authorized.
 
 ### CAP-MARKET-002: Weekly/specialized Bazaar directory
 
@@ -397,13 +423,13 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 
 **Endpoint:** `GET /faction/{id}/members`
 
-**Evidence:** Official
+**Evidence:** Official + DQ-KEY-001 live
 
-**Permission:** Public
+**Permission:** Public capability live-proven with `access.faction: false`.
 
 **Stability:** Stable
 
-**Member data includes:**
+**Live-proven member data included:**
 
 - user ID and name
 - faction position and level
@@ -412,15 +438,15 @@ Money entries carry an amount. Item entries carry item ID, UID when applicable, 
 - structured `last_action`
 - structured current `status`
 
-Current `last_action` contains a timestamp, relative text and activity status. Current user status includes description/details/state/until/color, with documented state values such as Abroad, Dormant, Fallen, Federal, Hospital, Jail, Okay and Traveling.
+DQ-KEY-001 observed Online, Idle and Offline activity plus Okay, Traveling and Abroad Torn states. Traveling/Abroad rows exposed direction/location and aircraft type, while observed `status.until` remained null.
+
+**Privilege limitation:** Other members' `revive_setting` was generally `Unknown`; the key owner's own row exposed its real setting despite `access.faction: false`. `/key/info` did not enumerate `members` even though the endpoint succeeded.
 
 **Current TornScriptures alternative:** War Intelligence HUD currently makes no Torn API calls. It observes user-opened faction pages, parses rendered status/last-action information, and persists observations locally.
 
-**Potential significance:** Torn already provides several signals WIH currently extracts from the page as structured Stable/Public data and can return them for a faction in one response.
+**What this does NOT decide:** It does not prove API freshness is adequate for war observation, that continuous API collection fits the product boundary, or that the page observer should be removed. Hospital-state shape also remains naturally unobserved in this Discovery cycle.
 
-**What this does NOT decide:** It does not prove API freshness is adequate for war observation, that continuous API collection fits the product boundary, or that the page observer should be removed. Those questions require measured comparison.
-
-**Decision:** DISCOVERED ONLY. High-priority source-comparison candidate.
+**Decision:** LIVE VERIFIED FOR PUBLIC CAPABILITY BOUNDARY. Source/freshness/product design remains future Discovery.
 
 ### CAP-USER-006: Public user profile information
 
@@ -440,18 +466,20 @@ Current `last_action` contains a timestamp, relative text and activity status. C
 
 ## 8. Current TornScriptures API-source map
 
-This is a first repository snapshot, not yet a complete codebase network audit.
+This is a repository snapshot, not yet a complete codebase network audit.
 
-### IMM v0.19.33
+### IMM v0.19.36
 
-Known official endpoints declared in stable IMM:
+Known official endpoints/capabilities in stable IMM include:
 
 - `/torn/items`
 - `/user/inventory`
 - `/user/itemmarket`
 - `/key/info`
+- completed-trade recovery using `/user/trades?cat=finished`
+- participated-trade detail using `/user/{tradeId}/trade`
 
-IMM sends the key only to Torn's official API and stores API/catalog/accounting data browser-locally under its current safety boundary.
+IMM sends the key only to Torn's official API for these official sources and keeps catalog/accounting state browser-local under its current safety boundary.
 
 ### Inventory Sales HUD v0.3.0
 
@@ -468,11 +496,13 @@ The current safety boundary explicitly makes no Torn API calls and no background
 
 ### Trader-price tools
 
-Current IMM trader-price workflows also use external price providers such as Weav3r and TornExchange. Their contracts, freshness, privacy, failure behavior and overlap with official Torn sources have **not yet been assessed in this discovery phase**.
+Current IMM trader-price workflows also use external price providers such as Weav3r and TornExchange. Their contracts, freshness, privacy, failure behavior and overlap with official Torn sources have **not yet been assessed in this Discovery phase**.
+
+DQ-EXT-001 is the intended next source-comparison chapter after DQ-MARKET-001.
 
 ## 9. Section-selection catalogue snapshot
 
-The following names were catalogued from the 2026-08-10 v2 OpenAPI selection enums. Catalogue presence does not mean each selection has been individually assessed.
+The following names were catalogued from the 2026-08-10 v2 OpenAPI selection enums. Catalogue presence does not mean each selection has been individually assessed. This list was not fully re-catalogued during DQ-KEY-001 or DQ-MARKET-001 and must not be treated as a 6.13.1 exhaustive enum snapshot.
 
 ### User
 
@@ -523,4 +553,6 @@ Native/current selections catalogued include `attacklog`, `bounties`, `calendar`
 7. Do not replace stable TornScriptures behavior during discovery.
 8. For accounting-critical integrations, require exact schema plus a controlled live response before specification.
 9. Preserve dead ends and unavailable capabilities in the Discovery Log/Open Questions so later agents do not repeat them.
-10. Re-check the OpenAPI version and relevant contracts before any delayed implementation, because v2 is still evolving.
+10. Preserve source-qualified field semantics when two endpoints use the same field label differently.
+11. Do not stitch paginated market responses into an atomic full-book claim when cache provenance differs.
+12. Re-check the OpenAPI version and relevant contracts before any delayed implementation, because v2 is still evolving.
