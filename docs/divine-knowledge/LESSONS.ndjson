@@ -1,0 +1,5 @@
+{"id":"LESSON.SOURCE_SEMANTICS_FIRST","type":"lesson","state":"active","claim":"do not collapse similarly named price fields or providers into one generic truth before establishing source semantics","source":["DQ-MARKET-001"]}
+{"id":"LESSON.PAGINATION.PROVENANCE","type":"lesson","state":"active","claim":"do not silently stitch market pages with different cache timestamps into one atomic book","source":["PR#112"]}
+{"id":"LESSON.NONSTACKABLE","type":"lesson","state":"active","claim":"equipment valuation must preserve UID/stat/bonus/rarity semantics; item ID alone is insufficient","source":["PR#112"]}
+{"id":"LESSON.BRANCH_CLEANUP","type":"lesson","state":"active","claim":"merge history alone is insufficient branch-deletion proof; exact containment must be rechecked","source":["issue:#84"]}
+{"id":"LESSON.EXTERNAL_NUMERIC_NOT_ACTIONABLE","type":"lesson","state":"active","claim":"presence of a numeric external trader price must not be treated as proof the trader currently buys that item","source":["owner-decision:2026-08-26"]}

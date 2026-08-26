@@ -1,0 +1,7 @@
+{"id":"DQ-EXT-001","type":"chapter","state":"active_discussion","question":"what do Weav3r and TornExchange values mean, how fresh/actionable are they, what is their lineage, and which TornScriptures jobs may trust them?","next":"establish each provider native contract before controlled live comparisons"}
+{"id":"ISSUE#78","type":"issue","state":"open","claim":"trader refresh unavailable/stall lifecycle and freshness policy remain incomplete","dependency":"DQ-EXT-001 / external provider availability and freshness semantics","observed_at":"2026-08-26"}
+{"id":"ISSUE#84","type":"issue","state":"open","claim":"authoritative branch-cleanup control sheet; do not delete from stale audit alone","observed_at":"2026-08-26"}
+{"id":"ISSUE#85","type":"issue","state":"open","claim":"Market Pulse bottoming/reversal alerts require validated historical source behavior before implementation","observed_at":"2026-08-26"}
+{"id":"ISSUE#108","type":"issue","state":"open","claim":"Event Outlook / Inventory Equity / VaR require validated historical provenance and remain advisory","observed_at":"2026-08-26"}
+{"id":"DQ-KEY-002","type":"chapter","state":"planned","claim":"future permission discovery follows DQ-EXT-001 in current sequence"}
+{"id":"WAR-INTELLIGENCE-DISCOVERY","type":"chapter","state":"planned","claim":"future source/freshness discovery; public faction member capability already live-proven but product/source decision remains open"}

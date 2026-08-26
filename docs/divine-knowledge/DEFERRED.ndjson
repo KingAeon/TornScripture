@@ -1,0 +1,4 @@
+{"id":"MARKET-PULSE","state":"deferred","destination":"issue:#85","requires":["validated history source","signal replay","false-positive understanding"]}
+{"id":"EVENT-OUTLOOK-EQUITY-VAR","state":"deferred","destination":"issue:#108","requires":["market-history foundation","event mapping","uncertainty validation"]}
+{"id":"WAR-INTELLIGENCE-API-SOURCE","state":"deferred","requires":["source freshness study","product boundary discussion"]}
+{"id":"BRANCH-CLEANUP","state":"maintenance","destination":"issue:#84","rule":"recheck exact containment before deletion eligibility"}
