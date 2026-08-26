@@ -23,5 +23,5 @@ REQ|surrounding pricelist supports current buying state
 REQ|item/category supported
 REQ|applicable conditions preserved
 
-SEQUENCE|DQ-EXT-001>D Q-KEY-002>WAR-INTELLIGENCE-DISCOVERY
+SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
 NOTE|recheck current main SHA and mutable issue states before consequential action
