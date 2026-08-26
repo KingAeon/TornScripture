@@ -1,0 +1,11 @@
+{"from":"DQ-KEY-001","rel":"informs","to":"DQ-MARKET-001"}
+{"from":"DQ-MARKET-001","rel":"baseline_for","to":"DQ-EXT-001"}
+{"from":"DQ-EXT-001","rel":"informs","to":"ISSUE#78"}
+{"from":"DQ-EXT-001","rel":"feeds","to":"TRADER-BOOK"}
+{"from":"DQ-EXT-001","rel":"feeds","to":"BLACK-LEDGER"}
+{"from":"DQ-EXT-001","rel":"feeds","to":"MARKET-PULSE"}
+{"from":"DQ-MARKET-001","rel":"feeds","to":"MARKET-PULSE"}
+{"from":"MARKET-HISTORY-DISCOVERY","rel":"prerequisite_for","to":"ISSUE#85"}
+{"from":"MARKET-HISTORY-DISCOVERY","rel":"prerequisite_for","to":"ISSUE#108"}
+{"from":"EXT.QUOTE.ACTIONABLE","rel":"protects","to":"TRADER-BOOK"}
+{"from":"TORNPDA-CROSS-ORIGIN","rel":"supports","to":"TRADER-SOURCE-CAPTURE"}
