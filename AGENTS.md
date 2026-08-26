@@ -17,6 +17,14 @@ Stable code and user data are protected above speed. Coding agents implement app
 
 Read `docs/PROJECT-CHARTER.md`, `docs/ASSISTANT-OPERATING-RULES.md`, `docs/DEVELOPMENT-WORKFLOW.md`, and `docs/LEDGER-INVARIANTS.md` when the task touches their scope.
 
+## Divine Knowledge continuity
+
+For substantive TornScriptures work, consult `docs/divine-knowledge/INDEX.md`, then `docs/divine-knowledge/NOW.md`, and then only the relevant domain/chapter nodes before relying on conversational continuity alone.
+
+The project owner has granted the project assistant standing authority to maintain `docs/divine-knowledge/**` as transparent project-memory infrastructure according to `docs/divine-knowledge/AUTHORITY.md`. After the bootstrap establishing that authority is merged, that scoped authority includes documentation-only direct maintenance of paths strictly beneath `docs/divine-knowledge/**`, including reorganizing, consolidating, superseding, archiving, renaming, and deleting subtree content when useful for retrieval or correctness.
+
+That standing authority does not extend to product/runtime code, tests, workflows, repository configuration, normal documentation outside the subtree, branch deletion, spending, credentials, gameplay behavior, release, or merge authority. Mutable facts from the subtree must be rechecked before consequential action, and canonical repository/live evidence overrides stale memory notes.
+
 ## Project purpose
 
 TornScriptures is a collection of quality-of-life userscripts and utilities for Torn. Its tools organize, calculate, record, and visualize information already available to the player. They must not silently play the game, make decisions for the player, or perform unapproved gameplay actions.
