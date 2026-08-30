@@ -39,12 +39,14 @@ See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate,
 - `domains/bazaar/`
 - `domains/torn-api/`
 - `domains/platform/`
+- `domains/tooling/` — lightweight word-of-mouth/organic developer-tool leads; adoption is optional.
 
 ## Discovery chapters
 
 - `chapters/dq-key-001/`
 - `chapters/dq-market-001/`
 - `chapters/dq-ext-001/`
+- `chapters/dq-trade-001-002/` — approved trade-finality/detail design parked for formal protocol work.
 
 ## Provenance rule
 
@@ -52,4 +54,4 @@ This subtree is a navigation and continuity layer, not a replacement for canonic
 
 ## Staleness rule
 
-Mutable facts such as `main` SHA, issue state, branch containment, provider prices, API versions, and current market state must be rechecked before consequential use. Snapshot entries record what was known at a time, not eternal truth.
+Mutable facts such as `main` SHA, issue state, branch containment, provider prices, API versions, plugin availability, and current market state must be rechecked before consequential use. Snapshot entries record what was known at a time, not eternal truth.
