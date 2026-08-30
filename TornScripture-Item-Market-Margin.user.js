@@ -5023,22 +5023,31 @@
     }
   }
 
-  function tradeCompletionState() {
-    const hash = String(location.hash || '');
-    if (/(?:^|[&#])step=logview(?:&|$)/i.test(hash)) {
-      return { completed: true, source: 'trade log page' };
+  function tradeRouteStep() {
+    let hash = String(location.hash || '');
+    if (!hash) {
+      try {
+        hash = new URL(String(location.href || '')).hash;
+      } catch {
+        return '';
+      }
     }
+    const params = new URLSearchParams(hash.replace(/^#\/?/, ''));
+    return normalizeWhitespace(params.get('step')).toLowerCase();
+  }
+
+  function tradeCompletionState() {
     const text = normalizeWhitespace(document.body?.innerText || '');
     const patterns = [
+      /\btrade was accepted and is now complete\b/i,
       /\bthe trade (?:has been|was) successfully completed\b/i,
       /\bthe trade (?:has been|was) completed\b/i,
-      /\bthe trade was accepted by both parties\b/i,
       /\btrade completed successfully\b/i,
     ];
     const match = patterns.find((pattern) => pattern.test(text));
     return match
-      ? { completed: true, source: 'completed trade message' }
-      : { completed: false, source: '' };
+      ? { completed: true, source: 'completed trade message', routeStep: tradeRouteStep() }
+      : { completed: false, source: '', routeStep: tradeRouteStep() };
   }
 
 
@@ -13772,6 +13781,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       priceClass: item.priceElement.className,
     }));
     const tradeSides = pageLooksLikeTrade() ? tradeSideCandidates() : [];
+    const tradeFinality = pageLooksLikeTrade()
+      ? tradeCompletionState()
+      : { completed: false, source: '', routeStep: '' };
+    const pendingTradeSale = normalizePendingTradeSale(loadJson(APP.pendingTradeSaleStorageKey, null));
+    const currentTradeId = tradeIdFromLocation();
     const tradeSample = tradeSides.map((side) => ({
       side: side.side,
       heading: side.heading,
@@ -13813,6 +13827,27 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         manifestFormula: 'sum(floor(itemMarketValue * 0.99) * quantity)',
         tradeDifferenceFormula: 'otherSideCash - mySideCash - manifestTarget',
         tradeExitAuditFormula: 'best fresh concrete exit per item (current trader, favorite trader, or NPC) minus live net cash',
+      },
+      tradeFinality: {
+        routeStep: tradeFinality.routeStep || '',
+        completed: tradeFinality.completed,
+        source: tradeFinality.source || '',
+        currentTradeId: currentTradeId || null,
+        pendingSnapshot: pendingTradeSale ? {
+          present: true,
+          captureId: pendingTradeSale.captureId,
+          capturedAt: pendingTradeSale.capturedAt,
+          tradeId: pendingTradeSale.tradeId || null,
+          counterpartyId: pendingTradeSale.tradeCounterpartyId,
+          itemTypes: pendingTradeSale.tradeItems.length,
+          itemQuantity: pendingTradeSale.tradeItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+          netCash: pendingTradeSale.tradeNetCash,
+          unmatchedItems: pendingTradeSale.tradeUnmatchedItems,
+          recordedSaleId: pendingTradeSale.recordedSaleId || null,
+          currentTradeIdMatch: pendingTradeSale.tradeId && currentTradeId
+            ? pendingTradeSale.tradeId === currentTradeId
+            : null,
+        } : { present: false },
       },
       lastScan: state.lastScan,
       traders: state.traders.map((trader) => ({ ...trader, stats: traderStats(trader) })),
@@ -14771,6 +14806,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       analyzeLedgerIntegrity,
       normalizeSaleRecord,
       emptyScanStats,
+      tradeRouteStep,
+      tradeCompletionState,
+      scanTrade,
+      maybeAutoRecordCompletedTrade,
+      savePendingTradeSaleFromStats,
+      diagnostics,
       normalizeName,
       catalogItemFor,
       catalogItemForId,

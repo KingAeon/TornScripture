@@ -284,6 +284,142 @@ describe('Unresolved Trade Journal', () => {
   });
 });
 
+// ── TornPDA live-trade finality ──────────────────────────────────────────────
+describe('TornPDA live-trade finality', () => {
+  const pendingKey = 'tornscripture-imm-pending-trade-sale-v1';
+  const tradeId = '990001';
+
+  function setTradePage(step, text = '') {
+    global.location.href = `https://www.torn.com/trade.php#/step=${step}&ID=${tradeId}`;
+    global.location.hash = `#/step=${step}&ID=${tradeId}`;
+    bodyEl.innerText = text;
+  }
+
+  function liveTradeStats(imm) {
+    return {
+      ...imm.emptyScanStats(),
+      pageType: 'trade',
+      tradeId,
+      tradeCounterparty: 'Counterparty Name',
+      tradeCounterpartyId: 5678,
+      tradeCounterpartyProfileUrl: 'https://www.torn.com/profiles.php?XID=5678',
+      tradeMarketTotal: 180000,
+      tradeTargetTotal: 178200,
+      tradeTraderCash: 180000,
+      tradeMyCash: 0,
+      tradeNetCash: 180000,
+      tradeMatchedItems: 1,
+      tradeUnmatchedItems: 0,
+      tradeItems: [{
+        itemId: 100,
+        name: 'Xanax',
+        quantity: 2,
+        marketPrice: 90000,
+        marketTotal: 180000,
+        targetEach: 89100,
+        targetTotal: 178200,
+      }],
+    };
+  }
+
+  test('authoritative Torn completion message is recognized on the final accept2 route', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setTradePage('accept2', 'Trade was accepted and is now complete!');
+    assert.deepEqual(imm.tradeCompletionState(), {
+      completed: true,
+      source: 'completed trade message',
+      routeStep: 'accept2',
+    });
+  });
+
+  test('pre-final accept2 wording does not count as completion', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setTradePage('accept2', 'You have accepted the trade. Waiting for the other person to accept.');
+    assert.deepEqual(imm.tradeCompletionState(), {
+      completed: false,
+      source: '',
+      routeStep: 'accept2',
+    });
+  });
+
+  test('route-only logview and mutual-acceptance wording fail closed', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setTradePage('logview', 'Trade details');
+    assert.equal(imm.tradeCompletionState().completed, false, 'route alone is not completion evidence');
+    bodyEl.innerText = 'The trade was accepted by both parties.';
+    assert.equal(imm.tradeCompletionState().completed, false, 'unapproved mutual-acceptance wording is not finality evidence');
+  });
+
+  test('final message restores the pending snapshot and auto-records full FIFO exactly once', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 2, remainingQuantity: 2 })] });
+    localStorage.removeItem(pendingKey);
+
+    setTradePage('view', 'Live trade manifest');
+    const pending = imm.savePendingTradeSaleFromStats(liveTradeStats(imm));
+    assert.equal(pending.tradeId, tradeId);
+
+    setTradePage('accept2', 'Trade was accepted and is now complete!');
+    const completedStats = imm.emptyScanStats();
+    completedStats.pageType = 'trade';
+    imm.scanTrade(completedStats);
+
+    assert.equal(completedStats.tradeCompleted, true);
+    assert.equal(completedStats.tradeCompletionSource, 'preserved live-trade snapshot');
+    assert.equal(completedStats.tradeId, tradeId);
+    assert.equal(completedStats.tradeItems.length, 1);
+    assert.equal(completedStats.tradeLedgerFullCoverage, true);
+
+    const first = imm.maybeAutoRecordCompletedTrade(completedStats);
+    assert.ok(first, 'first completed scan records the fully covered sale');
+    assert.equal(first.completionSource, 'completed trade message');
+    assert.equal(imm.state.ledger.sales.length, 1);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0);
+
+    const second = imm.maybeAutoRecordCompletedTrade(completedStats);
+    assert.equal(second, null, 'repeated completed scan is deduplicated');
+    assert.equal(imm.state.ledger.sales.length, 1);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0, 'FIFO is consumed only once');
+  });
+
+  test('pre-final accept2 scan leaves pending evidence and ledger unchanged', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 2, remainingQuantity: 2 })] });
+    localStorage.removeItem(pendingKey);
+
+    setTradePage('view', 'Live trade manifest');
+    imm.savePendingTradeSaleFromStats(liveTradeStats(imm));
+    const pendingBefore = localStorage.getItem(pendingKey);
+
+    setTradePage('accept2', 'You have accepted the trade. Waiting for the other person to accept.');
+    const stats = liveTradeStats(imm);
+    assert.equal(imm.maybeAutoRecordCompletedTrade(stats), null);
+    assert.equal(imm.state.ledger.sales.length, 0);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 2);
+    assert.equal(localStorage.getItem(pendingKey), pendingBefore);
+  });
+
+  test('diagnostics expose finality and sanitized pending-snapshot state', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 2, remainingQuantity: 2 })] });
+    localStorage.removeItem(pendingKey);
+    setTradePage('view', 'Live trade manifest');
+    imm.savePendingTradeSaleFromStats(liveTradeStats(imm));
+
+    setTradePage('accept2', 'Trade was accepted and is now complete!');
+    const pendingBefore = localStorage.getItem(pendingKey);
+    const finality = imm.diagnostics().tradeFinality;
+    assert.equal(finality.completed, true);
+    assert.equal(finality.routeStep, 'accept2');
+    assert.equal(finality.currentTradeId, tradeId);
+    assert.equal(finality.pendingSnapshot.present, true);
+    assert.equal(finality.pendingSnapshot.currentTradeIdMatch, true);
+    assert.equal(finality.pendingSnapshot.itemQuantity, 2);
+    assert.doesNotMatch(JSON.stringify(finality), /Counterparty Name|profiles\.php/i);
+    assert.equal(localStorage.getItem(pendingKey), pendingBefore, 'copying diagnostics must not mutate pending evidence');
+  });
+});
+
 // ── Schema version ────────────────────────────────────────────────────────────
 describe('Schema', () => {
   test('normalizeLedger produces schemaVersion 6', () => {

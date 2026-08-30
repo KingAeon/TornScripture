@@ -53,6 +53,12 @@ Focused journal coverage includes:
 - barter/unsupported classification without mutation
 - archive, restore, cached-evidence deletion, and forget controls
 - immutable first evidence when a later payload conflicts
+- TornPDA `#/step=accept2` finality using the authoritative
+  `Trade was accepted and is now complete!` message
+- pre-final `accept2`, mutual-acceptance wording, and route-only `logview`
+  rejection with no mutation
+- preserved live-snapshot restoration and exactly-once full-FIFO auto-recording
+- sanitized finality and pending-snapshot diagnostics
 - protected API recovery, FIFO, rollback, permission, startup, carousel, and
   Inventory Sales regressions
 
@@ -87,6 +93,28 @@ Focused journal coverage includes:
 17. Repeat the overlay/tabs/actions on desktop and verify no obvious narrow-screen
     overflow or unusable touch controls in TornPDA.
 
+## TornPDA finality repair gate
+
+The original v0.19.37 candidate failed to recognize TornPDA's completed state at
+`#/step=accept2`. Test the repaired candidate with one new low-value trade only
+after a complete live snapshot exists:
+
+1. Before accepting, confirm IMM shows the exact outgoing items, actual cash,
+   and full FIFO coverage.
+2. Complete both Torn confirmations and remain on the final message
+   `Trade was accepted and is now complete!`.
+3. Confirm the sale records automatically exactly once, reaches **Recorded** in
+   the journal, and consumes the expected FIFO quantity once.
+4. Reload or rescan the final page. Confirm no second sale or second lot
+   reduction occurs.
+5. Run Ledger Integrity and require a pass.
+6. If auto-recording does not occur, copy diagnostics before API recovery. The
+   `tradeFinality` block must report the route step, current trade ID, completion
+   evidence, and sanitized pending-snapshot state without participant names.
+
+The route alone is never completion evidence. A pre-final `accept2` screen,
+`logview`, or mutual-acceptance wording must not record or consume anything.
+
 ## Stop conditions
 
 Stop testing and do not merge if:
@@ -95,6 +123,7 @@ Stop testing and do not merge if:
 - a partial/zero-coverage trade can reach confirmation
 - participant names or the API key appear in journal storage/export
 - duplicate journal rows or duplicate sale mutations appear
+- a route without the authoritative final completion message records a sale
 - list discovery triggers detail requests for every historical trade
 - evidence conflicts overwrite the first preserved evidence
 - Ledger Integrity fails
@@ -104,4 +133,3 @@ Stop testing and do not merge if:
 Reinstall IMM v0.19.36 from `main`. The isolated journal key may remain inert or
 be forgotten row-by-row from the branch UI before rollback. Existing Ledger,
 lots, sales, API key, trader book, and pending-purchase keys are untouched.
-
