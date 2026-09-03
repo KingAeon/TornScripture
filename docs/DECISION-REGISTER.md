@@ -332,6 +332,28 @@ Each decision records:
 
 ---
 
+## BL-005: Treat the API journal as the supported TornPDA missed-trade path
+
+**Date:** 2026-09-03
+
+**Question:** Should IMM v0.19.37 promise automatic Black Ledger recording from TornPDA's completed-trade screen, or use the unresolved-trade API journal as the supported path when the live manifest vanishes?
+
+**Decision:** The explicit API journal flow—**Load details → review → consume**—is the supported TornPDA recovery contract. Live-DOM recording may remain as a best-effort compatibility path when a complete matching pre-completion snapshot genuinely exists, but it is not a release guarantee.
+
+**Evidence:** In a controlled low-value trade, the repaired candidate visibly recognized Torn's authoritative `Trade was accepted and is now complete!` message. Sanitized diagnostics showed `pendingSnapshot.present: false`, proving that no pre-completion manifest survived and ruling out a trade-ID mismatch. IMM correctly made no accounting mutation. The same trade was then hydrated, reviewed, consumed once through the API journal, and followed by a passing Ledger Integrity check.
+
+**Consequences:**
+
+- Missing live snapshots fail closed with no guessed sale or FIFO mutation.
+- Saved Trader Book membership is not a prerequisite for API journal recovery.
+- Automatic live-DOM recording is not part of the v0.19.37 release promise.
+- Final-message recognition remains useful for truthful completed/not-recorded status and recovery guidance.
+- Do not restart acceptance selectors, touch probes, or vanished-DOM reconstruction without a newly exposed stable complete source.
+
+**Revisit condition:** Torn exposes a stable embedded payload or documented event containing authoritative participants, items, money, identity, and completion evidence before the manifest is removed.
+
+---
+
 ## STORAGE-001: Use hybrid persistence behind a centralized storage service
 
 **Date:** 2026-08-11; recorded in the main decision register 2026-08-20
