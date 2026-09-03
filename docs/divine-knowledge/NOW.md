@@ -6,7 +6,9 @@ PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|19fbfce99b1b55f03780ee07c6bcb008cbd74f42
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
-NEXT|establish external provider native contracts before live comparison
+DQ_EXT|001A native provider contract audit completed
+DQ_EXT|001B falsification testing evidence-saturated
+NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
 LANDED|DQ-KEY-001|PR#111
