@@ -39,12 +39,14 @@ See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate,
 - `domains/bazaar/`
 - `domains/torn-api/`
 - `domains/platform/`
+- `domains/tooling/` — lightweight developer-tool leads and current tool-use doctrine.
 
 ## Discovery chapters
 
 - `chapters/dq-key-001/`
 - `chapters/dq-market-001/`
 - `chapters/dq-ext-001/`
+- `chapters/dq-trade-001-002/` — superseded next-step plan retained as optional trade-visibility research.
 
 ## Provenance rule
 
