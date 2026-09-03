@@ -4,3 +4,4 @@
 {"at":"2026-09-03","event":"decision_recorded","id":"BL.API_JOURNAL.SUPPORTED_PATH","source":["owner-decision:2026-09-03","PR#116"]}
 {"at":"2026-09-03","event":"tooling_lane_reconciled","id":"TOOLING-LEADS","state":"lightweight_optional","source":["PR#114","owner-reminder:2026-09-03"]}
 {"at":"2026-09-03","event":"pr_reconciliation_prepared","pr":"#114","result":"stale trade probe next-action removed; unique tooling lane preserved; replacement based on released v0.19.37 state"}
+{"at":"2026-09-03","event":"verification_correction","pr":"#117","scope":"DQ-EXT-001 continuity","result":"advanced stale next-step pointer to DQ-EXT-001C and preserved completed 001A/001B findings","source":["owner-observation:2026-08-27","verification:PR#117"]}
