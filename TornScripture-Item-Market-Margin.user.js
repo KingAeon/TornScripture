@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.36
+// @version      0.19.37
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.36' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.36' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.37' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.37' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.36
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.37
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -332,7 +332,7 @@
    * - Normal purchase capture begins after the user presses Torn's confirmation button.
    * - Quick MAX can fill Torn's native quantity field; Override MAX can submit only after the user session-arms it and presses IMM's generated MAX button.
    * - Completed trade sales only update local lot quantities; receipt audits are read-only and never alter sale quantities or costs.
-   * - API trade recovery fetches finished trade data from the Torn API and presents a non-mutating review; ledger mutation occurs only after the user presses the explicit confirm button.
+   * - API trade recovery journals finished trade IDs and sanitized evidence separately from Black Ledger, then presents a non-mutating review; ledger mutation occurs only after the user presses the explicit confirm button with full FIFO coverage.
    * - Trade Exit Audit comparisons are read-only. Bulk removal runs only after the user presses its button and confirms; it uses Torn's visible item-removal controls and never accepts or completes a trade.
    * - Priced Trade stores an expiring trader handoff, verifies the live counterparty, adds one persistent full-stack payout badge per visible item row, and provides an explicit MAX button beside Torn's native quantity field. It never presses Add to Trade or completes a trade.
    * - Outside an explicitly armed Override MAX action, the script never submits purchases, lists items, sells items, or completes trades.
@@ -343,7 +343,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.36',
+    version: '0.19.37',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -367,6 +367,7 @@
     sharedCatalogStorageKey: 'tornscripture-ish-torn-catalog-v1',
     settingsStorageKey: 'tornscripture-imm-settings-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
+    tradeJournalStorageKey: 'tornscripture-imm-unresolved-trade-journal-v1',
     ledgerCleanupBackupStorageKey: 'tornscripture-imm-ledger-cleanup-backup-v1',
     inventoryStorageKey: 'tornscripture-imm-inventory-v1',
     inventoryBaselineStorageKey: 'tornscripture-imm-inventory-baseline-v1',
@@ -566,6 +567,124 @@
     };
   }
 
+  const TRADE_JOURNAL_CLASSIFICATIONS = Object.freeze([
+    'needs-review',
+    'accounting-ready',
+    'unresolved-coverage',
+    'unsupported-exchange',
+    'evidence-unavailable',
+    'recorded',
+  ]);
+
+  function normalizeTradeJournalEvidence(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const tradeId = raw.tradeId;
+    const completedAt = normalizeWhitespace(raw.completedAt);
+    const ownerId = raw.ownerId;
+    const counterpartyId = raw.counterpartyId;
+    const ownerCash = raw.ownerCash;
+    const counterpartyCash = raw.counterpartyCash;
+    if (!Number.isSafeInteger(tradeId) || tradeId <= 0 || !completedAt || !Number.isFinite(Date.parse(completedAt))
+      || !Number.isSafeInteger(ownerId) || ownerId <= 0
+      || !Number.isSafeInteger(counterpartyId) || counterpartyId <= 0
+      || ownerId === counterpartyId
+      || !Number.isSafeInteger(ownerCash) || ownerCash < 0
+      || !Number.isSafeInteger(counterpartyCash) || counterpartyCash < 0) return null;
+    const normalizeAssets = (value) => {
+      if (!Array.isArray(value)) return null;
+      const assets = [];
+      for (const asset of value) {
+        const type = normalizeWhitespace(asset?.type);
+        const itemId = asset?.itemId;
+        const quantity = asset?.quantity;
+        if (!type) return null;
+        if (type === 'Item' && (!Number.isSafeInteger(quantity) || quantity <= 0
+          || !Number.isSafeInteger(itemId) || itemId <= 0)) return null;
+        if (type !== 'Item' && quantity !== null
+          && (!Number.isSafeInteger(quantity) || quantity <= 0)) return null;
+        assets.push({
+          type,
+          itemId: Number.isSafeInteger(itemId) && itemId > 0 ? itemId : null,
+          quantity: type === 'Item' ? quantity : (Number.isSafeInteger(quantity) ? quantity : null),
+        });
+      }
+      return assets;
+    };
+    const ownerAssets = normalizeAssets(raw.ownerAssets);
+    const counterpartyAssets = normalizeAssets(raw.counterpartyAssets);
+    if (!ownerAssets || !counterpartyAssets) return null;
+    return {
+      schemaVersion: 1,
+      tradeId,
+      completedAt,
+      ownerId,
+      counterpartyId,
+      ownerCash,
+      counterpartyCash,
+      ownerAssets,
+      counterpartyAssets,
+      capturedAt: normalizeWhitespace(raw.capturedAt) || new Date().toISOString(),
+      source: 'torn-api-v2-user-trade',
+    };
+  }
+
+  function normalizeTradeJournalAuditEvent(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const action = normalizeWhitespace(raw.action);
+    const at = normalizeWhitespace(raw.at);
+    if (!action || !at) return null;
+    return { action, at, note: normalizeWhitespace(raw.note) };
+  }
+
+  function normalizeTradeJournalEntry(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const tradeId = raw.tradeId ?? raw.id;
+    const completedAt = normalizeWhitespace(raw.completedAt);
+    const ownerId = raw.ownerId;
+    const counterpartyId = raw.counterpartyId;
+    if (!Number.isSafeInteger(tradeId) || tradeId <= 0 || !completedAt || !Number.isFinite(Date.parse(completedAt))
+      || !Number.isSafeInteger(ownerId) || ownerId <= 0
+      || !Number.isSafeInteger(counterpartyId) || counterpartyId <= 0) return null;
+    const evidence = normalizeTradeJournalEvidence(raw.evidence);
+    let classification = TRADE_JOURNAL_CLASSIFICATIONS.includes(raw.classification)
+      ? raw.classification
+      : 'needs-review';
+    if (!evidence && raw.evidence && classification !== 'recorded') classification = 'evidence-unavailable';
+    if (!evidence && ['accounting-ready', 'unresolved-coverage', 'unsupported-exchange'].includes(classification)) {
+      classification = 'needs-review';
+    }
+    return {
+      schemaVersion: 1,
+      tradeId,
+      completedAt,
+      ownerId,
+      counterpartyId,
+      classification,
+      archived: Boolean(raw.archived),
+      discoveredAt: normalizeWhitespace(raw.discoveredAt) || new Date().toISOString(),
+      lastSeenAt: normalizeWhitespace(raw.lastSeenAt) || normalizeWhitespace(raw.discoveredAt) || new Date().toISOString(),
+      evidence,
+      evidenceError: normalizeWhitespace(raw.evidenceError),
+      audit: (Array.isArray(raw.audit) ? raw.audit : []).map(normalizeTradeJournalAuditEvent).filter(Boolean),
+    };
+  }
+
+  function normalizeTradeJournal(raw) {
+    const source = Array.isArray(raw) ? raw : Array.isArray(raw?.entries) ? raw.entries : [];
+    const byId = new Map();
+    for (const candidate of source) {
+      const entry = normalizeTradeJournalEntry(candidate);
+      if (!entry) continue;
+      byId.set(entry.tradeId, entry);
+    }
+    return {
+      schema: 'tornscripture-imm-unresolved-trade-journal',
+      schemaVersion: 1,
+      updatedAt: normalizeWhitespace(raw?.updatedAt) || null,
+      entries: [...byId.values()].sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt)),
+    };
+  }
+
   const initialTraderView = normalizeTraderView(loadJson(APP.traderViewStorageKey, {}));
   const initialPendingPurchases = normalizePendingPurchases(loadJson(APP.pendingPurchaseStorageKey, null));
 
@@ -573,6 +692,7 @@
     settings: normalizeSettings(loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS)),
     catalog: mergeCatalogCaches(),
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
+    tradeJournal: normalizeTradeJournal(loadJson(APP.tradeJournalStorageKey, {})),
     inventory: normalizeInventoryCache(loadJson(APP.inventoryStorageKey, {})),
     inventoryBaseline: normalizeInventoryBaseline(loadJson(APP.inventoryBaselineStorageKey, {})),
     sellPriority: normalizeSellPriority(loadJson(APP.sellPriorityStorageKey, {})),
@@ -3646,6 +3766,11 @@
     saveJson(APP.ledgerStorageKey, state.ledger);
   }
 
+  function saveTradeJournal() {
+    state.tradeJournal.updatedAt = new Date().toISOString();
+    saveJson(APP.tradeJournalStorageKey, state.tradeJournal);
+  }
+
   function savePendingPurchase() {
     const queue = pendingPurchaseQueue();
     if (!queue.length) {
@@ -4898,22 +5023,31 @@
     }
   }
 
-  function tradeCompletionState() {
-    const hash = String(location.hash || '');
-    if (/(?:^|[&#])step=logview(?:&|$)/i.test(hash)) {
-      return { completed: true, source: 'trade log page' };
+  function tradeRouteStep() {
+    let hash = String(location.hash || '');
+    if (!hash) {
+      try {
+        hash = new URL(String(location.href || '')).hash;
+      } catch {
+        return '';
+      }
     }
+    const params = new URLSearchParams(hash.replace(/^#\/?/, ''));
+    return normalizeWhitespace(params.get('step')).toLowerCase();
+  }
+
+  function tradeCompletionState() {
     const text = normalizeWhitespace(document.body?.innerText || '');
     const patterns = [
+      /\btrade was accepted and is now complete\b/i,
       /\bthe trade (?:has been|was) successfully completed\b/i,
       /\bthe trade (?:has been|was) completed\b/i,
-      /\bthe trade was accepted by both parties\b/i,
       /\btrade completed successfully\b/i,
     ];
     const match = patterns.find((pattern) => pattern.test(text));
     return match
-      ? { completed: true, source: 'completed trade message' }
-      : { completed: false, source: '' };
+      ? { completed: true, source: 'completed trade message', routeStep: tradeRouteStep() }
+      : { completed: false, source: '', routeStep: tradeRouteStep() };
   }
 
 
@@ -10756,6 +10890,202 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return { userId, name };
   }
 
+  function tradeJournalEntry(tradeId) {
+    const id = Number(tradeId);
+    return state.tradeJournal.entries.find((entry) => entry.tradeId === id) || null;
+  }
+
+  function appendTradeJournalAudit(entry, action, note = '') {
+    if (!entry || !action) return;
+    if (!Array.isArray(entry.audit)) entry.audit = [];
+    entry.audit.push({ action, at: new Date().toISOString(), note: normalizeWhitespace(note) });
+  }
+
+  function setTradeJournalClassification(entry, classification, note = '') {
+    if (!entry || !TRADE_JOURNAL_CLASSIFICATIONS.includes(classification)) return false;
+    if (entry.classification === classification) return false;
+    entry.classification = classification;
+    appendTradeJournalAudit(entry, 'classification-changed', `${classification}${note ? `: ${note}` : ''}`);
+    return true;
+  }
+
+  function discoverTradeJournalEntries(candidates, keyOwnerUserId) {
+    if (!Array.isArray(candidates)) return { added: 0, updated: 0 };
+    const ownerId = Number(keyOwnerUserId);
+    if (!Number.isSafeInteger(ownerId) || ownerId <= 0) return { added: 0, updated: 0 };
+    const now = new Date().toISOString();
+    const byId = new Map(state.tradeJournal.entries.map((entry) => [entry.tradeId, entry]));
+    let added = 0;
+    let updated = 0;
+    for (const candidate of candidates) {
+      const tradeId = candidate?.id;
+      const counterpartyId = candidate?.otherPlayerId;
+      const completedAt = normalizeWhitespace(candidate?.completedAt);
+      if (!Number.isSafeInteger(tradeId) || tradeId <= 0
+        || !Number.isSafeInteger(counterpartyId) || counterpartyId <= 0 || !completedAt) continue;
+      let entry = byId.get(tradeId);
+      if (!entry) {
+        entry = normalizeTradeJournalEntry({
+          tradeId,
+          completedAt,
+          ownerId,
+          counterpartyId,
+          classification: apiTradeAlreadyRecorded(tradeId) ? 'recorded' : 'needs-review',
+          discoveredAt: now,
+          lastSeenAt: now,
+          audit: [{ action: 'discovered', at: now, note: 'Torn API v2 finished-trades list' }],
+        });
+        byId.set(tradeId, entry);
+        added += 1;
+      } else {
+        entry.lastSeenAt = now;
+        if (apiTradeAlreadyRecorded(tradeId)) setTradeJournalClassification(entry, 'recorded');
+        updated += 1;
+      }
+    }
+    state.tradeJournal.entries = [...byId.values()]
+      .sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt));
+    if (added || updated) saveTradeJournal();
+    return { added, updated };
+  }
+
+  function buildTradeJournalEvidence(rawPayload, candidate, keyUserId) {
+    const source = rawPayload?.trade;
+    if (!source || typeof source !== 'object') throw new Error('Trade detail response is missing.');
+    const tradeId = source.id;
+    const ownerId = Number(keyUserId);
+    if (!Number.isSafeInteger(tradeId) || tradeId !== candidate?.id) throw new Error('Trade detail ID does not match the journal entry.');
+    if (!Number.isSafeInteger(ownerId) || ownerId <= 0) throw new Error('API key owner identity is unavailable.');
+    const completedSeconds = source.completed_at;
+    if (!Number.isSafeInteger(completedSeconds) || completedSeconds <= 0) throw new Error('Trade completion timestamp is invalid.');
+    const completedAt = new Date(completedSeconds * 1000).toISOString();
+    if (completedAt !== candidate.completedAt) throw new Error('Trade completion timestamp conflicts with discovery evidence.');
+    const participantIds = [source.user?.id, source.trader?.id];
+    if (!participantIds.every((id) => Number.isSafeInteger(id) && id > 0)
+      || participantIds[0] === participantIds[1] || !participantIds.includes(ownerId)) {
+      throw new Error('Trade participant identity is invalid or ambiguous.');
+    }
+    const counterpartyId = participantIds.find((id) => id !== ownerId);
+    if (counterpartyId !== candidate.otherPlayerId) throw new Error('Trade counterparty ID conflicts with discovery evidence.');
+    if (!Array.isArray(source.items)) throw new Error('Trade detail has no supported items list.');
+    const evidence = {
+      tradeId,
+      completedAt,
+      ownerId,
+      counterpartyId,
+      ownerCash: 0,
+      counterpartyCash: 0,
+      ownerAssets: [],
+      counterpartyAssets: [],
+      capturedAt: new Date().toISOString(),
+    };
+    for (const item of source.items) {
+      const participantId = item?.user_id;
+      if (!participantIds.includes(participantId)) throw new Error('Trade asset participant is invalid.');
+      const target = participantId === ownerId ? 'owner' : 'counterparty';
+      const type = normalizeWhitespace(item?.type);
+      const details = item?.details;
+      if (!type || !details || typeof details !== 'object') throw new Error('Trade asset evidence is malformed.');
+      if (type === 'Money') {
+        const amount = details.amount;
+        if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Trade money evidence is invalid.');
+        evidence[`${target}Cash`] += amount;
+        continue;
+      }
+      const rawQuantity = details.amount ?? details.quantity ?? null;
+      if (type === 'Item' && (!Number.isSafeInteger(rawQuantity) || rawQuantity <= 0)) throw new Error('Trade item quantity is invalid.');
+      if (type !== 'Item' && rawQuantity !== null
+        && (!Number.isSafeInteger(rawQuantity) || rawQuantity <= 0)) throw new Error('Trade asset quantity is invalid.');
+      const itemId = details.id;
+      evidence[`${target}Assets`].push({
+        type,
+        itemId: Number.isSafeInteger(itemId) && itemId > 0 ? itemId : null,
+        quantity: rawQuantity,
+      });
+    }
+    const normalized = normalizeTradeJournalEvidence(evidence);
+    if (!normalized) throw new Error('Trade evidence could not be normalized safely.');
+    return normalized;
+  }
+
+  function classifyTradeJournalEvidence(evidence) {
+    if (!evidence) return { classification: 'evidence-unavailable', note: 'No hydrated evidence' };
+    const allAssets = [...evidence.ownerAssets, ...evidence.counterpartyAssets];
+    if (allAssets.some((asset) => asset.type !== 'Item') || evidence.counterpartyAssets.length > 0
+      || evidence.ownerAssets.length === 0 || evidence.counterpartyCash - evidence.ownerCash <= 0) {
+      return { classification: 'unsupported-exchange', note: 'Not an ordinary cash-for-items sale' };
+    }
+    try {
+      const detail = {
+        id: evidence.tradeId,
+        completedAt: evidence.completedAt,
+        user: evidence.ownerId < evidence.counterpartyId
+          ? { userId: evidence.ownerId, name: '', money: evidence.ownerCash, items: evidence.ownerAssets.map((asset) => ({ id: asset.itemId, quantity: asset.quantity })) }
+          : { userId: evidence.counterpartyId, name: '', money: evidence.counterpartyCash, items: evidence.counterpartyAssets.map((asset) => ({ id: asset.itemId, quantity: asset.quantity })) },
+        trader: evidence.ownerId < evidence.counterpartyId
+          ? { userId: evidence.counterpartyId, name: '', money: evidence.counterpartyCash, items: evidence.counterpartyAssets.map((asset) => ({ id: asset.itemId, quantity: asset.quantity })) }
+          : { userId: evidence.ownerId, name: '', money: evidence.ownerCash, items: evidence.ownerAssets.map((asset) => ({ id: asset.itemId, quantity: asset.quantity })) },
+      };
+      const { ownerSide, counterpartySide } = resolveApiTradeOwner(detail, evidence.ownerId);
+      const stats = buildApiTradeSaleStats(detail, ownerSide, counterpartySide);
+      const plan = ledgerSalePlan(stats);
+      return plan.fullCoverage
+        ? { classification: 'accounting-ready', note: 'Complete FIFO coverage' }
+        : { classification: 'unresolved-coverage', note: `${plan.trackedQuantity} of ${plan.requestedQuantity} units covered` };
+    } catch (error) {
+      const unsupportedReasons = new Set([
+        QUARANTINE_REASON.UNSUPPORTED_BARTER,
+        QUARANTINE_REASON.UNSUPPORTED_ASSET_TYPE,
+        QUARANTINE_REASON.UNKNOWN_ASSET_TYPE,
+        QUARANTINE_REASON.INVALID_NET_PROCEEDS,
+        QUARANTINE_REASON.MISSING_ITEMS,
+      ]);
+      return unsupportedReasons.has(error?.quarantineReasonCode)
+        ? { classification: 'unsupported-exchange', note: error.message }
+        : { classification: 'evidence-unavailable', note: error?.message || 'Evidence could not be classified' };
+    }
+  }
+
+  function hydrateTradeJournalEntry(candidate, evidence) {
+    const entry = tradeJournalEntry(candidate?.id);
+    if (!entry) return null;
+    const normalized = normalizeTradeJournalEvidence(evidence);
+    if (!normalized || normalized.ownerId !== entry.ownerId
+      || normalized.counterpartyId !== entry.counterpartyId
+      || normalized.completedAt !== entry.completedAt) return null;
+    const comparableEvidence = (value) => JSON.stringify({
+      ...value,
+      capturedAt: undefined,
+    });
+    if (entry.evidence && comparableEvidence(entry.evidence) !== comparableEvidence(normalized)) {
+      entry.evidenceError = 'A later API detail response conflicted with preserved journal evidence.';
+      setTradeJournalClassification(entry, 'evidence-unavailable', entry.evidenceError);
+      appendTradeJournalAudit(entry, 'evidence-conflict');
+      saveTradeJournal();
+      return entry;
+    }
+    if (!entry.evidence) {
+      entry.evidence = normalized;
+      appendTradeJournalAudit(entry, 'evidence-hydrated', 'Torn API v2 trade detail');
+    }
+    entry.evidenceError = '';
+    const result = classifyTradeJournalEvidence(entry.evidence);
+    setTradeJournalClassification(entry, apiTradeAlreadyRecorded(entry.tradeId) ? 'recorded' : result.classification, result.note);
+    saveTradeJournal();
+    return entry;
+  }
+
+  function markTradeJournalEvidenceUnavailable(tradeId, message) {
+    const entry = tradeJournalEntry(tradeId);
+    if (!entry) return;
+    const nextError = normalizeWhitespace(message) || 'Evidence could not be loaded.';
+    const changed = entry.evidenceError !== nextError;
+    entry.evidenceError = nextError;
+    if (!entry.evidence) setTradeJournalClassification(entry, 'evidence-unavailable', entry.evidenceError);
+    if (changed) appendTradeJournalAudit(entry, 'evidence-load-failed', entry.evidenceError);
+    saveTradeJournal();
+  }
+
   // Normalize a single UserTrade list entry per the current official Torn API v2 schema.
   // keyOwnerUserId: the numeric ID of the API key owner, used to identify the counterparty.
   // Returns null when the entry is malformed or ownership is ambiguous/unresolvable.
@@ -11582,11 +11912,140 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     `;
   }
 
+  function tradeJournalEntriesForView(view) {
+    const ownerId = Number(state.keyProfile?.userId);
+    const entries = (state.tradeJournal.entries || []).filter(
+      (entry) => !Number.isSafeInteger(ownerId) || ownerId <= 0 || entry.ownerId === ownerId,
+    );
+    if (view === 'archived') return entries.filter((entry) => entry.archived);
+    const active = entries.filter((entry) => !entry.archived);
+    if (view === 'accounting-ready') return active.filter((entry) => entry.classification === 'accounting-ready');
+    if (view === 'unsupported') return active.filter((entry) => entry.classification === 'unsupported-exchange');
+    if (view === 'recorded') return active.filter((entry) => entry.classification === 'recorded');
+    return active.filter((entry) => ['needs-review', 'unresolved-coverage', 'evidence-unavailable'].includes(entry.classification));
+  }
+
+  function tradeJournalClassificationLabel(value) {
+    return ({
+      'needs-review': 'Needs review',
+      'accounting-ready': 'Accounting-ready',
+      'unresolved-coverage': 'Missing FIFO coverage',
+      'unsupported-exchange': 'Unsupported exchange',
+      'evidence-unavailable': 'Evidence unavailable',
+      recorded: 'Recorded',
+    })[value] || 'Needs review';
+  }
+
+  function renderApiTradeJournalList(overlay, candidates, requestedView = 'needs-review') {
+    const views = ['needs-review', 'accounting-ready', 'unsupported', 'archived', 'recorded'];
+    const view = views.includes(requestedView) ? requestedView : 'needs-review';
+    overlay._tsimmApiTradeView = view;
+    overlay._tsimmApiTradeCandidates = Array.isArray(candidates) ? candidates : [];
+    const candidateById = new Map(overlay._tsimmApiTradeCandidates.map((candidate, index) => [candidate.id, { candidate, index }]));
+    const counts = Object.fromEntries(views.map((key) => [key, tradeJournalEntriesForView(key).length]));
+    const tabs = views.map((key) => {
+      const label = ({
+        'needs-review': 'Needs review',
+        'accounting-ready': 'Ready',
+        unsupported: 'Unsupported',
+        archived: 'Archived',
+        recorded: 'Recorded',
+      })[key];
+      return `<button type="button" data-tsimm-action="api-trade-journal-tab" data-tsimm-trade-journal-view="${key}" ${key === view ? 'disabled aria-current="page"' : ''}>${label} ${formatInteger(counts[key])}</button>`;
+    }).join('');
+    const rows = tradeJournalEntriesForView(view).slice(0, 100).map((entry) => {
+      const current = candidateById.get(entry.tradeId);
+      const displayName = current?.candidate?.otherPlayerName
+        ? ` with ${escapeHtml(current.candidate.otherPlayerName)}`
+        : ` · Torn ID ${escapeHtml(String(entry.counterpartyId))}`;
+      const evidence = entry.evidence;
+      const netCash = evidence ? evidence.counterpartyCash - evidence.ownerCash : null;
+      const itemCount = evidence
+        ? evidence.ownerAssets.reduce((sum, asset) => sum + Number(asset.quantity || 0), 0)
+        : null;
+      const canReview = current && entry.classification !== 'recorded' && !entry.archived;
+      return `
+        <article class="tsimm-ledger-item" style="display:grid;gap:6px;padding:8px 0;border-bottom:1px solid #2e293a;min-width:0">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap">
+            <div style="min-width:0;overflow-wrap:anywhere">
+              <strong>Trade #${escapeHtml(String(entry.tradeId))}</strong>${displayName}
+              <div style="color:#9f96a8;font-size:10px">${escapeHtml(relativeAge(entry.completedAt))} · ${escapeHtml(tradeJournalClassificationLabel(entry.classification))}</div>
+              ${evidence ? `<div style="font-size:10px">${formatInteger(itemCount)} outgoing item unit${itemCount === 1 ? '' : 's'} · ${netCash !== null ? formatMoney(netCash) : 'Cash unavailable'}</div>` : ''}
+              ${entry.evidenceError ? `<div style="color:#e6a0a0;font-size:10px">${escapeHtml(entry.evidenceError)}</div>` : ''}
+            </div>
+            <div class="tsimm-ledger-actions" style="margin:0;flex-wrap:wrap">
+              ${canReview ? `<button type="button" data-tsimm-action="api-trade-recovery-select" data-tsimm-api-trade-index="${current.index}">${evidence ? 'Review details' : 'Load details'}</button>` : ''}
+              ${entry.archived
+                ? `<button type="button" data-tsimm-action="api-trade-journal-restore" data-tsimm-api-trade-id="${entry.tradeId}">Restore</button>`
+                : entry.classification !== 'recorded'
+                  ? `<button type="button" data-tsimm-action="api-trade-journal-archive" data-tsimm-api-trade-id="${entry.tradeId}">Archive</button>`
+                  : ''}
+              ${evidence ? `<button type="button" data-tsimm-action="api-trade-journal-delete-evidence" data-tsimm-api-trade-id="${entry.tradeId}">Delete cached evidence</button>` : ''}
+              <button type="button" data-tsimm-action="api-trade-journal-forget" data-tsimm-api-trade-id="${entry.tradeId}">Forget</button>
+            </div>
+          </div>
+        </article>`;
+    }).join('');
+    renderApiTradeRecovery(overlay, `
+      <div class="tsimm-ledger-future" style="margin-bottom:8px">Finished trades are journaled without changing lots, sales, cost basis, or realized profit. Full details load only when selected.</div>
+      <div class="tsimm-ledger-actions" style="margin:0 0 8px;flex-wrap:wrap">${tabs}</div>
+      <div class="tsimm-ledger-actions" style="margin:0 0 8px"><button type="button" data-tsimm-action="api-trade-journal-copy">Copy journal JSON</button></div>
+      ${rows || '<div class="tsimm-ledger-empty">No journal entries in this view.</div>'}
+    `);
+    overlay._tsimmApiTradeView = view;
+    overlay._tsimmApiTradeCandidates = Array.isArray(candidates) ? candidates : [];
+  }
+
   function closeApiTradeRecovery() {
     document.getElementById(APP.apiTradeRecoveryOverlayId)?.remove();
   }
 
-  async function openApiTradeRecovery() {
+  function rerenderTradeJournalOverlay(view = null) {
+    const overlay = document.getElementById(APP.apiTradeRecoveryOverlayId);
+    if (!overlay) return;
+    renderApiTradeJournalList(
+      overlay,
+      overlay._tsimmApiTradeCandidates || [],
+      view || overlay._tsimmApiTradeView || 'needs-review',
+    );
+  }
+
+  function setTradeJournalArchived(tradeId, archived) {
+    const entry = tradeJournalEntry(tradeId);
+    if (!entry || entry.classification === 'recorded') return false;
+    if (entry.archived === Boolean(archived)) return false;
+    entry.archived = Boolean(archived);
+    appendTradeJournalAudit(entry, archived ? 'archived' : 'restored');
+    saveTradeJournal();
+    return true;
+  }
+
+  function deleteTradeJournalEvidence(tradeId) {
+    const entry = tradeJournalEntry(tradeId);
+    if (!entry?.evidence) return false;
+    if (!confirm(`Delete cached evidence for trade #${entry.tradeId}?\n\nThe trade ID, discovery record, and audit history remain. Details can be fetched again.`)) return false;
+    entry.evidence = null;
+    entry.evidenceError = '';
+    if (entry.classification !== 'recorded') setTradeJournalClassification(entry, 'needs-review', 'Cached evidence deleted');
+    appendTradeJournalAudit(entry, 'cached-evidence-deleted');
+    saveTradeJournal();
+    return true;
+  }
+
+  function forgetTradeJournalEntry(tradeId) {
+    const entry = tradeJournalEntry(tradeId);
+    if (!entry) return false;
+    if (!confirm(`Forget journal entry for trade #${entry.tradeId}?\n\nThis does not change Black Ledger. The trade may be rediscovered on the next API scan.`)) return false;
+    state.tradeJournal.entries = state.tradeJournal.entries.filter((candidate) => candidate.tradeId !== entry.tradeId);
+    saveTradeJournal();
+    return true;
+  }
+
+  async function copyTradeJournalJson() {
+    await copyLedgerText(JSON.stringify(state.tradeJournal, null, 2), 'Unresolved Trade Journal JSON copied.');
+  }
+
+  async function openApiTradeRecovery(requestedView = null) {
     injectStyles();
     let overlay = document.getElementById(APP.apiTradeRecoveryOverlayId);
     if (!overlay) {
@@ -11599,6 +12058,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       (document.documentElement || document.body).appendChild(overlay);
     }
 
+    const journalView = requestedView || overlay._tsimmApiTradeView || 'needs-review';
     renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">Loading recent trades…</div>');
 
     const key = currentApiKey();
@@ -11657,6 +12117,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (listResult.failed) {
         throw listResult.error || new Error('Failed to process trades list.');
       }
+      const discovered = listPayload.trades.map((entry) => normalizeApiTradeListEntry(entry, keyUserId));
+      discoverTradeJournalEntries(discovered, keyUserId);
       candidates = listResult.candidates;
     } catch (error) {
       renderApiTradeRecovery(overlay, `<div class="tsimm-ledger-empty">Failed to load trades: ${escapeHtml(error?.message || 'Unknown error')}</div>`);
@@ -11665,30 +12127,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
     if (!overlay.isConnected) return;
 
-    if (!candidates.length) {
-      renderApiTradeRecovery(overlay, '<div class="tsimm-ledger-empty">No unrecorded finished trades found.</div>');
-      return;
-    }
-
-    // Step 2: Show candidate list; selection is done by injecting buttons and handling clicks
-    const listHtml = candidates.slice(0, 50).map((c, index) => `
-      <div class="tsimm-ledger-item" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #2e293a">
-        <div>
-          <strong>Trade #${escapeHtml(String(c.id))}</strong>
-          ${c.otherPlayerName ? ` with ${escapeHtml(c.otherPlayerName)}` : ''}
-          ${c.completedAt ? ` · ${escapeHtml(relativeAge(c.completedAt))}` : ''}
-        </div>
-        <button type="button" data-tsimm-action="api-trade-recovery-select" data-tsimm-api-trade-index="${index}" style="flex-shrink:0">Review</button>
-      </div>
-    `).join('');
-
-    renderApiTradeRecovery(overlay, `
-      <div class="tsimm-ledger-section-title">Select a finished trade to recover (${candidates.length})</div>
-      ${listHtml}
-    `);
-
-    // Store candidates on the overlay element for the click handler
-    overlay._tsimmApiTradeCandidates = candidates;
+    renderApiTradeJournalList(overlay, candidates, journalView);
   }
 
   async function handleApiTradeRecoverySelect(candidateIndex) {
@@ -11730,6 +12169,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       });
       try { detailPayload = await detailResponse.json(); } catch {
         // Unreadable response: not a payload-level failure, no quarantine.
+        markTradeJournalEvidenceUnavailable(candidate.id, `Trade detail returned unreadable data (${detailResponse.status}).`);
         renderApiTradeRecovery(overlay, `
           <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: Trade detail returned unreadable data (${detailResponse.status}).</div>
           <div class="tsimm-ledger-actions">
@@ -11742,6 +12182,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (isAuthorizationFailure(detailPayload, detailResponse)) {
         invalidateTradePermission();
         await resolveAndValidateTradePermission(key).catch(() => {});
+        markTradeJournalEvidenceUnavailable(candidate.id, 'Authorization failure loading trade detail.');
         renderApiTradeRecovery(overlay, `
           <div class="tsimm-ledger-empty" style="color:#e07070">Authorization failure loading trade #${escapeHtml(String(candidate.id))} detail. Permission invalidated. Reopen to retry after validation succeeds.</div>
           <div class="tsimm-ledger-actions">
@@ -11752,6 +12193,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       }
       // Non-auth HTTP/API errors: no payload to quarantine.
       if (!detailResponse.ok || detailPayload?.error) {
+        markTradeJournalEvidenceUnavailable(candidate.id, apiErrorMessage(detailPayload, detailResponse));
         renderApiTradeRecovery(overlay, `
           <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: ${escapeHtml(apiErrorMessage(detailPayload, detailResponse))}</div>
           <div class="tsimm-ledger-actions">
@@ -11762,6 +12204,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       }
     } catch (error) {
       // Network failure: no payload.
+      markTradeJournalEvidenceUnavailable(candidate.id, error?.message || 'Network failure loading trade detail.');
       renderApiTradeRecovery(overlay, `
         <div class="tsimm-ledger-empty">Failed to load trade #${escapeHtml(String(candidate.id))}: ${escapeHtml(error?.message || 'Unknown error')}</div>
         <div class="tsimm-ledger-actions">
@@ -11769,6 +12212,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         </div>
       `);
       return;
+    }
+
+    try {
+      const evidence = buildTradeJournalEvidence(detailPayload, candidate, keyUserId);
+      hydrateTradeJournalEntry(candidate, evidence);
+    } catch (error) {
+      markTradeJournalEvidenceUnavailable(candidate.id, error?.message || 'Trade evidence could not be preserved.');
     }
 
     // We have a valid HTTP success payload: route through processApiTradeDetailPayload for quarantine.
@@ -12060,6 +12510,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }
 
     const { sale } = result;
+    const journalEntry = tradeJournalEntry(detail.id);
+    if (journalEntry) {
+      setTradeJournalClassification(journalEntry, 'recorded', 'Confirmed through API Trade Recovery');
+      appendTradeJournalAudit(journalEntry, 'recorded-in-black-ledger', sale.id);
+      saveTradeJournal();
+    }
     overlay._tsimmApiTradePendingStats = null;
     overlay._tsimmApiTradePendingDetail = null;
     closeApiTradeRecovery();
@@ -13325,6 +13781,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       priceClass: item.priceElement.className,
     }));
     const tradeSides = pageLooksLikeTrade() ? tradeSideCandidates() : [];
+    const tradeFinality = pageLooksLikeTrade()
+      ? tradeCompletionState()
+      : { completed: false, source: '', routeStep: '' };
+    const pendingTradeSale = normalizePendingTradeSale(loadJson(APP.pendingTradeSaleStorageKey, null));
+    const currentTradeId = tradeIdFromLocation();
     const tradeSample = tradeSides.map((side) => ({
       side: side.side,
       heading: side.heading,
@@ -13366,6 +13827,27 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         manifestFormula: 'sum(floor(itemMarketValue * 0.99) * quantity)',
         tradeDifferenceFormula: 'otherSideCash - mySideCash - manifestTarget',
         tradeExitAuditFormula: 'best fresh concrete exit per item (current trader, favorite trader, or NPC) minus live net cash',
+      },
+      tradeFinality: {
+        routeStep: tradeFinality.routeStep || '',
+        completed: tradeFinality.completed,
+        source: tradeFinality.source || '',
+        currentTradeId: currentTradeId || null,
+        pendingSnapshot: pendingTradeSale ? {
+          present: true,
+          captureId: pendingTradeSale.captureId,
+          capturedAt: pendingTradeSale.capturedAt,
+          tradeId: pendingTradeSale.tradeId || null,
+          counterpartyId: pendingTradeSale.tradeCounterpartyId,
+          itemTypes: pendingTradeSale.tradeItems.length,
+          itemQuantity: pendingTradeSale.tradeItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+          netCash: pendingTradeSale.tradeNetCash,
+          unmatchedItems: pendingTradeSale.tradeUnmatchedItems,
+          recordedSaleId: pendingTradeSale.recordedSaleId || null,
+          currentTradeIdMatch: pendingTradeSale.tradeId && currentTradeId
+            ? pendingTradeSale.tradeId === currentTradeId
+            : null,
+        } : { present: false },
       },
       lastScan: state.lastScan,
       traders: state.traders.map((trader) => ({ ...trader, stats: traderStats(trader) })),
@@ -13470,6 +13952,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .tsimm-pending-card{margin:7px 0;padding:8px;border:1px solid #c48b35;border-radius:8px;background:#2b2418;display:grid;gap:3px}.tsimm-pending-card>strong{color:#ffd184}.tsimm-pending-card>span{color:#f2e8d5}.tsimm-pending-card>small{color:#c9baa0}.tsimm-pending-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-pending-card button{flex:1;border:1px solid #725f3d;border-radius:6px;background:#3b3020;color:#fff;padding:5px;font-weight:700}
       .tsimm-trader-capture-card{margin:7px 0;padding:8px;border:1px solid #3b8fc2;border-radius:8px;background:#172833;display:grid;gap:3px}.tsimm-trader-capture-card>strong{color:#83d1ff}.tsimm-trader-capture-card>span{color:#d9f1ff}.tsimm-trader-capture-card>small{color:#9fbfce}.tsimm-trader-capture-card>div{display:flex;gap:6px;margin-top:3px}.tsimm-trader-capture-card button{flex:1;border:1px solid #376b89;border-radius:6px;background:#1e4359;color:#fff;padding:5px;font-weight:700}
       #${APP.ledgerOverlayId}{position:fixed;inset:0;z-index:${IMM_LAYERS.ledgerModal};background:#000b;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8;pointer-events:auto!important;isolation:isolate;overscroll-behavior:contain}
+      #${APP.apiTradeRecoveryOverlayId}{box-sizing:border-box;font:12px/1.35 Arial,sans-serif;color:#f4f1f8;overscroll-behavior:contain}
+      #${APP.apiTradeRecoveryOverlayId} *{box-sizing:border-box}
+      #${APP.apiTradeRecoveryOverlayId} button{pointer-events:auto!important;touch-action:manipulation;min-height:36px}
+      @media(max-width:520px){#${APP.apiTradeRecoveryOverlayId}{padding:8px!important}#${APP.apiTradeRecoveryOverlayId} .tsimm-ledger-shell{width:100%;max-height:calc(100dvh - 16px)}#${APP.apiTradeRecoveryOverlayId} .tsimm-ledger-actions button{min-width:0;overflow-wrap:anywhere}}
       .tsimm-ledger-shell{position:relative;z-index:1;width:min(620px,100%);max-height:94vh;max-height:94dvh;display:flex;flex-direction:column;background:#1d1b22;border:1px solid #655d70;border-radius:12px;box-shadow:0 14px 44px #000d;overflow:hidden;pointer-events:auto!important}
       .tsimm-ledger-scroll{min-height:0;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;pointer-events:auto!important}
       #${APP.ledgerOverlayId} button,#${APP.ledgerOverlayId} input,#${APP.ledgerOverlayId} select,#${APP.ledgerOverlayId} textarea{pointer-events:auto!important;touch-action:manipulation}
@@ -14028,6 +14514,18 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         closeApiTradeRecovery();
       } else if (action === 'api-trade-recovery-back') {
         openApiTradeRecovery();
+      } else if (action === 'api-trade-journal-tab') {
+        rerenderTradeJournalOverlay(button.dataset.tsimmTradeJournalView);
+      } else if (action === 'api-trade-journal-copy') {
+        copyTradeJournalJson();
+      } else if (action === 'api-trade-journal-archive') {
+        if (setTradeJournalArchived(button.dataset.tsimmApiTradeId, true)) rerenderTradeJournalOverlay();
+      } else if (action === 'api-trade-journal-restore') {
+        if (setTradeJournalArchived(button.dataset.tsimmApiTradeId, false)) rerenderTradeJournalOverlay('needs-review');
+      } else if (action === 'api-trade-journal-delete-evidence') {
+        if (deleteTradeJournalEvidence(button.dataset.tsimmApiTradeId)) rerenderTradeJournalOverlay();
+      } else if (action === 'api-trade-journal-forget') {
+        if (forgetTradeJournalEntry(button.dataset.tsimmApiTradeId)) rerenderTradeJournalOverlay();
       } else if (action === 'api-trade-recovery-select') {
         handleApiTradeRecoverySelect(button.dataset.tsimmApiTradeIndex);
       } else if (action === 'api-trade-recovery-confirm') {
@@ -14294,9 +14792,26 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     globalThis.__TS_IMM_TEST_EXPORTS__ = {
       state,
       normalizeLedger,
+      normalizeTradeJournal,
+      normalizeTradeJournalEntry,
+      normalizeTradeJournalEvidence,
+      discoverTradeJournalEntries,
+      buildTradeJournalEvidence,
+      classifyTradeJournalEvidence,
+      hydrateTradeJournalEntry,
+      markTradeJournalEvidenceUnavailable,
+      setTradeJournalArchived,
+      deleteTradeJournalEvidence,
+      forgetTradeJournalEntry,
       analyzeLedgerIntegrity,
       normalizeSaleRecord,
       emptyScanStats,
+      tradeRouteStep,
+      tradeCompletionState,
+      scanTrade,
+      maybeAutoRecordCompletedTrade,
+      savePendingTradeSaleFromStats,
+      diagnostics,
       normalizeName,
       catalogItemFor,
       catalogItemForId,
@@ -14375,6 +14890,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       sanitizePurchaseSignalText,
       scrubItemMarketPurchaseNotes,
       normalizeLedger,
+      normalizeTradeJournal,
+      normalizeTradeJournalEntry,
+      normalizeTradeJournalEvidence,
+      discoverTradeJournalEntries,
+      buildTradeJournalEvidence,
+      classifyTradeJournalEvidence,
+      hydrateTradeJournalEntry,
       analyzeLedgerIntegrity,
       normalizeLedgerInventoryStrategy,
       museumInventoryStrategyPlan,

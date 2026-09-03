@@ -128,7 +128,297 @@ function setupState(overrides = {}) {
   };
   imm.state.keyProfile = { userId: 1001 };
   imm.state.ledger = imm.normalizeLedger({ lots: [], sales: [], ...overrides });
+  imm.state.tradeJournal = imm.normalizeTradeJournal({});
 }
+
+// ── Unresolved Trade Journal ─────────────────────────────────────────────────
+describe('Unresolved Trade Journal', () => {
+  const completedAt = new Date((Math.floor(Date.now() / 1000) - 3600) * 1000).toISOString();
+  const candidate = {
+    id: 9901,
+    completedAt,
+    otherPlayerId: 5678,
+    otherPlayerName: 'Transient Counterparty',
+  };
+
+  function rawTrade(items) {
+    return {
+      trade: {
+        id: candidate.id,
+        completed_at: Date.parse(completedAt) / 1000,
+        user: { id: 1001, name: 'Owner Name Must Not Persist' },
+        trader: { id: 5678, name: 'Transient Counterparty' },
+        items,
+      },
+    };
+  }
+
+  test('discovery is idempotent and persists no participant names', () => {
+    setupState();
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const first = imm.discoverTradeJournalEntries([candidate], 1001);
+    const second = imm.discoverTradeJournalEntries([candidate], 1001);
+    assert.equal(first.added, 1);
+    assert.equal(second.added, 0);
+    assert.equal(imm.state.tradeJournal.entries.length, 1);
+    const serialized = JSON.stringify(imm.state.tradeJournal);
+    assert.doesNotMatch(serialized, /Transient Counterparty|Owner Name Must Not Persist/);
+    assert.equal(imm.state.tradeJournal.entries[0].audit.filter((event) => event.action === 'discovered').length, 1);
+  });
+
+  test('normalization rejects malformed rows and safely round-trips evidence', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    const journal = imm.normalizeTradeJournal({ entries: [
+      { tradeId: 0, completedAt, ownerId: 1001, counterpartyId: 5678 },
+      {
+        tradeId: 9901,
+        completedAt,
+        ownerId: 1001,
+        counterpartyId: 5678,
+        evidence: {
+          tradeId: 9901,
+          completedAt,
+          ownerId: 1001,
+          counterpartyId: 5678,
+          ownerCash: 0,
+          counterpartyCash: 5000000,
+          ownerAssets: [{ type: 'Item', itemId: 100, quantity: 10 }],
+          counterpartyAssets: [],
+          capturedAt: completedAt,
+        },
+      },
+    ] });
+    assert.equal(journal.entries.length, 1);
+    assert.equal(journal.entries[0].evidence.ownerAssets[0].itemId, 100);
+    assert.equal(imm.normalizeTradeJournal(JSON.parse(JSON.stringify(journal))).entries.length, 1);
+    const malformedEvidence = JSON.parse(JSON.stringify(journal));
+    malformedEvidence.entries[0].evidence.ownerAssets.push({ type: 'Item', itemId: 100, quantity: 0 });
+    assert.equal(imm.normalizeTradeJournal(malformedEvidence).entries[0].evidence, null, 'one malformed asset invalidates the full evidence snapshot');
+  });
+
+  test('detail hydration is lazy, privacy-safe, and classifies full FIFO coverage as ready', () => {
+    setupState({ lots: [freshLot({ quantity: 10, remainingQuantity: 10 })] });
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm.discoverTradeJournalEntries([candidate], 1001);
+    assert.equal(imm.state.tradeJournal.entries[0].evidence, null);
+    const evidence = imm.buildTradeJournalEvidence(rawTrade([
+      { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
+      { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+    ]), candidate, 1001);
+    imm.hydrateTradeJournalEntry(candidate, evidence);
+    const entry = imm.state.tradeJournal.entries[0];
+    assert.equal(entry.classification, 'accounting-ready');
+    assert.equal(entry.evidence.ownerAssets[0].quantity, 10);
+    assert.doesNotMatch(JSON.stringify(entry), /Transient Counterparty|Owner Name Must Not Persist/);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 10, 'hydration must not consume FIFO');
+    assert.equal(imm.state.ledger.sales.length, 0, 'hydration must not record a sale');
+  });
+
+  test('zero and partial FIFO coverage remain unresolved with no accounting mutation', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    for (const available of [0, 4]) {
+      setupState({ lots: available ? [freshLot({ quantity: available, remainingQuantity: available })] : [] });
+      imm.discoverTradeJournalEntries([candidate], 1001);
+      const evidence = imm.buildTradeJournalEvidence(rawTrade([
+        { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
+        { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+      ]), candidate, 1001);
+      imm.hydrateTradeJournalEntry(candidate, evidence);
+      assert.equal(imm.state.tradeJournal.entries[0].classification, 'unresolved-coverage');
+      assert.equal(imm.state.ledger.sales.length, 0);
+      if (available) assert.equal(imm.state.ledger.lots[0].remainingQuantity, available);
+    }
+  });
+
+  test('barter and unsupported assets are journaled but never sent to accounting', () => {
+    setupState({ lots: [freshLot()] });
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm.discoverTradeJournalEntries([candidate], 1001);
+    const evidence = imm.buildTradeJournalEvidence(rawTrade([
+      { user_id: 1001, type: 'Item', details: { id: 100, amount: 2, uid: null } },
+      { user_id: 5678, type: 'Property', details: { id: 77, amount: 1 } },
+    ]), candidate, 1001);
+    imm.hydrateTradeJournalEntry(candidate, evidence);
+    assert.equal(imm.state.tradeJournal.entries[0].classification, 'unsupported-exchange');
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 10);
+    assert.equal(imm.state.ledger.sales.length, 0);
+  });
+
+  test('archive/restore and evidence deletion preserve ledger state', () => {
+    setupState({ lots: [freshLot()] });
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm.discoverTradeJournalEntries([candidate], 1001);
+    const evidence = imm.buildTradeJournalEvidence(rawTrade([
+      { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
+      { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+    ]), candidate, 1001);
+    imm.hydrateTradeJournalEntry(candidate, evidence);
+    assert.equal(imm.setTradeJournalArchived(candidate.id, true), true);
+    assert.equal(imm.state.tradeJournal.entries[0].archived, true);
+    assert.equal(imm.setTradeJournalArchived(candidate.id, false), true);
+    global.confirm = () => true;
+    assert.equal(imm.deleteTradeJournalEvidence(candidate.id), true);
+    assert.equal(imm.state.tradeJournal.entries[0].evidence, null);
+    assert.equal(imm.state.tradeJournal.entries[0].classification, 'needs-review');
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 10);
+    assert.equal(imm.state.ledger.sales.length, 0);
+    assert.equal(imm.forgetTradeJournalEntry(candidate.id), true);
+    assert.equal(imm.state.tradeJournal.entries.length, 0);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 10);
+  });
+
+  test('evidence conflict preserves first immutable capture', () => {
+    setupState({ lots: [freshLot()] });
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    imm.discoverTradeJournalEntries([candidate], 1001);
+    const first = imm.buildTradeJournalEvidence(rawTrade([
+      { user_id: 1001, type: 'Item', details: { id: 100, amount: 10, uid: null } },
+      { user_id: 5678, type: 'Money', details: { amount: 5000000 } },
+    ]), candidate, 1001);
+    imm.hydrateTradeJournalEntry(candidate, first);
+    const conflicting = { ...first, counterpartyCash: 6000000, capturedAt: new Date().toISOString() };
+    imm.hydrateTradeJournalEntry(candidate, conflicting);
+    assert.equal(imm.state.tradeJournal.entries[0].evidence.counterpartyCash, 5000000);
+    assert.equal(imm.state.tradeJournal.entries[0].classification, 'evidence-unavailable');
+    assert.match(imm.state.tradeJournal.entries[0].evidenceError, /conflicted/i);
+  });
+});
+
+// ── TornPDA live-trade finality ──────────────────────────────────────────────
+describe('TornPDA live-trade finality', () => {
+  const pendingKey = 'tornscripture-imm-pending-trade-sale-v1';
+  const tradeId = '990001';
+
+  function setTradePage(step, text = '') {
+    global.location.href = `https://www.torn.com/trade.php#/step=${step}&ID=${tradeId}`;
+    global.location.hash = `#/step=${step}&ID=${tradeId}`;
+    bodyEl.innerText = text;
+  }
+
+  function liveTradeStats(imm) {
+    return {
+      ...imm.emptyScanStats(),
+      pageType: 'trade',
+      tradeId,
+      tradeCounterparty: 'Counterparty Name',
+      tradeCounterpartyId: 5678,
+      tradeCounterpartyProfileUrl: 'https://www.torn.com/profiles.php?XID=5678',
+      tradeMarketTotal: 180000,
+      tradeTargetTotal: 178200,
+      tradeTraderCash: 180000,
+      tradeMyCash: 0,
+      tradeNetCash: 180000,
+      tradeMatchedItems: 1,
+      tradeUnmatchedItems: 0,
+      tradeItems: [{
+        itemId: 100,
+        name: 'Xanax',
+        quantity: 2,
+        marketPrice: 90000,
+        marketTotal: 180000,
+        targetEach: 89100,
+        targetTotal: 178200,
+      }],
+    };
+  }
+
+  test('authoritative Torn completion message is recognized on the final accept2 route', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setTradePage('accept2', 'Trade was accepted and is now complete!');
+    assert.deepEqual(imm.tradeCompletionState(), {
+      completed: true,
+      source: 'completed trade message',
+      routeStep: 'accept2',
+    });
+  });
+
+  test('pre-final accept2 wording does not count as completion', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setTradePage('accept2', 'You have accepted the trade. Waiting for the other person to accept.');
+    assert.deepEqual(imm.tradeCompletionState(), {
+      completed: false,
+      source: '',
+      routeStep: 'accept2',
+    });
+  });
+
+  test('route-only logview and mutual-acceptance wording fail closed', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setTradePage('logview', 'Trade details');
+    assert.equal(imm.tradeCompletionState().completed, false, 'route alone is not completion evidence');
+    bodyEl.innerText = 'The trade was accepted by both parties.';
+    assert.equal(imm.tradeCompletionState().completed, false, 'unapproved mutual-acceptance wording is not finality evidence');
+  });
+
+  test('final message restores the pending snapshot and auto-records full FIFO exactly once', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 2, remainingQuantity: 2 })] });
+    localStorage.removeItem(pendingKey);
+
+    setTradePage('view', 'Live trade manifest');
+    const pending = imm.savePendingTradeSaleFromStats(liveTradeStats(imm));
+    assert.equal(pending.tradeId, tradeId);
+
+    setTradePage('accept2', 'Trade was accepted and is now complete!');
+    const completedStats = imm.emptyScanStats();
+    completedStats.pageType = 'trade';
+    imm.scanTrade(completedStats);
+
+    assert.equal(completedStats.tradeCompleted, true);
+    assert.equal(completedStats.tradeCompletionSource, 'preserved live-trade snapshot');
+    assert.equal(completedStats.tradeId, tradeId);
+    assert.equal(completedStats.tradeItems.length, 1);
+    assert.equal(completedStats.tradeLedgerFullCoverage, true);
+
+    const first = imm.maybeAutoRecordCompletedTrade(completedStats);
+    assert.ok(first, 'first completed scan records the fully covered sale');
+    assert.equal(first.completionSource, 'completed trade message');
+    assert.equal(imm.state.ledger.sales.length, 1);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0);
+
+    const second = imm.maybeAutoRecordCompletedTrade(completedStats);
+    assert.equal(second, null, 'repeated completed scan is deduplicated');
+    assert.equal(imm.state.ledger.sales.length, 1);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 0, 'FIFO is consumed only once');
+  });
+
+  test('pre-final accept2 scan leaves pending evidence and ledger unchanged', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 2, remainingQuantity: 2 })] });
+    localStorage.removeItem(pendingKey);
+
+    setTradePage('view', 'Live trade manifest');
+    imm.savePendingTradeSaleFromStats(liveTradeStats(imm));
+    const pendingBefore = localStorage.getItem(pendingKey);
+
+    setTradePage('accept2', 'You have accepted the trade. Waiting for the other person to accept.');
+    const stats = liveTradeStats(imm);
+    assert.equal(imm.maybeAutoRecordCompletedTrade(stats), null);
+    assert.equal(imm.state.ledger.sales.length, 0);
+    assert.equal(imm.state.ledger.lots[0].remainingQuantity, 2);
+    assert.equal(localStorage.getItem(pendingKey), pendingBefore);
+  });
+
+  test('diagnostics expose finality and sanitized pending-snapshot state', () => {
+    const imm = globalThis.__TS_IMM_TEST_EXPORTS__;
+    setupState({ lots: [freshLot({ quantity: 2, remainingQuantity: 2 })] });
+    localStorage.removeItem(pendingKey);
+    setTradePage('view', 'Live trade manifest');
+    imm.savePendingTradeSaleFromStats(liveTradeStats(imm));
+
+    setTradePage('accept2', 'Trade was accepted and is now complete!');
+    const pendingBefore = localStorage.getItem(pendingKey);
+    const finality = imm.diagnostics().tradeFinality;
+    assert.equal(finality.completed, true);
+    assert.equal(finality.routeStep, 'accept2');
+    assert.equal(finality.currentTradeId, tradeId);
+    assert.equal(finality.pendingSnapshot.present, true);
+    assert.equal(finality.pendingSnapshot.currentTradeIdMatch, true);
+    assert.equal(finality.pendingSnapshot.itemQuantity, 2);
+    assert.doesNotMatch(JSON.stringify(finality), /Counterparty Name|profiles\.php/i);
+    assert.equal(localStorage.getItem(pendingKey), pendingBefore, 'copying diagnostics must not mutate pending evidence');
+  });
+});
 
 // ── Schema version ────────────────────────────────────────────────────────────
 describe('Schema', () => {
