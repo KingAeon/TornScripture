@@ -1,6 +1,6 @@
 # NOW
 
-Snapshot: 2026-09-14 training source audit checkpoint
+Snapshot: 2026-09-14 DQ-TRAIN-001A math-engine contract frozen on PR #119 branch
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
@@ -11,10 +11,14 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|source_audited_not_calibrated
+PARALLEL|DQ-TRAIN-001|001A_contract_and_fixtures_frozen_not_live_calibrated
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
-TRAINING_NEXT|calibrate competing models; resolve modifier/API gaps; freeze bounded math-engine specification
+TRAINING_MODEL|vladar-v2-pre50m-v1|candidate_not_live_calibrated|supported_through_50m_only
+TRAINING_NEXT|DQ-TRAIN-001B controlled routine-training calibration; model selection; modifier/rounding validation; post-50m boundary
+TRAINING_SPEC|chapters/dq-train-001/MATH-ENGINE-SPEC-001A.md
+TRAINING_FIXTURES|chapters/dq-train-001/MATH-ENGINE-FIXTURES-001A.json
 TRAINING_EVIDENCE|chapters/dq-train-001/RESEARCH-2026-09-14.md
+TRAINING_PR|#119|open_unmerged
 LANDED|TRAINING-KNOWLEDGE|PR#118
 
 LANDED|DQ-KEY-001|PR#111
@@ -42,4 +46,4 @@ REQ|item/category supported
 REQ|applicable conditions preserved
 
 SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
-NOTE|recheck current main SHA and mutable issue states before consequential action
+NOTE|DQ-TRAIN-001 remains parallel and owner-prioritized; recheck current main SHA and mutable issue states before consequential action
