@@ -4,6 +4,10 @@
 
 - DQ-EXT-001 — external trader/provider semantics, freshness, actionability, lineage, fitness by purpose.
 
+## Parallel research
+
+- DQ-TRAIN-001 — battle-stat training and Happy Jump optimization; research and specification only, without displacing the active DQ-EXT sequence.
+
 ## Next Discovery
 
 - DQ-KEY-002.

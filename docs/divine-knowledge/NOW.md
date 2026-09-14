@@ -1,15 +1,19 @@
 # NOW
 
-Snapshot: 2026-09-03 post-IMM-v0.19.37 release
+Snapshot: 2026-09-14 training-optimization research track opened
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|19fbfce99b1b55f03780ee07c6bcb008cbd74f42
+MAIN_AT_SNAPSHOT|f3fdadd07106895d5d05960248414566dc3133a2
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
 DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
+
+PARALLEL|DQ-TRAIN-001|active_research_scoping
+TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
+TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
