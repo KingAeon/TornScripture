@@ -37,9 +37,9 @@ must be rechecked and validated before becoming an implementation baseline.
 
 The Torn Wiki currently cited this public model:
 
-$
+$$
 Gain = M \times G \times E \times [(a\ln(H+250)+c)S+d(H+250)+e]
-$
+$$
 
 Where the discussion interpreted:
 
