@@ -1,6 +1,11 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **ACTIVE RESEARCH SCOPING**
+State: **SOURCE AUDIT COMPLETED; CALIBRATION / SPECIFICATION PENDING**
+
+Read [the 2026-09-14 source audit](RESEARCH-2026-09-14.md) first.
+It supersedes the preliminary snapshot wherever they conflict, especially formula
+authority, universal diminishing-return claims, above-50m extrapolation and API
+permission/freshness assumptions. No live-player calibration has occurred.
 
 ## Discovery question
 
@@ -32,9 +37,9 @@ must be rechecked and validated before becoming an implementation baseline.
 
 The Torn Wiki currently cited this public model:
 
-[
+$
 Gain = M \times G \times E \times [(a\ln(H+250)+c)S+d(H+250)+e]
-]
+$
 
 Where the discussion interpreted:
 

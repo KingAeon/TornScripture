@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-14 training-optimization research track opened
+Snapshot: 2026-09-14 training source audit checkpoint
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|f3fdadd07106895d5d05960248414566dc3133a2
+MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,9 +11,11 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|active_research_scoping
+PARALLEL|DQ-TRAIN-001|source_audited_not_calibrated
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
-TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
+TRAINING_NEXT|calibrate competing models; resolve modifier/API gaps; freeze bounded math-engine specification
+TRAINING_EVIDENCE|chapters/dq-train-001/RESEARCH-2026-09-14.md
+LANDED|TRAINING-KNOWLEDGE|PR#118
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
