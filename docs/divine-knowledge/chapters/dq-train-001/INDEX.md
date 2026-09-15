@@ -46,7 +46,7 @@ Locked characteristics:
 
 Live calibration now has a separate bounded contract.
 
-Primary evidence is a **single internal train** performed manually during normal planned play. Current Torn gym success messages expose gains to two decimal places, so displayed gains are treated as quantized observations rather than exact internal arithmetic. Until the display rounding rule is independently proven, the protocol conservatively interprets a displayed gain `D` as `[D-0.01,D+0.01]`.
+Primary evidence is a **single internal train** performed manually during normal planned play. Official Torn patch history records gym gains being changed to display two decimal places, while the Battle Stats page records whole-number site display behavior. These are presentation rules, so displayed values are treated as quantized observations rather than exact internal arithmetic. Until the gym-gain display rounding rule is independently proven, the protocol conservatively interprets a displayed gain `D` as `[D-0.01,D+0.01]`.
 
 For the Vladar candidate, each eligible single-train observation is inverted into an `inferredNoiseInterval`. If that interval cannot intersect the stat-specific `[-C,+C]` range after data-quality review, the observation is a confirmed contradiction rather than something to explain away by silently widening the model.
 
