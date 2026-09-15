@@ -73,9 +73,9 @@ A screenshot containing the before state and/or success message may support tran
 
 ## Display precision and observation interval
 
-The official Gym patch history states that displayed gym gains were changed to two decimal places in 2020. Battle stats are also displayed site-wide without decimal places. Therefore live UI values are observations with display quantization, not exact internal values.
+The official Gym patch history records that gym gains were changed to display two decimal places in 2020. The official Battle Stats page records that site-wide battle-stat display without decimals is rounded down. These are presentation rules, not proof of internal storage precision. Therefore live UI values are observations with display quantization, not exact internal values.
 
-Until current display rounding/truncation is independently proven, a gain displayed as `D` with two decimal places is conservatively represented by:
+Until current gym-gain display rounding/truncation is independently proven, a gain displayed as `D` with two decimal places is conservatively represented by:
 
 ```text
 observedGainInterval = [D - 0.01, D + 0.01]
