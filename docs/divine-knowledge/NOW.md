@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-14 training-optimization research track opened
+Snapshot: 2026-09-17 DQ-TRAIN-001B B2 complete across all four stat families on PR #119 branch
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|f3fdadd07106895d5d05960248414566dc3133a2
+MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,9 +11,24 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|active_research_scoping
+PARALLEL|DQ-TRAIN-001|001b_b2_complete_all_four_live_spot_checked
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
-TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
+TRAINING_MODEL|vladar-v2-pre50m-v1|live_spot_checked_all_four_narrow_domains|supported_through_50m_by_spec_but_live_evidence_narrower
+TRAINING_001A|pure math contract and deterministic fixtures frozen
+TRAINING_001B|calibration protocol frozen; B1 Speed complete; B2 all-four stat-family breadth complete; zero confirmed contradictions in all observed lanes
+TRAINING_B1|speed|12_class_s|complete_cardio|5.8_dots|10E|noise_midpoints_within_plusminus1350|happy_losses_all_in_4_5_6
+TRAINING_B2_DEX|dexterity|8_class_s|complete_cardio|5.2_dots|10E|noise_midpoints_approx_minus504_to_plus770_within_plusminus1000|happy_loss_counts_4x3_5x1_6x4
+TRAINING_B2_DEF|defense|8_class_s|complete_cardio|5.5_dots|10E|noise_midpoints_approx_minus845_to_plus1351_within_plusminus1500|mean_approx_plus444|happy_loss_counts_4x3_5x1_6x4
+TRAINING_B2_STR|strength|8_class_s|complete_cardio|5.5_dots|10E|noise_midpoints_approx_minus461_to_plus611_within_plusminus700|mean_approx_plus154|happy_loss_counts_4x2_5x3_6x3
+TRAINING_NEXT|B3 elevated-Happy single-train calibration from naturally occurring or already-planned sessions; do not spend extra resources solely for research
+TRAINING_SPEC|chapters/dq-train-001/MATH-ENGINE-SPEC-001A.md
+TRAINING_FIXTURES|chapters/dq-train-001/MATH-ENGINE-FIXTURES-001A.json
+TRAINING_CALIBRATION|chapters/dq-train-001/CALIBRATION-PROTOCOL-001B.md
+TRAINING_RESULTS|chapters/dq-train-001/CALIBRATION-RESULTS-001B.md
+TRAINING_OBSERVATION_SCHEMA|chapters/dq-train-001/CALIBRATION-OBSERVATION-SCHEMA-001B.json
+TRAINING_EVIDENCE|chapters/dq-train-001/RESEARCH-2026-09-14.md
+TRAINING_PR|#119|open_unmerged
+LANDED|TRAINING-KNOWLEDGE|PR#118
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
@@ -37,7 +52,7 @@ LOCK|EXT.QUOTE.ACTIONABLE
 VALUE|numeric external quote alone is insufficient
 REQ|surrounding pricelist supports current buying state
 REQ|item/category supported
-REQ|applicable conditions preserved
+REQ|applicable quantity/bulk/availability conditions preserved
 
 SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
-NOTE|recheck current main SHA and mutable issue states before consequential action
+NOTE|DQ-TRAIN-001 remains parallel and owner-prioritized; recheck current main SHA and mutable issue states before consequential action

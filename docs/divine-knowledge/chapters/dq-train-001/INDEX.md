@@ -1,171 +1,106 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **ACTIVE RESEARCH SCOPING**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 + B2 COMPLETE; ALL FOUR STAT FAMILIES LIVE-SPOT-CHECKED IN NARROW ORDINARY-TRAINING DOMAINS**
+
+## Canonical reading order
+
+1. [2026-09-14 source audit](RESEARCH-2026-09-14.md) — provenance, corrections, uncertainty, and calibration gates.
+2. [DQ-TRAIN-001A Training Math Engine Contract](MATH-ENGINE-SPEC-001A.md) — frozen pure-kernel boundary and arithmetic profile.
+3. [`MATH-ENGINE-FIXTURES-001A.json`](MATH-ENGINE-FIXTURES-001A.json) — normative deterministic arithmetic fixtures.
+4. [DQ-TRAIN-001B Live Training Calibration Protocol](CALIBRATION-PROTOCOL-001B.md) — frozen live-fidelity evidence plan.
+5. [`CALIBRATION-OBSERVATION-SCHEMA-001B.json`](CALIBRATION-OBSERVATION-SCHEMA-001B.json) — raw/local observation shape and derived-analysis contract.
+6. [DQ-TRAIN-001B Calibration Results](CALIBRATION-RESULTS-001B.md) — aggregate nonidentifying live evidence and model-state progression.
+
+The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
 ## Discovery question
 
-How can TornScriptures accurately predict and optimize battle-stat training for a
-specific player, including Happy Jumps and alternative strategies, while remaining
-newbie-friendly, faction-shareable, transparent, and advisory?
+How can TornScriptures accurately predict and optimize battle-stat training for a specific player, including Happy Jumps and alternative strategies, while remaining newbie-friendly, faction-shareable, transparent, and advisory?
 
 ## Owner-approved outcome
 
 The desired product should answer:
 
-> Given this player's current state, inventory, budget, available gym, perks, and
-> activity window, what should they do next, why, and what improvement should they
-> expect now and over time?
+> Given this player's current state, inventory, budget, available gym, perks, and activity window, what should they do next, why, and what improvement should they expect now and over time?
 
-The beginner surface should reduce the answer to a safe next-action sequence.
-An advanced surface may expose formulas, costs, assumptions, alternatives,
-sensitivity, and prediction error.
+The beginner surface should reduce this to a safe next-action sequence. An advanced surface may expose formulas, costs, assumptions, alternatives, sensitivity, model status, and prediction error.
 
-Working label: **TornScriptures Training Advisor**, with **Happy Jump Navigator**
-as its first major feature. These labels are not yet a locked branding decision.
+Working label: **TornScriptures Training Advisor**, with **Happy Jump Navigator** as its first major feature.
 
-## Preliminary research snapshot
+## DQ-TRAIN-001A frozen result
 
-The following are research leads captured from the 2026-09-14 discussion. They
-must be rechecked and validated before becoming an implementation baseline.
+The first layer is specified as a pure, deterministic, versioned Training Math Engine. It has no network/API/DOM/storage/clock/UI/gameplay dependency, no internal RNG, evaluates batches sequentially, treats gain modifiers explicitly and multiplicatively under the candidate model, supports the trained-stat domain through exactly 50,000,000, and fails closed above that domain. Passing fixtures proves contract arithmetic only, not current-server fidelity.
 
-### Gym-gain model candidate
+## DQ-TRAIN-001B live calibration
 
-The Torn Wiki currently cited this public model:
+Primary evidence is one manual internal train during routine play. Displayed values are treated as quantized observations, and eligible Vladar observations are inverted into an inferred gain-noise interval. Raw personal observations remain local/chat evidence; Divine Knowledge stores only protocol, synthetic shapes, and aggregate/nonidentifying findings.
 
-[
-Gain = M \times G \times E \times [(a\ln(H+250)+c)S+d(H+250)+e]
-]
+### Speed lane
 
-Where the discussion interpreted:
+B1 completed with 12 eligible consecutive Speed Class-S observations in Complete Cardio at 5.8 dots and 10E with +2% property and +7% faction Speed gain.
 
-- (M): applicable training modifiers;
-- (G): gym dots for the trained stat;
-- (E): energy spent;
-- (H): Happy before the train;
-- (S): the individual battle stat being trained, not combined battle-stat total.
+- confirmed contradictions: 0;
+- inferred-noise midpoint range: approximately -931 to +1,212 inside Speed's `[-1350,+1350]` bound;
+- mean midpoint: approximately +37;
+- all Happy losses were in `{4,5,6}`.
 
-Captured constants:
+### Dexterity lane
 
-- (a = 3.480061091 \times 10^{-7})
-- (c = 3.091619094 \times 10^{-6})
-- (d = 6.82775184551527 \times 10^{-5})
-- (e = -0.0301431777)
+B2 Dexterity target completed with 8 eligible Class-S observations in Complete Cardio at 5.2 dots and 10E with +2% property and +6% faction Dexterity gain.
 
-Candidate source: [Torn Wiki — Gym](https://wiki.torn.com/wiki/Gym)
+- confirmed contradictions: 0;
+- displayed gain range: 17.06 to 17.39;
+- zero-noise center range: approximately 17.125 to 17.218;
+- inferred-noise midpoint range: approximately -504 to +770 inside Dexterity's `[-1000,+1000]` bound;
+- mean midpoint: approximately +44;
+- Happy-loss counts: 4×3, 5×1, 6×4, with every observation inside `{4,5,6}`.
 
-The Happy term appears to have positive but diminishing marginal returns under
-this candidate equation. Therefore maximum Happy, maximum immediate gain,
-best gain per dollar, best gain per cooldown hour, and best long-term outcome
-are separate optimization objectives.
+### Defense lane
 
-### Consumable model candidates
+B2 Defense target completed with 8 eligible consecutive Class-S observations in Complete Cardio at 5.5 dots and 10E with +2% property and +6% faction Defense gain.
 
-- Ecstasy is expected to double current Happy, subject to current game limits and
-  mechanics.
-- Candy contributes Happy before Ecstasy and ordinarily competes for booster
-  cooldown slots.
-- Item-level modifier rounding may matter and must not be approximated by simply
-  multiplying the final candy total.
-- Higher-Happy candy can improve Happy per cooldown while cheap candy can improve
-  Happy per dollar; live price and owned-inventory context decide which matters.
-- Natural energy lost while stacking may change whether one large jump or several
-  micro-jumps is superior.
+- confirmed contradictions: 0;
+- displayed gain range: 17.50 to 18.14;
+- zero-noise center range: approximately 17.697 to 17.785;
+- inferred-noise midpoint range: approximately -845 to +1,351 inside Defense's `[-1500,+1500]` bound;
+- mean midpoint: approximately +444;
+- Happy-loss counts: 4×3, 5×1, 6×4, with every observation inside `{4,5,6}`.
 
-Candidate sources:
+The Defense sample's positive mean is preserved as an observation rather than interpreted away. Eight convenience samples are insufficient to infer systematic bias, and there is no candidate contradiction.
 
-- [Torn Wiki — Happy](https://wiki.torn.com/wiki/Happy)
-- [Torn Wiki — Candy](https://wiki.torn.com/wiki/Candy)
-- [Torn Wiki — Ecstasy](https://wiki.torn.com/wiki/Ecstasy)
-- [Torn Wiki — Battle Stat](https://wiki.torn.com/wiki/Battle_Stat)
-- [Community formula investigation](https://www.torn.com/forums.php?a=0&b=0&f=61&p=threads&t=16003284)
-- [2026 community jump-strategy discussion](https://www.torn.com/forums.php?a=0&b=0&f=61&p=threads&t=16578875)
+### Strength lane
 
-### Data and scripting candidates
+B2 Strength target completed with 8 eligible consecutive Class-S observations in Complete Cardio at 5.5 dots and 10E with +2% property and +7% faction Strength gain.
 
-Research indicated that Torn API v2 may expose inventory and gym-related data
-suitable for a read-only advisor, but permissions, cache timing, response shape,
-and current endpoint status are mutable and require live contract verification.
+- confirmed contradictions: 0;
+- displayed gain range: 22.66 to 23.00;
+- zero-noise center range: approximately 22.738 to 22.817;
+- inferred-noise midpoint range: approximately -461 to +611 inside Strength's `[-700,+700]` bound;
+- mean midpoint: approximately +154;
+- Happy-loss counts: 4×2, 5×3, 6×3, with every observation inside `{4,5,6}`.
 
-The eventual advisor must comply with current Torn scripting rules. Calculations,
-API-backed state, page-visible information, timers, warnings, and recommendations
-are the intended green zone. Any control that directly performs a Torn gameplay
-request requires separate rule verification and owner specification.
+The candidate is therefore **`live_spot_checked`** in four narrow ordinary-training lanes: Speed, Dexterity, Defense, and Strength. B2 stat-family breadth is complete, but this is still not a broad production calibration claim.
 
-Candidate sources:
+## Calibration progression
 
-- [Torn API changelog discussion](https://www.torn.com/forums.php?a=0&b=0&f=63&p=threads&t=16401584)
-- [Torn scripting clarification](https://www.torn.com/forums.php?a=0&b=0&f=1&p=threads&t=16534470)
-- Canonical local registry: `docs/discovery/TORN-CAPABILITY-REGISTRY.md`
+- **B1: COMPLETE.** 12 eligible Speed Class-S observations, zero confirmed contradictions.
+- **B2: COMPLETE.** Strength, Speed, Defense, and Dexterity have all reached the protocol target with zero confirmed contradictions in their observed narrow lanes.
+- **B3: NEXT.** Elevated-Happy single-train evidence from naturally occurring or already-planned sessions, ideally across at least two stat families.
+- **B4:** multi-train batch validation after sufficient single-train coverage.
+- **B5:** Fitness Center/reduced-Happy-loss, ambiguous modifiers, and post-50m boundaries.
 
-## Research tracks
+## Still unresolved
 
-1. **Formula fidelity**
-   - Verify the current official/public gym formula and constants.
-   - Establish whether (S) is the trained stat and how gym dots and modifiers
-     enter the equation.
-   - Determine exact rounding and precision at each stage.
-   - Determine whether batch training differs from repeated single trains.
+Important unresolved mechanics include elevated-Happy fidelity, broader stat/gym/energy ranges, post-50m behavior, special Happy-loss modifiers, ambiguous gain modifiers, probabilistic distributions, consumable/drug timelines, inventory/price normalization, API capability/freshness, and long-horizon strategy ranking.
 
-2. **Modifier ordering**
-   - Map property, faction, education, company, merit, book, event, gym, and other
-     relevant modifiers.
-   - Separate Happy modifiers, energy modifiers, gym multipliers, and final gain
-     multipliers.
-   - Record caps, exclusions, stacking order, and rounding.
+## Product boundary
 
-3. **Strategy universe**
-   - Ordinary natural-energy training.
-   - Candy plus Ecstasy jumps.
-   - Xanax-backed jumps and energy stacking.
-   - eDVD and other Happy sources.
-   - Short micro-jumps versus long stacks.
-   - Refills and other player-selected resources where relevant.
-   - Stat-balancing versus single-stat optimization.
+The eventual advisor remains advisory. It may calculate, compare, explain, warn, remind, and guide. Automatic item consumption, drug use, training, or unattended gameplay requests remain outside the approved direction.
 
-4. **Economics and objectives**
-   - Immediate stat gain.
-   - Gain per energy, dollar, booster cooldown, drug cooldown, and active minute.
-   - Opportunity cost from blocked natural regeneration or delayed training.
-   - Projected 30/90/180-day outcome using sequentially updated stats.
-   - Budget caps and owned-inventory substitution.
-   - Sensitivity to price uncertainty and activity schedule.
+No API key, private player state, inventory export, raw calibration history, or session data belongs in Divine Knowledge.
 
-5. **Live data contract**
-   - Minimum Torn API permissions.
-   - Inventory-category coverage and cache behavior.
-   - Gym, battle-stat, energy, Happy, cooldown, perk, and property availability.
-   - Page-visible fallback data and stale-data labeling.
-   - Browser-local persistence without credential or private-data leakage.
+## Implementation and release boundary
 
-6. **Player experience**
-   - Beginner next-action card.
-   - Readiness states such as waiting, stacking, consuming, training, complete,
-     unsafe, and stale.
-   - Quarter-hour Happy-reset and cooldown warnings.
-   - Advanced explanation and comparison view.
-   - TornPDA/Android touch and narrow-screen behavior.
-   - Accessible language that teaches without overwhelming.
+DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-## Required validation before implementation
-
-- Every implemented mechanic has current provenance and a checked date.
-- Formula output is reproduced independently for deterministic fixtures.
-- Exact rounding and modifier order are either proven or visibly marked uncertain.
-- Predicted gains are compared with controlled real observations.
-- Error is recorded; the UI does not display false precision.
-- Mutable prices and player state are not hardcoded into the knowledge layer.
-- The advisor remains read-only/advisory unless a later owner-approved
-  specification explicitly validates a user-triggered action.
-- No API key, session data, personal inventory, or private player export is
-  committed.
-
-## First specification candidate
-
-A pure Training Math Engine should precede UI work. It should accept explicit,
-serializable inputs and return predicted gains, resource usage, uncertainty,
-and comparable strategies without DOM access, storage mutation, network access,
-or gameplay actions.
-
-This is a candidate direction, not implementation authorization. Scope, inputs,
-rounding behavior, fixtures, and acceptance thresholds must be frozen in the
-Specification mode before product code changes.
+The next evidence action is B3 elevated-Happy calibration using naturally occurring or already-planned single trains; do not consume extra resources solely for research.
