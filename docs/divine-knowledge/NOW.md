@@ -1,6 +1,6 @@
 # NOW
 
-Snapshot: 2026-09-14 DQ-TRAIN-001B calibration protocol frozen on PR #119 branch
+Snapshot: 2026-09-17 DQ-TRAIN-001B B1 live smoke set completed on PR #119 branch
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
@@ -11,15 +11,17 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|001b_protocol_frozen_awaiting_first_live_observation
+PARALLEL|DQ-TRAIN-001|001b_b1_complete_live_spot_checked_speed_only
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
-TRAINING_MODEL|vladar-v2-pre50m-v1|candidate_not_live_calibrated|supported_through_50m_only
+TRAINING_MODEL|vladar-v2-pre50m-v1|live_spot_checked_narrow_speed_domain|supported_through_50m_by_spec_but_live_evidence_narrower
 TRAINING_001A|pure math contract and deterministic fixtures frozen
-TRAINING_001B|controlled live calibration protocol frozen; evidence collection open
-TRAINING_NEXT|collect one routine Class-S single-train observation; validate capture/analysis pipeline; then build B1 set toward 12 eligible single trains
+TRAINING_001B|calibration protocol frozen; B1 complete with 12 eligible Speed single-train observations; zero confirmed contradictions
+TRAINING_B1|speed_only|complete_cardio|10E|happy_4223_to_4275|inferred_noise_midpoints_within_plusminus1350|happy_loss_all_in_4_5_6
+TRAINING_NEXT|B2 breadth using routine single-train Strength Defense or Dexterity observations; do not spend extra resources solely for research
 TRAINING_SPEC|chapters/dq-train-001/MATH-ENGINE-SPEC-001A.md
 TRAINING_FIXTURES|chapters/dq-train-001/MATH-ENGINE-FIXTURES-001A.json
 TRAINING_CALIBRATION|chapters/dq-train-001/CALIBRATION-PROTOCOL-001B.md
+TRAINING_RESULTS|chapters/dq-train-001/CALIBRATION-RESULTS-001B.md
 TRAINING_OBSERVATION_SCHEMA|chapters/dq-train-001/CALIBRATION-OBSERVATION-SCHEMA-001B.json
 TRAINING_EVIDENCE|chapters/dq-train-001/RESEARCH-2026-09-14.md
 TRAINING_PR|#119|open_unmerged
