@@ -16,7 +16,7 @@ TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisor
 TRAINING_MODEL|vladar-v2-pre50m-v1|live_spot_checked_narrow_speed_domain|supported_through_50m_by_spec_but_live_evidence_narrower
 TRAINING_001A|pure math contract and deterministic fixtures frozen
 TRAINING_001B|calibration protocol frozen; B1 complete with 12 eligible Speed single-train observations; zero confirmed contradictions
-TRAINING_B1|speed_only|complete_cardio|10E|happy_4223_to_4275|inferred_noise_midpoints_within_plusminus1350|happy_loss_all_in_4_5_6
+TRAINING_B1|speed_only|complete_cardio|10E|happy_before_4224_to_4275|final_happy_4219|inferred_noise_midpoints_within_plusminus1350|happy_loss_counts_4x5_5x6_6x1
 TRAINING_NEXT|B2 breadth using routine single-train Strength Defense or Dexterity observations; do not spend extra resources solely for research
 TRAINING_SPEC|chapters/dq-train-001/MATH-ENGINE-SPEC-001A.md
 TRAINING_FIXTURES|chapters/dq-train-001/MATH-ENGINE-FIXTURES-001A.json
