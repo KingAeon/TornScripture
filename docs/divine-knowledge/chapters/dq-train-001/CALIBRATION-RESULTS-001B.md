@@ -1,6 +1,6 @@
 # DQ-TRAIN-001B — Calibration Results
 
-Status: **B1 COMPLETE; B2 PARTIAL WITH SPEED + DEXTERITY LIVE-SPOT-CHECKED IN NARROW DOMAINS**
+Status: **B1 COMPLETE; B2 PARTIAL WITH SPEED + DEXTERITY + DEFENSE LIVE-SPOT-CHECKED IN NARROW DOMAINS**
 
 Observed: 2026-09-17.
 Protocol: `CALIBRATION-PROTOCOL-001B.md`.
@@ -60,7 +60,7 @@ The cumulative observed Happy loss was 56, taking the chain from 4,275 before th
 
 ## B2 Dexterity evidence domain
 
-The first B2 stat-family target is now complete for Dexterity with 8 eligible Class-S observations collected during routine manual training. The eight observations span two short ordinary-play sessions separated by natural energy regeneration; each session was independently captured and no quarter-hour boundary crossed inside an observation.
+The first B2 stat-family target is complete for Dexterity with 8 eligible Class-S observations collected during routine manual training. The observations span two short ordinary-play sessions separated by natural energy regeneration; each session was independently captured and no quarter-hour boundary crossed inside an observation.
 
 Observed lane:
 
@@ -96,7 +96,7 @@ Every inferred-noise interval remained comfortably inside the frozen Dexterity b
 
 ### Dexterity Happy-loss result
 
-All 8 Dexterity observations also matched the frozen 10E Happy-loss set `{4,5,6}`.
+All 8 Dexterity observations matched the frozen 10E Happy-loss set `{4,5,6}`.
 
 - loss 4: 3 observations;
 - loss 5: 1 observation;
@@ -105,18 +105,68 @@ All 8 Dexterity observations also matched the frozen 10E Happy-loss set `{4,5,6}
 
 The natural regeneration gap between the two Dex mini-sessions is not treated as a problem because every Class-S observation is calibrated from its own captured pre-train state.
 
+## B2 Defense evidence domain
+
+The B2 stat-family target is also complete for Defense with 8 eligible consecutive Class-S observations from one short routine-training session. The player deliberately waited for natural energy rather than introducing a drug event solely for research, giving this lane a clean ordinary-play pre-state.
+
+Observed lane:
+
+- stat family: Defense;
+- trained-stat magnitude: approximately 5.30k to 5.44k;
+- Happy before train: 4,240 to 4,275;
+- gym: Complete Cardio;
+- normalized Defense gym dots: 5.5;
+- energy per train: 10;
+- repeat quantity: exactly 1;
+- known gain modifiers: +2% property gym gains and +6% faction Defense gym gains;
+- Education gym-gain modifier: 0%;
+- no known temporary training book or other special gain effect;
+- no quarter-hour Happy boundary crossed inside an observation.
+
+Under the frozen 001A multiplier convention, the known gain multiplier for this lane is `1.02 * 1.06 = 1.0812`.
+
+### Defense gain-model result
+
+All 8 Defense observations were compatible with the Vladar V2 candidate under the frozen display-quantization and inferred-noise test.
+
+Aggregate diagnostics:
+
+- eligible observations: 8;
+- candidate contradictions: 0;
+- confirmed contradictions: 0;
+- displayed gain range: 17.50 to 18.14 Defense per 10E train;
+- zero-noise candidate-center range: approximately 17.697 to 17.785;
+- inferred gain-noise midpoint range: approximately -845 to +1,351;
+- candidate Defense noise bound: -1,500 to +1,500;
+- mean inferred-noise midpoint: approximately +444;
+- seven midpoint estimates positive and one negative.
+
+The positive mean in this eight-observation convenience sample is noted rather than explained away. The full inferred-noise range remains inside the candidate bound, so there is no contradiction, but the sample is far too small to infer distribution bias or systematic model drift. Additional ordinary Defense evidence may later test whether the positive skew persists.
+
+### Defense Happy-loss result
+
+All 8 Defense observations matched the frozen 10E Happy-loss set `{4,5,6}`.
+
+- loss 4: 3 observations;
+- loss 5: 1 observation;
+- loss 6: 4 observations;
+- out-of-set losses: 0.
+
+Cumulative observed Happy loss was 41, from 4,275 before the first Defense train to 4,234 after the eighth.
+
 ## Model-state decision
 
-`vladar-v2-pre50m-v1` is now **`live_spot_checked`** in two narrow observed ordinary-training lanes:
+`vladar-v2-pre50m-v1` is now **`live_spot_checked`** in three narrow observed ordinary-training lanes:
 
 1. Speed / Complete Cardio / 5.8 dots / 10E / +2% property / +7% faction Speed;
-2. Dexterity / Complete Cardio / 5.2 dots / 10E / +2% property / +6% faction Dexterity.
+2. Dexterity / Complete Cardio / 5.2 dots / 10E / +2% property / +6% faction Dexterity;
+3. Defense / Complete Cardio / 5.5 dots / 10E / +2% property / +6% faction Defense.
 
-This is still not `calibrated_observed_domain` for the model as a whole. Strength and Defense have not yet reached live stat-family coverage, and the evidence remains concentrated around one gym, one energy cost, ordinary Happy, and one player's known modifier patterns.
+This is still not `calibrated_observed_domain` for the model as a whole. Strength has not yet reached live stat-family coverage, and the evidence remains concentrated around one gym, one energy cost, ordinary Happy, and one player's known modifier patterns.
 
 The following remain unsupported by these results:
 
-- Strength and Defense formula fidelity;
+- Strength formula fidelity;
 - substantially different stat magnitudes outside the observed lanes;
 - elevated-Happy training;
 - different gyms or energy costs;
@@ -129,6 +179,6 @@ The following remain unsupported by these results:
 
 ## Next evidence gate
 
-Continue B2 breadth using routine single-train Strength or Defense observations under fully known modifiers. Additional Speed or Dexterity samples are lower priority unless ordinary play naturally calls for them.
+Continue B2 breadth with routine single-train Strength observations under fully known modifiers. Additional Speed, Dexterity, or Defense samples are lower priority unless ordinary play naturally calls for them, although future Defense samples may be useful for checking the currently positive inferred-noise skew.
 
 B3 elevated-Happy, B4 batch, and B5 special/boundary lanes remain pending.
