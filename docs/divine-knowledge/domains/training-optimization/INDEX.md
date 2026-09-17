@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **MATH CONTRACT + CALIBRATION PROTOCOL FROZEN; LIVE EVIDENCE COLLECTION OPEN; PRODUCT IMPLEMENTATION PENDING**
+Status: **MATH CONTRACT + CALIBRATION PROTOCOL FROZEN; B1 LIVE SPOT-CHECK COMPLETE; PRODUCT IMPLEMENTATION PENDING**
 
 ## Purpose
 
@@ -47,13 +47,15 @@ Resolve at runtime or recheck before consequential use:
 
 1. **Completed:** research and falsify the initial training-model assumptions; source audit recorded in DQ-TRAIN-001.
 2. **Completed:** freeze DQ-TRAIN-001A pure Training Math Engine contract and deterministic fixtures.
-3. **Completed specification / active evidence:** freeze DQ-TRAIN-001B controlled calibration protocol and observation schema; collect one routine Class-S observation first, validate the analysis pipeline, then expand to the B1 falsification set.
-4. **Pending evidence decision:** select/promote/reject models only inside observed domains; validate modifier/rounding gaps and unsupported boundaries separately.
-5. After evidence-based model promotion and separate owner implementation authorization, implement the pure calculation engine and fixture tests.
-6. Build strategy/timeline economics above the pure kernel, then design the beginner navigator and advanced explanation layer.
-7. Validate desktop userscript managers and TornPDA/Android.
-8. Release only after owner review, manual gates, and explicit merge authorization.
+3. **Completed specification:** freeze DQ-TRAIN-001B controlled calibration protocol and observation schema.
+4. **B1 completed:** 12 eligible routine Speed single-train observations in a narrow Complete Cardio / 10E lane produced zero confirmed contradictions; `vladar-v2-pre50m-v1` is now `live_spot_checked` for that lane only.
+5. **Next:** B2 stat-family breadth using routine Strength, Defense, and Dexterity single-train observations; claims remain bounded to observed domains.
+6. Later evidence lanes: B3 elevated-Happy, B4 batch/sequential behavior, B5 special effects and post-50m boundaries.
+7. After evidence-based model promotion and separate owner implementation authorization, implement the pure calculation engine and fixture tests.
+8. Build strategy/timeline economics above the pure kernel, then design the beginner navigator and advanced explanation layer.
+9. Validate desktop userscript managers and TornPDA/Android.
+10. Release only after owner review, manual gates, and explicit merge authorization.
 
 ## Active chapter
 
-- `../../chapters/dq-train-001/INDEX.md` — authoritative state for battle-stat training and Happy Jump mechanics, DQ-TRAIN-001A contract/fixtures, DQ-TRAIN-001B live calibration, and later optimization work.
+- `../../chapters/dq-train-001/INDEX.md` — authoritative state for battle-stat training and Happy Jump mechanics, DQ-TRAIN-001A contract/fixtures, DQ-TRAIN-001B live calibration, aggregate results, and later optimization work.
