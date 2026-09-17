@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 COMPLETE; B2 PARTIAL WITH SPEED + DEXTERITY + DEFENSE LIVE-SPOT-CHECKED**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 + B2 COMPLETE; ALL FOUR STAT FAMILIES LIVE-SPOT-CHECKED IN NARROW ORDINARY-TRAINING DOMAINS**
 
 ## Canonical reading order
 
@@ -68,19 +68,30 @@ B2 Defense target completed with 8 eligible consecutive Class-S observations in 
 
 The Defense sample's positive mean is preserved as an observation rather than interpreted away. Eight convenience samples are insufficient to infer systematic bias, and there is no candidate contradiction.
 
-The candidate is therefore **`live_spot_checked`** in three narrow ordinary-training lanes: Speed, Dexterity, and Defense. This is not a broad production calibration claim.
+### Strength lane
+
+B2 Strength target completed with 8 eligible consecutive Class-S observations in Complete Cardio at 5.5 dots and 10E with +2% property and +7% faction Strength gain.
+
+- confirmed contradictions: 0;
+- displayed gain range: 22.66 to 23.00;
+- zero-noise center range: approximately 22.738 to 22.817;
+- inferred-noise midpoint range: approximately -461 to +611 inside Strength's `[-700,+700]` bound;
+- mean midpoint: approximately +154;
+- Happy-loss counts: 4×2, 5×3, 6×3, with every observation inside `{4,5,6}`.
+
+The candidate is therefore **`live_spot_checked`** in four narrow ordinary-training lanes: Speed, Dexterity, Defense, and Strength. B2 stat-family breadth is complete, but this is still not a broad production calibration claim.
 
 ## Calibration progression
 
 - **B1: COMPLETE.** 12 eligible Speed Class-S observations, zero confirmed contradictions.
-- **B2: PARTIAL.** Dexterity and Defense have each reached the 8-observation target; Strength remains untested at the target level. Additional Speed/Dex/Defense evidence is lower priority unless normal play naturally calls for it.
-- **B3:** elevated-Happy single-train evidence, naturally occurring only.
+- **B2: COMPLETE.** Strength, Speed, Defense, and Dexterity have all reached the protocol target with zero confirmed contradictions in their observed narrow lanes.
+- **B3: NEXT.** Elevated-Happy single-train evidence from naturally occurring or already-planned sessions, ideally across at least two stat families.
 - **B4:** multi-train batch validation after sufficient single-train coverage.
 - **B5:** Fitness Center/reduced-Happy-loss, ambiguous modifiers, and post-50m boundaries.
 
 ## Still unresolved
 
-Important unresolved mechanics include Strength fidelity, broader stat/Happy ranges, post-50m behavior, special Happy-loss modifiers, ambiguous gain modifiers, probabilistic distributions, consumable/drug timelines, inventory/price normalization, API capability/freshness, and long-horizon strategy ranking.
+Important unresolved mechanics include elevated-Happy fidelity, broader stat/gym/energy ranges, post-50m behavior, special Happy-loss modifiers, ambiguous gain modifiers, probabilistic distributions, consumable/drug timelines, inventory/price normalization, API capability/freshness, and long-horizon strategy ranking.
 
 ## Product boundary
 
@@ -92,4 +103,4 @@ No API key, private player state, inventory export, raw calibration history, or 
 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-The next evidence action is B2 breadth: prefer routine single-train Strength observations over collecting additional Speed, Dexterity, or Defense purely for research.
+The next evidence action is B3 elevated-Happy calibration using naturally occurring or already-planned single trains; do not consume extra resources solely for research.
