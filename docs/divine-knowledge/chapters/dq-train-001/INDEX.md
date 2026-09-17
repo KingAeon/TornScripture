@@ -54,8 +54,10 @@ B1 is complete with **12 eligible consecutive Speed Class-S observations** in a 
 - candidate contradictions: 0;
 - confirmed contradictions: 0;
 - all inferred gain-noise intervals intersected the frozen Speed `[-1350,+1350]` range;
-- inferred-noise midpoints ranged approximately from -918 to +1,212 with mean approximately +44;
+- inferred-noise midpoints ranged approximately from -931 to +1,212 with mean approximately +37;
+- five midpoint estimates were positive and seven negative;
 - all 12 Happy losses matched the 10E candidate set `{4,5,6}`;
+- Happy-loss counts were 4×5, 5×6, and 6×1;
 - no obvious one-direction residual drift appeared in the small sequence.
 
 The candidate therefore advances to **`live_spot_checked`** for the observed Speed / Complete Cardio / 10E / ordinary-modifier lane only. It is **not** yet `calibrated_observed_domain`, and this result does not establish other stats, higher Happy, different gyms, special effects, batches, or post-50m behavior.
