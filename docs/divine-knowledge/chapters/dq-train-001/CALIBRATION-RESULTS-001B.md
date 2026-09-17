@@ -15,8 +15,8 @@ Raw player observations, timestamps, screenshots, and exact personal history are
 The B1 smoke/falsification gate used 12 consecutive eligible Class-S observations from routine manual training. The observed domain was deliberately narrow:
 
 - stat family: Speed only;
-- trained-stat magnitude: approximately 81.6k to 82.1k;
-- Happy: 4,223 to 4,275 before train;
+- trained-stat magnitude: approximately 81.6k to 82.2k;
+- Happy before train: 4,224 to 4,275;
 - gym: Complete Cardio;
 - normalized Speed gym dots: 5.8;
 - energy per train: 10;
@@ -38,15 +38,15 @@ Aggregate diagnostics:
 - eligible observations: 12;
 - candidate contradictions: 0;
 - confirmed contradictions: 0;
-- displayed gain range: approximately 48.33 to 49.01 Speed per 10E train;
-- zero-noise candidate-center range across the sequence: approximately 48.606 to 48.635;
-- inferred gain-noise midpoint range: approximately -918 to +1,212;
+- displayed gain range: 48.33 to 49.01 Speed per 10E train;
+- zero-noise candidate-center range across the sequence: approximately 48.610 to 48.635;
+- inferred gain-noise midpoint range: approximately -931 to +1,212;
 - candidate Speed noise bound: -1,350 to +1,350;
-- mean inferred-noise midpoint: approximately +44;
-- mean normalized inferred-noise midpoint: approximately +0.033 of the positive bound;
-- sample standard deviation of inferred-noise midpoints: approximately 806.
+- mean inferred-noise midpoint: approximately +37;
+- mean normalized inferred-noise midpoint: approximately +0.028 of the positive bound;
+- sample standard deviation of inferred-noise midpoints: approximately 807.
 
-The observed inferred-noise values crossed zero repeatedly and showed no obvious one-direction drift over this small sequence. The sample is too small and too narrow to claim a specific noise distribution, independence structure, or statistical confidence interval.
+The observed inferred-noise values crossed zero repeatedly: five midpoint estimates were positive and seven were negative. There was no obvious one-direction drift over this small sequence. The sample is too small and too narrow to claim a specific noise distribution, independence structure, or statistical confidence interval.
 
 ## Happy-loss result
 
@@ -55,9 +55,11 @@ All 12 observed Happy losses were inside the frozen 10E candidate set `{4,5,6}`.
 Aggregate counts:
 
 - loss 4: 5 observations;
-- loss 5: 5 observations;
-- loss 6: 2 observations;
+- loss 5: 6 observations;
+- loss 6: 1 observation;
 - out-of-set losses: 0.
+
+The cumulative observed Happy loss was 56, taking the chain from 4,275 before the first train to 4,219 after the twelfth. The lowest pre-train Happy represented in the gain-fit set was therefore 4,224.
 
 This supports the candidate Happy-loss rule as live-compatible in this narrow 10E ordinary-training lane. It does not validate 5E, 25E, 50E, Fitness Center reduction, quarter-hour interactions, or other Happy modifiers.
 
