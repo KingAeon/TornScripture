@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B PROTOCOL FROZEN; LIVE EVIDENCE COLLECTION OPEN**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 COMPLETE; PRIMARY CANDIDATE LIVE-SPOT-CHECKED IN NARROW SPEED DOMAIN**
 
 ## Canonical reading order
 
@@ -9,6 +9,7 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B PROTOCOL FROZEN; LIVE EVIDENCE COLL
 3. [`MATH-ENGINE-FIXTURES-001A.json`](MATH-ENGINE-FIXTURES-001A.json) — normative deterministic arithmetic fixtures.
 4. [DQ-TRAIN-001B Live Training Calibration Protocol](CALIBRATION-PROTOCOL-001B.md) — frozen live-fidelity evidence plan.
 5. [`CALIBRATION-OBSERVATION-SCHEMA-001B.json`](CALIBRATION-OBSERVATION-SCHEMA-001B.json) — raw/local observation shape and derived-analysis contract.
+6. [DQ-TRAIN-001B Calibration Results](CALIBRATION-RESULTS-001B.md) — aggregate nonidentifying live evidence and model-state progression.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. In particular, no public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -36,45 +37,45 @@ Locked characteristics:
 - no internal RNG; random gain noise and Happy-loss rolls are explicit inputs;
 - one-click batches are evaluated as sequential internal trains with stat and Happy updated after every train;
 - gain modifiers are explicit and multiplicative, with a canonical stable ordering for deterministic cross-runtime output;
-- the first arithmetic profile is named `vladar-v2-pre50m-v1` and remains `candidate_not_live_calibrated`;
+- the first arithmetic profile is named `vladar-v2-pre50m-v1`;
 - the candidate model accepts trained-stat values through exactly 50,000,000 and fails closed above that boundary rather than clamping or extrapolating;
 - unsupported special effects fail visibly rather than being approximated;
 - high-precision deterministic fixture expectations are stored as decimal strings with numeric tolerances;
 - passing fixtures proves contract arithmetic only, not prediction accuracy against live Torn.
 
-## DQ-TRAIN-001B frozen protocol
+The frozen 001A document records the model's pre-calibration state. Live evidence state is tracked separately by 001B so arithmetic provenance is not rewritten after the fact.
 
-Live calibration now has a separate bounded contract.
+## DQ-TRAIN-001B protocol and B1 result
 
-Primary evidence is a **single internal train** performed manually during normal planned play. Official Torn patch history records gym gains being changed to display two decimal places, while the Battle Stats page records whole-number site display behavior. These are presentation rules, so displayed values are treated as quantized observations rather than exact internal arithmetic. Until the gym-gain display rounding rule is independently proven, the protocol conservatively interprets a displayed gain `D` as `[D-0.01,D+0.01]`.
+Live calibration has a separate bounded contract. Primary evidence is a **single internal train** performed manually during normal planned play. Displayed values are treated as quantized observations rather than exact hidden arithmetic, and each eligible Vladar observation is inverted into an inferred gain-noise interval.
 
-For the Vladar candidate, each eligible single-train observation is inverted into an `inferredNoiseInterval`. If that interval cannot intersect the stat-specific `[-C,+C]` range after data-quality review, the observation is a confirmed contradiction rather than something to explain away by silently widening the model.
+B1 is complete with **12 eligible consecutive Speed Class-S observations** in a narrow ordinary-training lane. Aggregate result:
 
-Evidence classes are separated:
+- candidate contradictions: 0;
+- confirmed contradictions: 0;
+- all inferred gain-noise intervals intersected the frozen Speed `[-1350,+1350]` range;
+- inferred-noise midpoints ranged approximately from -918 to +1,212 with mean approximately +44;
+- all 12 Happy losses matched the 10E candidate set `{4,5,6}`;
+- no obvious one-direction residual drift appeared in the small sequence.
 
-- **S** — one internal train; primary formula-calibration evidence;
-- **B** — multi-train batch; validates sequential aggregate envelopes after single-train calibration;
-- **H** — naturally occurring elevated-Happy observation during an already-planned session;
-- **X** — special effects or boundaries such as Fitness Center or post-50m behavior.
+The candidate therefore advances to **`live_spot_checked`** for the observed Speed / Complete Cardio / 10E / ordinary-modifier lane only. It is **not** yet `calibrated_observed_domain`, and this result does not establish other stats, higher Happy, different gyms, special effects, batches, or post-50m behavior.
 
-The first live gate is one ordinary Class-S observation. After the capture/analysis pipeline is validated, B1 expands to 12 eligible Class-S observations. B1 is a smoke/falsification set only and cannot by itself promote the model to calibrated status.
-
-Raw personal observations remain local/chat evidence by default. Divine Knowledge stores the protocol, synthetic shapes, and aggregate/nonidentifying conclusions.
+Raw personal observations remain local/chat evidence by default. Divine Knowledge stores the protocol, synthetic shapes, and aggregate/nonidentifying conclusions only.
 
 ## Calibration progression
 
-- **B1:** 12 eligible routine Class-S observations; gross falsification and capture validation.
-- **B2:** target at least 8 eligible Class-S observations per stat family for faction-capable coverage; claims remain narrower when coverage is missing.
+- **B1: COMPLETE.** 12 eligible routine Speed Class-S observations; capture/inversion pipeline and gross candidate falsification passed with zero confirmed contradictions.
+- **B2: NEXT.** Target at least 8 eligible Class-S observations per stat family for faction-capable coverage; claims remain narrower when coverage is missing. Strength, Defense, and Dexterity are currently untested live families.
 - **B3:** target at least 8 naturally occurring elevated-Happy single trains, ideally across two stat families; no extra boosters solely for research.
-- **B4:** target at least 8 multi-train batches after B1 survives; test sequential aggregate envelopes.
+- **B4:** target at least 8 multi-train batches after single-train calibration; test sequential aggregate envelopes.
 - **B5:** separate lanes for Fitness Center/reduced Happy loss, ambiguous gain modifiers, and post-50m behavior.
-
-Model states may advance from `candidate_not_live_calibrated` to `live_spot_checked` and then `calibrated_observed_domain`, or move to contradiction/rejection states. A bounded calibration claim never implies untested stat, Happy, perk, gym, special-effect, or post-50m validity.
 
 ## Still unresolved
 
 Important unresolved mechanics include:
 
+- Strength, Defense, and Dexterity live formula fidelity;
+- broader stat and Happy ranges;
 - current post-50m training behavior;
 - exact placement and rounding of Fitness Center and other Happy-loss modifiers;
 - ambiguous or unsupported gain modifiers;
@@ -88,10 +89,10 @@ Important unresolved mechanics include:
 
 The eventual advisor remains advisory. It may calculate, compare, explain, warn, remind, and guide. Automatic item consumption, drug use, training, or unattended gameplay requests remain outside the approved direction.
 
-No API key, private player state, inventory export, or session data belongs in Divine Knowledge.
+No API key, private player state, inventory export, raw calibration history, or session data belongs in Divine Knowledge.
 
 ## Implementation and release boundary
 
-DQ-TRAIN-001A and 001B freeze documentation, arithmetic fixtures, and calibration protocol only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
+DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-The next actual action is evidence, not code: collect one routine Class-S observation using `CALIBRATION-OBSERVATION-SCHEMA-001B.json`, validate the transcription and inferred-noise calculation, then expand only if the pipeline proves sound.
+The next evidence action is B2 breadth: prefer routine single-train observations from Strength, Defense, or Dexterity over collecting additional Speed purely for research.
