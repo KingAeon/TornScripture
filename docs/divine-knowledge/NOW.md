@@ -1,6 +1,6 @@
 # NOW
 
-Snapshot: 2026-09-17 DQ-TRAIN-001B B2 partial with Speed + Dexterity live spot checks on PR #119 branch
+Snapshot: 2026-09-17 DQ-TRAIN-001B B2 partial with Speed + Dexterity + Defense live spot checks on PR #119 branch
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
@@ -11,14 +11,15 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|001b_b2_partial_speed_and_dex_live_spot_checked
+PARALLEL|DQ-TRAIN-001|001b_b2_partial_speed_dex_def_live_spot_checked
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
-TRAINING_MODEL|vladar-v2-pre50m-v1|live_spot_checked_narrow_speed_and_dex_domains|supported_through_50m_by_spec_but_live_evidence_narrower
+TRAINING_MODEL|vladar-v2-pre50m-v1|live_spot_checked_narrow_speed_dex_def_domains|supported_through_50m_by_spec_but_live_evidence_narrower
 TRAINING_001A|pure math contract and deterministic fixtures frozen
-TRAINING_001B|calibration protocol frozen; B1 Speed complete; B2 Dexterity target complete; zero confirmed contradictions in both observed lanes
+TRAINING_001B|calibration protocol frozen; B1 Speed complete; B2 Dexterity and Defense targets complete; zero confirmed contradictions in all observed lanes
 TRAINING_B1|speed|12_class_s|complete_cardio|5.8_dots|10E|noise_midpoints_within_plusminus1350|happy_losses_all_in_4_5_6
 TRAINING_B2_DEX|dexterity|8_class_s|complete_cardio|5.2_dots|10E|noise_midpoints_approx_minus504_to_plus770_within_plusminus1000|happy_loss_counts_4x3_5x1_6x4
-TRAINING_NEXT|B2 breadth using routine single-train Strength or Defense observations; do not spend extra resources solely for research
+TRAINING_B2_DEF|defense|8_class_s|complete_cardio|5.5_dots|10E|noise_midpoints_approx_minus845_to_plus1351_within_plusminus1500|mean_approx_plus444|happy_loss_counts_4x3_5x1_6x4
+TRAINING_NEXT|B2 breadth using routine single-train Strength observations; do not spend extra resources solely for research
 TRAINING_SPEC|chapters/dq-train-001/MATH-ENGINE-SPEC-001A.md
 TRAINING_FIXTURES|chapters/dq-train-001/MATH-ENGINE-FIXTURES-001A.json
 TRAINING_CALIBRATION|chapters/dq-train-001/CALIBRATION-PROTOCOL-001B.md
