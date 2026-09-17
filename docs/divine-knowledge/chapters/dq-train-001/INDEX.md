@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 COMPLETE; PRIMARY CANDIDATE LIVE-SPOT-CHECKED IN NARROW SPEED DOMAIN**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 COMPLETE; B2 PARTIAL WITH SPEED + DEXTERITY LIVE-SPOT-CHECKED**
 
 ## Canonical reading order
 
@@ -11,7 +11,7 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 COMPLETE; PRIMARY CANDIDATE LIVE
 5. [`CALIBRATION-OBSERVATION-SCHEMA-001B.json`](CALIBRATION-OBSERVATION-SCHEMA-001B.json) — raw/local observation shape and derived-analysis contract.
 6. [DQ-TRAIN-001B Calibration Results](CALIBRATION-RESULTS-001B.md) — aggregate nonidentifying live evidence and model-state progression.
 
-The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. In particular, no public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
+The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
 ## Discovery question
 
@@ -25,67 +25,49 @@ The desired product should answer:
 
 The beginner surface should reduce this to a safe next-action sequence. An advanced surface may expose formulas, costs, assumptions, alternatives, sensitivity, model status, and prediction error.
 
-Working label: **TornScriptures Training Advisor**, with **Happy Jump Navigator** as its first major feature. These labels remain working names.
+Working label: **TornScriptures Training Advisor**, with **Happy Jump Navigator** as its first major feature.
 
 ## DQ-TRAIN-001A frozen result
 
-The first layer is specified as a pure, deterministic, versioned Training Math Engine.
+The first layer is specified as a pure, deterministic, versioned Training Math Engine. It has no network/API/DOM/storage/clock/UI/gameplay dependency, no internal RNG, evaluates batches sequentially, treats gain modifiers explicitly and multiplicatively under the candidate model, supports the trained-stat domain through exactly 50,000,000, and fails closed above that domain. Passing fixtures proves contract arithmetic only, not current-server fidelity.
 
-Locked characteristics:
+## DQ-TRAIN-001B live calibration
 
-- no network, API, DOM, storage, clock, price, inventory, scheduler, UI, or gameplay dependency;
-- no internal RNG; random gain noise and Happy-loss rolls are explicit inputs;
-- one-click batches are evaluated as sequential internal trains with stat and Happy updated after every train;
-- gain modifiers are explicit and multiplicative, with a canonical stable ordering for deterministic cross-runtime output;
-- the first arithmetic profile is named `vladar-v2-pre50m-v1`;
-- the candidate model accepts trained-stat values through exactly 50,000,000 and fails closed above that boundary rather than clamping or extrapolating;
-- unsupported special effects fail visibly rather than being approximated;
-- high-precision deterministic fixture expectations are stored as decimal strings with numeric tolerances;
-- passing fixtures proves contract arithmetic only, not prediction accuracy against live Torn.
+Primary evidence is one manual internal train during routine play. Displayed values are treated as quantized observations, and eligible Vladar observations are inverted into an inferred gain-noise interval. Raw personal observations remain local/chat evidence; Divine Knowledge stores only protocol, synthetic shapes, and aggregate/nonidentifying findings.
 
-The frozen 001A document records the model's pre-calibration state. Live evidence state is tracked separately by 001B so arithmetic provenance is not rewritten after the fact.
+### Speed lane
 
-## DQ-TRAIN-001B protocol and B1 result
+B1 completed with 12 eligible consecutive Speed Class-S observations in Complete Cardio at 5.8 dots and 10E with +2% property and +7% faction Speed gain.
 
-Live calibration has a separate bounded contract. Primary evidence is a **single internal train** performed manually during normal planned play. Displayed values are treated as quantized observations rather than exact hidden arithmetic, and each eligible Vladar observation is inverted into an inferred gain-noise interval.
-
-B1 is complete with **12 eligible consecutive Speed Class-S observations** in a narrow ordinary-training lane. Aggregate result:
-
-- candidate contradictions: 0;
 - confirmed contradictions: 0;
-- all inferred gain-noise intervals intersected the frozen Speed `[-1350,+1350]` range;
-- inferred-noise midpoints ranged approximately from -931 to +1,212 with mean approximately +37;
-- five midpoint estimates were positive and seven negative;
-- all 12 Happy losses matched the 10E candidate set `{4,5,6}`;
-- Happy-loss counts were 4×5, 5×6, and 6×1;
-- no obvious one-direction residual drift appeared in the small sequence.
+- inferred-noise midpoint range: approximately -931 to +1,212 inside Speed's `[-1350,+1350]` bound;
+- mean midpoint: approximately +37;
+- all Happy losses were in `{4,5,6}`.
 
-The candidate therefore advances to **`live_spot_checked`** for the observed Speed / Complete Cardio / 10E / ordinary-modifier lane only. It is **not** yet `calibrated_observed_domain`, and this result does not establish other stats, higher Happy, different gyms, special effects, batches, or post-50m behavior.
+### Dexterity lane
 
-Raw personal observations remain local/chat evidence by default. Divine Knowledge stores the protocol, synthetic shapes, and aggregate/nonidentifying conclusions only.
+B2 Dexterity target completed with 8 eligible Class-S observations in Complete Cardio at 5.2 dots and 10E with +2% property and +6% faction Dexterity gain. The observations span two short sessions separated by natural energy regeneration; each train is independently calibrated from its captured pre-state.
+
+- confirmed contradictions: 0;
+- displayed gain range: 17.06 to 17.39;
+- zero-noise center range: approximately 17.125 to 17.218;
+- inferred-noise midpoint range: approximately -504 to +770 inside Dexterity's `[-1000,+1000]` bound;
+- mean midpoint: approximately +44;
+- Happy-loss counts: 4×3, 5×1, 6×4, with every observation inside `{4,5,6}`.
+
+The candidate is therefore **`live_spot_checked`** in two narrow ordinary-training lanes: Speed and Dexterity. This is not a broad production calibration claim.
 
 ## Calibration progression
 
-- **B1: COMPLETE.** 12 eligible routine Speed Class-S observations; capture/inversion pipeline and gross candidate falsification passed with zero confirmed contradictions.
-- **B2: NEXT.** Target at least 8 eligible Class-S observations per stat family for faction-capable coverage; claims remain narrower when coverage is missing. Strength, Defense, and Dexterity are currently untested live families.
-- **B3:** target at least 8 naturally occurring elevated-Happy single trains, ideally across two stat families; no extra boosters solely for research.
-- **B4:** target at least 8 multi-train batches after single-train calibration; test sequential aggregate envelopes.
-- **B5:** separate lanes for Fitness Center/reduced Happy loss, ambiguous gain modifiers, and post-50m behavior.
+- **B1: COMPLETE.** 12 eligible Speed Class-S observations, zero confirmed contradictions.
+- **B2: PARTIAL.** Dexterity has reached the 8-observation target; Strength and Defense remain untested at the target level. Additional Speed/Dex evidence is lower priority unless normal play naturally calls for it.
+- **B3:** elevated-Happy single-train evidence, naturally occurring only.
+- **B4:** multi-train batch validation after sufficient single-train coverage.
+- **B5:** Fitness Center/reduced-Happy-loss, ambiguous modifiers, and post-50m boundaries.
 
 ## Still unresolved
 
-Important unresolved mechanics include:
-
-- Strength, Defense, and Dexterity live formula fidelity;
-- broader stat and Happy ranges;
-- current post-50m training behavior;
-- exact placement and rounding of Fitness Center and other Happy-loss modifiers;
-- ambiguous or unsupported gain modifiers;
-- probability distributions and risk-adjusted outcomes;
-- candy, eDVD, Ecstasy, Xanax, refill, cooldown, and reset timeline behavior;
-- inventory and price normalization;
-- current API capability/freshness details;
-- long-horizon strategy ranking and uncertainty propagation.
+Important unresolved mechanics include Strength and Defense fidelity, broader stat/Happy ranges, post-50m behavior, special Happy-loss modifiers, ambiguous gain modifiers, probabilistic distributions, consumable/drug timelines, inventory/price normalization, API capability/freshness, and long-horizon strategy ranking.
 
 ## Product boundary
 
@@ -97,4 +79,4 @@ No API key, private player state, inventory export, raw calibration history, or 
 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-The next evidence action is B2 breadth: prefer routine single-train observations from Strength, Defense, or Dexterity over collecting additional Speed purely for research.
+The next evidence action is B2 breadth: prefer routine single-train Strength or Defense observations over collecting additional Speed or Dexterity purely for research.
