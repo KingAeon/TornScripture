@@ -1,6 +1,6 @@
 # DQ-TRAIN-001B — Calibration Results
 
-Status: **B1 COMPLETE; B2 PARTIAL WITH SPEED + DEXTERITY + DEFENSE LIVE-SPOT-CHECKED IN NARROW DOMAINS**
+Status: **B1 COMPLETE; B2 COMPLETE WITH ALL FOUR STAT FAMILIES LIVE-SPOT-CHECKED IN NARROW DOMAINS**
 
 Observed: 2026-09-17.
 Protocol: `CALIBRATION-PROTOCOL-001B.md`.
@@ -154,19 +154,68 @@ All 8 Defense observations matched the frozen 10E Happy-loss set `{4,5,6}`.
 
 Cumulative observed Happy loss was 41, from 4,275 before the first Defense train to 4,234 after the eighth.
 
+## B2 Strength evidence domain
+
+The final B2 stat-family target is complete for Strength with 8 eligible consecutive Class-S observations from routine manual training. The sequence began immediately after a natural quarter-hour Happy reset and remained inside one short observation window.
+
+Observed lane:
+
+- stat family: Strength;
+- trained-stat magnitude: approximately 17.27k to 17.46k;
+- Happy before train: 4,240 to 4,275;
+- gym: Complete Cardio;
+- normalized Strength gym dots: 5.5;
+- energy per train: 10;
+- repeat quantity: exactly 1;
+- known gain modifiers: +2% property gym gains and +7% faction Strength gym gains;
+- Education gym-gain modifier: 0%;
+- no known temporary training book or other special gain effect;
+- no quarter-hour Happy boundary crossed inside an observation.
+
+Under the frozen 001A multiplier convention, the known gain multiplier for this lane is `1.02 * 1.07 = 1.0914`.
+
+### Strength gain-model result
+
+All 8 Strength observations were compatible with the Vladar V2 candidate under the frozen display-quantization and inferred-noise test.
+
+Aggregate diagnostics:
+
+- eligible observations: 8;
+- candidate contradictions: 0;
+- confirmed contradictions: 0;
+- displayed gain range: 22.66 to 23.00 Strength per 10E train;
+- zero-noise candidate-center range: approximately 22.738 to 22.817;
+- inferred gain-noise midpoint range: approximately -461 to +611;
+- candidate Strength noise bound: -700 to +700;
+- mean inferred-noise midpoint: approximately +154;
+- five midpoint estimates positive and three negative.
+
+Every inferred-noise interval intersected the frozen Strength bound. The small positive mean is preserved as an observation, not treated as evidence of systematic bias.
+
+### Strength Happy-loss result
+
+All 8 Strength observations matched the frozen 10E Happy-loss set `{4,5,6}`.
+
+- loss 4: 2 observations;
+- loss 5: 3 observations;
+- loss 6: 3 observations;
+- out-of-set losses: 0.
+
+Cumulative observed Happy loss was 41, taking the sequence from 4,275 before the first Strength train to 4,234 after the eighth.
+
 ## Model-state decision
 
-`vladar-v2-pre50m-v1` is now **`live_spot_checked`** in three narrow observed ordinary-training lanes:
+`vladar-v2-pre50m-v1` is now **`live_spot_checked`** in four narrow observed ordinary-training lanes:
 
 1. Speed / Complete Cardio / 5.8 dots / 10E / +2% property / +7% faction Speed;
 2. Dexterity / Complete Cardio / 5.2 dots / 10E / +2% property / +6% faction Dexterity;
-3. Defense / Complete Cardio / 5.5 dots / 10E / +2% property / +6% faction Defense.
+3. Defense / Complete Cardio / 5.5 dots / 10E / +2% property / +6% faction Defense;
+4. Strength / Complete Cardio / 5.5 dots / 10E / +2% property / +7% faction Strength.
 
-This is still not `calibrated_observed_domain` for the model as a whole. Strength has not yet reached live stat-family coverage, and the evidence remains concentrated around one gym, one energy cost, ordinary Happy, and one player's known modifier patterns.
+B2 stat-family breadth is complete. This remains a bounded live spot-check rather than `calibrated_observed_domain` for the model as a whole because the evidence is still concentrated around one gym, one energy cost, ordinary Happy, and one player's known modifier patterns. Broader promotion requires later evidence and an explicit bounded model-state decision.
 
 The following remain unsupported by these results:
 
-- Strength formula fidelity;
 - substantially different stat magnitudes outside the observed lanes;
 - elevated-Happy training;
 - different gyms or energy costs;
@@ -179,6 +228,6 @@ The following remain unsupported by these results:
 
 ## Next evidence gate
 
-Continue B2 breadth with routine single-train Strength observations under fully known modifiers. Additional Speed, Dexterity, or Defense samples are lower priority unless ordinary play naturally calls for them, although future Defense samples may be useful for checking the currently positive inferred-noise skew.
+B2 breadth is complete across all four stat families. The next priority is **B3 elevated-Happy calibration** using naturally occurring or already-planned elevated-Happy single trains, ideally across at least two stat families. No booster, candy, Ecstasy, Xanax, or other resource should be consumed solely to satisfy the evidence matrix.
 
-B3 elevated-Happy, B4 batch, and B5 special/boundary lanes remain pending.
+B4 batch validation and B5 special/boundary lanes remain pending. Additional ordinary Defense observations may later test whether its currently positive inferred-noise skew persists.
