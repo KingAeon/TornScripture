@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 COMPLETE; B2 PARTIAL WITH SPEED + DEXTERITY LIVE-SPOT-CHECKED**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1 COMPLETE; B2 PARTIAL WITH SPEED + DEXTERITY + DEFENSE LIVE-SPOT-CHECKED**
 
 ## Canonical reading order
 
@@ -46,7 +46,7 @@ B1 completed with 12 eligible consecutive Speed Class-S observations in Complete
 
 ### Dexterity lane
 
-B2 Dexterity target completed with 8 eligible Class-S observations in Complete Cardio at 5.2 dots and 10E with +2% property and +6% faction Dexterity gain. The observations span two short sessions separated by natural energy regeneration; each train is independently calibrated from its captured pre-state.
+B2 Dexterity target completed with 8 eligible Class-S observations in Complete Cardio at 5.2 dots and 10E with +2% property and +6% faction Dexterity gain.
 
 - confirmed contradictions: 0;
 - displayed gain range: 17.06 to 17.39;
@@ -55,19 +55,32 @@ B2 Dexterity target completed with 8 eligible Class-S observations in Complete C
 - mean midpoint: approximately +44;
 - Happy-loss counts: 4×3, 5×1, 6×4, with every observation inside `{4,5,6}`.
 
-The candidate is therefore **`live_spot_checked`** in two narrow ordinary-training lanes: Speed and Dexterity. This is not a broad production calibration claim.
+### Defense lane
+
+B2 Defense target completed with 8 eligible consecutive Class-S observations in Complete Cardio at 5.5 dots and 10E with +2% property and +6% faction Defense gain.
+
+- confirmed contradictions: 0;
+- displayed gain range: 17.50 to 18.14;
+- zero-noise center range: approximately 17.697 to 17.785;
+- inferred-noise midpoint range: approximately -845 to +1,351 inside Defense's `[-1500,+1500]` bound;
+- mean midpoint: approximately +444;
+- Happy-loss counts: 4×3, 5×1, 6×4, with every observation inside `{4,5,6}`.
+
+The Defense sample's positive mean is preserved as an observation rather than interpreted away. Eight convenience samples are insufficient to infer systematic bias, and there is no candidate contradiction.
+
+The candidate is therefore **`live_spot_checked`** in three narrow ordinary-training lanes: Speed, Dexterity, and Defense. This is not a broad production calibration claim.
 
 ## Calibration progression
 
 - **B1: COMPLETE.** 12 eligible Speed Class-S observations, zero confirmed contradictions.
-- **B2: PARTIAL.** Dexterity has reached the 8-observation target; Strength and Defense remain untested at the target level. Additional Speed/Dex evidence is lower priority unless normal play naturally calls for it.
+- **B2: PARTIAL.** Dexterity and Defense have each reached the 8-observation target; Strength remains untested at the target level. Additional Speed/Dex/Defense evidence is lower priority unless normal play naturally calls for it.
 - **B3:** elevated-Happy single-train evidence, naturally occurring only.
 - **B4:** multi-train batch validation after sufficient single-train coverage.
 - **B5:** Fitness Center/reduced-Happy-loss, ambiguous modifiers, and post-50m boundaries.
 
 ## Still unresolved
 
-Important unresolved mechanics include Strength and Defense fidelity, broader stat/Happy ranges, post-50m behavior, special Happy-loss modifiers, ambiguous gain modifiers, probabilistic distributions, consumable/drug timelines, inventory/price normalization, API capability/freshness, and long-horizon strategy ranking.
+Important unresolved mechanics include Strength fidelity, broader stat/Happy ranges, post-50m behavior, special Happy-loss modifiers, ambiguous gain modifiers, probabilistic distributions, consumable/drug timelines, inventory/price normalization, API capability/freshness, and long-horizon strategy ranking.
 
 ## Product boundary
 
@@ -79,4 +92,4 @@ No API key, private player state, inventory export, raw calibration history, or 
 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-The next evidence action is B2 breadth: prefer routine single-train Strength or Defense observations over collecting additional Speed or Dexterity purely for research.
+The next evidence action is B2 breadth: prefer routine single-train Strength observations over collecting additional Speed, Dexterity, or Defense purely for research.
