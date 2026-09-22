@@ -710,3 +710,184 @@ continue.
    - no committed private hand histories or API credentials.
 
 CA-00D is architectural research only. It is not a product-code authorization.
+
+
+## Decision-state and falsification pass — 2026-09-22
+
+### High-Low has two distinct decisions
+
+The official cash-out rule creates two mathematically different decision states that
+should not be collapsed into one recommendation:
+
+1. **Post-win / before continuing:** the player can cash **100%** of the current pot
+   or continue into another round.
+2. **Dealer card already visible:** the player can cash **50%** of the current pot or
+   choose Higher/Lower.
+
+That distinction matters for the engine and UI.
+
+Under the still-unverified but strongly supported community model of one fresh
+52-card deck with same-rank ties acting as a push, a fresh-deck one-round calculation
+gives:
+
+- average probability of choosing the correct direction after seeing the dealer rank:
+  `160 / 221 ≈ 72.3982%`;
+- fresh-deck tie probability after the visible dealer card is removed:
+  `3 / 51 = 1 / 17 ≈ 5.8824%`.
+
+If a tie preserves the pot, the simple one-resolution continuation factor is:
+
+`EV / pot = (160/221) * (1 + modifier) + 1/17`.
+
+That expression is exactly 1.0 at a **30% modifier**. A simulation that also consumes
+cards through forced tie replays produced a break-even near 30%, not the old
+community-guide rule of roughly 42%.
+
+**Status: DERIVED CONDITIONAL / TESTING.** This result depends on `HL-H01` and
+`HL-H03` being true and does not yet include the exact Torn shuffle transition.
+It must not become product advice until live behavior is verified.
+
+This finding is important because the long-circulating 2016 community guide derived
+its ~42% threshold from an assumed average win rate around 71% and did not correctly
+credit ties as a neutral continuation in its simple expected-payout equation. The
+guide itself later acknowledged uncertainty about the actual deck.
+
+Source:
+- https://www.torn.com/forums.php?a=0&b=0&f=61&p=threads&t=15960774
+
+A 2026 MIT-licensed community helper independently demonstrates the more appropriate
+architecture: tracked 52-card composition, explicit tie-as-push mode, recursive EV,
+and separate Higher/Lower/Cash evaluation. We may study its assumptions and tests,
+but TornScriptures should independently validate mechanics and math rather than copy
+its conclusions.
+
+Source:
+- https://greasyfork.org/en/scripts/566026-torn-high-low-brain-bloodawn
+
+**Product implication:** the future High-Low module should expose both
+`CASH 100% vs CONTINUE` and, after the next dealer card appears,
+`CASH 50% vs HIGHER vs LOWER`.
+
+### Craps: the Wiki contradiction is mathematically decisive
+
+The current official Torn Wiki says a Don't Pass wager wins on 2, 3 **and 12** on
+the come-out. Current community/live-game descriptions say 12 should push.
+
+If the Wiki wording were literally implemented with an even-money Don't Pass payout,
+standard two-dice combinatorics produce approximately a **+1.4141% player edge** on
+Don't Pass. If 12 pushes, the standard Don't Pass result is approximately a
+**1.3636% house edge**.
+
+That matters because Chedburn's January 2026 casino statement says most Torn casino
+games are slightly house-favoured and does not list Craps as an exception. The
+combination strongly suggests either:
+
+- the Wiki is stale/wrong about 12;
+- Torn uses a nonstandard payout elsewhere that restores a house edge; or
+- current live behavior materially differs from the documented text.
+
+This does **not** prove which alternative is correct. It raises `CR-H03` from a
+minor documentation discrepancy to a priority live falsification target.
+
+Sources:
+- https://wiki.torn.com/wiki/Craps
+- https://www.torn.com/forums.php?p=threads&t=16486332
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16419046
+
+Community bug reports and 2025 player discussion also converge on Torn allowing odds
+bets and capping them at **3x the line wager regardless of point**, rather than the
+common real-casino 3-4-5x schedule. This remains COMMUNITY until observed directly.
+
+Sources:
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16419046
+- https://www.torn.com/forums.php?a=0&b=0&f=15&p=threads&t=16470166
+
+### Spin the Wheel: stop timing can be tested without guessing
+
+Community reports spanning many years describe the reward as committed at Spin time,
+with the wheel animation and Stop button only revealing that already-selected result.
+Reports include hospitalization occurring before the wheel animation stops and the
+same reward surviving refresh/disconnection.
+
+This is unusually falsifiable from ordinary play because hospitalization, balance,
+item/event state, and Last Spins may update before the visible wheel stops.
+
+Status remains **COMMUNITY / TESTING**, not OFFICIAL.
+
+Sources:
+- https://www.torn.com/forums.php?a=0&b=0&f=2&p=threads&start=120&t=15969157
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16455728
+
+If verified, the future Wheel module should remove Stop timing from strategy entirely
+and focus on outcome probabilities plus live prize valuation.
+
+### Blackjack implementation warning: generic basic strategy is insufficient
+
+The current Wiki confirms a normal visible dealer up-card but Torn-specific favorable
+rules. A 2021 patch-era community quotation additionally records **No dealer blackjack
+check** as one of the favorable rules retained when the game moved to eight decks.
+The January 2026 Chedburn post confirms the current favorable rule set and +0.37%
+perfect-play estimate but does not explicitly restate the dealer-check mechanic.
+
+Sources:
+- https://wiki.torn.com/wiki/Blackjack
+- https://www.torn.com/forums.php?a=0&b=0&f=15&p=threads&t=16227363
+- https://www.torn.com/forums.php?p=threads&t=16486332
+
+Separately, 2025 community discussion reports that after a split Torn resolves each
+player hand against a **fresh dealer hand**, rather than using one dealer result
+against both split hands. If true, this is a major Torn-specific EV difference.
+
+Source:
+- https://www.torn.com/forums.php?p=threads&t=16479131
+
+Both mechanics must be observed before freezing the Blackjack recursive solver.
+A generic eight-deck S17 strategy table is therefore explicitly rejected as the
+implementation baseline.
+
+## CA-00 live verification matrix
+
+These observations can be gathered during normal low-stake play on the actively
+viewed page. No background scraping or automatic gameplay is required.
+
+| ID | Game | Minimum observation | Resolves |
+| --- | --- | --- | --- |
+| BJ-V01 | Blackjack | Dealer Ace/10 hand where insurance/surrender/check ordering is visible | dealer-check + early-surrender sequence |
+| BJ-V02 | Blackjack | One naturally occurring split carried through both hands | whether dealer hand is shared or regenerated |
+| BJ-V03 | Blackjack | Split aces | hit controls + settlement behavior |
+| HL-V01 | High-Low | Begin immediately after visible "deck shuffled" notice and record ranks until next shuffle | deck size/composition + shuffle trigger |
+| HL-V02 | High-Low | Same-rank outcome | exact tie transition, pot preservation, next-card state |
+| HL-V03 | High-Low | Record displayed modifier and exact pot before/after a win | multiplier arithmetic + rounding |
+| CR-V01 | Craps | Don't Pass with come-out 12 | win vs push vs other payout |
+| CR-V02 | Craps | Establish each point family and inspect max odds control | 3x cap + allowed increments |
+| CR-V03 | Craps | Resolve odds wagers on 4/10, 5/9, 6/8 | exact true-odds payout map |
+| ROU-V01 | Roulette | Inspect wheel and bet board once | single-zero layout + supported bet classes |
+| ROU-V02 | Roulette | Small resolved bets across representative classes | payout table + rounding |
+| RR-V01 | Russian Roulette | Observe one/two/three-shot control states and resulting action log | turn-state transitions |
+| WHEEL-V01 | Wheel | Spin normally and watch event/balance/status before pressing Stop | whether server result precedes animation stop |
+| POK-V01 | Poker | Complete a small multi-player hand with side pot if naturally available | rake/fee + side-pot/odd-chip behavior |
+
+The verification matrix is observational. It does not authorize automated actions,
+large wagers, or intentionally expensive setups. If a rare state arises naturally,
+capture it; otherwise leave the hypothesis open.
+
+## Candidate current DOM contracts from community tooling
+
+Current public userscripts provide useful, noncanonical evidence that the active page
+contains enough state for our intended adapters:
+
+- Blackjack helpers currently target `loader.php?sid=blackjack` and
+  `page.php?sid=blackjack`.
+- High-Low helpers target `page.php?sid=highlow`; one current implementation uses
+  a `.highlow-main-wrap` container and visible Higher/Lower action controls.
+- Current High-Low scripts report successful PDA/mobile operation and MutationObserver
+  based updates.
+
+Sources:
+- https://greasyfork.org/en/scripts/569083-torn-blackjack-helper/code
+- https://greasyfork.org/en/scripts/566026-torn-high-low-brain-bloodawn/code
+- https://www.torn.com/forums.php?p=threads&t=16501504
+
+These selectors are **COMMUNITY / MUTABLE**, not a Torn API contract. TornScriptures
+should use semantic fallback detection, duplicate-safe observers, and fail closed when
+state cannot be parsed.
