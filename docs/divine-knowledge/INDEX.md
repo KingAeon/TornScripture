@@ -39,6 +39,7 @@ See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate,
 - `domains/bazaar/`
 - `domains/torn-api/`
 - `domains/training-optimization/` — battle-stat training, Happy Jump research, and advisory optimization.
+- `domains/casino-analysis/` — casino rules, probability, EV, evidence, and advisory research.
 - `domains/platform/`
 - `domains/tooling/` — lightweight developer-tool leads and current tool-use doctrine.
 
@@ -49,6 +50,7 @@ See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate,
 - `chapters/dq-ext-001/`
 - `chapters/dq-trade-001-002/` — superseded next-step plan retained as optional trade-visibility research.
 - `chapters/dq-train-001/` — active battle-stat training and Happy Jump optimization research.
+- `chapters/dq-casino-001/` — active Casino Advisor evidence gathering and mechanics research.
 
 ## Provenance rule
 
