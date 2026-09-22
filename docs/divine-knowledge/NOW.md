@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-14 training-optimization research track opened
+Snapshot: 2026-09-22 casino-analysis research track opened
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|f3fdadd07106895d5d05960248414566dc3133a2
+MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -14,6 +14,12 @@ BLOCKERS|none_known
 PARALLEL|DQ-TRAIN-001|active_research_scoping
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
+
+PARALLEL|DQ-CASINO-001|active_research_gathering
+CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
+CASINO_PHASE|CA-00B shallow sweep + CA-00C unknown-mechanics registry
+CASINO_FINDING|Keno payout table supports exact hypergeometric RTP; RR multi-shot risk model requires Torn-specific verification
+CASINO_NEXT|deepen unresolved rules, verify live page contracts, then map shared engines before implementation order
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
