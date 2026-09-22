@@ -17,9 +17,9 @@ TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specificatio
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
-CASINO_PHASE|CA-00B shallow sweep + CA-00C unknown-mechanics registry
-CASINO_FINDING|Keno payout table supports exact hypergeometric RTP; RR multi-shot risk model requires Torn-specific verification
-CASINO_NEXT|deepen unresolved rules, verify live page contracts, then map shared engines before implementation order
+CASINO_PHASE|CA-00B/CA-00C deepening + CA-00D shared-engine map opened
+CASINO_FINDING|Ched 2026 confirms favorable Blackjack rules and states +0.37% perfect-play player edge; Keno exact RTP/cap math derived; RR extra-shot math conditionally mapped
+CASINO_NEXT|finish live-rule falsification targets and DOM/API contracts; then score game modules for CA-00E implementation order
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
