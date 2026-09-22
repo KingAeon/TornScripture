@@ -71,9 +71,20 @@ Source:
 **Research value:** very high. A Torn-specific exact EV engine is preferable to a
 generic basic-strategy chart.
 
-**Open:** surrender timing/type, dealer hole-card peek behavior, split-ace restrictions,
-push/insurance edge cases, wager limits, exact visible DOM contract, and exact
-rounding/settlement behavior.
+**OFFICIAL staff clarification, 2026-01-06.** Chedburn separately stated Torn's
+current Blackjack rules as: eight decks, dealer stands soft 17, **early surrender**,
+**hit after split aces**, double after split, double any two cards, Blackjack pays
+3:2, Six-Card Charlie, and one split only. He said Torn consulted Michael Shackleford
+(Wizard of Odds) in 2021 and paraphrased the analysis as a 0.37% player edge when
+played to absolute perfection. This staff-attributed edge is a research target to
+reproduce independently, not a substitute for our own solver validation.
+
+Source:
+- https://www.torn.com/forums.php?p=threads&t=16486332
+
+**Open:** dealer hole-card/peek behavior, insurance interaction, dealer handling of
+split hands, push edge cases, current wager limit, exact visible DOM contract, and
+settlement rounding.
 
 ### Poker
 
@@ -172,8 +183,15 @@ Community cross-check:
 prediction because selected number identities are symmetric if Torn's stated random
 draw is functioning as documented.
 
-**Open:** quantify the $10b payout cap at every affected wager/pick combination and
-record variance/tail-risk metrics.
+**DERIVED cap result.** At the documented $1,000,000 maximum stake, the $10b win cap
+only truncates payout multipliers above 10,000x. Under the current table this affects
+9-pick 9/9 (50,000x), and 10-pick 9/10 (50,000x) and 10/10 (100,000x).
+The capped maximum-stake RTP becomes approximately **99.512659% for 9 picks** and
+**98.806174% for 10 picks**. Lower pick counts and lower stakes remain unaffected by
+the cap under the published table.
+
+**Open:** record variance, loss-frequency, tail-risk, and bankroll-distribution metrics
+so the advisor does not reduce a high-variance game to a single RTP number.
 
 ### Craps
 
@@ -377,3 +395,318 @@ Research currently points toward:
 - The UI must not imply certainty beyond the evidence.
 - The final tool remains advisory unless a later owner-approved specification
   separately validates a user-triggered action.
+
+
+## Deepening pass — 2026-09-22
+
+### Cross-casino official baseline
+
+**OFFICIAL staff statement.** In January 2026, Chedburn stated that most Torn casino
+games are slightly house-favoured, while identifying Russian Roulette, Poker, and
+Lottery as exceptions with "equal ratios", and Spin the Wheel as producing more value
+than it takes in. This is useful directional evidence, but "equal ratios" must not be
+silently translated into a game-specific probability model. In PVP games it may simply
+describe zero-sum / no-house behavior.
+
+Source:
+- https://www.torn.com/forums.php?p=threads&t=16486332
+
+### Blackjack rule freeze candidate
+
+The 2026 Chedburn statement resolves two previously open mechanics:
+
+- `BJ-R01` — surrender type: **early surrender** — OFFICIAL.
+- `BJ-R02` — split aces may be hit — OFFICIAL.
+
+It also confirms no re-split, double after split, double any two cards, 3:2 Blackjack,
+eight decks, soft-17 stand, and Six-Card Charlie.
+
+The quoted/paraphrased consultant decomposition was:
+
+- base house edge: 0.42%;
+- Six-Card Charlie contribution: 0.16% to the player;
+- early surrender versus ten: 0.24%;
+- early surrender versus ace: 0.39%;
+- stated net: -0.37% house edge, i.e. +0.37% player edge under perfect play.
+
+This decomposition remains **OFFICIAL STAFF-ATTRIBUTED / NOT YET INDEPENDENTLY
+REPRODUCED**. Our solver must reproduce or explain any discrepancy before the value is
+used in product copy.
+
+### High-Low evidence convergence
+
+Current community observations are increasingly consistent with a persistent
+single-deck model:
+
+- historical guides describe a 52-card deck and card counting between shuffles;
+- recent 2026 player discussion says the game visibly announces shuffles and describes
+  a reset when 32 cards remain;
+- a current PDA-compatible tracker advertises automatic visible-card tracking,
+  shuffle/reset detection, remaining-card counts, and Higher/Lower calculation.
+
+This raises confidence in `HL-H01` / `HL-H02`, but they remain **COMMUNITY /
+TESTING** until current live observations reproduce the deck size, no-duplicate
+behavior, and exact reset point.
+
+An advisor should distinguish:
+1. probability of Higher;
+2. probability of Lower;
+3. tie probability and treatment;
+4. expected pot change after the global 15–35% modifier;
+5. cash-out value now versus continuing.
+
+### Craps contradiction registry
+
+A direct contradiction now exists:
+
+- the current Torn Wiki says Don't Pass wins on 2, 3, **or 12** on the come-out;
+- community descriptions of the live game have described 12 as a push, matching
+  conventional craps.
+
+Therefore `CR-H03` is a priority falsification target. We must not use a generic
+casino craps table until the live Torn behavior is observed.
+
+Community reports also describe an odds bet capped at 3x. Add:
+
+- `CR-H04` — verify whether Torn odds wagers pay true odds and map exact point-specific
+  payouts.
+
+### Russian Roulette strategy math
+
+Under the six-position one-bullet without-replacement candidate model, define `r`
+remaining possible positions and `s` consecutive shots taken this turn.
+
+- immediate loss probability for the acting player: `s / r`;
+- survive-turn probability: `(r-s) / r`.
+
+A minimax dynamic program under this model, with each player choosing 1–3 shots where
+unlocked, gives an important candidate conclusion:
+
+- at the fresh `r=6` state, taking one shot preserves a 50% game-win probability;
+- voluntarily taking two shots reduces the acting player's game-win probability to
+  1/3;
+- taking three at the fresh state is also no better than 1/3;
+- extra shots can tie the one-shot value in certain late states, but did not improve
+  optimal win probability in the tested state space.
+
+This is **DERIVED CONDITIONAL ON RR-H01**, not a Torn fact. It does support the user's
+initial intuition in a narrower form: extra shots change which future chamber
+positions belong to which player, but without private information that reallocation
+does not itself steer the hidden bullet to the opponent. It is usually additional
+exposure.
+
+The future RR module should be able to show both:
+- immediate turn risk; and
+- whole-game win probability conditional on the verified Torn state model.
+
+### Roulette
+
+Current community guides consistently describe Torn as European-style single-zero
+roulette with 37 spaces (0–36) and standard payouts. If live observation confirms
+that rule set, standard wagers all carry the familiar `1/37 ≈ 2.7027%` house edge.
+
+Until the live wheel and payout table are checked:
+
+- `ROU-H01` — verify 0–36 single-zero layout;
+- `ROU-H02` — verify each payout class;
+- `ROU-H03` — verify current per-position and aggregate wager limits.
+
+Past-spin history may be displayed descriptively, but streaks must not be converted
+into predictive advice without evidence of non-independent outcomes.
+
+### Slots
+
+The official Wiki publishes the current visible pay table:
+
+- Pinata 2x;
+- Duck Hunting 3x;
+- Flock O'Ducks 3x;
+- Serious Duck Hunting 4x;
+- Radioactive 2000x;
+- Jackpot = progressive jackpot.
+
+It also publishes stakes from $10 through $10m and relative jackpot-chance scaling
+from x2 at $100 to x64 at $10m, but not the base jackpot probability or reel-symbol
+distribution.
+
+Therefore exact Slots RTP cannot currently be derived from the public rule table
+alone. Historical/session logs can estimate empirical return, but no next-spin
+prediction is justified.
+
+### Spin the Wheel
+
+**OFFICIAL.** The current Wiki lists the three daily wheels, entry prices, prize
+lists, once-per-day limit, free-spin outcomes, hospitalization outcomes, and warns
+that the client animation can display an incorrect result while Last Spins is
+authoritative.
+
+**OFFICIAL historical/staff statement.** Chedburn's launch announcement said the
+wheel system was designed to give out more value on average than it received. The
+2026 Chedburn casino post repeated that Spin the Wheel produces more value than it
+takes in.
+
+**COMMUNITY EMPIRICAL.** TDup's Leslie Wheels Profitability project collected hundreds
+of thousands of contributed spins. Its 2024 update reported 888,371 spins from 1,705
+players and, using then-current item/point values, estimated:
+- Awesome: about -$42k per spin;
+- Mediocrity: about +$65k per spin;
+- Lame: about +$3.5k per spin.
+
+Earlier snapshots estimated Private Island probability around 0.04–0.05%.
+
+This apparent tension is not necessarily a mechanical contradiction. Wheel outcome
+probabilities can remain fixed while market-valued prizes such as points, items, and
+properties change price. Consequently TornScriptures should treat **probability
+estimation** and **current prize valuation** as separate inputs.
+
+Open:
+- `WHEEL-H01` — verify whether current outcome probabilities remain compatible with
+  the large historical sample;
+- `WHEEL-H02` — determine whether Stop timing has any causal effect. Community claims
+  say the result is predetermined; current evidence is insufficient to elevate this
+  to OFFICIAL;
+- `WHEEL-H03` — build a live EV model that revalues mutable prizes instead of storing
+  old profitability conclusions.
+
+### Lottery
+
+The official Wiki confirms:
+- Daily Dime: $100 + 1 token per ticket;
+- Lucky Shot: $10,000 + 1 token per ticket;
+- Holy Grail: $1,000,000 + 1 token per ticket;
+- Lottery Voucher: 100 Lucky Shot entries.
+
+Chedburn's 2026 "equal ratios" description is consistent with the lottery acting as a
+participant-funded game rather than a conventional fixed house-edge game, but the
+exact current payout-pool construction still needs to be frozen.
+
+For a drawing with `u` user tickets among `T` eligible tickets:
+`P(win) = u / T`.
+
+For buying `n` additional tickets when the player already owns `u` and the field
+currently contains `T`, the post-purchase probability is:
+`P(win after purchase) = (u+n)/(T+n)`.
+
+A correct EV display also needs jackpot value, token opportunity cost, and whether
+additional-ticket purchases themselves increase the jackpot/pool.
+
+### Poker
+
+The official Poker page documents PVP Texas Hold'em mechanics and split pots. Current
+community discussion continues to describe Torn Poker as having no rake; Chedburn's
+2026 "equal ratios" statement is consistent with no house take, but it is not an
+explicit current rake specification.
+
+Keep:
+- `POK-H01` — verify current rake/fee behavior from the live table;
+- `POK-H02` — verify side-pot and odd-chip settlement details;
+- `POK-H03` — map exactly which opponent actions/history remain visible on the active
+  page and may be stored browser-locally.
+
+### Bookie
+
+The current Wiki confirms live odds from an off-site provider, odds locked at bet
+placement, final/non-cancellable wagers, cash-only betting, and a $1b per-event cap.
+
+For decimal odds `o_i`, implied break-even probability is `q_i=1/o_i`.
+For mutually exclusive and exhaustive outcomes, raw market overround is:
+
+`overround = sum(q_i) - 1`.
+
+A simple proportional no-vig normalization candidate is:
+
+`p_i = q_i / sum(q_j)`.
+
+That normalization describes the bookmaker market, not the true probability of the
+sporting result. External predictive sports models remain a separate research track.
+
+### API and historical-data contract
+
+A valuable architecture improvement emerged from current API research.
+
+**OFFICIAL.**
+- API v2 added `user -> casino` in April 2026. It exposes current casino streak and
+  remaining casino tokens.
+- Torn marked `user -> casino` stable in August 2026.
+- The endpoint is not a detailed game-history feed.
+- User logs can expose historical casino activity; Torn's API supports querying log
+  categories/types and time windows, subject to the user's key permissions.
+- Forum examples show casino logs can include bet amount, win/loss, and detailed
+  outcomes for games such as Slots, Roulette, High-Low, and Craps.
+- RR log identifiers have been staff-confirmed historically for start/join/win/loss,
+  but identifiers must be re-read from current `torn -> logtypes` rather than
+  hardcoded forever.
+
+Sources:
+- https://www.torn.com/api.html
+- https://www.torn.com/forums.php?a=0&b=0&f=63&p=threads&start=360&t=16401584
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16426246
+- https://www.torn.com/forums.php?a=0&b=0&f=4&p=threads&t=16412158
+
+Candidate data architecture:
+
+`active page = live decision state`
+
+`user/casino = streak + token state`
+
+`optional authorized user/log import = historical self-analytics / validation corpus`
+
+`browser local = derived session statistics and observations`
+
+This split is preferable to using background page scraping for history.
+
+## CA-00D — shared-engine map (opened)
+
+Evidence is now sufficient to begin mapping reusable internals while CA-00B/CA-00C
+continue.
+
+1. **Probability Core**
+   - exact rational/combinatorial calculations;
+   - hypergeometric/binomial helpers;
+   - conditional-probability trees;
+   - uncertainty and confidence intervals for empirical estimates.
+
+2. **EV / Payout Core**
+   - gross/net return;
+   - house edge / player edge;
+   - caps and nonlinear payouts;
+   - break-even thresholds;
+   - dynamic market-value inputs separated from fixed game mechanics.
+
+3. **Card Core**
+   - rank/suit/deck model;
+   - remaining-card accounting;
+   - Blackjack recursive EV;
+   - Hold'em evaluator, outs, and range equity;
+   - High-Low deck-state probabilities.
+
+4. **Dice Core**
+   - two-dice outcome distribution;
+   - Craps point-state transitions;
+   - exact wager settlement.
+
+5. **Turn-State Core**
+   - Russian Roulette remaining-state model;
+   - multi-action transitions;
+   - state-machine representation reusable for Blackjack, High-Low, and Craps.
+
+6. **Evidence / Provenance Core**
+   - attach OFFICIAL / DERIVED / OBSERVED / COMMUNITY / TESTING / REJECTED state to
+     advice;
+   - expose assumptions next to calculated output;
+   - fail closed when a Torn-specific mechanic is unresolved.
+
+7. **Data Adapter Layer**
+   - active-page DOM adapters by game;
+   - optional stable Torn API selections;
+   - optional authorized self-log history import;
+   - no hidden/background-page scraping.
+
+8. **Local Observation Store**
+   - session results;
+   - player-observed Poker tendencies;
+   - empirical wheel/slots distributions;
+   - validation fixtures;
+   - no committed private hand histories or API credentials.
+
+CA-00D is architectural research only. It is not a product-code authorization.
