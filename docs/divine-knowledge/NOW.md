@@ -18,8 +18,8 @@ TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specificatio
 PARALLEL|DQ-CASINO-002|specification_prep_live_rule_gates
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
 CASINO_PHASE|CA-00 landed via PR#120; CA-01 Blackjack specification opened
-CASINO_FINDING|BJ favorable rules staff-confirmed; Keno exact RTP/cap math derived; RR consecutive-shot behavior evidenced and 1x weakly optimal under candidate model; High-Low shuffle threshold remains contradictory
-CASINO_NEXT|capture BJ-V01 dealer-blackjack sequence + BJ-V02 split dealer resolution; then freeze Torn rule profile for owner review
+CASINO_FINDING|CA-01: Torn admin confirms fresh dealer hand per split and 2:1 insurance side-bet settlement; natural > 6CC precedence frozen; no-peek behavior high-confidence but exact dealer-natural exposure settlement still open
+CASINO_NEXT|resolve BJ-V01 exact dealer-natural exposure settlement + BJ-V02B split card-accounting semantics; then freeze CA-01 Torn rule profile for owner review
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
