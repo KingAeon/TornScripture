@@ -17,9 +17,9 @@ TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specificatio
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
-CASINO_PHASE|CA-00B/CA-00C deepening + CA-00D shared-engine map opened
+CASINO_PHASE|CA-00A complete; CA-00B/CA-00C deepened; CA-00D adapter/shared-engine maps open; CA-00E provisional readiness map recorded
 CASINO_FINDING|BJ favorable rules staff-confirmed; Keno exact RTP/cap math derived; RR consecutive-shot behavior evidenced and 1x weakly optimal under candidate model; High-Low shuffle threshold remains contradictory
-CASINO_NEXT|finish live falsification targets + remaining DOM contracts; then perform CA-00E module scoring and select first specification target
+CASINO_NEXT|public-source research is near diminishing returns; capture low-stake live verification matrix, then freeze CA-01 Blackjack specification
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
