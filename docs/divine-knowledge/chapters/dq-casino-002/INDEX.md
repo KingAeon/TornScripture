@@ -567,3 +567,139 @@ Still critical:
 Secondary:
 - split aces controls;
 - insurance stake configurability / rounding.
+
+
+## CA-01 model-discrimination pass — 2026-09-23
+
+Public research was continued specifically against the two remaining hard gates rather
+than collecting more generic Blackjack material.
+
+### BJ-V01 — dealer-natural extra-exposure policy
+
+The remaining ambiguity is now represented explicitly as two candidate settlement
+policies:
+
+- `OBO` — dealer Blackjack takes the original wager only; optional Double/Split
+  exposure is returned/pushed.
+- `ENHC_FULL` — dealer Blackjack takes all active exposure, including Double/Split
+  additions.
+
+Evidence:
+
+1. **HISTORICAL COMMUNITY (2014):** an old Torn Blackjack guide explicitly states
+   "Only original bets are lost on dealer blackjack."
+   Source:
+   - https://www.torn.com/forums.php?a=0&b=0&f=17&p=threads&t=15927051
+
+2. **CURRENT COMMUNITY OBSERVATION (2025):** a player with real-world dealing
+   experience reports Torn currently allows Split/Double before a dealer natural is
+   finally resolved. This confirms no-immediate-peek behavior, but does not state what
+   happens to the extra stake.
+   Source:
+   - https://www.torn.com/forums.php?a=0rh%3D2&b=0&f=2&p=threads&start=20&t=16486332
+
+3. **OFFICIAL STAFF EDGE TARGET (2026):** Chedburn reports approximately +0.37%
+   perfect-play player edge under Torn's current rules.
+   Source:
+   - https://www.torn.com/forums.php?a=0rh%3D92&b=0&f=17&p=threads&start=340&t=16486332
+
+4. **EXTERNAL CALCULATOR CAUTION:** Beating Bonuses defines its "Dealer Does Not Peek"
+   setting as the European-style case where the full doubled/split bet is lost on
+   dealer Blackjack. With the published Torn-like settings (8 decks, S17, DOA, DAS,
+   hit split aces, 6-card Charlie, full early surrender, no re-split) its strategy
+   calculator reports approximately **+0.38% player edge**.
+   Sources:
+   - https://www.beatingbonuses.com/houseedge.htm
+   - https://www.beatingbonuses.com/bjstrategy.php?decks=8&soft17=stand&doubleon=any2cards&peek=off&das=on&dsa=on&charlie=on&surrender=earlyf&opt=1&btn=Generate+Strategy
+
+5. **EXTERNAL RULE SEMANTICS:** Wizard of Odds distinguishes OBO from full-loss
+   no-hole-card treatment; OBO is mathematically equivalent to ordinary peek
+   protection for Double/Split exposure, while full-loss no-hole-card treatment is a
+   separate player penalty.
+   Sources:
+   - https://wizardofodds.com/games/australian-blackjack/
+   - https://wizardofodds.com/games/blackjack/rule-variations/
+
+**Conclusion:** Chedburn's headline +0.37% benchmark cannot by itself resolve OBO
+versus full-loss treatment. A third-party full-loss no-peek calculator lands near the
+same aggregate edge once Torn's other favorable rules are included. The 2014 OBO
+statement is useful historical evidence but predates the 2021 rules retuning.
+
+Therefore `BJ-V01` remains **TESTING / HIGH-CONFIDENCE NO-PEEK, UNRESOLVED EXPOSURE
+SETTLEMENT**. Do not freeze OBO or ENHC_FULL without a current settlement specimen or
+authoritative staff statement.
+
+### BJ-V02B — split shoe/card-accounting policy
+
+Three candidate models are now explicit:
+
+- `SPLIT_SHARED_DEPLETION` — all cards exposed in split branch 1 remain removed for
+  branch 2; dealer upcard is logically reused once.
+- `SPLIT_FRESH_BRANCH_SHOE` — branch 2 is dealt from a newly shuffled eight-deck
+  population while preserving the same displayed dealer upcard.
+- `SPLIT_HYBRID` — player split cards remain part of one round state, but Torn
+  regenerates dealer-side state for each branch with special card-accounting rules.
+
+Evidence:
+
+- **OFFICIAL ADMIN (2024):** Torn intentionally reuses the dealer face-up card but
+  deals a new dealer hand for the second split branch.
+  Source:
+  - https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16387030
+
+- **HISTORICAL COMMUNITY REPORT OF DEV BEHAVIOR (2017):** players reported that the
+  shuffle condition was checked when Split was taken and that, if triggered, a new
+  second deck could be used during the split. This is pre-2018 and therefore cannot
+  be treated as current mechanics, but it proves Torn's split implementation has
+  historically had special deck-state behavior rather than being a conventional
+  physical-shoe split.
+  Source:
+  - https://www.torn.com/forums.php?p=threads&t=16012389
+
+- **OFFICIAL PATCH HISTORY:** Blackjack has shuffled after every game since
+  2018 and uses eight decks since 2021.
+  Source:
+  - https://wiki.torn.com/wiki/Black_Jack
+
+- **OWNER LIVE OBSERVATION (2026-09-23):** the second K/Q split branch reused the same
+  dealer 3 upcard and independently generated a new dealer draw sequence, matching the
+  admin-described behavior. The first branch's full dealer sequence was not captured,
+  so depletion across branches remains unobservable from that specimen.
+
+**Conclusion:** `BJ-V02B` remains open, but the uncertainty is now isolated to a
+small rule-policy surface. The solver must not bury this in the generic deck class.
+
+### Architecture consequence
+
+Two previously implicit mechanics are promoted to explicit rule-profile enums:
+
+```text
+dealer_blackjack_exposure =
+  OBO
+  | ENHC_FULL
+  | UNFROZEN
+
+split_shoe_policy =
+  SHARED_DEPLETION
+  | FRESH_BRANCH_SHOE
+  | HYBRID
+  | UNFROZEN
+```
+
+This lets deterministic fixtures be written for each candidate mathematical model
+without pretending the Torn-specific choice has already been proven.
+
+### Research stop condition for these two gates
+
+Additional generic strategy guides no longer add meaningful evidence.
+
+Close `BJ-V01` only with:
+- current live settlement after Double/Split into dealer natural; or
+- a current authoritative Torn statement describing extra-bet settlement.
+
+Close `BJ-V02B` only with:
+- one complete current split card sequence with both dealer branches; or
+- current structured page-state evidence that exposes enough deck/branch state to
+  distinguish the models.
+
+Until then, both remain explicit uncertainty rather than guessed constants.
