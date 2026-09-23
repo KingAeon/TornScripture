@@ -101,11 +101,15 @@ six_card_charlie = true
 insurance = offered_vs_ace
 insurance_payout = 2_to_1
 dealer_blackjack_resolution = UNFROZEN
-split_dealer_resolution = UNFROZEN
+split_dealer_resolution = fresh_dealer_per_split_hand
+six_card_charlie_precedence = loses_to_blackjack; vs_6CC_high_total_wins
 settlement_rounding = UNFROZEN
 ```
 
-The three `UNFROZEN` fields are hard gates for the final Torn rule profile.
+The remaining `UNFROZEN` fields are hard gates for the final Torn rule profile.
+`split_dealer_resolution` is now staff-confirmed at the behavioral level, while exact
+finite-shoe depletion/reuse across the second split settlement still needs one live
+fixture before the split EV implementation is considered exact.
 
 ## Card model
 
@@ -250,30 +254,38 @@ The solver must support:
 - action availability returned by Torn;
 - configurable dealer resolution model.
 
-Two candidate dealer-resolution models must remain separate until live verification:
+**OFFICIAL ADMIN, 2024.** Torn resolves split hands against separate dealer hands.
+A player reported that the dealer's visible upcard is restored for the second split
+hand while the dealer's remaining cards are re-dealt; Torn admin aurel1 replied that
+this is how Torn Blackjack works and had worked that way for nine years.
 
-1. **shared dealer hand** — conventional settlement: one dealer result resolves both
-   player hands;
-2. **fresh dealer per split hand** — reported by some Torn players and materially
-   different mathematically.
+Source:
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16387030
 
-The solver must not approximate one model with the other.
+Therefore the behavioral profile is frozen to **fresh dealer per split hand**, not the
+conventional shared-dealer-hand model.
+
+One narrower question remains: exact finite-shoe accounting between the two split
+settlements. The visible upcard is reused, so the solver must not assume ordinary
+physical-shoe depletion semantics without a current state/log fixture. Track this as
+`BJ-V02B`.
 
 ## Six-Card Charlie
 
 A non-busted six-card hand must be represented as a distinct terminal state rather
 than as an ordinary point total.
 
-Open settlement questions include:
+**OFFICIAL.** The current Torn Wiki states that a Six-Card Charlie beats every holding
+except Blackjack and another Six-Card Charlie; if both sides have a Six-Card Charlie,
+the higher total wins. A 2022 admin response separately confirmed that a natural
+Blackjack beats a Six-Card Charlie.
 
-- exact precedence against dealer natural Blackjack;
-- whether dealer Charlie is independently possible/relevant;
-- split-hand Charlie behavior;
-- payout/rounding edge cases.
+Sources:
+- https://wiki.torn.com/wiki/Blackjack
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16307168
 
-Current Torn documentation and staff statements make Charlie itself official, but the
-solver should retain explicit terminal precedence instead of assuming generic casino
-behavior.
+The terminal precedence is therefore no longer open. Remaining Charlie questions are
+limited to split-hand presentation and payout/rounding edge cases.
 
 ## Active-page adapter candidate
 
@@ -316,16 +328,29 @@ Resolve:
 - if the player doubles/splits before a dealer Blackjack is revealed, how much
   exposure is lost?
 
-### BJ-V02 — split dealer resolution
+### BJ-V02A — split dealer resolution — RESOLVED
 
-Capture one naturally occurring split through complete settlement.
+**OFFICIAL ADMIN.** Torn uses a fresh dealer hand for each split hand rather than one
+shared dealer result. This behavior was explicitly reported as intended, not a bug, in
+March 2024.
+
+Source:
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16387030
+
+### BJ-V02B — split finite-shoe accounting — STILL OPEN
+
+Capture one naturally occurring split through complete settlement and preserve the
+visible card sequence.
 
 Resolve:
 
-- does one dealer hand settle both player hands?
-- or is a new dealer hand generated/resolved for each split hand?
+- which visible cards are removed from the eight-deck composition before the second
+  split hand begins;
+- whether the repeated dealer upcard is logically reused without a second depletion;
+- whether dealer hole/draw cards from the first split settlement affect probabilities
+  for the second.
 
-This is a hard mathematical gate.
+This is now a narrow exactness gate rather than an unknown dealer-resolution model.
 
 ### BJ-V03 — split aces
 
@@ -338,15 +363,26 @@ Resolve:
 - Charlie behavior if six cards are somehow reached;
 - settlement consistency.
 
-### BJ-V04 — insurance arithmetic
+### BJ-V04A — insurance payout/settlement — RESOLVED
+
+**OFFICIAL ADMIN, 2024.** Insurance is a separate side bet paying 2:1. Dealer
+Blackjack still loses the main wager. An admin-confirmed example used a half-stake
+insurance bet and a 2:1 insurance win.
+
+A 2022 admin response also states that when the insurance bet wins, Torn does not
+continue to offer Hit/Stand afterward.
+
+Sources:
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16416107
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16311816
+
+### BJ-V04B — insurance stake control / rounding — STILL OPEN
 
 On a dealer Ace hand, record:
+- whether insurance is fixed at 50% of the base wager or configurable up to 50%;
+- displayed rounding for wagers that do not divide cleanly.
 
-- base wager;
-- insurance stake;
-- displayed settlement on dealer Blackjack and non-Blackjack.
-
-Resolve exact wager ratio and rounding.
+The 2:1 settlement itself is no longer open.
 
 ### BJ-V05 — ten-value split eligibility
 
@@ -418,9 +454,41 @@ We may continue refining the pure specification and gathering deterministic exte
 fixtures now.
 
 We should **not freeze the final Torn rule profile or authorize implementation** until
-BJ-V01 and BJ-V02 are resolved. BJ-V03–V05 may be captured opportunistically but
-should be resolved before claiming full Torn-rule fidelity.
+BJ-V01 and BJ-V02B are resolved. BJ-V02A and BJ-V04A are now resolved by admin
+evidence. BJ-V03, BJ-V04B, and BJ-V05 may be captured opportunistically but should be
+resolved before claiming full Torn-rule fidelity.
 
 Next after live-rule freeze:
 - owner review of the CA-01 specification;
 - then, if authorized, pure Blackjack Math Engine implementation before HUD/adapters.
+
+## CA-01 evidence deepening — post-PR#120 merge
+
+### BJ-V01 confidence increased, but exact exposure sequence remains the final major gate
+
+Three independent lines now converge on **no initial dealer-Blackjack check**:
+
+1. a 2021 Torn forum post reproduces the then-announced favorable rule set including
+   "No dealer blackjack check";
+2. current public TornTools-derived Blackjack strategy is explicitly configured with
+   dealer peek disabled;
+3. a 2025 player report describes Torn allowing Split/Double against a dealer natural
+   Blackjack.
+
+Sources:
+- https://www.torn.com/forums.php?a=0&b=0&f=15&p=threads&t=16227363
+- https://github.com/vagos9821/torn-tools-v/blob/main/extension/scripts/features/blackjack-strategy/ttBlackjackStrategy.js
+- https://www.torn.com/forums.php?a=0rh%3D2&b=0&f=2&p=threads&start=20&t=16486332
+
+This is now **HIGH-CONFIDENCE COMMUNITY / CURRENT OBSERVATION**, but not promoted to
+OFFICIAL because the 2021 wording is reproduced by a player rather than preserved in
+an identified staff post, and Chedburn's 2026 rules summary does not explicitly list
+peek behavior.
+
+The remaining live question is therefore narrower than before: not "does Torn look
+like a no-peek game?" but **exactly how extra Double/Split exposure is settled when
+the dealer ultimately reveals a natural Blackjack**.
+
+Insurance is a special branch: admin evidence confirms that a winning insurance bet
+ends the hand rather than allowing Hit/Stand to continue, so the solver must model
+insurance acceptance as a possible immediate dealer-Blackjack resolution path.
