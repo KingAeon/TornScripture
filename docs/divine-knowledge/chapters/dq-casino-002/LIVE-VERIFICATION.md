@@ -91,3 +91,23 @@ Notes:
 Once BJ-V01 and BJ-V02B are resolved, the mathematical rule profile can be frozen for
 implementation planning. BJ-V03, BJ-V04B, and BJ-V05 improve fidelity but are no
 longer the main blockers.
+
+
+## Captured 2026-09-23
+
+### Completed from owner screenshots
+- per-hand visible shuffle banner observed across multiple hands;
+- dealer Ace decision state captured;
+- mixed ten-value K/Q split eligibility directly observed;
+- split action deducted one additional full base wager;
+- second split branch visibly reused the same dealer upcard and settled independently;
+- second split branch Q+3+8=21 beat dealer 3+J+9=22 and returned $20,000 on a $10,000 hand.
+
+### Still needed
+- BJ-V01: dealer natural Blackjack after the player had an opportunity to Double or
+  Split, with settlement/balance visible;
+- BJ-V02B: one continuous split sequence preserving the first dealer branch as well
+  as the second, so exact card-depletion semantics can be reconstructed.
+
+Do not spend additional tokens merely to force these states. Capture them when they
+occur naturally.
