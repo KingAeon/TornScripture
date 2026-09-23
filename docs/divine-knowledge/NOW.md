@@ -3,7 +3,7 @@
 Snapshot: 2026-09-22 casino-analysis research track opened
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
+MAIN_AT_SNAPSHOT|ad8cbbd753471088a2cd5aaf7e1d8ed2dad164fe
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -15,16 +15,17 @@ PARALLEL|DQ-TRAIN-001|active_research_scoping
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
 
-PARALLEL|DQ-CASINO-001|active_research_gathering
+PARALLEL|DQ-CASINO-002|specification_ready_owner_review
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
-CASINO_PHASE|CA-00A complete; CA-00B/CA-00C deepened; CA-00D adapter/shared-engine maps open; CA-00E provisional readiness map recorded
-CASINO_FINDING|BJ favorable rules staff-confirmed; Keno exact RTP/cap math derived; RR consecutive-shot behavior evidenced and 1x weakly optimal under candidate model; High-Low shuffle threshold remains contradictory
-CASINO_NEXT|public-source research is near diminishing returns; capture low-stake live verification matrix, then freeze CA-01 Blackjack specification
+CASINO_PHASE|CA-01 uncertainty-aware Blackjack specification ready for owner review; no product code authorized
+CASINO_FINDING|BJ-V01 can change optimal actions but is localized to extra-exposure states; BJ-V02B next-card composition difference is bounded and can be handled by multi-profile robust-action analysis
+CASINO_NEXT|owner review CA-01; if approved, implement pure parameterized Blackjack Math Engine + deterministic tests before adapter/HUD
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
 LANDED|DIVINE-KNOWLEDGE-BOOTSTRAP|PR#113
 LANDED|UNRESOLVED-TRADE-JOURNAL|PR#116
+LANDED|CASINO-RESEARCH-CA00|PR#120
 
 TRADE_RECOVERY|API journal Load details > review > consume is supported TornPDA path
 TRADE_LIVE_DOM|best-effort only; absent complete matching snapshot must fail closed

@@ -1,6 +1,6 @@
 # Casino Analysis Domain
 
-Status: **ACTIVE RESEARCH / PRODUCT SPECIFICATION NOT FROZEN**
+Status: **ACTIVE SPECIFICATION PREP / BLACKJACK RULE PROFILE NOT FROZEN**
 
 ## Purpose
 
@@ -33,8 +33,8 @@ viewed, or present community theory as verified mechanics.
 
 ## Active chapter
 
-- `../../chapters/dq-casino-001/INDEX.md` — CA-00 research ledger, shallow survey
-  of all Torn casino games, unknown-mechanics registry, and shared-engine discovery.
+- `../../chapters/dq-casino-001/INDEX.md` — CA-00 research ledger, mechanics survey, shared-engine map, and module readiness.
+- `../../chapters/dq-casino-002/INDEX.md` — active CA-01 Blackjack math/advisor specification and live rule gates.
 
 ## Knowledge rule
 

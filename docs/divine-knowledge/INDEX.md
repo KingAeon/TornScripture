@@ -50,7 +50,8 @@ See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate,
 - `chapters/dq-ext-001/`
 - `chapters/dq-trade-001-002/` — superseded next-step plan retained as optional trade-visibility research.
 - `chapters/dq-train-001/` — active battle-stat training and Happy Jump optimization research.
-- `chapters/dq-casino-001/` — active Casino Advisor evidence gathering and mechanics research.
+- `chapters/dq-casino-001/` — Casino Advisor evidence gathering and mechanics research; landed via PR#120.
+- `chapters/dq-casino-002/` — CA-01 Blackjack specification prep and live rule freeze.
 
 ## Provenance rule
 
