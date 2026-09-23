@@ -891,3 +891,138 @@ Sources:
 These selectors are **COMMUNITY / MUTABLE**, not a Torn API contract. TornScriptures
 should use semantic fallback detection, duplicate-safe observers, and fail closed when
 state cannot be parsed.
+
+## Recovery continuation pass — 2026-09-22
+
+The interrupted research run was recovered from draft PR #120 at
+`9e8b414cdcc920cdb1b35deaa6f256acc227cc22`. No casino research was lost.
+This pass resumes CA-00B/CA-00C exactly from the live-verification and DOM-contract
+checkpoint.
+
+### Russian Roulette: extra shots change turn allocation, but not in the hoped-for direction
+
+**OBSERVED COMMUNITY LOG EVIDENCE.** A 2024 Torn forum post includes a normal game log
+where the joining player fires three consecutive CLICK shots at the same timestamp,
+then ordinary alternating shots continue. This is strong evidence that the 3x Act of
+Courage is implemented as consecutive trigger pulls inside one turn, rather than as
+three future turns.
+
+Source:
+- https://www.torn.com/forums.php?a=0&b=0&f=3&p=threads&t=16410308
+
+**OFFICIAL/STAFF CONFIRMATION.** A 2025 admin response confirms that double shot unlocks
+after 25 wins and triple shot after 100 wins and calls the feature Act of Courage.
+
+Source:
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16445991
+
+**DERIVED CONDITIONAL.** Under `RR-H01`'s candidate model of one bullet uniformly
+occupying one of the remaining chamber positions without replacement, let `V(r)`
+be the optimal probability that the player whose turn it is eventually wins with
+`r` positions remaining. If that player chooses `s` consecutive shots:
+
+`Q(r,s) = ((r-s)/r) * (1 - V(r-s))`
+
+because the player loses immediately if the bullet lies in any of the `s` positions
+they consume, and otherwise passes a reduced state to the opponent.
+
+Solving the six-position game by backward induction with 1x/2x/3x available gives:
+
+| Remaining positions | 1 shot | 2 shots | 3 shots |
+| ---: | ---: | ---: | ---: |
+| 6 | 50.000% | 33.333% | 33.333% |
+| 5 | 40.000% | 40.000% | 20.000% |
+| 4 | 50.000% | 25.000% | 25.000% |
+| 3 | 33.333% | 33.333% | 0.000% |
+| 2 | 50.000% | 0.000% | n/a |
+| 1 | 0.000% | n/a | n/a |
+
+Under that model, **one shot is always weakly optimal for maximizing the chance of
+winning**. A double shot can tie the one-shot value in some odd-`r` states, but it
+never improves it; a triple shot never improves it.
+
+This directly answers the original project hypothesis: extra shots really do alter
+which chamber positions fall inside each player's turn, but under the ordinary
+without-replacement model the added self-exposure cancels or worsens the attempted
+turn-position advantage. Historical forum claims that consecutive shots are
+strategically superior are therefore not adopted.
+
+Status remains **DERIVED CONDITIONAL / TESTING**, because this conclusion is only as
+good as `RR-H01`. Torn's actual probability mechanism still needs validation before
+the advisor may display it as game truth.
+
+Historical community discussion is useful as a cross-check because it independently
+recognized that two shots from a fresh six-position state expose the shooter to
+2/6 rather than 1/6*1/5.
+
+Source:
+- https://www.torn.com/forums.php?a=0&b=0&f=2&p=threads&start=40&t=15925851
+
+### High-Low: source-code audit strengthens the adapter case but weakens hard-coded reset assumptions
+
+A current open-source High-Low helper was inspected directly from its GitHub source.
+
+Source:
+- https://github.com/Blood-Dawn/TornCity/blob/main/userscripts/casino/highlow/torn-highlow-brain.user.js
+
+**COMMUNITY CODE EVIDENCE.** The helper:
+
+- models one 52-card deck with four of each rank;
+- reads `.highlow-main-wrap`, `.dealer-card`, `.you-card`, and visible action controls;
+- watches the page with `MutationObserver`;
+- detects visible shuffle text;
+- preserves remaining-card counts browser-locally;
+- models a same-rank result as a push by default;
+- explicitly handles the observed possibility that the player's revealed card becomes
+  the next dealer card.
+
+This further supports the feasibility of a TornPDA-safe active-page adapter, but it is
+not canonical evidence for game mechanics.
+
+More importantly, its default safety logic resets its local deck at a configured
+32-card cap. Recent community discussion claims a shuffle when 32 cards remain, while
+an older guide says a reshuffle after 16 complete rounds / 32 cards **used**. Those
+statements are not the same rule. Current discussion also contains direct challenges
+asking where the newer threshold came from.
+
+Sources:
+- https://www.torn.com/forums.php?a=0&b=0&f=67&p=threads&t=16528727
+- https://www.torn.com/forums.php?a=0rh%3D43&b=0&f=15&p=threads&t=15915634
+
+Therefore `HL-H02` remains open. TornScriptures should **not hard-code a guessed
+shuffle threshold as authoritative**. The preferred adapter behavior is:
+
+1. reset on an explicit visible Torn shuffle event;
+2. use card-count impossibility/desynchronization as a fail-closed signal;
+3. retain any card-count threshold only as a clearly labeled fallback until live
+   verification resolves the exact trigger.
+
+The code audit also reinforces our earlier decision-state warning. Its recursive EV
+uses a 50% cash option throughout the recursion, while Torn's official rules expose
+both a 100% post-win cashout state and a 50% revealed-card cashout state. We therefore
+must build our own state machine rather than transplanting that EV recursion.
+
+### Roulette: implementation shell is visible, mechanics still need one live confirmation pass
+
+Public Torn-related repositories consistently reference the active route
+`page.php?sid=roulette`, associated Last Spins / Statistics routes, and historical
+DOM ownership around `#rouletteContainer`. Community casino guides continue to
+describe Torn as single-zero European roulette with the standard approximately 2.7%
+house edge.
+
+These facts increase confidence that a simple DOM adapter is feasible, but they do
+not replace `ROU-V01` / `ROU-V02`. The future module should freeze its wheel,
+supported bet classes, payouts, limits, and rounding from current live Torn state
+before enabling advice.
+
+### CA-00 checkpoint after recovery
+
+The research track is intact and can proceed without Work or Codex. The next
+evidence-bearing step is now narrower:
+
+- finish the low-risk live falsification targets where public sources conflict;
+- complete DOM-contract notes for Blackjack, High-Low, Roulette, Craps, RR, and Poker;
+- then perform CA-00E module scoring and freeze which game becomes the first
+  specification target.
+
+No product code is authorized by this checkpoint.
