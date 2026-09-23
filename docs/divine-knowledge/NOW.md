@@ -18,8 +18,8 @@ TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specificatio
 PARALLEL|DQ-CASINO-002|specification_prep_live_rule_gates
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
 CASINO_PHASE|CA-00 landed via PR#120; CA-01 Blackjack specification opened
-CASINO_FINDING|CA-01: Torn admin confirms fresh dealer hand per split and 2:1 insurance side-bet settlement; natural > 6CC precedence frozen; no-peek behavior high-confidence but exact dealer-natural exposure settlement still open
-CASINO_NEXT|resolve BJ-V01 exact dealer-natural exposure settlement + BJ-V02B split card-accounting semantics; then freeze CA-01 Torn rule profile for owner review
+CASINO_FINDING|CA-01 live batch resolved mixed-value split + split stake; remaining gates are explicitly modeled as OBO vs full-loss dealer-natural exposure and shared/fresh/hybrid split-shoe policy
+CASINO_NEXT|public research is evidence-saturated on BJ-V01/BJ-V02B; preserve uncertainty and resolve opportunistically from current staff evidence, natural live specimens, or already-delivered structured page state
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
