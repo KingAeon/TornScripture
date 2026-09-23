@@ -7,6 +7,7 @@
 ## Parallel research
 
 - DQ-TRAIN-001 — battle-stat training and Happy Jump optimization; research and specification only, without displacing the active DQ-EXT sequence.
+- DQ-CASINO-001 — Casino Advisor rules, formulas, evidence hierarchy, game-mechanics survey, and shared-engine discovery; research only.
 
 ## Next Discovery
 

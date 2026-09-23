@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-14 training-optimization research track opened
+Snapshot: 2026-09-22 casino-analysis research track opened
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|f3fdadd07106895d5d05960248414566dc3133a2
+MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -14,6 +14,12 @@ BLOCKERS|none_known
 PARALLEL|DQ-TRAIN-001|active_research_scoping
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
+
+PARALLEL|DQ-CASINO-001|active_research_gathering
+CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
+CASINO_PHASE|CA-00A complete; CA-00B/CA-00C deepened; CA-00D adapter/shared-engine maps open; CA-00E provisional readiness map recorded
+CASINO_FINDING|BJ favorable rules staff-confirmed; Keno exact RTP/cap math derived; RR consecutive-shot behavior evidenced and 1x weakly optimal under candidate model; High-Low shuffle threshold remains contradictory
+CASINO_NEXT|public-source research is near diminishing returns; capture low-stake live verification matrix, then freeze CA-01 Blackjack specification
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112

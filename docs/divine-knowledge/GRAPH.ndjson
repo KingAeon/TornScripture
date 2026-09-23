@@ -15,3 +15,8 @@
 {"from":"DQ-TRAIN-001","rel":"precedes","to":"TRAINING-MATH-ENGINE"}
 {"from":"TRAINING-MATH-ENGINE","rel":"precedes","to":"HAPPY-JUMP-NAVIGATOR"}
 {"from":"TRAINING.ADVISOR.BOUNDARY","rel":"protects","to":"HAPPY-JUMP-NAVIGATOR"}
+{"from":"DQ-CASINO-001","rel":"depends_on","to":"PLATFORM"}
+{"from":"CASINO.ADVISOR.BOUNDARY","rel":"protects","to":"CASINO-ADVISOR"}
+{"from":"CASINO.EVIDENCE.MODEL","rel":"governs","to":"DQ-CASINO-001"}
+{"from":"DQ-CASINO-001","rel":"precedes","to":"CASINO-MATH-ENGINE"}
+{"from":"CASINO-MATH-ENGINE","rel":"precedes","to":"CASINO-ADVISOR"}
