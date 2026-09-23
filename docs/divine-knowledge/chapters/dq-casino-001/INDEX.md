@@ -1144,3 +1144,70 @@ For casino state acquisition, use this preference order:
 
 Every adapter must cross-check required fields before computing advice. A partial
 parse is not permission to invent the missing game state.
+
+## CA-00E — provisional module readiness map
+
+Public-source research is now deep enough to compare module readiness without writing
+product code. This is a **research sequencing map**, not implementation authorization.
+
+| Game | Rules/math readiness | Active-page state evidence | Remaining Torn-specific gate | Advisor value | Research disposition |
+| --- | --- | --- | --- | --- | --- |
+| Blackjack | High | High: structured `blackjackData` candidate | dealer check/peek + split dealer resolution | Very high | **First specification candidate** |
+| High-Low | Medium-high | High: structured `highlowData` + explicit shuffle flag candidate | tie, modifier arithmetic, reload/current shuffle signal | Very high | **Second deep candidate** |
+| Poker | High for core poker math; Torn settlement still open | Medium-high but selector-fragile | rake, side pots/odd chips, stable state contract | Very high | Deep module after shared Card Core stabilizes |
+| Russian Roulette | High conditional math | Medium-high visible turn/control state | verify actual probability model | Medium-high | Small state-engine module once RR-H01 is proven |
+| Craps | High generic dice math; Torn rules incomplete | Low-medium public parser evidence | Don't Pass 12 + odds cap/payout map | High | Hold for live rule freeze |
+| Keno | Very high | Low state complexity | variance/tail presentation; cap already modeled | Medium | Excellent Probability/EV Core validation fixture |
+| Roulette | Very high if single-zero standard rules confirmed | Medium route/container evidence | current board, payouts, limits | Medium | Easy after one live rules pass |
+| Lottery | High simple probability | Medium | visible ticket/pool/prize contract | Low-medium | Later lightweight module |
+| Bookie | High odds math | Medium | market structure + external-event modeling boundary | High for odds literacy | Separate odds/value surface after core casino work |
+| Spin the Wheel | Medium empirical | Medium | outcome distribution freshness + stop-timing test | Low-medium tactical | Statistics/value module |
+| Slots | Low exact RTP without hidden distribution | Medium historical/session state | base distribution/jackpot probability unknown | Low tactical | Analytics only unless new evidence appears |
+
+### Why Blackjack remains the first specification candidate
+
+Blackjack now has the best combination of:
+
+- unusually detailed current staff rules;
+- an independent staff-attributed target of +0.37% under perfect play that gives our
+  future solver a falsifiable benchmark;
+- finite action space and deterministic recursive EV;
+- community evidence of a structured active-page state response;
+- immediate usefulness to a human player;
+- strong reuse of the Card Core, EV Core, state machine, provenance UI, and adapter
+  architecture needed by later modules.
+
+The remaining Blackjack gates are narrow enough that a few ordinary low-stake
+observations can resolve them. Until those observations are captured, CA-01 may be
+specified conceptually but the solver's Torn rule profile should not be frozen.
+
+### Why High-Low follows closely
+
+High-Low may ultimately be the most Torn-specific demonstration of the platform:
+
+- exact remaining-deck composition can matter;
+- Torn supplies a dynamic 15–35% modifier;
+- cashout creates multiple decision states;
+- the page appears to expose an explicit shuffle signal;
+- a correct EV engine can outperform simplistic Higher/Lower-only helpers.
+
+It remains second because incorrect tie, shuffle, or cashout-state assumptions could
+silently poison recommendations.
+
+### Core-validation role for Keno
+
+Keno should be implemented as a deterministic test fixture for the shared Probability
+and EV cores even if its user-facing module comes later. Its hypergeometric outcome
+distribution and published payout table let us validate exact combinatorics, capped
+payouts, expected return, variance, and formatting with no opponent model.
+
+### Research stop line
+
+CA-00 has now extracted most of what public documentation and public code can resolve
+without opening Torn and observing current live behavior. Further internet searching
+should continue opportunistically, but repeatedly collecting community claims will
+have diminishing value.
+
+The highest-value next evidence is the live verification matrix already recorded
+above. No large bets or automation are needed; normal low-stake states can be captured
+as they naturally occur.
