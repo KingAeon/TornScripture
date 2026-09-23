@@ -1026,3 +1026,121 @@ evidence-bearing step is now narrower:
   specification target.
 
 No product code is authorized by this checkpoint.
+
+## Adapter-contract deepening — 2026-09-22
+
+The recovery pass was followed by a focused audit of current public Torn helper code.
+This does not make third-party selectors or response shapes canonical, but it gives us
+a much better map of what the actively viewed page already exposes without issuing
+new Torn requests.
+
+### Blackjack: existing page-response data is richer than DOM scraping
+
+A current public TornTools-derived implementation listens to the Blackjack page's own
+XHR traffic and reacts to an existing `sid=blackjackData` response. The observed
+community contract includes:
+
+- `DB.result` states such as `gameStarted`, `chooseAction`, `startGame`,
+  `won`, `wonNatural`, `lost`, `dealerLost`, and `draw`;
+- `dealer.hand[0]` for the visible dealer card;
+- `player.hand`, `player.score`, and `player.lowestScore`;
+- `availableActions` including action availability such as double, surrender, and
+  split.
+
+Source:
+- https://github.com/vagos9821/torn-tools-v/blob/main/extension/scripts/features/blackjack-strategy/ttBlackjackStrategy.js
+
+That implementation's strategy table is explicitly generated for eight decks, S17,
+double any two, double after split, hit split aces, Six-Card Charlie, no re-split,
+**no dealer peek**, and full early surrender. The no-peek assumption is useful
+COMMUNITY evidence for `BJ-V01`, not proof. TornScriptures still needs an observed
+current hand to freeze dealer-check behavior.
+
+**Architecture implication:** prefer a read-only adapter over the active page's own
+already-occurring game-state response when available; use rendered DOM as validation
+and fallback. Never generate an extra Torn request just to obtain the state.
+
+### High-Low: explicit shuffle state may eliminate the need to know the hidden threshold
+
+A current public TornTools-derived helper similarly listens to the active page's own
+`sid=highlowData` response. Its observed community contract includes:
+
+- `status` values such as `gameStarted`, `makeChoice`, `startGame`, and
+  `moneyTaken`;
+- `currentGame[0].dealerCardInfo`;
+- `currentGame[0].playerCardInfo`;
+- `DB.deckShuffled`, which it uses to rebuild a full 52-card deck.
+
+Source:
+- https://github.com/vagos9821/torn-tools-v/blob/main/extension/scripts/features/high-low-helper/ttHighLowHelper.js
+
+This is a major design improvement. If `DB.deckShuffled` still exists in current
+Torn, the exact hidden shuffle threshold becomes interesting research rather than a
+correctness dependency. The card tracker can reset on Torn's explicit state signal,
+not on a guessed count.
+
+Therefore split `HL-H02` conceptually into:
+
+- `HL-H02A` — does the current active-page state still expose a reliable explicit
+  shuffle signal? **priority correctness gate**;
+- `HL-H02B` — what exact internal threshold causes that shuffle? **secondary
+  mechanics research**.
+
+A page reload remains a separate live test because community claims say reload itself
+may reshuffle.
+
+### Poker: visible state is parseable, but current public helpers reveal selector fragility
+
+Current public Poker helpers successfully read:
+
+- the player's two cards;
+- community cards;
+- active players;
+- table/player status;
+- the visible hand-history/message stream.
+
+Sources:
+- https://github.com/eaksquad/torn/blob/main/torn_poker.js
+- https://github.com/matt-harro/torn-scripts/blob/main/pokerHandHistory.js
+
+However, several implementations depend on hashed CSS classes such as player,
+community-card, hand, and message-wrapper hashes. Other helpers compensate with
+substring selectors such as `[class*="opponent___"]` and `[class*="name___"]`.
+
+**Architecture implication:** hashed Torn CSS classes must not be the primary
+long-term contract. The Poker adapter should prefer stable attributes, semantic text,
+page-owned structured state, or robust structural fallbacks. If none are available,
+the adapter should fail closed and show "state unavailable" rather than calculate
+from a partial hand.
+
+### Russian Roulette: current visible state supports a clean state-machine adapter
+
+A current public RR helper demonstrates that the active page exposes enough visible
+state to identify:
+
+- waiting-for-player;
+- user's turn;
+- opponent's turn;
+- win state;
+- countdown timer;
+- SHOOT / X2 / X3 controls on the user's turn.
+
+Source:
+- https://github.com/DobrowneyT/torn-userscripts/blob/main/rr-clock-alerts.user.js
+
+The helper uses banner text plus button presence and substring matching for hashed
+classes. For TornScriptures, the same evidence supports a read-only turn-state parser,
+but exact selectors remain COMMUNITY / MUTABLE.
+
+### Adapter design rule emerging from CA-00D
+
+For casino state acquisition, use this preference order:
+
+1. **existing structured state already delivered to the actively viewed page**, when
+   current Torn and scripting rules permit observing it without generating requests;
+2. **stable semantic DOM/attributes**;
+3. **structural/text fallbacks**;
+4. **hashed CSS classes only as last-resort compatibility probes**.
+
+Every adapter must cross-check required fields before computing advice. A partial
+parse is not permission to invent the missing game state.
