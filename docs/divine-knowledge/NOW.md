@@ -15,11 +15,11 @@ PARALLEL|DQ-TRAIN-001|active_research_scoping
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
 
-PARALLEL|DQ-CASINO-002|specification_prep_live_rule_gates
+PARALLEL|DQ-CASINO-002|specification_ready_owner_review
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
-CASINO_PHASE|CA-00 landed via PR#120; CA-01 Blackjack specification opened
-CASINO_FINDING|CA-01 live batch resolved mixed-value split + split stake; remaining gates are explicitly modeled as OBO vs full-loss dealer-natural exposure and shared/fresh/hybrid split-shoe policy
-CASINO_NEXT|public research is evidence-saturated on BJ-V01/BJ-V02B; preserve uncertainty and resolve opportunistically from current staff evidence, natural live specimens, or already-delivered structured page state
+CASINO_PHASE|CA-01 uncertainty-aware Blackjack specification ready for owner review; no product code authorized
+CASINO_FINDING|BJ-V01 can change optimal actions but is localized to extra-exposure states; BJ-V02B next-card composition difference is bounded and can be handled by multi-profile robust-action analysis
+CASINO_NEXT|owner review CA-01; if approved, implement pure parameterized Blackjack Math Engine + deterministic tests before adapter/HUD
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
