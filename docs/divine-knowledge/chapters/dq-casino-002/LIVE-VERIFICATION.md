@@ -30,17 +30,22 @@ Need:
 If dealer Blackjack is eventually revealed, note whether any Double/Split exposure
 was already possible.
 
-## BJ-V02 — split settlement
+## BJ-V02A — split settlement model — RESOLVED
+
+Torn admin evidence confirms a fresh dealer hand is used for each split hand.
+
+## BJ-V02B — split card accounting
 
 When you naturally receive a splittable hand:
 1. record opening hand + dealer upcard;
 2. Split;
-3. capture both resulting hands;
-4. play normally;
-5. capture dealer resolution for each hand.
+3. capture the full visible card sequence for hand 1 and its dealer resolution;
+4. capture the full visible card sequence for hand 2 and its dealer resolution.
 
-Key question:
-- same dealer hand for both player hands, or a fresh dealer hand per split hand?
+Key questions:
+- which cards appear to remain depleted for hand 2;
+- how the repeated dealer upcard is represented;
+- whether hand-1 dealer draws influence hand-2 composition.
 
 ## BJ-V03 — split aces
 
@@ -49,12 +54,18 @@ When A/A appears:
 - after splitting, capture available Hit/Double controls;
 - note whether either hand can continue normally.
 
-## BJ-V04 — insurance numbers
+## BJ-V04A — insurance settlement — RESOLVED
+
+Admin evidence confirms insurance is a separate 2:1 side bet and dealer Blackjack
+still loses the main wager.
+
+## BJ-V04B — insurance control / rounding
 
 With dealer Ace:
 - record base bet;
 - record offered insurance amount;
-- if taken during an ordinary test, record settlement.
+- note whether the amount is fixed or adjustable;
+- note rounding on an awkward base wager if one appears naturally.
 
 There is no need to repeatedly buy insurance just to gather data.
 
@@ -77,5 +88,6 @@ Screenshot/video: yes/no
 Notes:
 ```
 
-Once BJ-V01 and BJ-V02 are resolved, the mathematical rule profile can be frozen for
-implementation planning.
+Once BJ-V01 and BJ-V02B are resolved, the mathematical rule profile can be frozen for
+implementation planning. BJ-V03, BJ-V04B, and BJ-V05 improve fidelity but are no
+longer the main blockers.
