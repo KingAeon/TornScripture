@@ -703,3 +703,143 @@ Close `BJ-V02B` only with:
   distinguish the models.
 
 Until then, both remain explicit uncertainty rather than guessed constants.
+
+
+## Uncertainty-envelope pass — 2026-09-23
+
+The remaining unknowns were tested for whether they truly need to block the entire
+Blackjack engine or only the states they can influence.
+
+### BJ-V01 is strategy-critical, but localized
+
+The dealer-natural exposure rule matters only when the player creates additional
+wager exposure before a possible dealer Blackjack, principally Double and Split
+against dealer Ace/10.
+
+Wizard of Odds distinguishes:
+
+- protected/original-bet-only treatment, where optional extra exposure is not lost to
+  the dealer natural; and
+- European/no-hole-card full-loss treatment, where doubles and splits are also lost.
+
+Wizard explicitly notes that full-loss no-hole-card strategy changes include hitting
+11 versus dealer 10 rather than doubling. The current Torn-like Beating Bonuses
+full-loss/no-peek profile likewise says **Hit 11 vs 10**.
+
+Sources:
+- https://wizardofodds.com/ask-the-wizard/blackjack/no-peek/
+- https://wizardofodds.com/games/blackjack/rule-variations/
+- https://www.beatingbonuses.com/bjstrategy.php?decks=8&soft17=stand&doubleon=any2cards&peek=off&das=on&dsa=on&charlie=on&surrender=earlyf&opt=1&btn=Generate+Strategy
+
+Therefore `BJ-V01` cannot be hand-waved away as a small EV correction. It can change
+the actual optimal action.
+
+However, ordinary Hit/Stand branches do not create extra wager exposure. The unknown
+OBO-vs-full-loss policy therefore does not contaminate every Blackjack state.
+
+### BJ-V02B is composition-sensitive, but can be bounded
+
+Assume two candidate second-split models differ only in whether `m` already exposed
+cards remain depleted from a remaining population of `N` labeled cards.
+
+The total-variation distance between:
+
+- a uniform draw from all `N` cards, and
+- a uniform draw from the `N-m` surviving cards
+
+is exactly:
+
+`TV = m / N`
+
+Aggregating labeled cards into Blackjack ranks can only reduce that distance.
+
+With an eight-deck shoe and at least 400 cards still in the relevant population, the
+next-card distribution therefore differs by no more than:
+
+| Differently treated cards | Maximum TV distance |
+| ---: | ---: |
+| 1 | 0.25% |
+| 3 | 0.75% |
+| 4 | 1.00% |
+| 6 | 1.50% |
+| 8 | 2.00% |
+| 10 | 2.50% |
+
+This is a distribution bound, not a claim about Torn's actual split implementation.
+
+The effect is small but not safely ignorable. Wizard of Odds gives a concrete
+eight-deck example where accounting for only three removed cards is enough to change
+the preferred play on a 16-vs-10 boundary. Its general effect-of-removal analysis
+likewise shows that individual removed ranks measurably move Blackjack EV.
+
+Sources:
+- https://wizardofodds.com/ask-the-wizard/blackjack/card-counting/
+- https://wizardofodds.com/games/blackjack/effect-of-removal/
+
+Therefore `BJ-V02B` matters for exact composition-dependent advice, especially near
+decision boundaries, but it does **not** need to block the entire solver.
+
+### Proposed uncertainty-aware solver contract
+
+The pure engine should support evaluating more than one rule profile for the same
+visible state:
+
+```text
+RuleEnvelopeAnalysis
+  candidate_profiles[]
+  per_profile[action].ev_net
+  ev_interval[action] = [minimum, maximum]
+  robust_best_action
+  disagreement
+  unresolved_rules[]
+  provenance[]
+```
+
+A recommendation is **robust** only if every currently plausible rule profile selects
+the same best available action.
+
+If profiles disagree, the advisor must not collapse the result into a fake certainty.
+It should instead surface something like:
+
+```text
+11 vs dealer 10
+
+OBO model ........ DOUBLE
+Full-loss model .. HIT
+
+TORN RULE UNRESOLVED
+No single verified recommendation yet.
+```
+
+For second split branches, the engine can evaluate the known endpoints and, where the
+uncertainty is simply which first-branch cards remain depleted, enumerate the feasible
+restore/deplete subsets. If every plausible composition yields the same best action,
+the recommendation is robust despite `BJ-V02B` remaining unknown.
+
+### Gate reclassification proposal
+
+**BJ-V01**
+- remains a hard gate for claiming a single verified Torn recommendation in affected
+  Double/Split vs Ace/10 states;
+- does not block math-engine architecture, ordinary Hit/Stand states, or a
+  parameterized solver.
+
+**BJ-V02B**
+- should be downgraded from "blocks the Blackjack engine" to "blocks exact verified
+  second-split composition EV when candidate models disagree";
+- does not affect unsplit hands at all;
+- can be safely handled by an uncertainty envelope plus fail-closed disagreement
+  behavior.
+
+### CA-01 specification maturity
+
+At this point, no unresolved mechanic requires us to guess inside the pure engine.
+Both remaining uncertainties have explicit parameters, evidence states, and safe
+failure behavior.
+
+Therefore CA-01 is now **specification-ready for owner review** even though the final
+single Torn rule profile is not fully frozen.
+
+Implementation remains unauthorized until owner review/approval. If authorized, the
+first implementation unit should be the pure, parameterized Blackjack Math Engine
+with deterministic tests; active-page adapter and HUD come afterward.
