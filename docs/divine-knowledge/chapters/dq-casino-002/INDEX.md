@@ -492,3 +492,78 @@ the dealer ultimately reveals a natural Blackjack**.
 Insurance is a special branch: admin evidence confirms that a winning insurance bet
 ends the hand rather than allowing Hit/Stand to continue, so the solver must model
 insurance acceptance as a possible immediate dealer-Blackjack resolution path.
+
+
+## Live owner observations — 2026-09-23
+
+Evidence source: owner-supplied TornPDA screenshots from ordinary $10,000 Blackjack
+hands. Screenshots remain outside Divine Knowledge; only the nonprivate behavioral
+observations are stored here.
+
+### BJ-O01 — per-hand shuffle banner — OBSERVED
+
+Across multiple newly dealt hands, the active Blackjack page visibly displayed
+`Decks have been shuffled`.
+
+This independently supports the documented shuffle-every-game rule and reinforces
+the decision to exclude cross-hand card counting from the advisor.
+
+### BJ-O02 — Ace-upcard action state — OBSERVED
+
+With dealer Ace showing and player 6 + K = hard 16, the page rendered the normal
+Hit/Stand controls plus Insurance/Surrender controls. The player was able to Hit,
+drawing a 3 for 19; the dealer later resolved A + 4 + 5 = 20.
+
+This does **not** resolve dealer-natural no-peek exposure because this dealer did not
+have Blackjack. It does confirm that the Ace-upcard decision state is represented
+before dealer resolution and that the hidden-card slot is present in the UI.
+
+### BJ-V05 — mixed ten-value split eligibility — RESOLVED / OBSERVED
+
+With dealer 3 showing and player K + Q = 20, Torn offered **Split** despite the two
+cards having different ranks. The player split them successfully.
+
+Therefore Torn's "equal value" split rule is literal for ten-value cards: mixed
+10/J/Q/K combinations may be split when Torn offers the action.
+
+Rule-profile consequence:
+`split_equal_value = true` is now supported by both documentation and current live
+observation.
+
+### BJ-O03 — split stake equals base stake — OBSERVED
+
+Base wager was $10,000. Immediately after splitting K/Q, the displayed cash balance
+fell by an additional $10,000.
+
+Therefore the split action adds one additional base-wager unit for the second hand.
+
+### BJ-O04 — split hand settles independently — OBSERVED CONSISTENT WITH ADMIN RULE
+
+The captured second split branch showed Q + 3 + 8 = 21 against dealer
+3 + J + 9 = 22 and displayed `You won $20,000`.
+
+The cash balance moved from $7,176,042 after the split stake was deducted to
+$7,196,042 at this settlement, consistent with a $20,000 return on one $10,000 split
+hand. Relative to the pre-split-hand bankroll sequence, the screenshots are
+consistent with the other split branch having lost, yielding approximately net-zero
+for the overall original+split pair.
+
+This is live evidence consistent with the admin-confirmed independent split-hand
+settlement model, but the screenshots do not preserve the first dealer branch's full
+card sequence. Therefore **BJ-V02B finite-shoe accounting remains open**.
+
+### Evidence status after this batch
+
+Resolved or strengthened:
+- shuffle every game: OFFICIAL + OBSERVED;
+- mixed ten-value split eligibility: OFFICIAL wording + OBSERVED;
+- split adds one full base wager: OBSERVED;
+- independent split-hand payout behavior: OFFICIAL ADMIN + OBSERVED consistency.
+
+Still critical:
+- `BJ-V01` exact extra-exposure loss when dealer ultimately has a natural Blackjack;
+- `BJ-V02B` exact finite-shoe depletion/reuse between split dealer branches.
+
+Secondary:
+- split aces controls;
+- insurance stake configurability / rounding.
