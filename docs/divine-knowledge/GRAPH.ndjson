@@ -20,3 +20,7 @@
 {"from":"CASINO.EVIDENCE.MODEL","rel":"governs","to":"DQ-CASINO-001"}
 {"from":"DQ-CASINO-001","rel":"precedes","to":"CASINO-MATH-ENGINE"}
 {"from":"CASINO-MATH-ENGINE","rel":"precedes","to":"CASINO-ADVISOR"}
+{"from":"DQ-CASINO-001","rel":"precedes","to":"DQ-CASINO-002"}
+{"from":"DQ-CASINO-002","rel":"specifies","to":"BLACKJACK-MATH-ENGINE"}
+{"from":"BJ-LIVE-GATES","rel":"blocks_freeze_of","to":"BLACKJACK-TORN-RULE-PROFILE"}
+{"from":"BLACKJACK-TORN-RULE-PROFILE","rel":"prerequisite_for","to":"BLACKJACK-MATH-ENGINE"}
