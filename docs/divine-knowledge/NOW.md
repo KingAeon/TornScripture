@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-22 casino-analysis research track opened
+Snapshot: 2026-09-25 training model calibrated in observed domain; Training Advisor specification next; casino research preserved
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|8397f276dd36efdac0c8003db82b1ea5483cb596
+MAIN_AT_SNAPSHOT|ad8cbbd753471088a2cd5aaf7e1d8ed2dad164fe
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,9 +11,12 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|active_research_scoping
+PARALLEL|DQ-TRAIN-001|calibrated_observed_domain_product_spec_next
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
-TRAINING_NEXT|revalidate candidate mechanics and freeze math-engine specification
+TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
+TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
+TRAINING_NEXT|freeze Training Advisor / Happy Jump Navigator product specification; B5 special-boundary research remains parallel
+TRAINING_PR|#119|reconciled_pending_exact_head_merge_authorization
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
