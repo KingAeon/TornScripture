@@ -16,7 +16,8 @@ TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisor
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|draft|Training Advisor + Happy Jump Navigator v0.1|selectable objectives|state_strategy_recommendation_failure contracts|implementation_not_authorized
-TRAINING_NEXT|review DQ-TRAIN-001C contracts, freeze planner policy constants through synthetic fixtures, then seek explicit build authorization
+TRAINING_001C_POLICY|draft|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|synthetic_fixtures_added
+TRAINING_NEXT|owner-review planner policy + synthetic fixtures; freeze DQ-TRAIN-001C only after accepted deterministic outcomes; build remains unauthorized
 TRAINING_PR|#119|merged|82deb0b3508071aca54025493db3a624f6aca1f2
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
