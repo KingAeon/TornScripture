@@ -17,7 +17,7 @@ TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|draft|Training Advisor + Happy Jump Navigator v0.1|selectable objectives|state_strategy_recommendation_failure contracts|implementation_not_authorized
 TRAINING_001C_POLICY|draft|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures_added
-TRAINING_NEXT|owner-review planner policy + policy/strategy fixtures; independently verify deterministic outcomes; freeze DQ-TRAIN-001C only after acceptance; build remains unauthorized
+TRAINING_NEXT|owner-review planner policy + policy/strategy fixtures; ranking fixture outcomes independently reproduced 10/10; freeze DQ-TRAIN-001C only after acceptance; build remains unauthorized
 TRAINING_PR|#119|merged|82deb0b3508071aca54025493db3a624f6aca1f2
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
