@@ -167,14 +167,17 @@ This is a Chebyshev-style burden rule: a candidate cannot hide one extreme burde
 Deterministic ties resolve by:
 
 1. higher confidence;
-2. higher expected gain;
-3. lower economic value consumed;
-4. shorter time to completion;
-5. lower natural Energy lost;
-6. fewer points consumed;
-7. lexicographically smaller stable plan fingerprint.
+2. lower aggregate Balanced burden;
+3. higher expected gain;
+4. lower economic value consumed;
+5. shorter time to completion;
+6. lower natural Energy lost;
+7. fewer points consumed;
+8. lexicographically smaller stable plan fingerprint.
 
-The geometric rule intentionally makes frontier shape determine the knee rather than a fixed "cost is worth 30%" style coefficient.
+If multiple candidates share the same best knee score, the recommendation SHOULD expose `BALANCED_KNEE_AMBIGUOUS` in Advanced explanation. The lower-burden candidate wins by default while the competing frontier plan is retained as a meaningful alternative.
+
+The geometric rule intentionally makes frontier shape determine the knee rather than a fixed "cost is worth 30%" style coefficient. When the frontier contains too little curvature to identify a unique knee, the lower-burden tie rule is deliberately conservative rather than pretending the geometry proved a preference.
 
 ## 9. Maximum Gain
 
