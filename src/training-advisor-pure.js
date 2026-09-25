@@ -157,6 +157,7 @@ function rankCandidates({ candidates, objective = 'BALANCED', riskPolicy = 'ALLO
     else if ((needsUseful || objective === 'BEST_VALUE') && !isNonnegative(referenceSessionGain)) reason = 'DATA_MISSING';
     else if (needsUseful && c.expectedGain < referenceSessionGain) reason = 'BELOW_USEFUL_SESSION_REFERENCE';
     else if (needsEconomic && !isNonnegative(economic(c))) reason = 'ECONOMICS_UNAVAILABLE';
+    else if (objective === 'BALANCED' && c.opportunityUnknown) reason = 'DATA_MISSING';
     else if (c.resourceUnknown) reason = 'RESOURCE_MISSING';
     else if (objective === 'BUDGET_CAP' && !isNonnegative(num(c, 'newCashRequired', NaN))) reason = 'ECONOMICS_UNAVAILABLE';
     if (reason) excluded.push({ id: c?.id, reason }); else valid.push(c);
@@ -281,6 +282,15 @@ function naturalEnergyLost({ energy, naturalEnergyMax, stackCap, naturalRegen, w
   return energy >= naturalEnergyMax || energy >= stackCap ? ticks * gain :
     Math.max(0, ticks * gain - Math.max(0, naturalEnergyMax - energy));
 }
+function advanceNaturalEnergy(energy, naturalEnergyMax, naturalRegen, waitSeconds) {
+  if (!waitSeconds || energy >= naturalEnergyMax) return { energy,
+    lost:naturalEnergyLost({energy,naturalEnergyMax,naturalRegen,waitSeconds}) };
+  if (!naturalRegen || !isNonnegative(naturalRegen.energy) ||
+      !isNonnegative(naturalRegen.everySeconds) || !naturalRegen.everySeconds) return null;
+  const gained = Math.floor(waitSeconds/naturalRegen.everySeconds)*naturalRegen.energy;
+  return {energy:Math.min(naturalEnergyMax,energy+gained),
+    lost:Math.max(0,gained-(naturalEnergyMax-energy))};
+}
 function generateEnergyCandidates(input = {}) {
   const { energy, naturalEnergyMax, stackCap,
     xanax, maxWaitSeconds = 0, pointRefill, naturalRegen } = input;
@@ -292,23 +302,32 @@ function generateEnergyCandidates(input = {}) {
     naturalEnergyLost:0, actions:[], discardedEnergy:0 }];
   if (xanax && isNonnegative(xanax.energyGain) && isNonnegative(drugCooldownSeconds) &&
       drugCooldownSeconds <= maxWaitSeconds && xanax.energyGain > 0 && stackCap != null && energy < stackCap) {
-    const after = Math.min(stackCap, energy + xanax.energyGain);
-    candidates.push({ type:'WAIT_XANAX', energyAtTraining:after, waitSeconds:drugCooldownSeconds,
-      xanaxUses:1, discardedEnergy: energy+xanax.energyGain-after,
-      naturalEnergyLost:naturalEnergyLost({ energy,naturalEnergyMax,stackCap,naturalRegen,waitSeconds:drugCooldownSeconds }),
-      actions:[...(drugCooldownSeconds ? [{ action:'WAIT', seconds:drugCooldownSeconds,checkpoint:'DRUG_COOLDOWN' }] : []),{ action:'TAKE_XANAX' }] });
-    if (isNonnegative(xanax.cooldownSeconds) && xanax.cooldownSeconds > 0) {
-      let current=after, wait=drugCooldownSeconds, uses=1;
-      while (current < stackCap && wait+xanax.cooldownSeconds <= maxWaitSeconds) {
-        wait += xanax.cooldownSeconds;
-        uses++;
-        current=Math.min(stackCap,energy+uses*xanax.energyGain);
-        candidates.push({type:'WAIT_XANAX',energyAtTraining:current,waitSeconds:wait,xanaxUses:uses,
-          discardedEnergy:Math.max(0,energy+uses*xanax.energyGain-current),
-          naturalEnergyLost:naturalEnergyLost({energy,naturalEnergyMax,stackCap,naturalRegen,waitSeconds:wait}),
-          actions:[...(drugCooldownSeconds ? [{action:'WAIT',seconds:drugCooldownSeconds,checkpoint:'DRUG_COOLDOWN'}] : []),
-            ...Array.from({length:uses},(_,i)=>i ? [{action:'WAIT',seconds:xanax.cooldownSeconds,checkpoint:'DRUG_COOLDOWN'},{action:'TAKE_XANAX'}] :
-              [{action:'TAKE_XANAX'}]).flat()]});
+    let current=energy, wait=0, uses=0, discarded=0, lost=0, actions=[];
+    while (current < stackCap) {
+      const interval=uses ? xanax.cooldownSeconds : drugCooldownSeconds;
+      if (!isNonnegative(interval) || (uses && !interval) || wait+interval > maxWaitSeconds) break;
+      const advanced=advanceNaturalEnergy(current,naturalEnergyMax,naturalRegen,interval);
+      if (!advanced) break; // Without regen timing, a below-cap future Energy value is unknown.
+      current=advanced.energy;
+      lost+=advanced.lost;
+      wait+=interval;
+      if (interval) actions=[...actions,{action:'WAIT',seconds:interval,checkpoint:'DRUG_COOLDOWN'}];
+      const after=Math.min(stackCap,current+xanax.energyGain);
+      discarded+=current+xanax.energyGain-after;
+      current=after;
+      uses++;
+      actions=[...actions,{action:'TAKE_XANAX'}];
+      const base={type:'WAIT_XANAX',energyAtTraining:current,waitSeconds:wait,xanaxUses:uses,
+        postDrugCooldownSeconds:isNonnegative(xanax.cooldownSeconds) ? xanax.cooldownSeconds : null,
+        discardedEnergy:discarded,naturalEnergyLost:wait && !naturalRegen ? null : lost,actions};
+      candidates.push(base);
+      if (pointRefill?.allowed && pointRefill.fillAmountPolicy === 'natural_max' && current < stackCap) {
+        const refilled=Math.min(stackCap,current+naturalEnergyMax);
+        candidates.push({...base,type:'XANAX_REFILL',energyBefore:current,nominalFill:naturalEnergyMax,
+          energyAtTraining:refilled,energyAfter:refilled,
+          discardedEnergy:discarded+current+naturalEnergyMax-refilled,
+          pointsConsumed:pointRefill.pointsRequired ?? null,
+          actions:[...actions,{action:'USE_REFILL'}]});
       }
     }
   }
@@ -388,16 +407,44 @@ function planReadiness(plan, state = {}, timing = {}) {
   if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && state.cooldowns &&
       !isNonnegative(state.cooldowns.drugSeconds))
     return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh drug cooldown'};
-  if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && state.cooldowns?.drugSeconds > 0)
-    return {status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for drug cooldown, then verify Happy'};
-  if (plan.actions?.some(a=>a.action==='USE_BOOSTER') && state.cooldowns?.boosterSeconds > 0)
-    return {status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for booster cooldown, then verify Happy'};
+  if (plan.actions?.some(a=>a.action==='USE_BOOSTER') &&
+      isNonnegative(state.cooldowns?.boosterSeconds) && isNonnegative(state.cooldowns?.boosterMaxSeconds) &&
+      state.cooldowns.boosterSeconds+plan.economics.boosterCooldownSeconds > state.cooldowns.boosterMaxSeconds)
+    return {status:'BLOCKED',reason:'BOOSTER_LIMIT_REACHED',nextAction:'wait for booster capacity'};
   if (Object.keys(plan.resources?.boughtItems || {}).length && state.itemsAvailable !== true)
     return { status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',nextAction:'obtain and verify required items' };
   if (plan.economics?.newCashRequired > 0 && state.itemsAvailable === false)
     return { status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',nextAction:'obtain required items' };
+  // Source adapters supply classes for each field; no source or clock is assumed here.
+  const required=[['energy',true],['happy',true],['gym',false],['gainModifiers',false]];
+  const drug=plan.actions?.some(a=>['TAKE_XANAX','TAKE_ECSTASY'].includes(a.action));
+  const booster=plan.actions?.some(a=>a.action==='USE_BOOSTER');
+  const inventory=Object.keys(plan.resources?.ownedItemsConsumed || {}).length > 0 ||
+    Object.keys(plan.resources?.boughtItems || {}).length > 0;
+  if (drug) required.push(['drugCooldown',true]);
+  if (booster) required.push(['boosterCooldown',true]);
+  if (inventory) required.push(['inventory',true]);
+  for (const [field,liveOnly] of required) {
+    const freshness=field==='inventory' ? state.inventoryFreshness ?? state.freshness?.inventory : state.freshness?.[field];
+    if ((liveOnly ? freshness !== 'LIVE' : !['LIVE','FRESH'].includes(freshness)))
+      return {status:'NEEDS_REFRESH',reason:!freshness || freshness==='UNKNOWN' ? 'DATA_MISSING' : 'DATA_STALE',
+        nextAction:`refresh ${field}`};
+  }
+  if (drug && !isNonnegative(state.cooldowns?.drugSeconds))
+    return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh drug cooldown'};
+  if (booster && (!isNonnegative(state.cooldowns?.boosterSeconds) ||
+      !isNonnegative(state.cooldowns?.boosterMaxSeconds)))
+    return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh booster capacity'};
+  if (inventory && !state.inventory)
+    return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh inventory'};
+  if (!Array.isArray(state.gainPerks) || !Array.isArray(state.activeEffects))
+    return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh gain modifiers'};
+  if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && state.cooldowns?.drugSeconds > 0)
+    return {status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for drug cooldown, then verify Happy'};
   if (plan.actions?.find(a=>a.action!=='VERIFY_STATE')?.action === 'WAIT')
     return { status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for checkpoint' };
+  if (plan.actions?.some(a=>a.action==='WAIT'))
+    return {status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'follow first step, then verify checkpoint'};
   return { status:'READY',reason:null,nextAction:plan.actions?.find(a=>a.action!=='VERIFY_STATE')?.action || 'VERIFY_STATE' };
 }
 
@@ -430,32 +477,39 @@ function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = 
   const maxSlots = Math.min(items.reduce((s,x)=>s+x.maxQuantity,0),
     Math.floor(slotsAvailable/Math.min(...items.map(x=>x.cooldownSeconds))));
   const out = ecstasyOnly;
-  // Missing replacement value cannot enter an economic frontier. Owned-only
-  // recipes still remain available to gain-only objectives with unknown cost.
+  // Missing replacement value cannot enter an economic frontier. Enumerate
+  // bounded owned subsets and pair them with known-value frontiers; retain null cost.
   const knownValue = items.filter(x=>x.owned === 0 || isNonnegative(x.replacementValueEach));
-  for (const item of items.filter(x=>!isNonnegative(x.replacementValueEach) && x.owned > 0)) {
-    const maximum = Math.min(item.owned,Math.floor(slotsAvailable/item.cooldownSeconds));
-    for (let quantity=1;quantity<=maximum;quantity++) out.push({items:[{id:item.id,quantity,owned:quantity,
-      newCashEach:0,replacementValueEach:null}],useEcstasy:true,
-      preparation:{happyAdded:quantity*item.happy,newCashRequired:0,
-        economicValueConsumed:null,boosterCooldownSeconds:quantity*item.cooldownSeconds}});
-  }
-  for (let slots=1;slots<=maxSlots;slots++) {
-    const frontier = generateHappyFrontier({boosterSlots:slots,items:knownValue,
-      newCashBudget:preferences.budgetNewCash ?? Infinity});
-    if (frontier.status !== 'ok') continue;
-    for (const c of frontier.frontier) {
-      if (c.cooldownSeconds > slotsAvailable) continue;
-      const recipeItems = knownValue.map(item => ({id:item.id,
-        quantity:(c.bundle[`${item.id}Owned`] || 0)+(c.bundle[`${item.id}Bought`] || 0),
-        owned:c.bundle[`${item.id}Owned`] || 0,
-        newCashEach:item.newCashEach,replacementValueEach:item.replacementValueEach}))
-        .filter(item=>item.quantity);
-      out.push({items:recipeItems,useEcstasy:true,preparation:{happyAdded:c.happy,
-        newCashRequired:c.newCash,economicValueConsumed:c.economicValueConsumed,
-        boosterCooldownSeconds:c.cooldownSeconds}});
+  const unknownValue=items.filter(x=>!isNonnegative(x.replacementValueEach) && x.owned > 0);
+  function addKnownFrontier(unknownItems,happy,cooldown,slotsUsed) {
+    for (let slots=unknownItems.length ? 0 : 1; slots<=maxSlots-slotsUsed; slots++) {
+      const frontier=generateHappyFrontier({boosterSlots:slots,items:knownValue,
+        newCashBudget:preferences.budgetNewCash ?? Infinity});
+      if (frontier.status !== 'ok') continue;
+      for (const c of frontier.frontier) {
+        if (cooldown+c.cooldownSeconds > slotsAvailable) continue;
+        const recipeItems=knownValue.map(item=>({id:item.id,
+          quantity:(c.bundle[`${item.id}Owned`] || 0)+(c.bundle[`${item.id}Bought`] || 0),
+          owned:c.bundle[`${item.id}Owned`] || 0,newCashEach:item.newCashEach,
+          replacementValueEach:item.replacementValueEach})).filter(item=>item.quantity);
+        out.push({items:[...unknownItems,...recipeItems],useEcstasy:true,
+          preparation:{happyAdded:happy+c.happy,newCashRequired:c.newCash,
+            economicValueConsumed:unknownItems.length ? null : c.economicValueConsumed,
+            boosterCooldownSeconds:cooldown+c.cooldownSeconds}});
+      }
     }
   }
+  function visitUnknown(index,selected,happy,cooldown,slotsUsed) {
+    if (index===unknownValue.length) return addKnownFrontier(selected,happy,cooldown,slotsUsed);
+    const item=unknownValue[index];
+    for (let quantity=0; quantity<=Math.min(item.owned,maxSlots-slotsUsed,
+      Math.floor((slotsAvailable-cooldown)/item.cooldownSeconds)); quantity++) {
+      visitUnknown(index+1,quantity ? [...selected,{id:item.id,quantity,owned:quantity,
+        newCashEach:0,replacementValueEach:null}] : selected,happy+quantity*item.happy,
+      cooldown+quantity*item.cooldownSeconds,slotsUsed+quantity);
+    }
+  }
+  visitUnknown(0,[],0,0,0);
   return out.sort((a,b)=>compareNumbers(a.preparation.happyAdded,b.preparation.happyAdded) ||
     compareNumbers(a.preparation.economicValueConsumed ?? Infinity,b.preparation.economicValueConsumed ?? Infinity) ||
     compareStrings(JSON.stringify(a.items),JSON.stringify(b.items)));
@@ -468,9 +522,20 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
   const actions = [{action:'VERIFY_STATE'}];
   actions.push(...energy.actions);
   if (energy.waitSeconds > 0) actions.push({action:'VERIFY_STATE',fields:['energy','happy','cooldowns']});
-  const futureHappyNeeded = energy.waitSeconds > 0 ||
-    (recipe.items?.length && state.cooldowns?.boosterSeconds > 0) ||
-    (recipe.useEcstasy && state.cooldowns?.drugSeconds > 0);
+  if (recipe.useEcstasy && energy.xanaxUses && !isNonnegative(energy.postDrugCooldownSeconds))
+    return fail('unsupported','DATA_MISSING');
+  const ecstasyWaitSeconds=recipe.useEcstasy ? energy.xanaxUses ? energy.postDrugCooldownSeconds :
+    Math.max(0,(state.cooldowns?.drugSeconds || 0)-(energy.waitSeconds || 0)) : 0;
+  const totalWaitSeconds=(energy.waitSeconds || 0)+ecstasyWaitSeconds;
+  if (preferences.maxWaitSeconds != null && totalWaitSeconds > preferences.maxWaitSeconds)
+    return fail('unsupported','COOLDOWN_BLOCKED');
+  // A later drug checkpoint below the natural cap needs another observed Energy
+  // projection. This slice does not infer the future training Energy from an unverified wait.
+  if (ecstasyWaitSeconds && energy.energyAtTraining < state.naturalEnergyMax)
+    return fail('unsupported','DATA_MISSING');
+  const futureHappyNeeded = totalWaitSeconds > 0;
+  if (ecstasyWaitSeconds) actions.push({action:'WAIT',seconds:ecstasyWaitSeconds,
+    checkpoint:'DRUG_COOLDOWN'},{action:'VERIFY_STATE',fields:['energy','happy','cooldowns']});
   const futureHappy = futureHappyNeeded ? state.happyAtCheckpoint : state.happy;
   let currentHappy = isInteger(futureHappy) && futureHappy <= 99999 ? futureHappy : null;
   const ownedItemsConsumed = {}, boughtItems = {};
@@ -553,22 +618,25 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
     statAllocationMode:preferences.statAllocationMode,resourcePolicy:preferences.resourcePolicy,
     ownedItemsConsumed,boughtItems});
   const economics = {newCashRequired,marketValueOfOwnedItemsConsumed:ownedValue,
-    pricedPointValueConsumed:energy.type === 'REFILL' && energy.pointsConsumed == null ? null :
+    pricedPointValueConsumed:energy.actions.some(a=>a.action==='USE_REFILL') && energy.pointsConsumed == null ? null :
       energy.pointsConsumed === 0 || energy.pointsConsumed == null ? 0 : preferences.pointValue != null ?
         energy.pointsConsumed * preferences.pointValue : null,
-    naturalEnergyLost:energy.naturalEnergyLost || 0,
-    pointsConsumed:energy.type === 'REFILL' ? energy.pointsConsumed ?? null : 0,
+    naturalEnergyLost:energy.naturalEnergyLost == null || ecstasyWaitSeconds && !state.naturalRegen ? null :
+      energy.naturalEnergyLost+naturalEnergyLost({energy:energy.energyAtTraining,
+        naturalEnergyMax:state.naturalEnergyMax,stackCap:state.stackCap,
+        naturalRegen:state.naturalRegen,waitSeconds:ecstasyWaitSeconds}),
+    pointsConsumed:energy.actions.some(a=>a.action==='USE_REFILL') ? energy.pointsConsumed ?? null : 0,
     boosterCooldownSeconds, discardedEnergy:energy.discardedEnergy || 0};
   economics.economicValueConsumed = Number.isFinite(newCashRequired) && Number.isFinite(ownedValue) &&
     economics.pricedPointValueConsumed != null ? newCashRequired+ownedValue+economics.pricedPointValueConsumed : null;
   const plan = {id:fingerprintValue,fingerprint:fingerprintValue,objective:preferences.objective || 'BALANCED',
     target:{stat:state.targetStat,allocationMode:preferences.statAllocationMode || 'TARGET_STAT'},
-    actions,phase:energy.waitSeconds ? 'WAITING_COOLDOWN' : recipe.useEcstasy ? 'HAPPY_PREP' : 'TRAINING_READY',
+    actions,phase:totalWaitSeconds ? 'WAITING_COOLDOWN' : recipe.useEcstasy ? 'HAPPY_PREP' : 'TRAINING_READY',
     startState:{energy:state.energy,happy:state.happy,stat:state.stats?.[state.targetStat]},
     projectedEndState:simulation?.status==='ok' || simulation?.status==='partial' ?
       {stat:simulation.modeledEndStat,happy:simulation.finalHappy,energy:simulation.remainingEnergy} : null,
     resources:{ownedItemsConsumed,boughtItems,energySpent:simulation?.energySpent ?? 0,resourceUnknown},economics,
-    timing:{waitSeconds:energy.waitSeconds || 0,timeToCompletionHours:(energy.waitSeconds || 0)/3600},
+    timing:{waitSeconds:totalWaitSeconds,timeToCompletionHours:totalWaitSeconds/3600},
     confidence:{level:state.calibratedDomain === true ? 'CALIBRATED' : 'SUPPORTED_EXTRAPOLATION',
       reasons:state.calibratedDomain === true ? ['DOCUMENTED_OBSERVED_DOMAIN'] : ['OUTSIDE_DOCUMENTED_CALIBRATION']},
     prerequisites:['VERIFY_STATE',...(recipe.useEcstasy?['SAFE_QUARTER_WINDOW']:[])],
@@ -605,11 +673,13 @@ function recommend({observedState,preferences = {},marketSnapshot = {},itemMecha
   const energyStates = generateEnergyCandidates({ ...state, maxWaitSeconds:preferences.maxWaitSeconds ?? 0,
     pointRefill:preferences.allowRefill ? state.pointRefill : null });
   const plans = [];
+  const strategyPreferences={...preferences,maxWaitSeconds:preferences.maxWaitSeconds ?? 0};
   const recipes = preferences.allowItems === false ? [] : generateHappyRecipes(state,itemMechanics,
     marketSnapshot,{...preferences,budgetNewCash});
   for (const energy of energyStates) {
-    plans.push(composePlan({state,preferences,energy,itemMechanics,marketSnapshot,timing}));
-    for (const recipe of recipes) plans.push(composePlan({state,preferences,energy,recipe,itemMechanics,marketSnapshot,timing}));
+    plans.push(composePlan({state,preferences:strategyPreferences,energy,itemMechanics,marketSnapshot,timing}));
+    for (const recipe of recipes) plans.push(composePlan({state,preferences:strategyPreferences,
+      energy,recipe,itemMechanics,marketSnapshot,timing}));
   }
   const candidates = plans.filter(p=>p.simulation?.status === 'ok').map(p=>({
     id:p.id,fingerprint:p.fingerprint,confidence:p.confidence.level,
@@ -617,14 +687,15 @@ function recommend({observedState,preferences = {},marketSnapshot = {},itemMecha
     newCashRequired:p.economics.newCashRequired,
     timeToCompletionHours:p.timing.timeToCompletionHours,
     naturalEnergyLost:p.economics.naturalEnergyLost,pointsConsumed:p.economics.pointsConsumed,
+    opportunityUnknown:p.economics.naturalEnergyLost == null,
     itemsConsumed:Object.fromEntries(Object.entries(p.resources.ownedItemsConsumed).concat(Object.entries(p.resources.boughtItems))
       .map(([id])=>[id,(p.resources.ownedItemsConsumed[id] || 0)+(p.resources.boughtItems[id] || 0)])),
     boughtItemsCount:Object.values(p.resources.boughtItems).reduce((sum,n)=>sum+n,0),
     resourceUnknown:p.resources.resourceUnknown || p.economics.pointsConsumed == null,plan:p }));
-  const reference = Number.isFinite(preferences.referenceSessionGain) ? preferences.referenceSessionGain :
+  const reference = isInteger(state.ordinaryHappy) && state.ordinaryHappy <= 99999 ?
     simulatePlanTraining({modelId:MODEL_ID,stat:{kind:state.targetStat,value:state.stats[state.targetStat]},
-      happy:state.happy,gym:state.gym,gainPerks:state.gainPerks || [],energy:state.naturalEnergyMax}) ;
-  const referenceSessionGain = typeof reference === 'number' ? reference : reference.status === 'ok' ? reference.modeledGain : undefined;
+      happy:state.ordinaryHappy,gym:state.gym,gainPerks:state.gainPerks || [],energy:state.naturalEnergyMax}) : null;
+  const referenceSessionGain = reference?.status === 'ok' ? reference.modeledGain : undefined;
   const ranking = rankCandidates({candidates,objective:preferences.objective || 'BALANCED',
     riskPolicy:preferences.riskPolicy || 'ALLOW_SUPPORTED',referenceSessionGain,
     budgetNewCash,maxWaitHours:preferences.maxWaitHours,

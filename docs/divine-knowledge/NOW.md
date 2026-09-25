@@ -1,6 +1,6 @@
 # NOW
 
-Snapshot: 2026-09-25 DQ-TRAIN-001 pure planner implemented and verified on isolated branch; unmerged
+Snapshot: 2026-09-25 DQ-TRAIN-001 pure planner verification corrected on isolated branch; PR #123 draft and unmerged
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
@@ -11,13 +11,13 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
 
-PARALLEL|DQ-TRAIN-001|pure_planner_implemented_verified_unmerged
+PARALLEL|DQ-TRAIN-001|pure_planner_verification_corrected_draft_unmerged
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
-TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|pure_planner_implemented_unmerged
+TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|pure_planner_corrected_unmerged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|owner reviews pure planner branch and limitations; adapters/UI need separate authorization; merge/release not authorized
+TRAINING_NEXT|owner reviews draft PR #123 and pure planner limitations; adapters/UI need separate authorization; merge/release not authorized
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -54,5 +54,6 @@ SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
 NOTE|recheck current main SHA and mutable issue states before consequential action
 
 TRAINING_BUILD_BRANCH|agent/training-advisor-pure-planner-001c
-TRAINING_BUILD_STATE|implemented_verified_unmerged|311_repo_tests_pass|pure_impl_commit_b5e67007fa73340a572b0119aa23b14b50a8a206
+TRAINING_BUILD_STATE|verification_corrected_draft_unmerged|318_repo_tests_pass|correction_from_d20998ac1535207d7c7bf8d7bd7f29081fe0672c
 TRAINING_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-2026-09-25.md
+TRAINING_VERIFICATION|chapters/dq-train-001/VERIFICATION-CORRECTION-2026-09-25.md

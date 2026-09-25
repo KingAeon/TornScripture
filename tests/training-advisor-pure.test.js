@@ -7,6 +7,8 @@ const root = path.join(__dirname,'../docs/divine-knowledge/chapters/dq-train-001
 const math = require(path.join(root,'MATH-ENGINE-FIXTURES-001A.json'));
 const policy = require(path.join(root,'PLANNER-POLICY-FIXTURES-001C.json'));
 const strategy = require(path.join(root,'PLANNER-STRATEGY-FIXTURES-001C.json'));
+const liveFreshness = {energy:'LIVE',happy:'LIVE',drugCooldown:'LIVE',boosterCooldown:'LIVE',
+  inventory:'LIVE',gym:'FRESH',gainModifiers:'FRESH'};
 function near(actual, expected) {
   const target = Number(expected);
   assert.ok(Math.abs(actual-target) <= math.arithmeticProfile.absoluteTolerance +
@@ -59,7 +61,8 @@ test('frozen strategy TRAIN_NOW_001',()=>{
 });
 test('frozen strategy FULL_EDVD_ECSTASY_001',()=>{
   const f=byId.FULL_EDVD_ECSTASY_001;
-  const state=f.input.observedState;
+  // The frozen action fixture assumes validated execution state; normalize its freshness explicitly.
+  const state={...f.input.observedState,freshness:liveFreshness,gainPerks:[],activeEffects:[]};
   const p=m.composePlan({state,energy:m.generateEnergyCandidates({...state,stackCap:1000})[0],
     recipe:{items:[{id:'eroticDvd',quantity:5,owned:5,newCashEach:0,replacementValueEach:0}],useEcstasy:true},
     itemMechanics:{eroticDvd:{happy:f.input.itemMechanics.eroticDvdHappy,
@@ -216,7 +219,8 @@ test('full planner composes a supported 1,000E five-DVD path and keeps it adviso
   const state={energy:1000,naturalEnergyMax:150,stackCap:1000,happy:4275,
     stats:{speed:100000},targetStat:'speed',gym:{id:'complete_cardio',dots:5.8,energyPerTrain:10},
     cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:108000},
-    inventory:{eroticDvd:5,ecstasy:1},calibratedDomain:true};
+    inventory:{eroticDvd:5,ecstasy:1},calibratedDomain:true,freshness:liveFreshness,
+    gainPerks:[],activeEffects:[]};
   const response=m.recommend({observedState:state,preferences:{objective:'MAXIMUM_GAIN'},
     itemMechanics:{eroticDvd:{happy:2500,cooldownSeconds:21600,replacementValueEach:100000},
       ecstasy:{happyMultiplier:2,replacementValue:200000}},timing:{safeQuarterWindow:true}});
@@ -304,7 +308,8 @@ test('Xanax stack economics and owned-only constraint survive composition',()=>{
 test('future Happy is required before a delayed plan receives a gain forecast',()=>{
   const state={energy:750,naturalEnergyMax:150,stackCap:1000,happy:1000,
     stats:{speed:1000},targetStat:'speed',gym:{dots:5.8,energyPerTrain:10},
-    xanax:{energyGain:250},cooldowns:{drugSeconds:3600},inventory:{xanax:1}};
+    xanax:{energyGain:250},cooldowns:{drugSeconds:3600},inventory:{xanax:1},freshness:liveFreshness,
+    gainPerks:[],activeEffects:[]};
   const option=m.generateEnergyCandidates({...state,maxWaitSeconds:3600}).find(x=>x.type==='WAIT_XANAX');
   const p=m.composePlan({state,energy:option});
   assert.equal(p.simulation.reason,'DATA_MISSING');
@@ -356,4 +361,147 @@ test('structural identity distinguishes ownership choices, not quoted prices',()
   const bought=m.structuralFingerprint({actions,targetStat:'speed',boughtItems:{candy:1}});
   assert.notEqual(owned,bought);
   assert.equal(owned,m.structuralFingerprint({actions,targetStat:'speed',ownedItemsConsumed:{candy:1}}));
+});
+test('Xanax sets the next drug checkpoint before Ecstasy',()=>{
+  const state={energy:750,naturalEnergyMax:150,stackCap:1000,happy:3000,happyAtCheckpoint:3000,
+    stats:{speed:1000},targetStat:'speed',gym:{dots:5,energyPerTrain:10},
+    xanax:{energyGain:250,cooldownSeconds:3600},cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:108000},
+    inventory:{xanax:1,ecstasy:1},freshness:liveFreshness,gainPerks:[],activeEffects:[]};
+  const energy=m.generateEnergyCandidates({...state,maxWaitSeconds:3600}).find(x=>x.type==='WAIT_XANAX');
+  const plan=m.composePlan({state,energy,recipe:{items:[],useEcstasy:true},
+    itemMechanics:{xanax:{replacementValueEach:0},ecstasy:{happyMultiplier:2,replacementValue:0}},
+    timing:{safeQuarterWindow:true}});
+  const xanaxIndex=plan.actions.findIndex(x=>x.action==='TAKE_XANAX');
+  const ecstasyIndex=plan.actions.findIndex(x=>x.action==='TAKE_ECSTASY');
+  assert.ok(plan.actions.slice(xanaxIndex+1,ecstasyIndex).some(x=>x.action==='WAIT' && x.seconds===3600 &&
+    x.checkpoint==='DRUG_COOLDOWN'));
+  assert.ok(plan.actions.slice(xanaxIndex+1,ecstasyIndex).some(x=>x.action==='VERIFY_STATE'));
+  assert.equal(plan.timing.waitSeconds,3600);
+  assert.equal(plan.readiness.status,'WAITING');
+  const unknown=m.composePlan({state:{...state,xanax:{energyGain:250}},
+    energy:m.generateEnergyCandidates({...state,xanax:{energyGain:250},maxWaitSeconds:0})
+      .find(x=>x.type==='WAIT_XANAX'),recipe:{items:[],useEcstasy:true},
+    itemMechanics:{ecstasy:{happyMultiplier:2}},timing:{safeQuarterWindow:true}});
+  assert.equal(unknown.reason,'DATA_MISSING');
+  const bounded=m.recommend({observedState:state,preferences:{objective:'MAXIMUM_GAIN',maxWaitSeconds:0},
+    itemMechanics:{xanax:{replacementValueEach:0},ecstasy:{happyMultiplier:2,replacementValue:0}},
+    timing:{safeQuarterWindow:true}});
+  assert.ok([bounded.primaryPlan,...bounded.alternatives].filter(Boolean).every(p=>
+    !p.actions.some(a=>a.action==='TAKE_XANAX') || !p.actions.some(a=>a.action==='TAKE_ECSTASY')));
+});
+test('remaining booster capacity permits immediate use despite accumulated cooldown',()=>{
+  const state={energy:150,naturalEnergyMax:150,happy:1000,stats:{speed:1000},targetStat:'speed',
+    gym:{dots:5,energyPerTrain:10},inventory:{candy:1,ecstasy:1},freshness:liveFreshness,
+    gainPerks:[],activeEffects:[],
+    cooldowns:{drugSeconds:0,boosterSeconds:21600,boosterMaxSeconds:108000}};
+  const recipes=m.generateHappyRecipes(state,{candy:{happy:500,cooldownSeconds:21600,
+    replacementValueEach:0},ecstasy:{happyMultiplier:2,replacementValue:0}});
+  const recipe=recipes.find(x=>x.items.some(y=>y.id==='candy'));
+  assert.ok(recipe);
+  const plan=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],recipe,
+    itemMechanics:{candy:{happy:500,cooldownSeconds:21600},ecstasy:{happyMultiplier:2,replacementValue:0}},
+    timing:{safeQuarterWindow:true}});
+  assert.equal(plan.preEcstasyHappy,1500);
+  assert.equal(plan.readiness.status,'READY');
+  assert.equal(plan.actions.some(x=>x.action==='WAIT'),false);
+});
+test('natural Energy regenerates before Xanax and only capped ticks are lost',()=>{
+  const states=m.generateEnergyCandidates({energy:50,naturalEnergyMax:150,stackCap:1000,
+    drugCooldownSeconds:14400,maxWaitSeconds:14400,naturalRegen:{energy:5,everySeconds:600},
+    xanax:{energyGain:250,cooldownSeconds:3600}});
+  const after=states.find(x=>x.type==='WAIT_XANAX');
+  assert.equal(after.energyAtTraining,400);
+  assert.equal(after.naturalEnergyLost,20);
+  const withoutRegen=m.generateEnergyCandidates({energy:50,naturalEnergyMax:150,stackCap:1000,
+    drugCooldownSeconds:14400,maxWaitSeconds:14400,xanax:{energyGain:250}});
+  assert.equal(withoutRegen.some(x=>x.type==='WAIT_XANAX'),false);
+  const aboveCap=m.generateEnergyCandidates({energy:750,naturalEnergyMax:150,stackCap:1000,
+    drugCooldownSeconds:3600,maxWaitSeconds:3600,xanax:{energyGain:250}})
+    .find(x=>x.type==='WAIT_XANAX');
+  assert.equal(aboveCap.naturalEnergyLost,null);
+  const state={energy:750,naturalEnergyMax:150,stackCap:1000,happy:1000,happyAtCheckpoint:1000,
+    stats:{speed:1000},targetStat:'speed',gym:{dots:5,energyPerTrain:10},
+    xanax:{energyGain:250},cooldowns:{drugSeconds:3600},inventory:{xanax:1}};
+  const comparison=m.recommend({observedState:state,preferences:{objective:'BALANCED',maxWaitSeconds:3600},
+    itemMechanics:{xanax:{replacementValueEach:0}}});
+  assert.equal(comparison.primaryPlan.actions.some(x=>x.action==='TAKE_XANAX'),false);
+  assert.ok(comparison.rejectedPlans.some(x=>x.reason==='DATA_MISSING'));
+});
+test('usefulness reference uses ordinary Happy and requires it explicitly',()=>{
+  const state={energy:150,naturalEnergyMax:150,happy:9000,ordinaryHappy:1000,
+    stats:{speed:1000},targetStat:'speed',gym:{dots:5,energyPerTrain:10}};
+  const expected=m.simulatePlanTraining({modelId:m.MODEL_ID,stat:{kind:'speed',value:1000},
+    happy:1000,gym:state.gym,gainPerks:[],energy:150}).modeledGain;
+  for (const objective of ['BEST_VALUE','USE_MY_INVENTORY','FASTEST_USEFUL']) {
+    const result=m.recommend({observedState:state,preferences:{objective}});
+    assert.equal(result.opportunitySummary.referenceSessionGain,expected);
+    const unavailable=m.recommend({observedState:{...state,ordinaryHappy:undefined},preferences:{objective}});
+    assert.equal(unavailable.status,'NO_SAFE_RECOMMENDATION');
+    assert.equal(unavailable.reason,'DATA_MISSING');
+  }
+});
+test('execution readiness requires field-level freshness while planning can proceed',()=>{
+  const state={energy:150,naturalEnergyMax:150,happy:1000,stats:{speed:1000},targetStat:'speed',
+    gym:{dots:5,energyPerTrain:10},gainPerks:[],activeEffects:[]};
+  const base=m.recommend({observedState:state,preferences:{objective:'MAXIMUM_GAIN'}});
+  assert.equal(base.status,'ok');
+  assert.equal(base.readiness.status,'NEEDS_REFRESH');
+  assert.equal(m.recommend({observedState:{...state,freshness:liveFreshness},
+    preferences:{objective:'MAXIMUM_GAIN'}}).readiness.status,'READY');
+  for (const field of ['energy','happy','gym','gainModifiers']) {
+    const stale=m.recommend({observedState:{...state,freshness:{...liveFreshness,[field]:'STALE'}},
+      preferences:{objective:'MAXIMUM_GAIN'}});
+    assert.equal(stale.readiness.status,'NEEDS_REFRESH',field);
+  }
+  const withDrug={...state,inventory:{ecstasy:1},cooldowns:{drugSeconds:0},
+    freshness:{...liveFreshness,drugCooldown:'STALE'}};
+  const drug=m.recommend({observedState:withDrug,preferences:{objective:'MAXIMUM_GAIN'},
+    itemMechanics:{ecstasy:{happyMultiplier:2,replacementValue:0}},timing:{safeQuarterWindow:true}});
+  assert.equal(drug.readiness.status,'NEEDS_REFRESH');
+  assert.equal(drug.primaryPlan.actions.some(a=>a.action==='TAKE_ECSTASY'),true);
+  assert.equal(m.recommend({observedState:{...state,freshness:liveFreshness,activeEffects:undefined},
+    preferences:{objective:'MAXIMUM_GAIN'}}).readiness.status,'NEEDS_REFRESH');
+  const boosterState={...state,inventory:{candy:1,ecstasy:1},
+    cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:1}};
+  const mechanics={candy:{happy:500,cooldownSeconds:1,replacementValueEach:0},
+    ecstasy:{happyMultiplier:2,replacementValue:0}};
+  for (const field of ['boosterCooldown','inventory']) {
+    const result=m.recommend({observedState:{...boosterState,freshness:{...liveFreshness,[field]:'STALE'}},
+      preferences:{objective:'MAXIMUM_GAIN'},itemMechanics:mechanics,timing:{safeQuarterWindow:true}});
+    assert.equal(result.primaryPlan.actions.some(a=>a.action==='USE_BOOSTER'),true);
+    assert.equal(result.readiness.status,'NEEDS_REFRESH',field);
+  }
+});
+test('finite combined Xanax and refill checkpoint reaches stack cap',()=>{
+  const candidates=m.generateEnergyCandidates({energy:600,naturalEnergyMax:150,stackCap:1000,
+    drugCooldownSeconds:0,maxWaitSeconds:0,xanax:{energyGain:250,cooldownSeconds:3600},
+    pointRefill:{allowed:true,fillAmountPolicy:'natural_max',pointsRequired:25}});
+  const combination=candidates.find(x=>x.energyAtTraining===1000 && x.xanaxUses===1 && x.pointsConsumed===25);
+  assert.ok(combination);
+  assert.deepEqual(combination.actions.map(x=>x.action),['TAKE_XANAX','USE_REFILL']);
+  assert.equal(combination.discardedEnergy,0);
+  const state={energy:600,naturalEnergyMax:150,stackCap:1000,happy:1000,
+    stats:{speed:1000},targetStat:'speed',gym:{dots:5,energyPerTrain:10},
+    inventory:{xanax:1},cooldowns:{drugSeconds:0},pointRefill:{allowed:true,
+      fillAmountPolicy:'natural_max',pointsRequired:25}};
+  const ranked=m.recommend({observedState:{...state,xanax:{energyGain:250,cooldownSeconds:3600}},
+    preferences:{objective:'MAXIMUM_GAIN',allowRefill:true,pointLimit:25}});
+  assert.equal(ranked.primaryPlan.actions.some(x=>x.action==='USE_REFILL'),true);
+  assert.equal(ranked.primaryPlan.actions.some(x=>x.action==='TAKE_XANAX'),true);
+  assert.equal(ranked.primaryPlan.economics.pointsConsumed,25);
+});
+test('owned unknown-value and known-value boosters can combine for Maximum Gain',()=>{
+  const state={energy:100,naturalEnergyMax:100,happy:1000,stats:{speed:1000},targetStat:'speed',
+    gym:{dots:5,energyPerTrain:10},inventory:{mystery:1,known:1,ecstasy:1},
+    cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:2}};
+  const itemMechanics={mystery:{happy:700,cooldownSeconds:1},
+    known:{happy:500,cooldownSeconds:1,replacementValueEach:100},
+    ecstasy:{happyMultiplier:2,replacementValue:0}};
+  const recipes=m.generateHappyRecipes(state,itemMechanics);
+  assert.ok(recipes.some(x=>x.items.length===2 && x.preparation.economicValueConsumed===null));
+  const result=m.recommend({observedState:state,preferences:{objective:'MAXIMUM_GAIN'},
+    itemMechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(result.primaryPlan.resources.ownedItemsConsumed.mystery,1);
+  assert.equal(result.primaryPlan.resources.ownedItemsConsumed.known,1);
+  assert.equal(result.primaryPlan.economics.economicValueConsumed,null);
 });
