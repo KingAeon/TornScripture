@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-25 training model calibrated in observed domain; Training Advisor specification next; casino research preserved
+Snapshot: 2026-09-25 DQ-TRAIN-001C Training Advisor v0.1 specification draft opened; casino research preserved
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|ad8cbbd753471088a2cd5aaf7e1d8ed2dad164fe
+MAIN_AT_SNAPSHOT|82deb0b3508071aca54025493db3a624f6aca1f2
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,12 +11,13 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|calibrated_observed_domain_product_spec_next
+PARALLEL|DQ-TRAIN-001|001c_spec_draft_owner_review
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
-TRAINING_NEXT|freeze Training Advisor / Happy Jump Navigator product specification; B5 special-boundary research remains parallel
-TRAINING_PR|#119|reconciled_pending_exact_head_merge_authorization
+TRAINING_001C|draft|Training Advisor + Happy Jump Navigator v0.1|selectable objectives|state_strategy_recommendation_failure contracts|implementation_not_authorized
+TRAINING_NEXT|review DQ-TRAIN-001C contracts, freeze planner policy constants through synthetic fixtures, then seek explicit build authorization
+TRAINING_PR|#119|merged|82deb0b3508071aca54025493db3a624f6aca1f2
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
