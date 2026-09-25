@@ -1,24 +1,24 @@
 # NOW
 
-Snapshot: 2026-09-25 DQ-TRAIN-001C Training Advisor v0.1 specification frozen; build authorization is next; casino research preserved
+Snapshot: 2026-09-25 DQ-TRAIN-001 pure-planner build authorized; transfer to Work prepared; implementation not yet started
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|82deb0b3508071aca54025493db3a624f6aca1f2
+MAIN_AT_SNAPSHOT|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
 DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
-BLOCKERS|none_known
+BLOCKERS|current_non_Work_environment_cannot_materialize_executable_repo; Work retry required
 
-PARALLEL|DQ-TRAIN-001|001c_spec_frozen_build_gate
+PARALLEL|DQ-TRAIN-001|pure_planner_build_authorized_work_transfer
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
-TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|implementation_not_authorized
+TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|pure_planner_build_authorized
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|explicit [B] authorization for pure planner implementation; adapters/UI remain later gates
-TRAINING_PR|#122|ready_for_merge_under_one_time_owner_authorization
+TRAINING_NEXT|in Work: materialize executable repo, verify clean baseline/tests, checkout existing agent/training-advisor-pure-planner-001c branch, implement pure planner + frozen fixture tests; no adapters/UI
+TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
@@ -52,3 +52,7 @@ REQ|applicable conditions preserved
 
 SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
 NOTE|recheck current main SHA and mutable issue states before consequential action
+
+TRAINING_BUILD_BRANCH|agent/training-advisor-pure-planner-001c
+TRAINING_BUILD_STATE|authorized_preflight_transfer|no_product_code_yet
+TRAINING_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-2026-09-25.md
