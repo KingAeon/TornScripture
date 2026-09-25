@@ -11,6 +11,8 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 5. [`CALIBRATION-OBSERVATION-SCHEMA-001B.json`](CALIBRATION-OBSERVATION-SCHEMA-001B.json) — raw/local observation shape and derived-analysis contract.
 6. [DQ-TRAIN-001B Calibration Results](CALIBRATION-RESULTS-001B.md) — aggregate nonidentifying live evidence and model-state progression.
 7. [DQ-TRAIN-001C Training Advisor / Happy Jump Navigator v0.1 Specification](TRAINING-ADVISOR-SPEC-001C.md) — draft product contracts for state, strategy generation, ranking, recommendations, readiness, and replanning.
+8. [DQ-TRAIN-001C Planner Ranking Policy](PLANNER-POLICY-001C.md) — draft deterministic objective ranking and Balanced knee semantics.
+9. [`PLANNER-POLICY-FIXTURES-001C.json`](PLANNER-POLICY-FIXTURES-001C.json) — synthetic planner-policy acceptance fixtures.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
