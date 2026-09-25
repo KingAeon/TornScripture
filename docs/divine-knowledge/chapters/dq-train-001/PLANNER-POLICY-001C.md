@@ -1,6 +1,6 @@
 # DQ-TRAIN-001C — Planner Ranking Policy
 
-Status: **DRAFT POLICY FOR OWNER FREEZE; NO PRODUCT IMPLEMENTATION AUTHORIZED**
+Status: **FROZEN POLICY; PRODUCT IMPLEMENTATION REQUIRES SEPARATE `[B]` AUTHORIZATION**
 
 Opened: 2026-09-25.
 Parent: `TRAINING-ADVISOR-SPEC-001C.md`.
@@ -379,11 +379,11 @@ Final fingerprint tie-break guarantees stable ordering.
 
 `PLANNER-POLICY-FIXTURES-001C.json` is the normative draft for these policy decisions.
 
-The policy is eligible for FROZEN status when:
+The policy was accepted as FROZEN on 2026-09-25 after:
 
 1. every fixture's expected result is owner-accepted;
 2. independent calculation reproduces each ranking;
 3. no fixture requires hidden implementation-only information;
 4. changing a ranking-semantic rule requires fixture updates and explicit owner review.
 
-No product build is authorized by freezing this policy alone.
+No product build is authorized by this freeze alone.
