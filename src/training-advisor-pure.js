@@ -1,0 +1,667 @@
+'use strict';
+
+// DQ-TRAIN-001A/001C: pure, normalized advisory logic. No live state is read here.
+const MODEL_ID = 'vladar-v2-pre50m-v1';
+const LIMIT = 50_000_000;
+const STATS = Object.freeze({
+  strength: { a: 1600, b: 1700, noise: 700 },
+  speed: { a: 1600, b: 2000, noise: 1350 },
+  dexterity: { a: 1800, b: 1500, noise: 1000 },
+  defense: { a: 2100, b: -600, noise: 1500 }
+});
+const CONFIDENCE = Object.freeze({ CALIBRATED: 3, SUPPORTED_EXTRAPOLATION: 2, EXPERIMENTAL: 1, UNSUPPORTED: 0 });
+const RISK = Object.freeze({ CALIBRATED_ONLY: 3, ALLOW_SUPPORTED: 2, ALLOW_EXPERIMENTAL: 1 });
+const isNonnegative = n => Number.isFinite(n) && n >= 0;
+const isInteger = n => Number.isSafeInteger(n) && n >= 0;
+const halfUp = (n, places = 0) => Math.floor(n * 10 ** places + 0.5) / 10 ** places;
+const happyMultiplier = happy => {
+  const logarithm = halfUp(Math.log1p(happy / 250), 4);
+  return { logarithm, multiplier: halfUp(1 + 0.07 * logarithm, 4) };
+};
+const happyLoss = (energyPerTrain, roll) => halfUp(0.1 * energyPerTrain * roll);
+const fail = (status, reason) => ({ status, reason, warnings: [], assumptions: [] });
+
+function simulateTraining(input) {
+  if (!input || typeof input !== 'object') return fail('invalid', 'INVALID_INPUT');
+  if (input.modelId !== MODEL_ID) return fail('unsupported', 'UNSUPPORTED_MODEL');
+  const { stat, happy, gym, gainPerks, trainCount, randomness } = input;
+  if (!stat || !STATS[stat.kind] || !isNonnegative(stat.value) ||
+      !Number.isInteger(happy) || happy < 0 || happy > 99999 ||
+      !gym || !isNonnegative(gym.dots) || !isInteger(gym.energyPerTrain) || gym.energyPerTrain === 0 ||
+      !Array.isArray(gainPerks) || !isInteger(trainCount) ||
+      !randomness || !Array.isArray(randomness.gainNoise) || !Array.isArray(randomness.happyLossRoll) ||
+      randomness.gainNoise.length !== trainCount || randomness.happyLossRoll.length !== trainCount) {
+    return fail('invalid', 'INVALID_INPUT');
+  }
+  if (stat.value > LIMIT) return fail('unsupported', 'OUT_OF_MODEL_DOMAIN');
+  if (input.effects != null && !Array.isArray(input.effects)) return fail('invalid','INVALID_INPUT');
+  if (input.effects?.length || gym.happyLossModifier != null) return fail('unsupported', 'UNSUPPORTED_EFFECT');
+  const ids = new Set();
+  for (const perk of gainPerks) {
+    if (!perk || typeof perk.id !== 'string' || !perk.id || ids.has(perk.id) ||
+        !Number.isFinite(perk.rate) || perk.rate <= -1) return fail('invalid', 'INVALID_INPUT');
+    ids.add(perk.id);
+  }
+  const bound = STATS[stat.kind].noise;
+  if (randomness.gainNoise.some(n => !Number.isInteger(n) || Math.abs(n) > bound) ||
+      randomness.happyLossRoll.some(n => ![4, 5, 6].includes(n))) return fail('invalid', 'INVALID_INPUT');
+  const canonicalPerks = [...gainPerks].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const multiplier = canonicalPerks.reduce((acc, p) => acc * (1 + p.rate), 1);
+  let currentStat = stat.value, currentHappy = happy;
+  const trains = [];
+  for (let index = 0; index < trainCount; index++) {
+    if (currentStat > LIMIT) return fail('unsupported', 'OUT_OF_MODEL_DOMAIN');
+    const { a, b } = STATS[stat.kind];
+    const base = currentStat * happyMultiplier(currentHappy).multiplier +
+      8 * currentHappy ** 1.05 + (1 - (currentHappy / 99999) ** 2) * a + b + randomness.gainNoise[index];
+    const gain = base / 200000 * gym.dots * gym.energyPerTrain * multiplier;
+    const loss = happyLoss(gym.energyPerTrain, randomness.happyLossRoll[index]);
+    const nextStat = currentStat + gain, nextHappy = Math.max(0, currentHappy - loss);
+    trains.push({ index, statBefore: currentStat, happyBefore: currentHappy,
+      gainNoise: randomness.gainNoise[index], gain, statAfter: nextStat,
+      happyLossRoll: randomness.happyLossRoll[index], happyLoss: loss, happyAfter: nextHappy });
+    currentStat = nextStat;
+    currentHappy = nextHappy;
+  }
+  return { status: 'ok', model: { id: MODEL_ID, status: 'candidate_not_live_calibrated' },
+    start: { stat: stat.value, happy }, end: { stat: currentStat, happy: currentHappy },
+    totalGain: currentStat - stat.value, energySpent: trainCount * gym.energyPerTrain,
+    canonicalPerkOrder: canonicalPerks.map(p => p.id), trains, warnings: [], assumptions: [] };
+}
+
+// Expected/central planning path, with explicit zero noise and central loss rolls.
+// Unsupported remainder is reported, never assigned a predicted gain.
+function simulatePlanTraining(input) {
+  const { energy, ...kernel } = input || {};
+  if (!isInteger(energy) || !kernel.gym || !isInteger(kernel.gym.energyPerTrain) || !kernel.gym.energyPerTrain) {
+    return fail('invalid', 'INVALID_INPUT');
+  }
+  const count = Math.floor(energy / kernel.gym.energyPerTrain);
+  const validation = simulateTraining({ ...kernel, trainCount:0,
+    randomness:{gainNoise:[],happyLossRoll:[]} });
+  if (validation.status !== 'ok') return validation;
+  let currentStat = kernel.stat?.value, currentHappy = kernel.happy;
+  let used = 0;
+  const trains = [];
+  for (let i = 0; i < count; i++) {
+    const result = simulateTraining({ ...kernel, stat: { ...kernel.stat, value: currentStat }, happy: currentHappy,
+      trainCount: 1, randomness: { gainNoise: [0], happyLossRoll: [5] } });
+    if (result.status !== 'ok') {
+      if (result.reason === 'OUT_OF_MODEL_DOMAIN' && i > 0) break;
+      return result;
+    }
+    trains.push({ ...result.trains[0], index: i });
+    used += kernel.gym.energyPerTrain;
+    currentStat = result.end.stat;
+    currentHappy = result.end.happy;
+  }
+  const partial = trains.length < count;
+  return { status: partial ? 'partial' : 'ok', reason: partial ? 'MODEL_OUT_OF_DOMAIN' : null,
+    modeledTrainCount: trains.length, modeledGain: currentStat - kernel.stat.value,
+    modeledEndStat: currentStat, finalHappy: currentHappy, remainingEnergy: energy - used,
+    energySpent: used, fullOutcomeRankable: !partial, trains,
+    assumption: 'central path: explicit zero gain noise, Happy-loss roll 5; no probability or gain interval inferred' };
+}
+
+const num = (o, key, fallback = 0) => o[key] == null ? fallback : o[key];
+const compareNumbers = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+const compareStrings = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+const economic = c => c.economicValueConsumed ??
+  (Number.isFinite(c.newCashRequired) && Number.isFinite(c.marketValueOfOwnedItemsConsumed) &&
+   Number.isFinite(c.pricedPointValueConsumed) ?
+    c.newCashRequired + c.marketValueOfOwnedItemsConsumed + c.pricedPointValueConsumed : null);
+const axes = ['economicValueConsumed', 'timeToCompletionHours', 'naturalEnergyLost', 'pointsConsumed'];
+function dominates(a, b) {
+  if (a.expectedGain < b.expectedGain || CONFIDENCE[a.confidence] < CONFIDENCE[b.confidence]) return false;
+  let strict = a.expectedGain > b.expectedGain || CONFIDENCE[a.confidence] > CONFIDENCE[b.confidence];
+  for (const axis of axes) {
+    const va = axis === 'economicValueConsumed' ? economic(a) : num(a, axis);
+    const vb = axis === 'economicValueConsumed' ? economic(b) : num(b, axis);
+    if (va == null || vb == null || va > vb) return false;
+    strict ||= va < vb;
+  }
+  return strict;
+}
+const fingerprint = c => c.fingerprint || c.id;
+function paretoPrune(candidates) {
+  const sorted = [...candidates].sort((a, b) => compareStrings(fingerprint(a), fingerprint(b)));
+  return sorted.filter(c => !sorted.some(other => other !== c && dominates(other, c)));
+}
+function rankCandidates({ candidates, objective = 'BALANCED', riskPolicy = 'ALLOW_SUPPORTED',
+  referenceSessionGain, budgetNewCash, maxWaitHours, pointLimit, prohibitedItems = [],ownedItemsOnly = false } = {}) {
+  if (!Array.isArray(candidates) || !RISK[riskPolicy] ||
+      !['BALANCED','MAXIMUM_GAIN','BEST_VALUE','BUDGET_CAP','USE_MY_INVENTORY','FASTEST_USEFUL'].includes(objective)) {
+    return { status: 'NO_SAFE_RECOMMENDATION', reason: 'INVALID_INPUT', selected: null };
+  }
+  const excluded = [], valid = [];
+  if (objective === 'BUDGET_CAP' && !isNonnegative(budgetNewCash))
+    return {status:'NO_SAFE_RECOMMENDATION',reason:'DATA_MISSING',selected:null};
+  if (budgetNewCash != null && !isNonnegative(budgetNewCash))
+    return {status:'NO_SAFE_RECOMMENDATION',reason:'INVALID_INPUT',selected:null};
+  const needsEconomic = ['BALANCED','BEST_VALUE','USE_MY_INVENTORY'].includes(objective);
+  const needsUseful = ['USE_MY_INVENTORY','FASTEST_USEFUL'].includes(objective);
+  for (const c of candidates) {
+    let reason = null;
+    if (!c || !c.id || !fingerprint(c) || !isNonnegative(c.expectedGain) || !(c.confidence in CONFIDENCE) ||
+        (c.economicValueConsumed != null && !isNonnegative(c.economicValueConsumed)) ||
+        (c.pointsConsumed != null && !isNonnegative(c.pointsConsumed)) ||
+        (c.newCashRequired != null && !isNonnegative(c.newCashRequired))) reason = 'INVALID_INPUT';
+    else if (c.partial || c.fullOutcomeRankable === false) reason = 'MODEL_OUT_OF_DOMAIN';
+    else if (CONFIDENCE[c.confidence] < RISK[riskPolicy]) reason = 'CONFIDENCE_POLICY';
+    else if (maxWaitHours != null && num(c, 'timeToCompletionHours') > maxWaitHours) reason = 'COOLDOWN_BLOCKED';
+    else if (pointLimit != null && num(c, 'pointsConsumed') > pointLimit) reason = 'RESOURCE_MISSING';
+    else if (prohibitedItems.some(id => c.itemsConsumed?.[id] > 0)) reason = 'USER_RESOURCE_RESTRICTION';
+    else if (ownedItemsOnly && c.boughtItemsCount > 0) reason = 'USER_RESOURCE_RESTRICTION';
+    else if (budgetNewCash != null && c.newCashRequired == null) reason = 'ECONOMICS_UNAVAILABLE';
+    else if (budgetNewCash != null && c.newCashRequired > budgetNewCash) reason = 'BUDGET_EXHAUSTED';
+    else if ((needsUseful || objective === 'BEST_VALUE') && !isNonnegative(referenceSessionGain)) reason = 'DATA_MISSING';
+    else if (needsUseful && c.expectedGain < referenceSessionGain) reason = 'BELOW_USEFUL_SESSION_REFERENCE';
+    else if (needsEconomic && !isNonnegative(economic(c))) reason = 'ECONOMICS_UNAVAILABLE';
+    else if (c.resourceUnknown) reason = 'RESOURCE_MISSING';
+    else if (objective === 'BUDGET_CAP' && !isNonnegative(num(c, 'newCashRequired', NaN))) reason = 'ECONOMICS_UNAVAILABLE';
+    if (reason) excluded.push({ id: c?.id, reason }); else valid.push(c);
+  }
+  if (!valid.length) return { status: 'NO_SAFE_RECOMMENDATION', reason: excluded[0]?.reason || 'NO_COMPETITIVE_PLAN',
+    selected: null, excluded, rejected: excluded };
+  const frontier = paretoPrune(valid);
+  let pool = objective === 'BALANCED' ? frontier : valid;
+  const diagnostics = {}, advancedReasons = [];
+  const cmp = (a, b, fields) => {
+    for (const [value, descending] of fields) {
+      const diff = compareNumbers(value(a), value(b));
+      if (diff) return descending ? -diff : diff;
+    }
+    return compareStrings(fingerprint(a), fingerprint(b));
+  };
+  const conf = c => CONFIDENCE[c.confidence];
+  const cost = c => economic(c) ?? Infinity;
+  const time = c => num(c, 'timeToCompletionHours');
+  const gain = c => c.expectedGain;
+  const cash = c => num(c, 'newCashRequired');
+  let comparator;
+  switch (objective) {
+    case 'MAXIMUM_GAIN': comparator = (a,b) => cmp(a,b,[[gain,true],[conf,true],[cost,false],[time,false]]); break;
+    case 'BUDGET_CAP': comparator = (a,b) => cmp(a,b,[[gain,true],[conf,true],[cash,false],[cost,false],[time,false]]); break;
+    case 'USE_MY_INVENTORY': comparator = (a,b) => cmp(a,b,[[cash,false],[gain,true],[conf,true],[cost,false],[time,false]]); break;
+    case 'FASTEST_USEFUL': comparator = (a,b) => cmp(a,b,[[time,false],[gain,true],[conf,true],[cost,false]]); break;
+    case 'BEST_VALUE': {
+      const free = valid.filter(c => economic(c) === 0).sort((a,b) => cmp(a,b,[[gain,true],[conf,true],[time,false]]));
+      const baseline = free[0];
+      const baselineGain = baseline?.expectedGain || 0;
+      pool = valid.filter(c => {
+        const deltaGain = c.expectedGain - baselineGain, deltaEconomic = economic(c);
+        if (c.expectedGain >= referenceSessionGain && deltaGain > 0 && deltaEconomic > 0) {
+          diagnostics[c.id] = { deltaGain, deltaEconomic, incrementalValue: deltaGain / deltaEconomic };
+          return true;
+        }
+        return false;
+      });
+      if (!pool.length && baseline) pool = [baseline];
+      comparator = (a,b) => cmp(a,b,[[c => diagnostics[c.id]?.incrementalValue || 0,true],
+        [gain,true],[conf,true],[cost,false],[time,false]]);
+      break;
+    }
+    case 'BALANCED': {
+      const values = c => [gain(c),cost(c),time(c),num(c,'naturalEnergyLost'),num(c,'pointsConsumed')];
+      const mins = [0,1,2,3,4].map(i => Math.min(...pool.map(c => values(c)[i])));
+      const maxs = [0,1,2,3,4].map(i => Math.max(...pool.map(c => values(c)[i])));
+      for (const c of pool) {
+        const normalized = values(c).map((v,i) => maxs[i] === mins[i] ? 0 : (v - mins[i]) / (maxs[i] - mins[i]));
+        const burden = Math.max(...normalized.slice(1));
+        diagnostics[c.id] = { gainUtility: normalized[0], burden, kneeScore: normalized[0] - burden };
+      }
+      comparator = (a,b) => cmp(a,b,[[c=>diagnostics[c.id].kneeScore,true],[conf,true],
+        [c=>diagnostics[c.id].burden,false],[gain,true],[cost,false],[time,false],
+        [c=>num(c,'naturalEnergyLost'),false],[c=>num(c,'pointsConsumed'),false]]);
+      break;
+    }
+  }
+  pool.sort(comparator);
+  if (objective === 'BALANCED' && pool.length > 1 &&
+      Math.abs(diagnostics[pool[0].id].kneeScore - diagnostics[pool[1].id].kneeScore) < 1e-12) {
+    advancedReasons.push('BALANCED_KNEE_AMBIGUOUS');
+  }
+  return { status: pool.length ? 'ok' : 'NO_SAFE_RECOMMENDATION', selected: pool[0] || null,
+    alternatives: pool.slice(1,6), frontier, excluded, rejected: excluded, diagnostics, advancedReasons,
+    reason: pool.length ? null : 'NO_COMPETITIVE_PLAN' };
+}
+
+// Frontiers are generated in stable item-ID order. Owned and bought units remain
+// distinct until economics and dominance have been evaluated.
+function generateHappyFrontier({ boosterSlots, items, newCashBudget = Infinity } = {}) {
+  if (!isInteger(boosterSlots) || !Array.isArray(items) || !items.every(item => item &&
+      typeof item.id === 'string' && item.id && isNonnegative(item.happy) &&
+      isInteger(item.maxQuantity) && isInteger(item.owned) && isNonnegative(item.newCashEach))) {
+    return { status: 'invalid', reason: 'INVALID_INPUT' };
+  }
+  const sorted = [...items].sort((a,b) => compareStrings(a.id,b.id));
+  if (new Set(sorted.map(x=>x.id)).size !== sorted.length) return { status: 'invalid', reason: 'INVALID_INPUT' };
+  const rawCandidates = [];
+  function visit(index, remaining, bundle, happy, newCash, ownedValue, cooldownSeconds) {
+    if (index === sorted.length) {
+      if (remaining === 0) rawCandidates.push({ bundle, happy, newCash, ownedValue,
+        economicValueConsumed: newCash + ownedValue, cooldownSeconds });
+      return;
+    }
+    const item = sorted[index];
+    for (let quantity = 0; quantity <= Math.min(remaining,item.maxQuantity); quantity++) {
+      for (let owned = 0; owned <= Math.min(quantity,item.owned); owned++) {
+        const bought = quantity - owned;
+        if (item.purchasableQuantity != null && bought > item.purchasableQuantity) continue;
+        const cash = newCash + bought * item.newCashEach;
+        if (cash > newCashBudget) continue;
+        const next = { ...bundle };
+        if (owned) next[`${item.id}Owned`] = owned;
+        if (bought) next[`${item.id}Bought`] = bought;
+        visit(index+1, remaining-quantity, next, happy+quantity*item.happy, cash,
+          ownedValue+owned*(item.replacementValueEach ?? item.newCashEach),
+          cooldownSeconds+quantity*(item.cooldownSeconds || 0));
+      }
+    }
+  }
+  visit(0,boosterSlots,{},0,0,0,0);
+  const key = c => JSON.stringify(c.bundle);
+  const dominatesRecipe = (a,b) => a.happy >= b.happy && a.newCash <= b.newCash &&
+    a.economicValueConsumed <= b.economicValueConsumed && a.cooldownSeconds <= b.cooldownSeconds &&
+    (a.happy > b.happy || a.newCash < b.newCash || a.economicValueConsumed < b.economicValueConsumed ||
+     a.cooldownSeconds < b.cooldownSeconds || key(a) < key(b));
+  const frontier = rawCandidates.filter(c => !rawCandidates.some(other => other !== c && dominatesRecipe(other,c)))
+    .sort((a,b)=>compareNumbers(a.happy,b.happy) || compareNumbers(a.newCash,b.newCash) || compareStrings(key(a),key(b)));
+  return { status:'ok', rawCandidates, frontier, dominatedItemIds: sorted.filter(item =>
+    sorted.some(other => other !== item && other.happy >= item.happy &&
+      other.newCashEach <= item.newCashEach &&
+      (other.happy > item.happy || other.newCashEach < item.newCashEach))).map(x=>x.id) };
+}
+
+function naturalEnergyLost({ energy, naturalEnergyMax, stackCap, naturalRegen, waitSeconds }) {
+  if (!naturalRegen || !isNonnegative(waitSeconds) || !isNonnegative(energy)) return 0;
+  const { energy: gain, everySeconds } = naturalRegen;
+  if (!isNonnegative(gain) || !isNonnegative(everySeconds) || !everySeconds) return 0;
+  const ticks = Math.floor(waitSeconds / everySeconds);
+  return energy >= naturalEnergyMax || energy >= stackCap ? ticks * gain :
+    Math.max(0, ticks * gain - Math.max(0, naturalEnergyMax - energy));
+}
+function generateEnergyCandidates(input = {}) {
+  const { energy, naturalEnergyMax, stackCap,
+    xanax, maxWaitSeconds = 0, pointRefill, naturalRegen } = input;
+  const drugCooldownSeconds = input.drugCooldownSeconds ?? input.cooldowns?.drugSeconds;
+  if (!isNonnegative(energy) || !isNonnegative(naturalEnergyMax) ||
+      (stackCap != null && !isNonnegative(stackCap)) ||
+      !isNonnegative(maxWaitSeconds)) return [];
+  const candidates = [{ type:'TRAIN_NOW', energyAtTraining: energy, waitSeconds:0,
+    naturalEnergyLost:0, actions:[], discardedEnergy:0 }];
+  if (xanax && isNonnegative(xanax.energyGain) && isNonnegative(drugCooldownSeconds) &&
+      drugCooldownSeconds <= maxWaitSeconds && xanax.energyGain > 0 && stackCap != null && energy < stackCap) {
+    const after = Math.min(stackCap, energy + xanax.energyGain);
+    candidates.push({ type:'WAIT_XANAX', energyAtTraining:after, waitSeconds:drugCooldownSeconds,
+      xanaxUses:1, discardedEnergy: energy+xanax.energyGain-after,
+      naturalEnergyLost:naturalEnergyLost({ energy,naturalEnergyMax,stackCap,naturalRegen,waitSeconds:drugCooldownSeconds }),
+      actions:[...(drugCooldownSeconds ? [{ action:'WAIT', seconds:drugCooldownSeconds,checkpoint:'DRUG_COOLDOWN' }] : []),{ action:'TAKE_XANAX' }] });
+    if (isNonnegative(xanax.cooldownSeconds) && xanax.cooldownSeconds > 0) {
+      let current=after, wait=drugCooldownSeconds, uses=1;
+      while (current < stackCap && wait+xanax.cooldownSeconds <= maxWaitSeconds) {
+        wait += xanax.cooldownSeconds;
+        uses++;
+        current=Math.min(stackCap,energy+uses*xanax.energyGain);
+        candidates.push({type:'WAIT_XANAX',energyAtTraining:current,waitSeconds:wait,xanaxUses:uses,
+          discardedEnergy:Math.max(0,energy+uses*xanax.energyGain-current),
+          naturalEnergyLost:naturalEnergyLost({energy,naturalEnergyMax,stackCap,naturalRegen,waitSeconds:wait}),
+          actions:[...(drugCooldownSeconds ? [{action:'WAIT',seconds:drugCooldownSeconds,checkpoint:'DRUG_COOLDOWN'}] : []),
+            ...Array.from({length:uses},(_,i)=>i ? [{action:'WAIT',seconds:xanax.cooldownSeconds,checkpoint:'DRUG_COOLDOWN'},{action:'TAKE_XANAX'}] :
+              [{action:'TAKE_XANAX'}]).flat()]});
+      }
+    }
+  }
+  if (pointRefill?.allowed && pointRefill.fillAmountPolicy === 'natural_max' &&
+      stackCap != null && energy < stackCap) {
+    const after = Math.min(stackCap,energy+naturalEnergyMax);
+    candidates.push({ type:'REFILL', energyBefore:energy, nominalFill:naturalEnergyMax,
+      energyAtTraining:after, energyAfter:after, discardedEnergy:energy+naturalEnergyMax-after,
+      waitSeconds:0, naturalEnergyLost:0, pointsConsumed:pointRefill.pointsRequired ?? null,
+      actions:[{action:'USE_REFILL'}] });
+  }
+  if (naturalRegen && energy < naturalEnergyMax && naturalRegen.everySeconds > 0 && naturalRegen.energy > 0) {
+    const wait = Math.ceil((naturalEnergyMax-energy)/naturalRegen.energy)*naturalRegen.everySeconds;
+    if (wait <= maxWaitSeconds) candidates.push({ type:'WAIT_NATURAL', energyAtTraining:naturalEnergyMax,
+      waitSeconds:wait, naturalEnergyLost:0, actions:[{action:'WAIT',seconds:wait,checkpoint:'NATURAL_FULL_BAR'}] });
+  }
+  return candidates;
+}
+
+function resolveObserved(predicted, observed) {
+  if (!observed || observed.source !== 'OBSERVED' || !['LIVE','FRESH'].includes(observed.freshness))
+    return { state:predicted, changed:false };
+  const changed = Object.keys(observed).some(k => k !== 'source' && k !== 'freshness' && predicted?.[k] !== observed[k]);
+  return { state:{ ...predicted, ...observed }, changed, reason:changed ? 'STATE_CHANGED' : null,
+    reSimulateRemainingPlan:changed };
+}
+function replanOnEvent(event = {}) {
+  if (event.event === 'DRUG_OVERDOSE') return {phase:'INTERRUPTED',reason:'PLAN_INTERRUPTED',
+    invalidate:['energy','happy','drugCooldown','readiness'],modelContradiction:false};
+  if (event.materialChange && event.observedEnergyBefore !== event.plannedEnergyBefore)
+    return {reason:'STATE_CHANGED',action:'REPLAN_FROM_OBSERVED_STATE',preserveSpentResources:true};
+  return {reason:null,action:'CONTINUE'};
+}
+function compareRecommendationIdentity(before, after) {
+  return {recommendationIdentityChanged:before?.fingerprint !== after?.fingerprint || before?.selected !== after?.selected,
+    economicsUpdated:before?.newCashRequired !== after?.newCashRequired};
+}
+function simulateResolvedBoundary({modelMaxStartStat,startStat,internalTrainGains,energyPerTrain,availableEnergy}) {
+  if (!isNonnegative(modelMaxStartStat) || !isNonnegative(startStat) || !Array.isArray(internalTrainGains) ||
+      !internalTrainGains.every(isNonnegative) || !isInteger(energyPerTrain) || !energyPerTrain || !isInteger(availableEnergy))
+    return fail('invalid','INVALID_INPUT');
+  let stat=startStat, modeledTrainCount=0;
+  const possible=Math.min(internalTrainGains.length,Math.floor(availableEnergy/energyPerTrain));
+  while (modeledTrainCount<possible && stat<=modelMaxStartStat) stat+=internalTrainGains[modeledTrainCount++];
+  const partial=modeledTrainCount<Math.floor(availableEnergy/energyPerTrain);
+  return {modeledTrainCount,endingModeledStat:stat,remainingEnergy:availableEnergy-modeledTrainCount*energyPerTrain,
+    reason:partial?'MODEL_OUT_OF_DOMAIN':null,eligibleForFullOutcomeRanking:!partial};
+}
+function capabilities(state = {}, market = {}) {
+  const unsupportedGain = state.activeEffects?.some(x => x.affects?.includes('gymGain') &&
+    (x.support !== 'SUPPORTED' || !x.representedByGainPerkId ||
+      !state.gainPerks?.some(p=>p.id===x.representedByGainPerkId)));
+  return { canPredictGain:!unsupportedGain && isNonnegative(state.stats?.[state.targetStat]) &&
+      isNonnegative(state.happy) && isNonnegative(state.gym?.dots),
+    canUseInventory:!!state.inventory,
+    canCompareMarket:market.available !== false && !!market.items,
+    canCompareCost:market.available !== false && !!market.items,
+    reason:unsupportedGain ? 'UNSUPPORTED_EFFECT' : null };
+}
+function structuralFingerprint({ actions, targetStat, statAllocationMode = 'TARGET_STAT', resourcePolicy = 'STANDARD',
+  ownedItemsConsumed = {}, boughtItems = {} }) {
+  const sources=[...new Set([...Object.keys(ownedItemsConsumed),...Object.keys(boughtItems)])].sort(compareStrings)
+    .map(id=>[id,ownedItemsConsumed[id] || 0,boughtItems[id] || 0]);
+  return JSON.stringify({ targetStat, statAllocationMode, resourcePolicy,
+    sources,
+    actions: actions.filter(a => a.action !== 'VERIFY_STATE').map(a =>
+      [a.action,a.item || null,a.quantity || null,a.targetStat || null,
+        a.trainCount ?? null,a.energySpent ?? null,a.checkpoint ?? null]) });
+}
+function planReadiness(plan, state = {}, timing = {}) {
+  if (state.inventoryFreshness === 'STALE' && plan.resources?.ownedItemsConsumed &&
+      Object.keys(plan.resources.ownedItemsConsumed).length) return { status:'NEEDS_REFRESH',reason:'DATA_STALE',nextAction:'refresh inventory' };
+  if (plan.actions?.some(a => a.action === 'TAKE_ECSTASY') && timing.safeQuarterWindow === false)
+    return { status:'BLOCKED',reason:'TIMING_UNSAFE',nextAction:'wait for next safe quarter-hour window' };
+  if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && timing.safeQuarterWindow !== true)
+    return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'confirm safe quarter-hour window'};
+  if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && state.cooldowns &&
+      !isNonnegative(state.cooldowns.drugSeconds))
+    return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh drug cooldown'};
+  if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && state.cooldowns?.drugSeconds > 0)
+    return {status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for drug cooldown, then verify Happy'};
+  if (plan.actions?.some(a=>a.action==='USE_BOOSTER') && state.cooldowns?.boosterSeconds > 0)
+    return {status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for booster cooldown, then verify Happy'};
+  if (Object.keys(plan.resources?.boughtItems || {}).length && state.itemsAvailable !== true)
+    return { status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',nextAction:'obtain and verify required items' };
+  if (plan.economics?.newCashRequired > 0 && state.itemsAvailable === false)
+    return { status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',nextAction:'obtain required items' };
+  if (plan.actions?.find(a=>a.action!=='VERIFY_STATE')?.action === 'WAIT')
+    return { status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for checkpoint' };
+  return { status:'READY',reason:null,nextAction:plan.actions?.find(a=>a.action!=='VERIFY_STATE')?.action || 'VERIFY_STATE' };
+}
+
+// Only explicit mechanics and bounded quantities enter the recipe frontier.
+// The no-boost path is composed by the caller, including when economics are absent.
+function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = {}) {
+  if (!mechanics.ecstasy || !isNonnegative(mechanics.ecstasy.happyMultiplier) ||
+      !state?.inventory?.ecstasy && !isNonnegative(mechanics.ecstasy.newCash)) return [];
+  const prices = Array.isArray(market.items) ? Object.fromEntries(market.items.map(x=>[x.id,x])) : market.items || {};
+  const slotsAvailable = state.cooldowns?.boosterMaxSeconds != null ?
+    state.cooldowns.boosterMaxSeconds - (state.cooldowns.boosterSeconds || 0) : null;
+  const items = Object.entries(mechanics).filter(([id,m]) => id !== 'ecstasy' &&
+    isNonnegative(m.happy) && m.happy > 0 && isNonnegative(m.cooldownSeconds) && m.cooldownSeconds > 0)
+    .map(([id,m]) => {
+      const owned = state.inventory?.[id] || 0;
+      const listing = prices[id];
+      const unitCash = m.newCashEach ?? listing?.newCashEach;
+      const purchasable = isNonnegative(unitCash) ?
+        (listing?.availableQuantity ?? m.purchasableQuantity ?? m.maxQuantity ?? 0) : 0;
+      const maxQuantity = m.maxQuantity ?? owned + purchasable;
+      if (!isInteger(owned) || !isInteger(maxQuantity) || maxQuantity <= 0 ||
+          !isNonnegative(unitCash) && maxQuantity > owned) return null;
+      return { id, happy:m.happy, cooldownSeconds:m.cooldownSeconds, owned, maxQuantity,
+        purchasableQuantity:purchasable,newCashEach:unitCash ?? 0,
+        replacementValueEach:m.replacementValueEach ?? listing?.replacementValueEach ?? null };
+    }).filter(Boolean);
+  const ecstasyOnly = [{items:[],useEcstasy:true,
+    preparation:{happyAdded:0,newCashRequired:0,economicValueConsumed:0,boosterCooldownSeconds:0}}];
+  if (slotsAvailable == null || slotsAvailable < 0 || !items.length) return ecstasyOnly;
+  const maxSlots = Math.min(items.reduce((s,x)=>s+x.maxQuantity,0),
+    Math.floor(slotsAvailable/Math.min(...items.map(x=>x.cooldownSeconds))));
+  const out = ecstasyOnly;
+  // Missing replacement value cannot enter an economic frontier. Owned-only
+  // recipes still remain available to gain-only objectives with unknown cost.
+  const knownValue = items.filter(x=>x.owned === 0 || isNonnegative(x.replacementValueEach));
+  for (const item of items.filter(x=>!isNonnegative(x.replacementValueEach) && x.owned > 0)) {
+    const maximum = Math.min(item.owned,Math.floor(slotsAvailable/item.cooldownSeconds));
+    for (let quantity=1;quantity<=maximum;quantity++) out.push({items:[{id:item.id,quantity,owned:quantity,
+      newCashEach:0,replacementValueEach:null}],useEcstasy:true,
+      preparation:{happyAdded:quantity*item.happy,newCashRequired:0,
+        economicValueConsumed:null,boosterCooldownSeconds:quantity*item.cooldownSeconds}});
+  }
+  for (let slots=1;slots<=maxSlots;slots++) {
+    const frontier = generateHappyFrontier({boosterSlots:slots,items:knownValue,
+      newCashBudget:preferences.budgetNewCash ?? Infinity});
+    if (frontier.status !== 'ok') continue;
+    for (const c of frontier.frontier) {
+      if (c.cooldownSeconds > slotsAvailable) continue;
+      const recipeItems = knownValue.map(item => ({id:item.id,
+        quantity:(c.bundle[`${item.id}Owned`] || 0)+(c.bundle[`${item.id}Bought`] || 0),
+        owned:c.bundle[`${item.id}Owned`] || 0,
+        newCashEach:item.newCashEach,replacementValueEach:item.replacementValueEach}))
+        .filter(item=>item.quantity);
+      out.push({items:recipeItems,useEcstasy:true,preparation:{happyAdded:c.happy,
+        newCashRequired:c.newCash,economicValueConsumed:c.economicValueConsumed,
+        boosterCooldownSeconds:c.cooldownSeconds}});
+    }
+  }
+  return out.sort((a,b)=>compareNumbers(a.preparation.happyAdded,b.preparation.happyAdded) ||
+    compareNumbers(a.preparation.economicValueConsumed ?? Infinity,b.preparation.economicValueConsumed ?? Infinity) ||
+    compareStrings(JSON.stringify(a.items),JSON.stringify(b.items)));
+}
+
+function composePlan({ state, preferences = {}, energy, recipe = { items:[], useEcstasy:false },
+  itemMechanics = {}, marketSnapshot = {}, timing = {} }) {
+  if (!state || !isNonnegative(state.energy) || !isInteger(energy.energyAtTraining) ||
+      !isNonnegative(state.happy) || !state.targetStat || !state.gym?.energyPerTrain) return fail('invalid','INVALID_INPUT');
+  const actions = [{action:'VERIFY_STATE'}];
+  actions.push(...energy.actions);
+  if (energy.waitSeconds > 0) actions.push({action:'VERIFY_STATE',fields:['energy','happy','cooldowns']});
+  const futureHappyNeeded = energy.waitSeconds > 0 ||
+    (recipe.items?.length && state.cooldowns?.boosterSeconds > 0) ||
+    (recipe.useEcstasy && state.cooldowns?.drugSeconds > 0);
+  const futureHappy = futureHappyNeeded ? state.happyAtCheckpoint : state.happy;
+  let currentHappy = isInteger(futureHappy) && futureHappy <= 99999 ? futureHappy : null;
+  const ownedItemsConsumed = {}, boughtItems = {};
+  let newCashRequired = 0, ownedValue = 0, boosterCooldownSeconds = 0;
+  let resourceUnknown = false;
+  if (energy.xanaxUses) {
+    if (!isInteger(energy.xanaxUses)) return fail('invalid','INVALID_INPUT');
+    const owned = Math.min(energy.xanaxUses,state.inventory?.xanax || 0), bought=energy.xanaxUses-owned;
+    const listing = Array.isArray(marketSnapshot.items) ? marketSnapshot.items.find(x=>x.id==='xanax') :
+      marketSnapshot.items?.xanax;
+    const cashEach = itemMechanics.xanax?.newCashEach ?? listing?.newCashEach;
+    const replacement = itemMechanics.xanax?.replacementValueEach ?? listing?.replacementValueEach;
+    if (owned) ownedItemsConsumed.xanax=owned;
+    if (bought) boughtItems.xanax=bought;
+    if (owned && !isNonnegative(replacement)) ownedValue=null;
+    else if (owned) ownedValue+=owned*replacement;
+    if (bought && !isNonnegative(cashEach)) {newCashRequired=null;resourceUnknown=true;}
+    else if (bought) newCashRequired+=bought*cashEach;
+  }
+  const boosters = [...(recipe.items || [])].sort((a,b)=>compareStrings(a.id,b.id));
+  for (const item of boosters) {
+    const mechanic = itemMechanics[item.id];
+    if (!mechanic || !isNonnegative(mechanic.happy) || !isNonnegative(mechanic.cooldownSeconds) ||
+        !isInteger(item.quantity) || !isInteger(item.owned) || item.owned > item.quantity ||
+        item.owned > (state.inventory?.[item.id] ?? 0) ||
+        !isNonnegative(item.newCashEach) ||
+        (item.replacementValueEach != null && !isNonnegative(item.replacementValueEach))) return fail('unsupported','UNSUPPORTED_EFFECT');
+    if (state.cooldowns?.boosterMaxSeconds != null &&
+        (state.cooldowns.boosterSeconds || 0)+boosterCooldownSeconds+item.quantity*mechanic.cooldownSeconds >
+        state.cooldowns.boosterMaxSeconds) return fail('unsupported','BOOSTER_LIMIT_REACHED');
+    if (currentHappy != null) currentHappy = Math.min(99999,currentHappy+item.quantity*mechanic.happy);
+    boosterCooldownSeconds += item.quantity*mechanic.cooldownSeconds;
+    if (item.owned) ownedItemsConsumed[item.id] = item.owned;
+    if (item.quantity-item.owned) boughtItems[item.id] = item.quantity-item.owned;
+    if (newCashRequired != null) newCashRequired += (item.quantity-item.owned)*item.newCashEach;
+    if (item.owned && item.replacementValueEach == null) ownedValue = null;
+    else if (ownedValue != null) ownedValue += item.owned*item.replacementValueEach;
+    actions.push({action:'USE_BOOSTER',item:item.id,quantity:item.quantity});
+  }
+  if (boosters.length) actions.push({action:'VERIFY_STATE',expectedHappy:currentHappy});
+  const preEcstasyHappy = currentHappy;
+  if (recipe.useEcstasy) {
+    if (!isNonnegative(itemMechanics.ecstasy?.happyMultiplier) || itemMechanics.ecstasy.happyMultiplier <= 0)
+      return fail('unsupported','UNSUPPORTED_EFFECT');
+    const doubled = currentHappy == null ? null : currentHappy*itemMechanics.ecstasy.happyMultiplier;
+    if (doubled != null && !Number.isInteger(doubled)) return fail('unsupported','UNSUPPORTED_EFFECT');
+    currentHappy = doubled == null ? null : Math.min(99999,doubled);
+    actions.push({action:'TAKE_ECSTASY'},{action:'VERIFY_STATE',expectedHappy:currentHappy});
+    const ecstasyOwned = state.inventory?.ecstasy > 0;
+    if (ecstasyOwned) ownedItemsConsumed.ecstasy = 1;
+    else boughtItems.ecstasy = 1;
+    if (isNonnegative(itemMechanics.ecstasy.replacementValue) && ownedValue != null)
+      ownedValue += ecstasyOwned ? itemMechanics.ecstasy.replacementValue : 0;
+    else if (ecstasyOwned) ownedValue = null;
+    if (!ecstasyOwned && isNonnegative(itemMechanics.ecstasy.newCash) && newCashRequired != null)
+      newCashRequired += itemMechanics.ecstasy.newCash;
+    else if (!ecstasyOwned) {newCashRequired = null;resourceUnknown=true;}
+  }
+  const trainCount = Math.floor(energy.energyAtTraining/state.gym.energyPerTrain);
+  actions.push({action:'TRAIN',targetStat:state.targetStat,trainCount,energySpent:trainCount*state.gym.energyPerTrain});
+  const simulation = currentHappy == null ? fail('unsupported','DATA_MISSING') : capabilities(state).canPredictGain ? simulatePlanTraining({ modelId:MODEL_ID,
+    stat:{kind:state.targetStat,value:state.stats[state.targetStat]}, happy:currentHappy,
+    gym:state.gym,gainPerks:state.gainPerks || [],energy:energy.energyAtTraining,
+    effects:state.activeEffects?.filter(x=>x.support==='UNSUPPORTED') }) : null;
+  let marginalGainFromFinalBooster = null;
+  if (simulation?.status === 'ok' && boosters.length) {
+    const last=boosters.at(-1);
+    let withoutLast=futureHappy;
+    for (const item of boosters) withoutLast=Math.min(99999,withoutLast+
+      (item.quantity-(item===last ? 1 : 0))*itemMechanics[item.id].happy);
+    if (recipe.useEcstasy) withoutLast=Math.min(99999,withoutLast*itemMechanics.ecstasy.happyMultiplier);
+    if (Number.isInteger(withoutLast)) {
+      const previous=simulatePlanTraining({modelId:MODEL_ID,
+        stat:{kind:state.targetStat,value:state.stats[state.targetStat]},happy:withoutLast,
+        gym:state.gym,gainPerks:state.gainPerks || [],energy:energy.energyAtTraining});
+      if (previous.status==='ok') marginalGainFromFinalBooster=simulation.modeledGain-previous.modeledGain;
+    }
+  }
+  const fingerprintValue = structuralFingerprint({actions,targetStat:state.targetStat,
+    statAllocationMode:preferences.statAllocationMode,resourcePolicy:preferences.resourcePolicy,
+    ownedItemsConsumed,boughtItems});
+  const economics = {newCashRequired,marketValueOfOwnedItemsConsumed:ownedValue,
+    pricedPointValueConsumed:energy.type === 'REFILL' && energy.pointsConsumed == null ? null :
+      energy.pointsConsumed === 0 || energy.pointsConsumed == null ? 0 : preferences.pointValue != null ?
+        energy.pointsConsumed * preferences.pointValue : null,
+    naturalEnergyLost:energy.naturalEnergyLost || 0,
+    pointsConsumed:energy.type === 'REFILL' ? energy.pointsConsumed ?? null : 0,
+    boosterCooldownSeconds, discardedEnergy:energy.discardedEnergy || 0};
+  economics.economicValueConsumed = Number.isFinite(newCashRequired) && Number.isFinite(ownedValue) &&
+    economics.pricedPointValueConsumed != null ? newCashRequired+ownedValue+economics.pricedPointValueConsumed : null;
+  const plan = {id:fingerprintValue,fingerprint:fingerprintValue,objective:preferences.objective || 'BALANCED',
+    target:{stat:state.targetStat,allocationMode:preferences.statAllocationMode || 'TARGET_STAT'},
+    actions,phase:energy.waitSeconds ? 'WAITING_COOLDOWN' : recipe.useEcstasy ? 'HAPPY_PREP' : 'TRAINING_READY',
+    startState:{energy:state.energy,happy:state.happy,stat:state.stats?.[state.targetStat]},
+    projectedEndState:simulation?.status==='ok' || simulation?.status==='partial' ?
+      {stat:simulation.modeledEndStat,happy:simulation.finalHappy,energy:simulation.remainingEnergy} : null,
+    resources:{ownedItemsConsumed,boughtItems,energySpent:simulation?.energySpent ?? 0,resourceUnknown},economics,
+    timing:{waitSeconds:energy.waitSeconds || 0,timeToCompletionHours:(energy.waitSeconds || 0)/3600},
+    confidence:{level:state.calibratedDomain === true ? 'CALIBRATED' : 'SUPPORTED_EXTRAPOLATION',
+      reasons:state.calibratedDomain === true ? ['DOCUMENTED_OBSERVED_DOMAIN'] : ['OUTSIDE_DOCUMENTED_CALIBRATION']},
+    prerequisites:['VERIFY_STATE',...(recipe.useEcstasy?['SAFE_QUARTER_WINDOW']:[])],
+    simulation,preEcstasyHappy,postEcstasyHappy:currentHappy,marginalGainFromFinalBooster,
+    explanation:{modelId:MODEL_ID,arithmetic:'central path; zero gain noise and Happy-loss roll 5',
+      economicValueKnown:economics.economicValueConsumed != null},
+    warnings: simulation?.reason ? [simulation.reason] : [],stopReason:simulation?.reason || null };
+  plan.readiness = planReadiness(plan,state,timing);
+  return plan;
+}
+
+function recommend({observedState,preferences = {},marketSnapshot = {},itemMechanics = {},timing = {}} = {}) {
+  const mode = preferences.statAllocationMode || 'TARGET_STAT';
+  if (!['TARGET_STAT','WEAKEST_STAT','BALANCED_STATS'].includes(mode))
+    return {status:'NO_SAFE_RECOMMENDATION',reason:'INVALID_INPUT',primaryPlan:null};
+  if (mode === 'BALANCED_STATS')
+    return {status:'NO_SAFE_RECOMMENDATION',reason:'UNSUPPORTED_EFFECT',primaryPlan:null};
+  const kinds = Object.keys(STATS);
+  if (mode === 'WEAKEST_STAT' && !kinds.every(k=>isNonnegative(observedState?.stats?.[k])))
+    return {status:'NO_SAFE_RECOMMENDATION',reason:'DATA_MISSING',primaryPlan:null};
+  const chosen = mode === 'WEAKEST_STAT' ? kinds.sort((a,b)=>
+    compareNumbers(observedState.stats[a],observedState.stats[b]) || compareStrings(a,b))[0] :
+    preferences.targetStat || observedState?.targetStat;
+  const state = observedState && {...observedState,targetStat:chosen};
+  if (!state || !isNonnegative(state.energy) || !state.gym?.energyPerTrain || !state.targetStat)
+    return {status:'NO_SAFE_RECOMMENDATION',reason:'DATA_MISSING',primaryPlan:null};
+  if (preferences.cashReserve != null && (!isNonnegative(preferences.cashReserve) || !isNonnegative(state.cash)))
+    return {status:'NO_SAFE_RECOMMENDATION',reason:'DATA_MISSING',primaryPlan:null};
+  const budgetNewCash = preferences.cashReserve == null ? preferences.budgetNewCash :
+    Math.min(preferences.budgetNewCash ?? Infinity,Math.max(0,state.cash-preferences.cashReserve));
+  const cap = capabilities(state,marketSnapshot);
+  if (!cap.canPredictGain) return {status:'NO_SAFE_RECOMMENDATION',reason:cap.reason || 'DATA_MISSING',
+    capabilities:cap,primaryPlan:null};
+  const energyStates = generateEnergyCandidates({ ...state, maxWaitSeconds:preferences.maxWaitSeconds ?? 0,
+    pointRefill:preferences.allowRefill ? state.pointRefill : null });
+  const plans = [];
+  const recipes = preferences.allowItems === false ? [] : generateHappyRecipes(state,itemMechanics,
+    marketSnapshot,{...preferences,budgetNewCash});
+  for (const energy of energyStates) {
+    plans.push(composePlan({state,preferences,energy,itemMechanics,marketSnapshot,timing}));
+    for (const recipe of recipes) plans.push(composePlan({state,preferences,energy,recipe,itemMechanics,marketSnapshot,timing}));
+  }
+  const candidates = plans.filter(p=>p.simulation?.status === 'ok').map(p=>({
+    id:p.id,fingerprint:p.fingerprint,confidence:p.confidence.level,
+    expectedGain:p.simulation.modeledGain,economicValueConsumed:p.economics.economicValueConsumed,
+    newCashRequired:p.economics.newCashRequired,
+    timeToCompletionHours:p.timing.timeToCompletionHours,
+    naturalEnergyLost:p.economics.naturalEnergyLost,pointsConsumed:p.economics.pointsConsumed,
+    itemsConsumed:Object.fromEntries(Object.entries(p.resources.ownedItemsConsumed).concat(Object.entries(p.resources.boughtItems))
+      .map(([id])=>[id,(p.resources.ownedItemsConsumed[id] || 0)+(p.resources.boughtItems[id] || 0)])),
+    boughtItemsCount:Object.values(p.resources.boughtItems).reduce((sum,n)=>sum+n,0),
+    resourceUnknown:p.resources.resourceUnknown || p.economics.pointsConsumed == null,plan:p }));
+  const reference = Number.isFinite(preferences.referenceSessionGain) ? preferences.referenceSessionGain :
+    simulatePlanTraining({modelId:MODEL_ID,stat:{kind:state.targetStat,value:state.stats[state.targetStat]},
+      happy:state.happy,gym:state.gym,gainPerks:state.gainPerks || [],energy:state.naturalEnergyMax}) ;
+  const referenceSessionGain = typeof reference === 'number' ? reference : reference.status === 'ok' ? reference.modeledGain : undefined;
+  const ranking = rankCandidates({candidates,objective:preferences.objective || 'BALANCED',
+    riskPolicy:preferences.riskPolicy || 'ALLOW_SUPPORTED',referenceSessionGain,
+    budgetNewCash,maxWaitHours:preferences.maxWaitHours,
+    pointLimit:preferences.pointLimit,prohibitedItems:preferences.prohibitedItems,
+    ownedItemsOnly:preferences.ownedItemsOnly});
+  const primaryPlan = ranking.selected?.plan || null;
+  const trainNow = candidates.find(c=>c.plan.actions.every(a=>!['WAIT','TAKE_XANAX','USE_BOOSTER','TAKE_ECSTASY','USE_REFILL'].includes(a.action)));
+  const cheapest = [...candidates].filter(c=>c.economicValueConsumed != null)
+    .sort((a,b)=>compareNumbers(a.economicValueConsumed,b.economicValueConsumed) ||
+      compareStrings(a.fingerprint,b.fingerprint))[0];
+  const fastest = [...candidates].sort((a,b)=>compareNumbers(a.timeToCompletionHours,b.timeToCompletionHours) ||
+    compareStrings(a.fingerprint,b.fingerprint))[0];
+  const maxGain = candidates.length ? Math.max(...candidates.map(c=>c.expectedGain)) : null;
+  const unsupportedPlans = plans.filter(p=>p.simulation?.status==='partial' ||
+    p.simulation?.status==='unsupported' || p.simulation?.status==='invalid')
+    .map(p=>({id:p.id,reason:p.simulation.reason === 'OUT_OF_MODEL_DOMAIN' ?
+      'MODEL_OUT_OF_DOMAIN' : p.simulation.reason}));
+  return {status:ranking.status,objective:preferences.objective || 'BALANCED',primaryPlan,
+    alternatives:ranking.alternatives?.map(c=>c.plan) || [],readiness:primaryPlan?.readiness || null,
+    outcome:primaryPlan?.simulation || null,economics:primaryPlan?.economics || null,
+    confidence:primaryPlan?.confidence || null,explanation:primaryPlan ?
+      [`Selected by ${preferences.objective || 'BALANCED'} from supported candidate outcomes`,...(ranking.advancedReasons || [])] :
+      [ranking.reason || 'NO_SAFE_RECOMMENDATION'],
+    rejectedPlans:[...(ranking.rejected || []),...unsupportedPlans],
+    opportunitySummary:{referenceSessionGain,frontierCount:ranking.frontier?.length || 0,
+      gainVsTrainNow:primaryPlan && trainNow ? ranking.selected.expectedGain-trainNow.expectedGain : null,
+      gainVsCheapest:primaryPlan && cheapest ? ranking.selected.expectedGain-cheapest.expectedGain : null,
+      additionalWaitHoursVsFastest:primaryPlan && fastest ? ranking.selected.timeToCompletionHours-fastest.timeToCompletionHours : null,
+      fractionOfMaxModeledGain:primaryPlan && maxGain>0 ? ranking.selected.expectedGain/maxGain : null,
+      marginalGainFromFinalBooster:primaryPlan?.marginalGainFromFinalBooster ?? null},
+    nextAction:primaryPlan?.readiness.nextAction || 'provide supported state',
+    refreshTriggers:['STATE_CHANGED','DATA_STALE','TIMING_UNSAFE'],capabilities:cap,
+    reason:ranking.reason === 'NO_COMPETITIVE_PLAN' && unsupportedPlans.length ?
+      unsupportedPlans[0].reason : ranking.reason};
+}
+
+module.exports = { MODEL_ID, happyMultiplier, happyLoss, simulateTraining, simulatePlanTraining,
+  rankCandidates, paretoPrune, generateHappyFrontier, generateEnergyCandidates, naturalEnergyLost,
+  resolveObserved, replanOnEvent, compareRecommendationIdentity, simulateResolvedBoundary,
+  capabilities, structuralFingerprint, planReadiness, generateHappyRecipes, composePlan, recommend };
