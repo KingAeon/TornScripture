@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; PRODUCT SPECIFICATION NEXT**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C PRODUCT SPECIFICATION DRAFT ACTIVE**
 
 ## Canonical reading order
 
@@ -10,6 +10,7 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 4. [DQ-TRAIN-001B Live Training Calibration Protocol](CALIBRATION-PROTOCOL-001B.md) — frozen live-fidelity evidence plan.
 5. [`CALIBRATION-OBSERVATION-SCHEMA-001B.json`](CALIBRATION-OBSERVATION-SCHEMA-001B.json) — raw/local observation shape and derived-analysis contract.
 6. [DQ-TRAIN-001B Calibration Results](CALIBRATION-RESULTS-001B.md) — aggregate nonidentifying live evidence and model-state progression.
+7. [DQ-TRAIN-001C Training Advisor / Happy Jump Navigator v0.1 Specification](TRAINING-ADVISOR-SPEC-001C.md) — draft product contracts for state, strategy generation, ranking, recommendations, readiness, and replanning.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -120,4 +121,4 @@ No API key, private player state, inventory export, raw calibration history, or 
 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-The next primary action is to freeze the first Training Advisor / Happy Jump Navigator product specification above the calibrated kernel. B5 remains a separate opportunistic evidence lane and does not block product specification.
+DQ-TRAIN-001C is now in draft specification review. The next primary action is to review, fixture, and freeze the Training Advisor / Happy Jump Navigator v0.1 contract. B5 remains a separate opportunistic evidence lane and does not block this specification.
