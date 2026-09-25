@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN; PURE-PLANNER BUILD AUTHORIZED; WORK TRANSFER PREPARED**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN; PURE PLANNER IMPLEMENTED AND VERIFIED ON ISOLATED BRANCH; UNMERGED**
 
 ## Canonical reading order
 
@@ -15,6 +15,7 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 9. [`PLANNER-POLICY-FIXTURES-001C.json`](PLANNER-POLICY-FIXTURES-001C.json) — synthetic planner-policy acceptance fixtures.
 10. [`PLANNER-STRATEGY-FIXTURES-001C.json`](PLANNER-STRATEGY-FIXTURES-001C.json) — synthetic strategy-generation and composition fixtures.
 11. [Work transfer handoff — 2026-09-25](WORK-TRANSFER-HANDOFF-2026-09-25.md) — exact pure-planner build authorization, branch, preflight blocker, implementation scope, exclusions, and resume instructions.
+12. [Pure planner checkpoint](../../../TRAINING-ADVISOR-PURE-PLANNER.md) — normalized module contract, verification, limitations, and rollback on the feature branch.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -125,4 +126,4 @@ No API key, private player state, inventory export, raw calibration history, or 
 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-DQ-TRAIN-001C is frozen and `[B]` pure-planner implementation is authorized. The current build branch is `agent/training-advisor-pure-planner-001c`. Resume in Work using the transfer handoff, satisfy the executable-workspace preflight, then implement the pure planner and frozen fixture tests before any adapters or UI. B5 remains a separate opportunistic evidence lane.
+DQ-TRAIN-001C is frozen and the authorized pure planner is implemented in `src/training-advisor-pure.js` on `agent/training-advisor-pure-planner-001c`. The repository passed 311 Node tests, including all frozen math, policy, and strategy cases. The feature remains unmerged; no adapters, UI, live TornPDA verification, or release is authorized by this checkpoint. B5 remains a separate opportunistic evidence lane.

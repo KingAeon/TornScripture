@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **MATH CONTRACT FROZEN; B1–B4 LIVE CALIBRATION COMPLETE; MODEL CALIBRATED IN OBSERVED DOMAIN; PRODUCT SPECIFICATION NEXT**
+Status: **MATH AND PLANNER POLICY FROZEN; B1–B4 CALIBRATION COMPLETE IN DOCUMENTED DOMAIN; PURE PLANNER IMPLEMENTED AND VERIFIED ON UNMERGED BRANCH**
 
 ## Purpose
 
@@ -53,9 +53,9 @@ Resolve at runtime or recheck before consequential use:
 6. **Completed:** B3 elevated-Happy Speed/Strength calibration.
 7. **Completed:** B4 sequential 11-train batch validation.
 8. **Accepted 2026-09-25:** owner promoted `vladar-v2-pre50m-v1` to `calibrated_observed_domain` for the documented Complete Cardio / 10E / recorded-modifier evidence domain only.
-9. **Next:** freeze the Training Advisor / Happy Jump Navigator product specification, including strategy/timeline economics, confidence boundaries, and beginner/advanced surfaces.
-10. Implement the pure calculation engine and deterministic tests only after the specification is frozen and owner build authorization is explicit.
-11. Validate desktop userscript managers and TornPDA/Android.
+9. **Completed:** freeze the Training Advisor / Happy Jump Navigator product specification and ranking/strategy fixtures.
+10. **Implemented and verified on unmerged branch:** pure math/planner and deterministic frozen-fixture tests after explicit owner build authorization.
+11. **Later gate:** authorize adapters/UI, then validate desktop userscript managers and TornPDA/Android.
 12. Release only after owner review, manual gates, and explicit merge/release authorization.
 
 B5 special/boundary research remains parallel and opportunistic; it does not block specification work.
