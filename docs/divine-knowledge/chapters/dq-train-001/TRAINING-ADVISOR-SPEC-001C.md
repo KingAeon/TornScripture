@@ -1,6 +1,6 @@
 # DQ-TRAIN-001C — Training Advisor / Happy Jump Navigator v0.1 Product Specification
 
-Status: **DRAFT SPECIFICATION; OWNER REVIEW ACTIVE; NO PRODUCT IMPLEMENTATION AUTHORIZED**
+Status: **FROZEN SPECIFICATION; PRODUCT IMPLEMENTATION REQUIRES SEPARATE `[B]` AUTHORIZATION**
 
 Opened: 2026-09-25 by owner `[S]` instruction.
 Depends on:
@@ -1019,7 +1019,7 @@ Fixtures MUST use synthetic/nonprivate state.
 
 ## 39. Acceptance criteria for specification freeze
 
-DQ-TRAIN-001C is eligible to move from DRAFT to FROZEN only when the owner accepts:
+DQ-TRAIN-001C is FROZEN after owner acceptance of:
 
 - objective modes;
 - hard-constraint model;
@@ -1042,7 +1042,7 @@ Ranking policy MUST be separately frozen through deterministic fixtures before p
 
 This document does **not** authorize implementation.
 
-After specification freeze, the next gate should be:
+With specification frozen, the next gate is:
 
 1. create machine-readable planner fixtures;
 2. independently verify ranking and failure cases;
@@ -1064,4 +1064,4 @@ The product specification is supplemented by:
 - `PLANNER-POLICY-FIXTURES-001C.json` — synthetic, nonprivate fixture cases for ranking, readiness, interruption, replanning, plan identity, partial model boundaries, and abstention.
 - `PLANNER-STRATEGY-FIXTURES-001C.json` — synthetic, nonprivate fixture cases for candidate generation, Happy/Energy plan composition, owned-vs-purchased substitution, opportunity cost, observation override, capability partitioning, and model-boundary composition.
 
-These are DRAFT until owner acceptance. They do not authorize implementation.
+These policy/fixture artifacts were accepted and frozen by owner authorization on 2026-09-25. They do not authorize implementation.
