@@ -994,7 +994,7 @@ Network/API/DOM/storage concerns MUST remain outside the pure planning and math 
 
 Before product implementation is authorized, DQ-TRAIN-001C MUST use the draft normative ranking policy in `PLANNER-POLICY-001C.md` and synthetic policy fixtures in `PLANNER-POLICY-FIXTURES-001C.json` as the first planner-policy verification layer.
 
-The current fixture set covers:
+The current policy fixture file covers ranking/readiness/failure semantics. The complete pre-build fixture matrix must additionally cover strategy generation and simulator composition, including:
 
 1. ordinary train-now plan;
 2. full 1,000E eDVD + Ecstasy plan;
