@@ -992,7 +992,9 @@ Network/API/DOM/storage concerns MUST remain outside the pure planning and math 
 
 ## 38. Specification fixtures required before build
 
-Before product implementation is authorized, DQ-TRAIN-001C SHOULD gain deterministic planner fixtures covering at least:
+Before product implementation is authorized, DQ-TRAIN-001C MUST use the draft normative ranking policy in `PLANNER-POLICY-001C.md` and synthetic policy fixtures in `PLANNER-POLICY-FIXTURES-001C.json` as the first planner-policy verification layer.
+
+The current fixture set covers:
 
 1. ordinary train-now plan;
 2. full 1,000E eDVD + Ecstasy plan;
@@ -1034,7 +1036,7 @@ DQ-TRAIN-001C is eligible to move from DRAFT to FROZEN only when the owner accep
 - deferred scope;
 - required planner fixture matrix.
 
-Numerical policy constants that materially affect ranking, such as usefulness floor or knee-of-curve thresholds, MUST be separately frozen through deterministic fixtures before product build.
+Ranking policy MUST be separately frozen through deterministic fixtures before product build. The current draft deliberately avoids arbitrary percentage thresholds where a gameplay-grounded or geometric rule exists: the useful-session floor is one ordinary natural full Energy bar, and Balanced uses a normalized geometric knee (`gainUtility - max(normalized burdens)`) after Pareto pruning. Any later numeric threshold that materially affects ranking requires an explicit fixture and owner review.
 
 ## 40. Build gate
 
@@ -1052,3 +1054,13 @@ After specification freeze, the next gate should be:
 8. owner review before merge/release.
 
 Codex may be used after build authorization when implementation/testing complexity justifies it.
+
+
+## 41. DQ-TRAIN-001C policy documents
+
+The product specification is supplemented by:
+
+- `PLANNER-POLICY-001C.md` — deterministic ranking semantics, useful-session reference, confidence policy, Pareto dimensions, Balanced knee rule, and objective-specific tie-breakers.
+- `PLANNER-POLICY-FIXTURES-001C.json` — synthetic, nonprivate fixture cases for ranking, readiness, interruption, replanning, plan identity, partial model boundaries, and abstention.
+
+These are DRAFT until owner acceptance. They do not authorize implementation.
