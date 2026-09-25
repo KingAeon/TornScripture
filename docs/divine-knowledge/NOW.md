@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-25 training model calibrated in observed domain; Training Advisor specification next; casino research preserved
+Snapshot: 2026-09-25 DQ-TRAIN-001C Training Advisor v0.1 specification frozen; build authorization is next; casino research preserved
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|ad8cbbd753471088a2cd5aaf7e1d8ed2dad164fe
+MAIN_AT_SNAPSHOT|82deb0b3508071aca54025493db3a624f6aca1f2
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,12 +11,14 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|none_known
 
-PARALLEL|DQ-TRAIN-001|calibrated_observed_domain_product_spec_next
+PARALLEL|DQ-TRAIN-001|001c_spec_frozen_build_gate
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
-TRAINING_NEXT|freeze Training Advisor / Happy Jump Navigator product specification; B5 special-boundary research remains parallel
-TRAINING_PR|#119|reconciled_pending_exact_head_merge_authorization
+TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|implementation_not_authorized
+TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
+TRAINING_NEXT|explicit [B] authorization for pure planner implementation; adapters/UI remain later gates
+TRAINING_PR|#122|ready_for_merge_under_one_time_owner_authorization
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
