@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN WITH 001E REFILL SUPERSESSION; PURE PLANNER + REFILL CORRECTION MERGED; DQ-TRAIN-001D ADAPTER SPEC VERIFICATION READY**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; DQ-TRAIN-001C + 001E MERGED; DQ-TRAIN-001D [V]/[S] AMENDED; FINAL ADAPTER FREEZE BLOCKED BY BOOSTER-THRESHOLD PLANNER CORRECTION**
 
 ## Canonical reading order
 
@@ -26,7 +26,8 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 20. [`ITEM-MECHANIC-FIXTURES-001D.json`](ITEM-MECHANIC-FIXTURES-001D.json) — synthetic item-mechanic acceptance fixtures.
 21. [DQ-TRAIN-001D Adapter Contract](ADAPTER-CONTRACT-001D.md) — normalized capability/freshness contract prepared for final verification/freeze.
 22. [`ADAPTER-FIXTURES-001D.json`](ADAPTER-FIXTURES-001D.json) — synthetic nonprivate adapter fixtures.
-23. [Adapter freeze handoff — 2026-09-26](ADAPTER-FREEZE-HANDOFF-2026-09-26.md) — clean post-PR125 continuation baseline and next verification gate.
+23. [Adapter freeze handoff — 2026-09-26](ADAPTER-FREEZE-HANDOFF-2026-09-26.md) — clean post-PR125 continuation baseline and verification gate.
+24. [PR #126 adapter verification findings — 2026-09-26](ADAPTER-VERIFICATION-FINDINGS-2026-09-26.md) — refill special-count/cost correction, dynamic-item/event fail-closed projection, conservative calibration-confidence correction, and blocking booster-threshold planner mismatch.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -138,3 +139,8 @@ No API key, private player state, inventory export, raw calibration history, or 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
 DQ-TRAIN-001C is frozen with the explicit DQ-TRAIN-001E Point-refill supersession. The corrected pure planner was independently verified and merged through PR #125 at `0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97`. DQ-TRAIN-001D now resumes on a clean post-merge branch with its live source matrix substantially complete and its adapter/item-mechanic contract plus synthetic fixtures ready for independent specification verification and owner freeze. No adapter runtime, UI, network, storage, listener, timer, or gameplay implementation is authorized by this checkpoint. B5 remains a separate opportunistic evidence lane.
+
+
+## Current 001D verification disposition
+
+The owner-requested `[V]/[S]` pass on PR #126 specification-froze the source/freshness direction and corrected several adapter-only gaps. Final adapter-build authorization is not ready because the merged pure planner still treats booster maximum as a hard post-item ceiling. Current mechanics permit an item begun below the maximum to push the resulting cooldown above it; a bounded planner correction is now the next gate. No runtime adapter or UI implementation is authorized.
