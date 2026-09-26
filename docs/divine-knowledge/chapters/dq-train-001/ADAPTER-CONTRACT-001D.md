@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Normalized Adapter Contract Candidate
 
-Status: **SPECIFICATION CANDIDATE; LIVE SOURCE MATRIX SUBSTANTIALLY COMPLETE; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **V0.1 ADAPTER CONTRACT FROZEN FOR SPECIFICATION; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Prepared: 2026-09-26
 Pure planner baseline: PR #123 merged at `37fe611cfeb58bf812272eef18c5d69eb9952d01`.
@@ -159,16 +159,16 @@ Unknown strings are not fatal by default. A string is material only when it cont
 
 Base mechanic: 24 hours.
 
-Official faction mechanics can extend maximum booster cooldown by up to +24 hours.
+Faction mechanics can extend maximum booster cooldown by up to +24 hours.
 
-Candidate normalization:
+Frozen v0.1 normalization:
 
-- begin at `86400` seconds;
-- if a complete verified perk set contains a recognized "maximum booster cooldown" addition, add the explicit hours;
-- if the response is incomplete/unknown, do not assume the base maximum is the player's actual maximum;
+- when a complete verified perk/effect state contains **no** material maximum-booster-cooldown modifier, derive `boosterMaxSeconds = 86400` with provenance `DERIVED`;
+- when such a modifier is present, v0.1 does **not** numerically parse it and `boosterMaxSeconds` remains unknown/unsupported;
+- when perk/effect state is incomplete, do not assume the base maximum;
 - current booster countdown remains independently observed from `/user/cooldowns`.
 
-For a complete perk set with no applicable maximum-booster-cooldown string, v0.1 may derive base 24h with provenance `DERIVED` and an explicit source reason.
+This is intentionally conservative until a positive live specimen and parser contract justify broader faction-shareable support.
 
 ## 6. Daily points Energy refill
 
@@ -222,9 +222,18 @@ The adapter may provide planning quantities while execution readiness remains NE
 
 The adapter joins inventory IDs against `ITEM-MECHANIC-REGISTRY-001D.md`.
 
-Base constants are versioned and source-audited. Dynamic modifiers are separate state.
+Base constants are versioned and source-audited.
 
-Random future drug cooldown ranges MUST NOT become exact `xanax.cooldownSeconds` values. When exact future timing is required and no observed checkpoint exists, the strategy remains unsupported/replan-based.
+Frozen v0.1 dynamic-item policy:
+
+- numerical item mechanics are base-only;
+- current live-proven gym-gain perks remain supported separately;
+- if complete perk/effect state contains a material Candy, consumable-cooldown, eDVD, booster-maximum, drug-effect, or other preparation modifier outside the frozen subset, only the affected preparation capability is marked unsupported;
+- the adapter MUST NOT generic-parse arbitrary percentages to recover that capability.
+
+Random future drug cooldown ranges MUST NOT become exact `xanax.cooldownSeconds` or Ecstasy cooldown values. When exact future timing is required and no observed checkpoint exists, the strategy remains unsupported/replan-based.
+
+The item-specific Ecstasy source currently says 200–231 minutes while the generic Drugs table says 200–230. The registry therefore stores a conservative 200–231 documented envelope for provenance only; planner execution still re-observes the actual cooldown checkpoint rather than depending on an exact forecast.
 
 ## 9. Provenance and freshness
 
@@ -279,13 +288,15 @@ Examples:
 - market unavailable -> preserve gain-only objectives where economics are not required;
 - bars unavailable -> no current Energy/Happy recommendation.
 
-## 12. Remaining specification work
+## 12. Remaining gate
 
-Before freezing 001D:
+The normalized source mappings, capability/freshness behavior, and bounded v0.1 dynamic-item policy are frozen for specification.
 
-1. write and independently verify sanitized adapter fixtures;
-2. freeze the exact supported Candy/dynamic modifier subset for v0.1;
-3. retain elevated-Happy `ordinaryHappy` confirmation as a desirable strengthening specimen;
-4. perform complete-diff verification of PR #124.
+Before adapter implementation:
 
-No adapter implementation, networking, storage, UI, timer, DOM capture, or gameplay action is authorized by this contract candidate.
+1. independently verify the sanitized adapter and item-mechanic fixtures;
+2. perform complete-diff verification of PR #124;
+3. retain elevated-Happy `ordinaryHappy` confirmation as desirable strengthening rather than a blocker;
+4. obtain explicit owner `[B]` authorization.
+
+No adapter implementation, networking, storage, UI, timer, DOM capture, or gameplay action is authorized by this contract.
