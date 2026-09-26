@@ -3,7 +3,8 @@
   "notes": [
     "Synthetic, nonprivate fixtures for frozen v0.1 item-mechanic specification.",
     "Dynamic item-preparation modifiers are fail-closed in v0.1 rather than numerically parsed.",
-    "Random drug cooldowns are documented ranges, never exact future values."
+    "Random drug cooldowns are documented ranges, never exact future values.",
+    "PR #126 [V]/[S] freezes pre-use booster-threshold semantics and planner-facing fail-closed projection; booster threshold fixtures intentionally identify an upstream planner correction requirement."
   ],
   "cases": [
     {
@@ -128,6 +129,119 @@
         }
       ],
       "expected": {
+        "eroticDvdPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "BOOSTER_ONE_ITEM_OVERCAP_001",
+      "state": {
+        "currentBoosterSeconds": 86399,
+        "boosterMaxSeconds": 86400
+      },
+      "item": {
+        "key": "eroticDvd",
+        "boosterCooldownSeconds": 21600
+      },
+      "expected": {
+        "itemUseLegal": true,
+        "resultingBoosterSeconds": 107999,
+        "anotherImmediateBoosterLegal": false,
+        "rule": "legality is checked before item use; post-item cooldown may exceed maximum"
+      },
+      "implementationStatus": "UPSTREAM_PLANNER_CORRECTION_REQUIRED"
+    },
+    {
+      "id": "BOOSTER_AT_MAX_BLOCKED_001",
+      "state": {
+        "currentBoosterSeconds": 86400,
+        "boosterMaxSeconds": 86400
+      },
+      "item": {
+        "key": "eroticDvd",
+        "boosterCooldownSeconds": 21600
+      },
+      "expected": {
+        "itemUseLegal": false,
+        "reason": "BOOSTER_LIMIT_REACHED",
+        "nextCondition": "observe currentBoosterSeconds < boosterMaxSeconds"
+      },
+      "implementationStatus": "UPSTREAM_PLANNER_CORRECTION_REQUIRED"
+    },
+    {
+      "id": "FIVE_EDVD_BASE_MAX_CHECKPOINT_001",
+      "state": {
+        "currentBoosterSeconds": 0,
+        "boosterMaxSeconds": 86400
+      },
+      "sequence": [
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "checkpoint": "WAIT_UNTIL_BELOW_MAXIMUM"
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        }
+      ],
+      "expected": {
+        "firstFourReachSeconds": 86400,
+        "fifthRequiresObservedBelowMaximum": true,
+        "fifthMayFinishAboveMaximum": true,
+        "noImplicitElapsedTime": true
+      },
+      "implementationStatus": "UPSTREAM_PLANNER_CORRECTION_REQUIRED"
+    },
+    {
+      "id": "CANDY_EVENT_UNKNOWN_FAIL_CLOSED_001",
+      "itemId": 37,
+      "dynamicState": {
+        "worldDiabetesDay": "UNKNOWN"
+      },
+      "expected": {
+        "baseCandyMechanicsStillKnown": true,
+        "candyPreparationSupported": false,
+        "plannerItemMechanicExposed": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "CANDY_EVENT_ACTIVE_FAIL_CLOSED_001",
+      "itemId": 37,
+      "dynamicState": {
+        "worldDiabetesDay": "ACTIVE"
+      },
+      "expected": {
+        "baseCandyMechanicsStillKnown": true,
+        "candyPreparationSupported": false,
+        "plannerItemMechanicExposed": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "EDVD_UNSUPPORTED_PROJECTION_001",
+      "itemId": 366,
+      "dynamicState": {
+        "eroticDvdEffect": "UNSUPPORTED_ACTIVE"
+      },
+      "expected": {
+        "inventoryQuantityPreserved": true,
+        "plannerItemMechanicExposed": false,
         "eroticDvdPreparationSupported": false,
         "reason": "UNSUPPORTED_EFFECT"
       }
