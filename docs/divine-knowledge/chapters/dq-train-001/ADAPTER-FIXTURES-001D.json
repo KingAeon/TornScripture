@@ -4,7 +4,8 @@
   "notes": [
     "Synthetic, nonprivate fixtures for adapter specification only.",
     "No raw player state, API key, or live inventory quantity is included.",
-    "These fixtures do not authorize runtime implementation."
+    "These fixtures do not authorize runtime implementation.",
+    "PR #126 [V]/[S] adds paid-refill special-count/cost, capability-locality, and conservative calibration fixtures."
   ],
   "cases": [
     {
@@ -378,6 +379,126 @@
         },
         "calibratedDomain": false,
         "materialGymNote": true
+      }
+    },
+    {
+      "id": "REFILL_SPECIAL_COUNT_BLOCKS_PAID_001",
+      "sources": {
+        "refills": {
+          "energy": false,
+          "nerve": false,
+          "token": false,
+          "special_count": 2
+        }
+      },
+      "configuredMechanics": {
+        "paidEnergyRefillPoints": 30
+      },
+      "expected": {
+        "paidPointRefill": {
+          "allowed": false,
+          "reason": "SPECIAL_REFILL_PRECEDENCE"
+        },
+        "specialRefillCount": 2,
+        "paidEnergyRefillPoints": 30,
+        "invariants": [
+          "do not charge points for the free refill that must be consumed first",
+          "v0.1 does not optimize multiple special-plus-paid refill phases"
+        ]
+      }
+    },
+    {
+      "id": "REFILL_PAID_COST_30_001",
+      "sources": {
+        "refills": {
+          "energy": false,
+          "nerve": false,
+          "token": false,
+          "special_count": 0
+        }
+      },
+      "configuredMechanics": {
+        "paidEnergyRefillPoints": 30,
+        "verifiedAt": "2026-09-26"
+      },
+      "expected": {
+        "pointRefill": {
+          "allowed": true,
+          "fillAmountPolicy": "natural_max",
+          "pointsRequired": 30
+        },
+        "provenance": "CONFIGURED"
+      }
+    },
+    {
+      "id": "BATTLESTATS_DENIED_MANUAL_FALLBACK_001",
+      "sources": {
+        "battlestats": {
+          "status": "PERMISSION_DENIED"
+        }
+      },
+      "manualInput": {
+        "stats": {
+          "strength": 10000,
+          "defense": 9000,
+          "speed": 11000,
+          "dexterity": 8000
+        }
+      },
+      "expected": {
+        "automaticStatsAvailable": false,
+        "manualStatsAccepted": true,
+        "inventoryPlanningUnaffected": true,
+        "reason": "CAPABILITY_UNAVAILABLE"
+      }
+    },
+    {
+      "id": "GYM_SCHEMA_MISMATCH_LOCALITY_001",
+      "sources": {
+        "userGym": {
+          "gym": {
+            "id": 14,
+            "name": "Complete Cardio"
+          }
+        },
+        "tornGyms": [
+          {
+            "id": 14,
+            "name": "Complete Cardio",
+            "energy_cost": 10,
+            "modifiers": {
+              "speed": 5.8
+            }
+          }
+        ]
+      },
+      "expected": {
+        "gymPredictionAvailable": false,
+        "inventoryPlanningUnaffected": true,
+        "marketComparisonUnaffected": true,
+        "reason": "SCHEMA_MISMATCH"
+      }
+    },
+    {
+      "id": "GENERAL_SEARCH_CALIBRATION_FAIL_CLOSED_001",
+      "normalizedState": {
+        "gym": {
+          "id": 14,
+          "name": "Complete Cardio",
+          "energyPerTrain": 10,
+          "dots": 5.8
+        },
+        "targetStat": "speed",
+        "happy": 4275,
+        "modelId": "vladar-v2-pre50m-v1"
+      },
+      "planningScope": {
+        "allowsHappyPreparation": true,
+        "allowsMultipleCandidateFamilies": true
+      },
+      "expected": {
+        "calibratedDomain": false,
+        "reason": "PLAN_GLOBAL_BOOLEAN_CANNOT_PROVE_ALL_CANDIDATES_IN_CALIBRATED_LANE"
       }
     }
   ]
