@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-25 DQ-TRAIN-001 pure planner verification corrected on isolated branch; PR #123 draft and unmerged
+Snapshot: 2026-09-25 PR #123 pure Training Advisor planner merged; DQ-TRAIN-001D adapter source discovery opened
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
+MAIN_AT_SNAPSHOT|37fe611cfeb58bf812272eef18c5d69eb9952d01
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,14 +11,15 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
 
-PARALLEL|DQ-TRAIN-001|pure_planner_verification_corrected_draft_unmerged
+PARALLEL|DQ-TRAIN-001|001d_adapter_source_discovery
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
-TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|pure_planner_corrected_unmerged
+TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|pure_planner_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|owner reviews draft PR #123 and pure planner limitations; adapters/UI need separate authorization; merge/release not authorized
+TRAINING_NEXT|BLOCKED: owner-authorized bounded refill-semantics correction required in frozen 001C + merged pure planner; then re-verify and resume 001D adapter freeze
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
+TRAINING_PR|#123|merged|37fe611cfeb58bf812272eef18c5d69eb9952d01
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
@@ -54,6 +55,16 @@ SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
 NOTE|recheck current main SHA and mutable issue states before consequential action
 
 TRAINING_BUILD_BRANCH|agent/training-advisor-pure-planner-001c
-TRAINING_BUILD_STATE|verification_corrected_draft_unmerged|318_repo_tests_pass|correction_from_d20998ac1535207d7c7bf8d7bd7f29081fe0672c
+TRAINING_BUILD_STATE|pure_planner_merged|318_repo_tests_pass|merge_37fe611cfeb58bf812272eef18c5d69eb9952d01
 TRAINING_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-2026-09-25.md
 TRAINING_VERIFICATION|chapters/dq-train-001/VERIFICATION-CORRECTION-2026-09-25.md
+
+TRAINING_001D|verification_blocked|source_matrix_substantially_complete|point_refill_semantics_erratum_open|implementation_not_authorized
+TRAINING_001D_DOC|chapters/dq-train-001/ADAPTER-SOURCE-MAP-001D.md
+TRAINING_001D_PROTOCOL|chapters/dq-train-001/LIVE-ADAPTER-PROOF-PROTOCOL-001D.md
+TRAINING_001D_LIVE|Run_A_provisional_pass|Run_B_pass|Run_C_current_gain_perks_pass|Run_D_pass_false_means_unused|Run_E_planning_inventory_pass|Complete_Cardio_live_join_10E_5.5_5.8_5.5_5.2|user_gym_and_perks_min_permission_bounded_by_capability_check|ordinaryHappy_elevated_followup_open
+TRAINING_001D_RESULTS|chapters/dq-train-001/LIVE-ADAPTER-PROOF-RESULTS-001D.md
+TRAINING_001D_ITEM_REGISTRY|verification_ready_candidate|base_mechanics_sourced|dynamic_item_modifiers_fail_closed_v0.1|owner_freeze_pending
+TRAINING_001D_ADAPTER_CONTRACT|candidate|capability_based|source_agnostic|fail_closed|BLOCKED_by_refill_erratum
+TRAINING_001D_FIXTURES|candidate|11_synthetic_nonprivate_cases|json_and_core_invariant_static_check_passed|full_contract_verification_and_freeze_pending
+TRAINING_REFILL_ERRATUM|blocking|REFILL_CAP_001_and_merged_additive_refill_semantics_conflict_with_source_backed_fill_to_natural_max|owner_correction_authorization_required
