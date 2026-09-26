@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — v0.1 Training Item Mechanic Registry Candidate
 
-Status: **V0.1 MECHANIC SUBSET VERIFICATION-READY CANDIDATE; OWNER FREEZE PENDING; RUNTIME IMPLEMENTATION NOT AUTHORIZED**
+Status: **V0.1 BASE MECHANIC SUBSET SPECIFICATION-FROZEN; BOOSTER-USE LEGALITY REQUIRES UPSTREAM PLANNER CORRECTION BEFORE RUNTIME BUILD**
 
 Prepared: 2026-09-26
 
@@ -122,13 +122,16 @@ Not numerically supported in v0.1:
 Fail-closed rule:
 
 1. begin from base mechanics only;
-2. inspect the complete verified perk/effect state;
-3. if a potentially material string/effect mentions Candy, booster cooldown, consumable cooldown, eDVD, Happy-item effect, drug effect, or another preparation mechanic not frozen here, mark the affected preparation capability unsupported;
-4. do **not** assume the modifier is zero and do **not** attempt generic percentage parsing.
+2. inspect the complete verified perk/effect/event state;
+3. if a potentially material string/effect/event mentions Candy, booster cooldown, consumable cooldown, eDVD, Happy-item effect, drug effect, or another preparation mechanic not frozen here, mark the affected preparation capability unsupported;
+4. preserve inventory quantities, but omit the affected class from the planner-facing `itemMechanics` projection;
+5. do **not** assume the modifier is zero and do **not** attempt generic percentage parsing.
 
-The owner's current live `/user/perks` sample contained no such item-preparation modifier, so base mechanics are valid for the observed account state.
+World Diabetes Day is explicitly material. Base Candy values may be sent to the planner only when the relevant event state is verified inactive; unknown/active event state fails Candy preparation closed.
 
-## Booster maximum
+The owner's current live `/user/perks` sample contained no faction/company/book item-preparation modifier, so those account-specific modifiers were absent in the captured state. Event state remains a separate explicit input.
+
+## Booster maximum and next-item legality
 
 Official current mechanics give a base maximum booster cooldown of 24 hours, while faction Voracity may extend it by up to another 24 hours.
 
@@ -138,7 +141,16 @@ v0.1 normalization is intentionally conservative:
 - if any maximum-booster-cooldown modifier is present, `boosterMaxSeconds` is unknown/unsupported in v0.1 and booster-preparation planning fails closed;
 - `/user/cooldowns.booster` remains the independent observed current countdown.
 
-This avoids inventing a parser from an unobserved positive specimen while still supporting ordinary accounts/factions safely.
+The maximum is a **pre-use threshold**, not a hard post-item ceiling:
+
+- a booster may be used when the observed current booster cooldown is below the maximum;
+- that item's added cooldown may carry the resulting cooldown above the maximum;
+- once at/above maximum, no additional booster is usable until the cooldown is observed below the maximum again;
+- if a planned sequence lands exactly on the maximum, another booster requires an explicit wait/verification below the threshold.
+
+This rule is material to five-eDVD Happy Jump preparation. The merged pure planner currently enforces a stricter aggregate ceiling and requires a separate bounded correction before runtime adapter build.
+
+This avoids inventing a parser from an unobserved positive faction-max specimen while preserving the actual base-threshold legality contract.
 
 ## Inventory identity
 
@@ -167,8 +179,8 @@ The v0.1 specification supports the base mechanics above and intentionally fails
 
 Remaining work before adapter implementation:
 
-1. verify synthetic, nonprivate registry fixtures;
-2. verify the complete PR #124 documentation diff;
+1. correct/re-verify the pure planner's booster threshold / one-item-overcap semantics;
+2. re-verify synthetic nonprivate registry fixtures and the complete PR #126 documentation diff;
 3. obtain explicit owner build authorization for adapters.
 
 No runtime implementation is authorized by this specification freeze.
