@@ -21,6 +21,8 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 15. [DQ-TRAIN-001D Live Adapter Proof Protocol](LIVE-ADAPTER-PROOF-PROTOCOL-001D.md) — minimal owner-assisted live captures, redaction rules, acceptance criteria, and freeze gate.
 16. [DQ-TRAIN-001D Live Adapter Proof Results](LIVE-ADAPTER-PROOF-RESULTS-001D.md) — sanitized live conclusions; Runs A–E evidence and remaining semantic follow-ups.
 17. [DQ-TRAIN-001D Item Mechanic Registry Candidate](ITEM-MECHANIC-REGISTRY-001D.md) — sourced base Xanax/Ecstasy/eDVD/Candy mechanics, live item IDs, dynamic-modifier boundaries, and freeze blockers.
+18. [DQ-TRAIN-001D Normalized Adapter Contract Candidate](ADAPTER-CONTRACT-001D.md) — capability-based source acquisition, normalized field mappings, freshness/provenance, failure isolation, and calibrated-domain gate.
+19. [`ADAPTER-FIXTURES-001D.json`](ADAPTER-FIXTURES-001D.json) — synthetic nonprivate adapter acceptance fixtures for bars, cooldowns, stats, gym join, perks, refills, inventory pagination, and special-gym fail-closed behavior.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
