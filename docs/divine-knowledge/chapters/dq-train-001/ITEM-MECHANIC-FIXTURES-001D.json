@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "dq-train-001d.item-mechanic-fixtures.v1",
+  "notes": [
+    "Synthetic, nonprivate fixtures for frozen v0.1 item-mechanic specification.",
+    "Dynamic item-preparation modifiers are fail-closed in v0.1 rather than numerically parsed.",
+    "Random drug cooldowns are documented ranges, never exact future values."
+  ],
+  "cases": [
+    {
+      "id": "XANAX_BASE_001",
+      "itemId": 206,
+      "expected": {
+        "key": "xanax",
+        "type": "Drug",
+        "energyGain": 250,
+        "happyGain": 75,
+        "drugCooldownRangeSeconds": [
+          21600,
+          28800
+        ],
+        "exactFutureCooldownKnown": false
+      }
+    },
+    {
+      "id": "ECSTASY_BASE_001",
+      "itemId": 197,
+      "expected": {
+        "key": "ecstasy",
+        "type": "Drug",
+        "happyMultiplier": 2,
+        "documentedDrugCooldownEnvelopeSeconds": [
+          12000,
+          13860
+        ],
+        "exactFutureCooldownKnown": false,
+        "sourceNote": "item-specific page max 231m; generic Drugs table max 230m; conservative envelope retained"
+      }
+    },
+    {
+      "id": "EDVD_BASE_001",
+      "itemId": 366,
+      "expected": {
+        "key": "eroticDvd",
+        "type": "Booster",
+        "happyGain": 2500,
+        "boosterCooldownSeconds": 21600
+      }
+    },
+    {
+      "id": "CANDY_BASE_BONBONS_001",
+      "itemId": 37,
+      "expected": {
+        "type": "Candy",
+        "happyGain": 25,
+        "boosterCooldownSeconds": 1800
+      }
+    },
+    {
+      "id": "CANDY_BASE_CUPCAKE_001",
+      "itemId": 1028,
+      "expected": {
+        "type": "Candy",
+        "happyGain": 250,
+        "boosterCooldownSeconds": 1800
+      }
+    },
+    {
+      "id": "BOOSTER_MAX_BASE_ONLY_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [],
+      "expected": {
+        "boosterMaxSeconds": 86400,
+        "provenance": "DERIVED",
+        "boosterPreparationSupported": true
+      }
+    },
+    {
+      "id": "BOOSTER_MAX_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "boosterMaximum",
+          "description": "+ 3 hours maximum booster cooldown"
+        }
+      ],
+      "expected": {
+        "boosterMaxSeconds": null,
+        "boosterPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "CANDY_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "candyEffect",
+          "description": "+ 25% happy gain from candy"
+        }
+      ],
+      "expected": {
+        "baseCandyMechanicsStillKnown": true,
+        "candyPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "CONSUMABLE_COOLDOWN_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "consumableCooldown",
+          "description": "reduces consumable cooldown"
+        }
+      ],
+      "expected": {
+        "candyPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "EDVD_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "eroticDvdEffect",
+          "description": "modifies Erotic DVD happiness"
+        }
+      ],
+      "expected": {
+        "eroticDvdPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    }
+  ]
+}
