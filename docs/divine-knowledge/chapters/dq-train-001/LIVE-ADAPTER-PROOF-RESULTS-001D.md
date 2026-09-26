@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Live Adapter Proof Results
 
-Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED FOR SCHEMA/SEMANTICS; PERMISSION DETAIL FOLLOW-UP REMAINS; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED; RUN C PERK NORMALIZATION PASSED FOR CURRENT TRAINING MODIFIERS; RUN D SHAPE PASSED WITH BOOLEAN POLARITY FOLLOW-UP; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Date: 2026-09-25
 OpenAPI baseline: 6.13.6
@@ -144,3 +144,67 @@ Run C: `/user/perks` training-relevant strings and permission behavior.
 Run D: `/user/refills` live response semantics.
 
 After C/D, the adapter source map can be tightened substantially before the planning-inventory pass.
+
+
+## Run C — `/user/perks`
+
+The owner supplied the live perks response. Raw unrelated perk lists are not retained as product state; only training-relevant semantic conclusions are recorded.
+
+Training-relevant current strings:
+
+- Faction: **+7% Strength gym gains**;
+- Faction: **+7% Speed gym gains**;
+- Faction: **+6% Defense gym gains**;
+- Faction: **+6% Dexterity gym gains**;
+- Property: **+2% gym gains**;
+- Job: **+25% passive Dexterity**.
+
+Classification:
+
+- the four faction gym-gain strings are `SUPPORTED_NUMERIC_GAIN`, stat-scoped;
+- the property +2% gym-gain string is `SUPPORTED_NUMERIC_GAIN`, all-stat scoped;
+- the passive Dexterity job string is **not a gym-gain modifier** and must not enter the planner's `gainPerks`; it is independently visible in battlestats as a combat/stat modifier;
+- current education/enhancer/merit strings are unrelated to supported gym-gain arithmetic;
+- current book and stock arrays were empty;
+- no active perk string in this sample advertised a Happy-loss, booster-cooldown, candy-effect, drug-effect, or Energy-training special.
+
+Cross-check with calibration:
+
+- the +2% property and +7/+7/+6/+6 faction gym-gain values exactly match the modifier inputs used in DQ-TRAIN-001B observed calibration;
+- the adapter can therefore construct the current supported gain-perk set from these specifically recognized strings without inferring from battlestats combat modifiers.
+
+Parser consequence:
+
+A future adapter should use a small explicit recognized-pattern registry for supported training strings, not a generic "find any percentage" parser. Unknown potentially material training strings must fail closed or downgrade the affected capability.
+
+Permission consequence:
+
+The current key successfully returned `/user/perks`, but this does not resolve the official description-versus-key-parameter Minimal/Public mismatch as a least-privilege claim.
+
+## Run D — `/user/refills`
+
+The owner supplied a live response with boolean fields for Energy, nerve and token plus integer `special_count`. All three booleans were false and the special count was zero in this sample.
+
+Current official OpenAPI 6.13.6 documents `/user/refills` as Minimal + Stable and confirms these field types, but does not describe the boolean polarity.
+
+Historical API context matters: the previous v1 shape used names such as `energy_refill_used`, and Torn's 2025 v2 refactor announcement described the refills change as field renaming. Therefore the adapter MUST NOT prematurely interpret `energy:false` as "refill unavailable." A plausible continuity interpretation is "not used", which would imply the opposite.
+
+Run D disposition:
+
+- response shape and source are live-proven;
+- boolean polarity remains a bounded semantic follow-up before adapter freeze;
+- until resolved, `refills.energy` must not be mapped directly to `pointRefill.allowed`.
+
+A controlled proof can resolve this cheaply by comparing the API field with the visible Points refill state before and after a routine daily refill, without purchasing an extra refill solely for testing.
+
+## Next evidence — planning inventory
+
+Use `GET /user/inventory` with category filters:
+
+1. `cat=Drug` for Xanax/Ecstasy;
+2. `cat=Booster` for Erotic DVD and other booster-class training items;
+3. `cat=Candy` for supported candy candidates.
+
+The current OpenAPI inventory category enum explicitly includes Drug, Booster and Candy. Each category is cached for one hour, so this evidence is planning-only by design.
+
+For repository evidence retain only category, inventory timestamp, and whether required training-item IDs/amounts can be normalized. Raw full inventory contents remain private.
