@@ -44,16 +44,16 @@ Do not resolve these discrepancies by assumption. Live permission and response-s
 | natural Energy maximum | `/user/bars -> energy.maximum` | Minimal | Stable | live-proven for donator-class 150 cap |
 | natural Energy increment/interval | `/user/bars -> energy.increment/interval` | Minimal | Stable | live-proven +5 / 600s in observed donator state |
 | current Happy | `GET /user/bars` | Minimal | Stable | strong candidate |
-| ordinary/base Happy | `/user/bars -> happy.maximum` candidate | Minimal | Stable | semantic live proof required; do not silently equate until verified |
+| ordinary/base Happy | `/user/bars -> happy.maximum` candidate | Minimal | Stable | ordinary-state mapping live-consistent; elevated-Happy strengthening still open, so adapter keeps guard provenance |
 | Happy recovery timing | `/user/bars -> happy.tick_time/full_time` where useful | Minimal | Stable | candidate |
 | drug cooldown | `GET /user/cooldowns` | Minimal | Stable | live-proven response source |
 | booster cooldown | `GET /user/cooldowns` | Minimal | Stable | live-proven countdown source; maximum capacity separate |
 | battle stats | `GET /user/battlestats` | Limited | Stable | live-proven raw `value`; combat modifiers remain separate |
-| active gym identity | `GET /user/gym` | description says Minimal; key parameter says Public | Stable | permission conflict requires live proof |
+| active gym identity | `GET /user/gym` | description says Minimal; key parameter says Public | Stable | current-key success live-proven; least-privilege label remains contradictory, so runtime uses capability-based success/failure |
 | gym Energy/train + stat modifiers | `GET /torn/gyms` joined by gym ID | Public | **Unstable** | Complete Cardio live-proven direct 10E + familiar dot scale; schema guard required |
-| gain perks/modifiers | `GET /user/perks` | description says Minimal; key parameter says Public | Stable | current +2% property and +7/+7/+6/+6 faction gym-gain strings live-proven; explicit parser registry required |
+| gain perks/modifiers | `GET /user/perks` | description says Minimal; key parameter says Public | Stable | current +2% property and +7/+7/+6/+6 faction gym-gain strings live-proven; current-key success proven; runtime capability check avoids guessing minimum label |
 | relevant inventory quantities | `GET /user/inventory` | Minimal | Stable, **1h/category cache** | live-proven for Drug/Candy/Booster planning snapshots; complete-pagination absence may normalize to zero; not execution proof |
-| refill availability | `GET /user/refills` | Minimal | Stable | response live-proven; boolean polarity not yet frozen |
+| refill availability | `GET /user/refills` | Minimal | Stable | live-proven; v2 `energy` boolean preserves historical `*_refill_used` polarity, so `false` = unused/available |
 | Torn/server timestamp | public timestamp selection | Public | Stable | preferred timing anchor when needed |
 | item catalog identity | `GET /torn/{ids}/items` | Public | Stable | good for item identity/catalog metadata |
 | exact training-item mechanics | versioned TornScriptures mechanic registry backed by verified sources | n/a | explicit versioning required | do not parse free-text effects into exact mechanics without specification |
@@ -278,11 +278,11 @@ Priority A:
 1. `/user/bars` response semantics for Energy/current/max/regen and Happy/current/max;
 2. `/user/cooldowns` drug + booster fields;
 3. `/user/battlestats` exact current stat response under intended Custom/Limited permission;
-4. `/user/gym` permission behavior and active gym ID;
-5. `/torn/gyms` matching active gym record and unit normalization;
-6. `/user/perks` exact strings for the owner's currently relevant training modifiers;
-7. `/user/refills` response semantics;
-8. relevant `/user/inventory` categories and cache metadata.
+4. `/user/gym` current-key behavior and active gym ID — complete; minimum access-label discrepancy bounded by capability-based runtime checks;
+5. `/torn/gyms` matching active gym record and unit normalization — complete for Complete Cardio;
+6. `/user/perks` exact strings for the owner's currently relevant training modifiers — complete for current modifier set;
+7. `/user/refills` response semantics — complete, including boolean polarity;
+8. relevant `/user/inventory` categories and cache metadata — complete for Drug/Candy/Booster planning snapshots.
 
 Priority B:
 
@@ -318,4 +318,4 @@ Before adapter/UI implementation:
 7. implement adapters separately from presentation;
 8. integrate beginner/advanced UI only after adapter verification.
 
-The next immediate action is therefore **source verification, not UI coding**.
+The source-verification matrix is now substantially complete. The next immediate action is **specification verification and freeze of the bounded v0.1 adapter/item-mechanic subset, not UI coding**.
