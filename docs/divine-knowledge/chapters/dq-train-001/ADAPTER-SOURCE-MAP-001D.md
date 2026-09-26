@@ -41,19 +41,19 @@ Do not resolve these discrepancies by assumption. Live permission and response-s
 | Planner field/domain | Preferred candidate source | Documented access | Stability/freshness | Current disposition |
 |---|---|---|---|---|
 | current Energy | `GET /user/bars` | Minimal | Stable | strong candidate |
-| natural Energy maximum | `/user/bars -> energy.maximum` | Minimal | Stable | strong candidate; live semantic check required |
-| natural Energy increment/interval | `/user/bars -> energy.increment/interval` | Minimal | Stable | strong candidate |
+| natural Energy maximum | `/user/bars -> energy.maximum` | Minimal | Stable | live-proven for donator-class 150 cap |
+| natural Energy increment/interval | `/user/bars -> energy.increment/interval` | Minimal | Stable | live-proven +5 / 600s in observed donator state |
 | current Happy | `GET /user/bars` | Minimal | Stable | strong candidate |
 | ordinary/base Happy | `/user/bars -> happy.maximum` candidate | Minimal | Stable | semantic live proof required; do not silently equate until verified |
 | Happy recovery timing | `/user/bars -> happy.tick_time/full_time` where useful | Minimal | Stable | candidate |
-| drug cooldown | `GET /user/cooldowns` | Minimal | Stable | strong candidate |
-| booster cooldown | `GET /user/cooldowns` | Minimal | Stable | strong candidate |
-| battle stats | `GET /user/battlestats` | Limited | Stable | strong candidate; highest permission cost among core state |
+| drug cooldown | `GET /user/cooldowns` | Minimal | Stable | live-proven response source |
+| booster cooldown | `GET /user/cooldowns` | Minimal | Stable | live-proven countdown source; maximum capacity separate |
+| battle stats | `GET /user/battlestats` | Limited | Stable | live-proven raw `value`; combat modifiers remain separate |
 | active gym identity | `GET /user/gym` | description says Minimal; key parameter says Public | Stable | permission conflict requires live proof |
-| gym Energy/train + stat modifiers | `GET /torn/gyms` joined by gym ID | Public | **Unstable** | schema candidate; unit semantics + instability must be guarded |
-| gain perks/modifiers | `GET /user/perks` | description says Minimal; key parameter says Public | Stable | parser/source semantics require proof |
+| gym Energy/train + stat modifiers | `GET /torn/gyms` joined by gym ID | Public | **Unstable** | Complete Cardio live-proven direct 10E + familiar dot scale; schema guard required |
+| gain perks/modifiers | `GET /user/perks` | description says Minimal; key parameter says Public | Stable | current +2% property and +7/+7/+6/+6 faction gym-gain strings live-proven; explicit parser registry required |
 | relevant inventory quantities | `GET /user/inventory` | Minimal | Stable, **1h/category cache** | planning snapshot only by default; not execution proof |
-| refill availability | `GET /user/refills` | Minimal | Stable | candidate |
+| refill availability | `GET /user/refills` | Minimal | Stable | response live-proven; boolean polarity not yet frozen |
 | Torn/server timestamp | public timestamp selection | Public | Stable | preferred timing anchor when needed |
 | item catalog identity | `GET /torn/{ids}/items` | Public | Stable | good for item identity/catalog metadata |
 | exact training-item mechanics | versioned TornScriptures mechanic registry backed by verified sources | n/a | explicit versioning required | do not parse free-text effects into exact mechanics without specification |
