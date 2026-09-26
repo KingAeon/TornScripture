@@ -53,8 +53,9 @@ Do not resolve these discrepancies by assumption. Live permission and response-s
 | gym Energy/train + stat modifiers | `GET /torn/gyms` joined by gym ID | Public | **Unstable** | Complete Cardio live-proven direct 10E + familiar dot scale; schema guard required |
 | gain perks/modifiers | `GET /user/perks` | description says Minimal; key parameter says Public | Stable | current +2% property and +7/+7/+6/+6 faction gym-gain strings live-proven; current-key success proven; runtime capability check avoids guessing minimum label |
 | relevant inventory quantities | `GET /user/inventory` | Minimal | Stable, **1h/category cache** | live-proven for Drug/Candy/Booster planning snapshots; complete-pagination absence may normalize to zero; not execution proof |
-| refill availability | `GET /user/refills` | Minimal | Stable | live-proven; v2 `energy` boolean preserves historical `*_refill_used` polarity, so `false` = unused/available |
-| Torn/server timestamp | public timestamp selection | Public | Stable | preferred timing anchor when needed |
+| paid refill used-state + special refill count | `GET /user/refills` | Minimal | Stable | live-proven shape; `energy` preserves historical used polarity; `special_count` preserves historical special-refill count and must gate paid-refill readiness |
+| Torn/server timestamp | public timestamp selection | Public | Stable | preferred timing anchor when needed, including event-state guards |
+| current paid Energy-refill point cost | versioned configured mechanic backed by current Torn Points documentation | n/a | mutable game mechanic | 30 Points as of 2026-09-26; do not infer from `/user/refills` |
 | item catalog identity | `GET /torn/{ids}/items` | Public | Stable | good for item identity/catalog metadata |
 | exact training-item mechanics | versioned TornScriptures mechanic registry backed by verified sources | n/a | explicit versioning required | do not parse free-text effects into exact mechanics without specification |
 | current market value | existing market capability layer where applicable | capability-specific | source-specific cache | separate MarketSnapshot adapter, not ObservedState |
@@ -259,6 +260,42 @@ Do not collapse catalog `market_price`, average price, executable listing floor,
 
 Existing TornScriptures market discovery should be reused rather than creating a Training-Advisor-specific price fetcher.
 
+## 11.1 Refill source composition
+
+`/user/refills` alone does not fully determine the paid Energy-refill planner capability.
+
+Frozen v0.1 composition:
+
+```text
+refills.energy        -> paid daily refill used-state
+refills.special_count -> free/special refills waiting ahead of the paid daily refill
+configured mechanic   -> paid Energy refill cost = 30 Points (verified 2026-09-26)
+```
+
+If `special_count > 0`, the paid-refill path is not exposed as READY in v0.1 because free/special refill sequencing is not yet modeled. The adapter must not charge 30 Points for a refill the game requires the player to consume for free first.
+
+The point's cash valuation remains separate economic preference/market data.
+
+## 11.2 Dynamic preparation/event guard
+
+Base Candy and other item mechanics are usable only when relevant dynamic modifier state is complete.
+
+The adapter must account for:
+
+- faction/company/book perk strings;
+- current server/event state for time-based modifiers such as World Diabetes Day;
+- future recognized preparation effects.
+
+If relevant event state is unknown or active and its numeric rule is outside the frozen subset, omit that item class from planner-facing `itemMechanics` and retain a visible unsupported-effect reason.
+
+## 11.3 Booster threshold semantics
+
+Current booster cooldown from `/user/cooldowns` and the normalized maximum are separate concepts.
+
+The maximum is the threshold for whether **another item may begin use**. An item started while current cooldown is below maximum may leave the resulting cooldown above maximum. When the current cooldown is at/above maximum, another booster waits until an observed state is below it.
+
+The current pure planner still applies a stricter aggregate ceiling. Do not mutate the adapter's `boosterMaxSeconds` to compensate; planner correction is the next blocking gate.
+
 ## 12. Timing and quarter-hour safety
 
 The pure planner consumes normalized timing state and never reads the clock.
@@ -281,7 +318,7 @@ Priority A:
 4. `/user/gym` current-key behavior and active gym ID — complete; minimum access-label discrepancy bounded by capability-based runtime checks;
 5. `/torn/gyms` matching active gym record and unit normalization — complete for Complete Cardio;
 6. `/user/perks` exact strings for the owner's currently relevant training modifiers — complete for current modifier set;
-7. `/user/refills` response semantics — complete, including boolean polarity;
+7. `/user/refills` response semantics — boolean polarity complete; PR #126 verification adds required `special_count` gating and current 30-Point configured cost;
 8. relevant `/user/inventory` categories and cache metadata — complete for Drug/Candy/Booster planning snapshots.
 
 Priority B:
@@ -318,4 +355,4 @@ Before adapter/UI implementation:
 7. implement adapters separately from presentation;
 8. integrate beginner/advanced UI only after adapter verification.
 
-The source-verification matrix is now substantially complete. The next immediate action is **specification verification and freeze of the bounded v0.1 adapter/item-mechanic subset, not UI coding**.
+The source-verification matrix is substantially complete. PR #126 [V]/[S] froze the source/freshness direction with refill/event/capability corrections, but final adapter-build authorization is **blocked on the pure planner booster-threshold correction**, not UI coding.
