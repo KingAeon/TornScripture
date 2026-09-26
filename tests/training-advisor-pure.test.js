@@ -104,10 +104,22 @@ test('frozen strategy ENERGY_CHECKPOINT_001',()=>{
   assert.deepEqual(r.map(x=>({type:x.type,energyAtTraining:x.energyAtTraining,waitSeconds:x.waitSeconds,
     ...(x.xanaxUses?{xanaxUses:x.xanaxUses}:{})})),f.expected.meaningfulCandidates);
 });
-test('frozen strategy REFILL_CAP_001',()=>{
+test('superseded strategy REFILL_CAP_001 records owner-authorized correction',()=>{
   const f=byId.REFILL_CAP_001;
+  assert.equal(f.status,'superseded');
+  assert.deepEqual(f.supersededBy,['REFILL_TO_NATURAL_MAX_001E','REFILL_ABOVE_NATURAL_MAX_001E']);
+});
+test('corrected strategy REFILL_TO_NATURAL_MAX_001E',()=>{
+  const f=byId.REFILL_TO_NATURAL_MAX_001E;
   const r=m.generateEnergyCandidates(f.input).find(x=>x.type==='REFILL');
+  assert.ok(r);
   for (const [k,v] of Object.entries(f.expected.refillCandidate)) assert.equal(r[k],v);
+});
+test('corrected strategy REFILL_ABOVE_NATURAL_MAX_001E',()=>{
+  const f=byId.REFILL_ABOVE_NATURAL_MAX_001E;
+  const r=m.generateEnergyCandidates(f.input);
+  assert.deepEqual(r.map(x=>x.type),f.expected.candidateFamilies);
+  assert.equal(r.filter(x=>x.type==='REFILL').length,f.expected.refillCandidateCount);
 });
 test('frozen strategy CAPPED_NATURAL_LOSS_001',()=>{
   const f=byId.CAPPED_NATURAL_LOSS_001;
@@ -472,24 +484,6 @@ test('execution readiness requires field-level freshness while planning can proc
     assert.equal(result.readiness.status,'NEEDS_REFRESH',field);
   }
 });
-test('finite combined Xanax and refill checkpoint reaches stack cap',()=>{
-  const candidates=m.generateEnergyCandidates({energy:600,naturalEnergyMax:150,stackCap:1000,
-    drugCooldownSeconds:0,maxWaitSeconds:0,xanax:{energyGain:250,cooldownSeconds:3600},
-    pointRefill:{allowed:true,fillAmountPolicy:'natural_max',pointsRequired:25}});
-  const combination=candidates.find(x=>x.energyAtTraining===1000 && x.xanaxUses===1 && x.pointsConsumed===25);
-  assert.ok(combination);
-  assert.deepEqual(combination.actions.map(x=>x.action),['TAKE_XANAX','USE_REFILL']);
-  assert.equal(combination.discardedEnergy,0);
-  const state={energy:600,naturalEnergyMax:150,stackCap:1000,happy:1000,
-    stats:{speed:1000},targetStat:'speed',gym:{dots:5,energyPerTrain:10},
-    inventory:{xanax:1},cooldowns:{drugSeconds:0},pointRefill:{allowed:true,
-      fillAmountPolicy:'natural_max',pointsRequired:25}};
-  const ranked=m.recommend({observedState:{...state,xanax:{energyGain:250,cooldownSeconds:3600}},
-    preferences:{objective:'MAXIMUM_GAIN',allowRefill:true,pointLimit:25}});
-  assert.equal(ranked.primaryPlan.actions.some(x=>x.action==='USE_REFILL'),true);
-  assert.equal(ranked.primaryPlan.actions.some(x=>x.action==='TAKE_XANAX'),true);
-  assert.equal(ranked.primaryPlan.economics.pointsConsumed,25);
-});
 test('owned unknown-value and known-value boosters can combine for Maximum Gain',()=>{
   const state={energy:100,naturalEnergyMax:100,happy:1000,stats:{speed:1000},targetStat:'speed',
     gym:{dots:5,energyPerTrain:10},inventory:{mystery:1,known:1,ecstasy:1},
@@ -504,4 +498,116 @@ test('owned unknown-value and known-value boosters can combine for Maximum Gain'
   assert.equal(result.primaryPlan.resources.ownedItemsConsumed.mystery,1);
   assert.equal(result.primaryPlan.resources.ownedItemsConsumed.known,1);
   assert.equal(result.primaryPlan.economics.economicValueConsumed,null);
+});
+
+// DQ-TRAIN-001E: owner-authorized correction of refill mechanics and phase ordering.
+test('refill from 50E fills to natural 150E and obtains only 100E',()=>{
+  const refill=m.generateEnergyCandidates({energy:50,naturalEnergyMax:150,stackCap:1000,
+    pointRefill:{allowed:true,fillAmountPolicy:'natural_max',pointsRequired:25}})
+    .find(c=>c.type==='REFILL');
+  assert.ok(refill);
+  assert.equal(refill.energyAfter,150);
+  assert.equal(refill.energyAtTraining,150);
+  assert.equal(refill.energyObtained,100);
+  assert.equal(refill.discardedEnergy,0);
+});
+test('refill above natural max has no pre-training candidate',()=>{
+  const energy=m.generateEnergyCandidates({energy:900,naturalEnergyMax:150,stackCap:1000,
+    pointRefill:{allowed:true,fillAmountPolicy:'natural_max',pointsRequired:25}});
+  assert.equal(energy.some(c=>c.actions.some(a=>a.action==='USE_REFILL')),false);
+});
+test('Xanax and refill cannot combine into a pre-training stack',()=>{
+  const energy=m.generateEnergyCandidates({energy:600,naturalEnergyMax:150,stackCap:1000,
+    drugCooldownSeconds:0,maxWaitSeconds:0,xanax:{energyGain:250,cooldownSeconds:3600},
+    pointRefill:{allowed:true,fillAmountPolicy:'natural_max',pointsRequired:25}});
+  assert.equal(energy.some(c=>c.type==='XANAX_REFILL'),false);
+  assert.equal(energy.some(c=>c.actions.some(a=>a.action==='TAKE_XANAX') &&
+    c.actions.some(a=>a.action==='USE_REFILL')),false);
+});
+function refillJumpState() {
+  return {energy:1000,naturalEnergyMax:150,stackCap:1000,happy:4275,
+    stats:{speed:100000},targetStat:'speed',gym:{id:'complete_cardio',dots:5.8,energyPerTrain:10},
+    cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:108000},
+    inventory:{eroticDvd:5,ecstasy:1},pointRefill:{allowed:true,fillAmountPolicy:'natural_max',pointsRequired:25},
+    pointsAvailable:25,calibratedDomain:true,gainPerks:[],activeEffects:[],
+    freshness:{...liveFreshness,points:'LIVE',pointRefill:'LIVE'}};
+}
+const refillJumpMechanics={eroticDvd:{happy:2500,cooldownSeconds:21600,replacementValueEach:100000},
+  ecstasy:{happyMultiplier:2,replacementValue:200000}};
+test('1,150E Happy Jump trains both segments sequentially around a single refill',()=>{
+  const state=refillJumpState();
+  const options={observedState:state,preferences:{objective:'MAXIMUM_GAIN',allowRefill:true,pointValue:1000},
+    itemMechanics:refillJumpMechanics,timing:{safeQuarterWindow:true}};
+  const r=m.recommend(options), p=r.primaryPlan;
+  assert.equal(r.status,'ok');
+  assert.deepEqual(p.actions.filter(a=>['TRAIN','USE_REFILL','VERIFY_STATE'].includes(a.action))
+    .slice(-4).map(a=>a.action),['TRAIN','USE_REFILL','VERIFY_STATE','TRAIN']);
+  assert.deepEqual(p.actions.filter(a=>a.action==='TRAIN').map(a=>a.trainCount),[100,15]);
+  const first=m.simulatePlanTraining({modelId:m.MODEL_ID,stat:{kind:'speed',value:state.stats.speed},
+    happy:33550,gym:state.gym,gainPerks:[],energy:1000});
+  const second=m.simulatePlanTraining({modelId:m.MODEL_ID,stat:{kind:'speed',value:first.modeledEndStat},
+    happy:first.finalHappy,gym:state.gym,gainPerks:[],energy:150});
+  near(p.simulation.modeledEndStat,second.modeledEndStat);
+  near(p.simulation.modeledGain,first.modeledGain+second.modeledGain);
+  assert.equal(p.simulation.finalHappy,second.finalHappy);
+  assert.equal(p.simulation.modeledTrainCount,115);
+  assert.equal(p.simulation.trains[100].happyBefore,first.finalHappy);
+  near(p.simulation.trains[100].statBefore,first.modeledEndStat);
+  const checkpoint=p.actions[p.actions.findIndex(a=>a.action==='USE_REFILL')+1];
+  assert.equal(checkpoint.expectedEnergy,150);
+  assert.equal(checkpoint.expectedHappy,first.finalHappy);
+  near(checkpoint.expectedStat,first.modeledEndStat);
+  assert.equal(p.resources.energySpent,1150);
+  assert.equal(p.economics.pointsConsumed,25);
+  assert.equal(p.economics.pricedPointValueConsumed,25000);
+  assert.equal(p.actions.filter(a=>a.action==='USE_REFILL').length,1);
+  assert.equal(p.readiness.status,'READY');
+  assert.equal(p.fingerprint,m.recommend(options).primaryPlan.fingerprint);
+});
+test('unavailable refill never produces a post-training refill phase',()=>{
+  const state=refillJumpState();
+  const permitted=m.recommend({observedState:state,preferences:{objective:'MAXIMUM_GAIN',allowRefill:true},
+    itemMechanics:refillJumpMechanics,timing:{safeQuarterWindow:true}});
+  const unavailable=m.recommend({observedState:{...state,pointRefill:{...state.pointRefill,allowed:false}},
+    preferences:{objective:'MAXIMUM_GAIN',allowRefill:true},itemMechanics:refillJumpMechanics,
+    timing:{safeQuarterWindow:true}});
+  assert.ok(permitted.primaryPlan.actions.some(a=>a.action==='USE_REFILL'));
+  assert.ok(!unavailable.primaryPlan.actions.some(a=>a.action==='USE_REFILL'));
+  const insufficient=m.recommend({observedState:{...state,pointsAvailable:0},
+    preferences:{objective:'MAXIMUM_GAIN',allowRefill:true},itemMechanics:refillJumpMechanics,
+    timing:{safeQuarterWindow:true}});
+  assert.equal(insufficient.primaryPlan.readiness.status,'BLOCKED');
+  const stale=m.recommend({observedState:{...state,freshness:{...state.freshness,points:'STALE'}},
+    preferences:{objective:'MAXIMUM_GAIN',allowRefill:true},itemMechanics:refillJumpMechanics,
+    timing:{safeQuarterWindow:true}});
+  assert.equal(stale.primaryPlan.readiness.status,'NEEDS_REFRESH');
+  assert.equal(m.planReadiness(permitted.primaryPlan,{...state,pointRefill:undefined},
+    {safeQuarterWindow:true}).status,'NEEDS_REFRESH');
+});
+test('unknown refill point quantity or value keeps the sequential option fail-closed',()=>{
+  const state=refillJumpState();
+  const unknownPoints=m.recommend({observedState:{...state,pointRefill:{...state.pointRefill,
+    pointsRequired:undefined}},preferences:{objective:'MAXIMUM_GAIN',allowRefill:true,allowItems:false}});
+  assert.ok(!unknownPoints.primaryPlan.actions.some(a=>a.action==='USE_REFILL'));
+  assert.ok(unknownPoints.rejectedPlans.some(p=>p.reason==='RESOURCE_MISSING'));
+  const unknownValue=m.recommend({observedState:state,
+    preferences:{objective:'BALANCED',allowRefill:true,allowItems:false}});
+  assert.ok(!unknownValue.primaryPlan.actions.some(a=>a.action==='USE_REFILL'));
+  assert.ok(unknownValue.rejectedPlans.some(p=>p.reason==='ECONOMICS_UNAVAILABLE'));
+});
+test('second training phase crossing 50m remains partial and unranked',()=>{
+  const state={...refillJumpState(),stats:{speed:48000000}};
+  const recipe=m.generateHappyRecipes(state,refillJumpMechanics)
+    .find(r=>r.items.some(item=>item.id==='eroticDvd' && item.quantity===5));
+  const p=m.composePlan({state,preferences:{allowRefill:true,pointValue:1000},
+    energy:m.generateEnergyCandidates(state)[0],recipe,itemMechanics:refillJumpMechanics,
+    timing:{safeQuarterWindow:true},postTrainRefill:true});
+  assert.equal(p.simulation.status,'partial');
+  assert.equal(p.simulation.modeledTrainCount,105);
+  assert.equal(p.simulation.fullOutcomeRankable,false);
+  const result=m.recommend({observedState:state,
+    preferences:{objective:'MAXIMUM_GAIN',allowRefill:true,pointValue:1000},
+    itemMechanics:refillJumpMechanics,timing:{safeQuarterWindow:true}});
+  assert.notEqual(result.primaryPlan.fingerprint,p.fingerprint);
+  assert.ok(result.rejectedPlans.some(item=>item.reason==='MODEL_OUT_OF_DOMAIN'));
 });
