@@ -1,5 +1,7 @@
 # DQ-TRAIN-001C — PR #123 verification correction
 
+**2026-09-26 supersession:** Finding 6 below asserted that a Point refill adds Energy to an existing Xanax stack. This is incorrect. The owner-authorized [DQ-TRAIN-001E correction](REFILL-SEMANTICS-CORRECTION-2026-09-26.md) supersedes only that refill claim and its `REFILL_CAP_001` fixture: a Point refill fills to the natural Energy maximum; the 1,150E jump requires training the stack before the refill. The other findings remain historical verification results.
+
 Date: 2026-09-25. Starting branch head: `d20998ac1535207d7c7bf8d7bd7f29081fe0672c`. Main baseline: `05d8ba9c53d20cc9df0a4ada842df369a6a4f71a`. The existing branch is `agent/training-advisor-pure-planner-001c`. PR #123 remains draft and unmerged.
 
 The verification report's five blocking findings and two bounded gaps were reproduced with seven tests failing on the reviewed head, then corrected:

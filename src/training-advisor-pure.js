@@ -321,21 +321,13 @@ function generateEnergyCandidates(input = {}) {
         postDrugCooldownSeconds:isNonnegative(xanax.cooldownSeconds) ? xanax.cooldownSeconds : null,
         discardedEnergy:discarded,naturalEnergyLost:wait && !naturalRegen ? null : lost,actions};
       candidates.push(base);
-      if (pointRefill?.allowed && pointRefill.fillAmountPolicy === 'natural_max' && current < stackCap) {
-        const refilled=Math.min(stackCap,current+naturalEnergyMax);
-        candidates.push({...base,type:'XANAX_REFILL',energyBefore:current,nominalFill:naturalEnergyMax,
-          energyAtTraining:refilled,energyAfter:refilled,
-          discardedEnergy:discarded+current+naturalEnergyMax-refilled,
-          pointsConsumed:pointRefill.pointsRequired ?? null,
-          actions:[...actions,{action:'USE_REFILL'}]});
-      }
     }
   }
   if (pointRefill?.allowed && pointRefill.fillAmountPolicy === 'natural_max' &&
-      stackCap != null && energy < stackCap) {
-    const after = Math.min(stackCap,energy+naturalEnergyMax);
+      isInteger(naturalEnergyMax) && energy < naturalEnergyMax) {
     candidates.push({ type:'REFILL', energyBefore:energy, nominalFill:naturalEnergyMax,
-      energyAtTraining:after, energyAfter:after, discardedEnergy:energy+naturalEnergyMax-after,
+      energyObtained:naturalEnergyMax-energy,energyAtTraining:naturalEnergyMax,
+      energyAfter:naturalEnergyMax,discardedEnergy:0,
       waitSeconds:0, naturalEnergyLost:0, pointsConsumed:pointRefill.pointsRequired ?? null,
       actions:[{action:'USE_REFILL'}] });
   }
@@ -439,6 +431,20 @@ function planReadiness(plan, state = {}, timing = {}) {
     return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh inventory'};
   if (!Array.isArray(state.gainPerks) || !Array.isArray(state.activeEffects))
     return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh gain modifiers'};
+  if (plan.actions?.some(a=>a.action==='USE_REFILL')) {
+    if (state.pointRefill?.allowed === false)
+      return {status:'BLOCKED',reason:'RESOURCE_MISSING',nextAction:'confirm refill availability'};
+    if (state.pointRefill?.allowed !== true)
+      return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'confirm refill availability'};
+    if (state.pointRefill.fillAmountPolicy !== 'natural_max' ||
+        !isInteger(state.pointRefill.pointsRequired))
+      return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'verify refill mechanics and point cost'};
+    if (state.freshness?.pointRefill !== 'LIVE' || state.freshness?.points !== 'LIVE' ||
+        !isInteger(state.pointsAvailable))
+      return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh refill and points'};
+    if (state.pointsAvailable < plan.economics.pointsConsumed)
+      return {status:'BLOCKED',reason:'RESOURCE_MISSING',nextAction:'obtain required points'};
+  }
   if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && state.cooldowns?.drugSeconds > 0)
     return {status:'WAITING',reason:'COOLDOWN_BLOCKED',nextAction:'wait for drug cooldown, then verify Happy'};
   if (plan.actions?.find(a=>a.action!=='VERIFY_STATE')?.action === 'WAIT')
@@ -515,10 +521,37 @@ function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = 
     compareStrings(JSON.stringify(a.items),JSON.stringify(b.items)));
 }
 
+function simulatePreparedTraining(state, happy, energy, postTrainRefill) {
+  const input={modelId:MODEL_ID,stat:{kind:state.targetStat,value:state.stats[state.targetStat]},
+    happy,gym:state.gym,gainPerks:state.gainPerks || [],
+    effects:state.activeEffects?.filter(x=>x.support==='UNSUPPORTED')};
+  const first=simulatePlanTraining({...input,energy});
+  if (!postTrainRefill) return first;
+  if (first.status !== 'ok') return fail('unsupported',first.reason || 'MODEL_OUT_OF_DOMAIN');
+  if (first.remainingEnergy >= state.naturalEnergyMax || !first.modeledTrainCount)
+    return fail('unsupported','RESOURCE_MISSING');
+  const second=simulatePlanTraining({...input,stat:{...input.stat,value:first.modeledEndStat},
+    happy:first.finalHappy,energy:state.naturalEnergyMax});
+  if (second.status === 'unsupported' && second.reason === 'OUT_OF_MODEL_DOMAIN')
+    return fail('unsupported','MODEL_OUT_OF_DOMAIN');
+  if (!['ok','partial'].includes(second.status)) return second;
+  return {...second,modeledTrainCount:first.modeledTrainCount+second.modeledTrainCount,
+    modeledGain:second.modeledEndStat-input.stat.value,
+    energySpent:first.energySpent+second.energySpent,
+    trains:[...first.trains,...second.trains.map(train=>({...train,index:first.modeledTrainCount+train.index}))],
+    preRefillState:{stat:first.modeledEndStat,happy:first.finalHappy,energy:first.remainingEnergy},
+    assumption:first.assumption};
+}
+
 function composePlan({ state, preferences = {}, energy, recipe = { items:[], useEcstasy:false },
-  itemMechanics = {}, marketSnapshot = {}, timing = {} }) {
+  itemMechanics = {}, marketSnapshot = {}, timing = {}, postTrainRefill = false }) {
   if (!state || !isNonnegative(state.energy) || !isInteger(energy.energyAtTraining) ||
       !isNonnegative(state.happy) || !state.targetStat || !state.gym?.energyPerTrain) return fail('invalid','INVALID_INPUT');
+  if (postTrainRefill && (!preferences.allowRefill || state.pointRefill?.allowed !== true ||
+      state.pointRefill.fillAmountPolicy !== 'natural_max' ||
+      !isInteger(state.naturalEnergyMax) || !state.naturalEnergyMax ||
+      energy.energyAtTraining <= state.naturalEnergyMax ||
+      energy.actions.some(a=>a.action==='USE_REFILL'))) return fail('unsupported','RESOURCE_MISSING');
   const actions = [{action:'VERIFY_STATE'}];
   actions.push(...energy.actions);
   if (energy.waitSeconds > 0) actions.push({action:'VERIFY_STATE',fields:['energy','happy','cooldowns']});
@@ -596,10 +629,17 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
   }
   const trainCount = Math.floor(energy.energyAtTraining/state.gym.energyPerTrain);
   actions.push({action:'TRAIN',targetStat:state.targetStat,trainCount,energySpent:trainCount*state.gym.energyPerTrain});
-  const simulation = currentHappy == null ? fail('unsupported','DATA_MISSING') : capabilities(state).canPredictGain ? simulatePlanTraining({ modelId:MODEL_ID,
-    stat:{kind:state.targetStat,value:state.stats[state.targetStat]}, happy:currentHappy,
-    gym:state.gym,gainPerks:state.gainPerks || [],energy:energy.energyAtTraining,
-    effects:state.activeEffects?.filter(x=>x.support==='UNSUPPORTED') }) : null;
+  const simulation=currentHappy == null ? fail('unsupported','DATA_MISSING') : capabilities(state).canPredictGain ?
+    simulatePreparedTraining(state,currentHappy,energy.energyAtTraining,postTrainRefill) : null;
+  if (postTrainRefill && ['ok','partial'].includes(simulation?.status)) {
+    const refillTrainCount=Math.floor(state.naturalEnergyMax/state.gym.energyPerTrain);
+    actions.push({action:'USE_REFILL'},
+      {action:'VERIFY_STATE',fields:['energy','happy','stat','points'],
+        expectedEnergy:state.naturalEnergyMax,expectedHappy:simulation.preRefillState.happy,
+        expectedStat:simulation.preRefillState.stat},
+      {action:'TRAIN',targetStat:state.targetStat,trainCount:refillTrainCount,
+        energySpent:refillTrainCount*state.gym.energyPerTrain});
+  } else if (postTrainRefill) return fail('unsupported',simulation?.reason || 'DATA_MISSING');
   let marginalGainFromFinalBooster = null;
   if (simulation?.status === 'ok' && boosters.length) {
     const last=boosters.at(-1);
@@ -608,24 +648,24 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
       (item.quantity-(item===last ? 1 : 0))*itemMechanics[item.id].happy);
     if (recipe.useEcstasy) withoutLast=Math.min(99999,withoutLast*itemMechanics.ecstasy.happyMultiplier);
     if (Number.isInteger(withoutLast)) {
-      const previous=simulatePlanTraining({modelId:MODEL_ID,
-        stat:{kind:state.targetStat,value:state.stats[state.targetStat]},happy:withoutLast,
-        gym:state.gym,gainPerks:state.gainPerks || [],energy:energy.energyAtTraining});
+      const previous=simulatePreparedTraining(state,withoutLast,energy.energyAtTraining,postTrainRefill);
       if (previous.status==='ok') marginalGainFromFinalBooster=simulation.modeledGain-previous.modeledGain;
     }
   }
   const fingerprintValue = structuralFingerprint({actions,targetStat:state.targetStat,
     statAllocationMode:preferences.statAllocationMode,resourcePolicy:preferences.resourcePolicy,
     ownedItemsConsumed,boughtItems});
+  const usedRefill=energy.actions.some(a=>a.action==='USE_REFILL') || postTrainRefill;
+  const pointsConsumed=postTrainRefill ? state.pointRefill.pointsRequired ?? null :
+    usedRefill ? energy.pointsConsumed ?? null : 0;
   const economics = {newCashRequired,marketValueOfOwnedItemsConsumed:ownedValue,
-    pricedPointValueConsumed:energy.actions.some(a=>a.action==='USE_REFILL') && energy.pointsConsumed == null ? null :
-      energy.pointsConsumed === 0 || energy.pointsConsumed == null ? 0 : preferences.pointValue != null ?
-        energy.pointsConsumed * preferences.pointValue : null,
+    pricedPointValueConsumed:pointsConsumed == null ? null : pointsConsumed === 0 ? 0 :
+      isNonnegative(preferences.pointValue) ? pointsConsumed*preferences.pointValue : null,
     naturalEnergyLost:energy.naturalEnergyLost == null || ecstasyWaitSeconds && !state.naturalRegen ? null :
       energy.naturalEnergyLost+naturalEnergyLost({energy:energy.energyAtTraining,
         naturalEnergyMax:state.naturalEnergyMax,stackCap:state.stackCap,
         naturalRegen:state.naturalRegen,waitSeconds:ecstasyWaitSeconds}),
-    pointsConsumed:energy.actions.some(a=>a.action==='USE_REFILL') ? energy.pointsConsumed ?? null : 0,
+    pointsConsumed,
     boosterCooldownSeconds, discardedEnergy:energy.discardedEnergy || 0};
   economics.economicValueConsumed = Number.isFinite(newCashRequired) && Number.isFinite(ownedValue) &&
     economics.pricedPointValueConsumed != null ? newCashRequired+ownedValue+economics.pricedPointValueConsumed : null;
@@ -680,6 +720,15 @@ function recommend({observedState,preferences = {},marketSnapshot = {},itemMecha
     plans.push(composePlan({state,preferences:strategyPreferences,energy,itemMechanics,marketSnapshot,timing}));
     for (const recipe of recipes) plans.push(composePlan({state,preferences:strategyPreferences,
       energy,recipe,itemMechanics,marketSnapshot,timing}));
+    if (preferences.allowRefill && state.pointRefill?.allowed === true &&
+        state.pointRefill.fillAmountPolicy === 'natural_max' &&
+        energy.energyAtTraining > state.naturalEnergyMax &&
+        !energy.actions.some(a=>a.action==='USE_REFILL')) {
+      plans.push(composePlan({state,preferences:strategyPreferences,energy,itemMechanics,
+        marketSnapshot,timing,postTrainRefill:true}));
+      for (const recipe of recipes) plans.push(composePlan({state,preferences:strategyPreferences,
+        energy,recipe,itemMechanics,marketSnapshot,timing,postTrainRefill:true}));
+    }
   }
   const candidates = plans.filter(p=>p.simulation?.status === 'ok').map(p=>({
     id:p.id,fingerprint:p.fingerprint,confidence:p.confidence.level,
