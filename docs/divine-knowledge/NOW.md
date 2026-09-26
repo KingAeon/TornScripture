@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-26 DQ-TRAIN-001E Point refill correction verified on isolated branch; PR #125 draft and unmerged
+Snapshot: 2026-09-26 PR #125 merged; DQ-TRAIN-001D adapter specification verification/freeze continuation prepared
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|37fe611cfeb58bf812272eef18c5d69eb9952d01
+MAIN_AT_SNAPSHOT|0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,13 +11,13 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
 
-PARALLEL|DQ-TRAIN-001|point_refill_semantics_corrected_draft_unmerged
+PARALLEL|DQ-TRAIN-001|001d_adapter_spec_verification_ready
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
-TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_refill_corrected_unmerged
+TRAINING_001C|frozen_with_001E_refill_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_refill_corrected_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|independent [V] re-verification of draft PR #125 and bounded refill correction; adapters/UI need separate authorization; merge/release not authorized
+TRAINING_NEXT|[V]/[S] verify and freeze DQ-TRAIN-001D adapter contract + fixtures on clean post-PR125 baseline; elevated-Happy ordinaryHappy proof remains optional strengthening; adapter build still requires separate [B]
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -53,9 +53,13 @@ REQ|applicable conditions preserved
 SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
 NOTE|recheck current main SHA and mutable issue states before consequential action
 
-TRAINING_BUILD_BRANCH|agent/training-refill-semantics-correction-001e
-TRAINING_BUILD_STATE|point_refill_semantics_corrected_draft_unmerged|326_repo_tests_pass|correction_from_833243cb7b43d7ba41b39f922973140c5908c562
+TRAINING_BUILD_BRANCH|none_active_product_build
+TRAINING_BUILD_STATE|PR125_merged|326_repo_tests_pass_before_merge|merge_0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97
 TRAINING_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-2026-09-25.md
 TRAINING_VERIFICATION|chapters/dq-train-001/VERIFICATION-CORRECTION-2026-09-25.md
 TRAINING_REFILL_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-REFILL-CORRECTION-2026-09-26.md
-TRAINING_REFILL_CORRECTION|chapters/dq-train-001/REFILL-SEMANTICS-CORRECTION-2026-09-26.md|PR#125|draft_unmerged
+TRAINING_REFILL_CORRECTION|chapters/dq-train-001/REFILL-SEMANTICS-CORRECTION-2026-09-26.md|PR#125|merged_0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97
+
+TRAINING_001D|spec_verification_ready|source_matrix_substantially_complete|refill_blocker_resolved_by_PR125|runtime_not_authorized
+TRAINING_001D_BRANCH|docs/training-advisor-adapter-freeze-001d-r2
+TRAINING_001D_HANDOFF|chapters/dq-train-001/ADAPTER-FREEZE-HANDOFF-2026-09-26.md
