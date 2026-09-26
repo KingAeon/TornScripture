@@ -17,7 +17,7 @@ TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|pure_planner_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|close /user/refills boolean polarity from owner usage state; bound gym/perks permission mismatch via capability-based adapter contract; then freeze nonprivate adapter + item-mechanic fixtures
+TRAINING_NEXT|freeze capability-based adapter contract + recognized perk/item patterns and synthetic nonprivate fixtures; elevated-Happy ordinaryHappy proof remains optional strengthening before runtime adapter build
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 TRAINING_PR|#123|merged|37fe611cfeb58bf812272eef18c5d69eb9952d01
 
@@ -62,6 +62,6 @@ TRAINING_VERIFICATION|chapters/dq-train-001/VERIFICATION-CORRECTION-2026-09-25.m
 TRAINING_001D|discovery|adapter_source_map|openapi_6.13.6_rechecked|implementation_not_authorized
 TRAINING_001D_DOC|chapters/dq-train-001/ADAPTER-SOURCE-MAP-001D.md
 TRAINING_001D_PROTOCOL|chapters/dq-train-001/LIVE-ADAPTER-PROOF-PROTOCOL-001D.md
-TRAINING_001D_LIVE|Run_A_provisional_pass|Run_B_pass|Run_C_current_gain_perks_pass|Run_D_shape_pass_boolean_polarity_open|Run_E_planning_inventory_pass|Complete_Cardio_live_join_10E_5.5_5.8_5.5_5.2|user_gym_and_perks_min_permission_open|ordinaryHappy_elevated_followup_open
+TRAINING_001D_LIVE|Run_A_provisional_pass|Run_B_pass|Run_C_current_gain_perks_pass|Run_D_pass_false_means_unused|Run_E_planning_inventory_pass|Complete_Cardio_live_join_10E_5.5_5.8_5.5_5.2|user_gym_and_perks_min_permission_bounded_by_capability_check|ordinaryHappy_elevated_followup_open
 TRAINING_001D_RESULTS|chapters/dq-train-001/LIVE-ADAPTER-PROOF-RESULTS-001D.md
 TRAINING_001D_ITEM_REGISTRY|candidate|base_Xanax_Ecstasy_eDVD_Candy_mechanics_sourced|dynamic_modifier_patterns_and_refill_polarity_open
