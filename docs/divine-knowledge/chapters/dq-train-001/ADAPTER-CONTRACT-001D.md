@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Normalized Adapter Contract Candidate
 
-Status: **SPECIFICATION-READY CANDIDATE; UPSTREAM POINT-REFILL CORRECTION MERGED IN PR #125; FINAL 001D VERIFICATION/FREEZE PENDING; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **[V]/[S] AMENDED; SOURCE/FRESHNESS CONTRACT SPECIFICATION-FROZEN EXCEPT BOOSTER-LEGALITY DEPENDENCY; FINAL ADAPTER BUILD GATE BLOCKED BY UPSTREAM BOOSTER SEMANTICS CORRECTION; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Prepared: 2026-09-26
 Pure planner baseline: PR #123 merged at `37fe611cfeb58bf812272eef18c5d69eb9952d01`.
@@ -170,24 +170,57 @@ Frozen v0.1 normalization:
 
 This is intentionally conservative until a positive live specimen and parser contract justify broader faction-shareable support.
 
-## 6. Daily points Energy refill
+### 5.1 Booster-use threshold semantics — upstream planner correction required
 
-Source: `GET /user/refills`.
+`boosterMaxSeconds` is the threshold that must be **above the current cooldown before the next item is used**, not a hard ceiling on the post-item result.
 
-Torn's v2 migration documented this selection as renamed fields from the earlier `*_refill_used` shape.
+Correct sequence rule:
 
 ```text
-pointRefill.allowed          <- !refills.energy
-pointRefill.fillAmountPolicy <- "natural_max"
-pointRefill.pointsRequired   <- configured/current verified point cost source
+before each booster:
+  currentBoosterSeconds < boosterMaxSeconds
+
+after use:
+  currentBoosterSeconds += itemCooldownSeconds
+  # result may exceed boosterMaxSeconds
+
+while currentBoosterSeconds >= boosterMaxSeconds:
+  no next booster until an observed/waited state is below the maximum
 ```
 
-The boolean means **used**, not available:
+If a sequence reaches the maximum exactly, the planner must insert an explicit wait/verification before another booster rather than assume elapsed time.
 
-- `false` = not used, therefore available;
-- `true` = used, therefore unavailable.
+The merged pure planner currently uses a stricter aggregate `current + planned <= max` rule. Adapter normalization MUST NOT falsify `boosterMaxSeconds` to work around that defect. Runtime adapter build remains blocked on the bounded planner correction recorded by PR #126 verification.
 
-The adapter does not infer the point currency valuation. That remains a preference/economic input.
+## 6. Daily points Energy refill
+
+Source: `GET /user/refills` plus a versioned configured mechanic for current Point cost.
+
+Torn's v2 migration documented this selection as renamed fields from the earlier `*_refill_used` / `special_refills_available` shape.
+
+Current verified v0.1 mechanic baseline (2026-09-26):
+
+- paid daily Energy refill: **30 Points**;
+- free/special refills must be consumed before the daily paid refill can be used.
+
+Normalized paid-refill path:
+
+```text
+refillState.paidEnergyUsed   <- refills.energy
+refillState.specialCount     <- refills.special_count
+pointRefill.fillAmountPolicy <- "natural_max"
+pointRefill.pointsRequired   <- 30   [CONFIGURED, versioned mechanic]
+```
+
+Eligibility:
+
+- `refills.energy == true` -> paid daily Energy refill already used;
+- `refills.energy == false && special_count == 0` -> paid daily refill may be exposed as available;
+- `special_count > 0` -> v0.1 MUST NOT expose the paid-refill path as READY; special/free refill sequencing is not yet modeled and the game requires those refills to be used first.
+
+The adapter does not infer the cash value of Points. `pointValue` remains a preference/economic input.
+
+Historical pure-planner tests using another synthetic `pointsRequired` value test arithmetic only and are not current-cost claims.
 
 ## 7. Planning inventory
 
@@ -228,8 +261,12 @@ Frozen v0.1 dynamic-item policy:
 
 - numerical item mechanics are base-only;
 - current live-proven gym-gain perks remain supported separately;
-- if complete perk/effect state contains a material Candy, consumable-cooldown, eDVD, booster-maximum, drug-effect, or other preparation modifier outside the frozen subset, only the affected preparation capability is marked unsupported;
+- if complete perk/effect state contains a material Candy, consumable-cooldown, eDVD, booster-maximum, drug-effect, event, or other preparation modifier outside the frozen subset, only the affected preparation capability is marked unsupported;
+- raw planning inventory remains available for display/accounting, but the adapter MUST omit unsupported item classes from the planner-facing `itemMechanics` projection so the pure planner cannot generate those preparation candidates;
+- an unsupported material-effect record is retained for explanation/provenance;
 - the adapter MUST NOT generic-parse arbitrary percentages to recover that capability.
+
+Candy base mechanics require explicit verification that faction/company/book/event modifiers are absent or inactive. In particular, World Diabetes Day state must be explicit from approved server-time/event logic; unknown or active event state fails Candy preparation closed in v0.1.
 
 Random future drug cooldown ranges MUST NOT become exact `xanax.cooldownSeconds` or Ecstasy cooldown values. When exact future timing is required and no observed checkpoint exists, the strategy remains unsupported/replan-based.
 
@@ -265,15 +302,26 @@ Planning may continue with weaker inventory freshness where the pure planner per
 
 ## 10. Calibrated-domain flag
 
-The adapter may set `calibratedDomain:true` only when all of the following are true:
+The accepted calibration is narrower than "Complete Cardio + supported perks + <=50m".
 
-- model ID is `vladar-v2-pre50m-v1`;
-- active gym is Complete Cardio with the live-verified 10E / 5.5 / 5.8 / 5.5 / 5.2 catalog values;
-- target stat/gain modifiers are represented by supported explicit gain perks consistent with the documented B1–B4 evidence domain;
-- no unsupported material training effect is active;
-- trained stat start remains inside the frozen pre-50m boundary.
+Documented B1–B4 evidence covers:
 
-Otherwise use supported extrapolation or unsupported behavior according to the pure planner contract.
+- ordinary-Happy observed lanes for all four battle-stat families;
+- elevated Happy around 33k only for Speed and Strength;
+- 11-train sequential batches only for Speed and Strength;
+- the recorded modifier stacks and observed stat-magnitude lanes;
+- Complete Cardio / 10E.
+
+The merged pure planner currently consumes one plan-global `state.calibratedDomain` boolean, while a recommendation search may generate candidates that move Happy or other plan state outside the observed lane.
+
+Therefore frozen conservative v0.1 adapter behavior is:
+
+- general/open-ended strategy generation emits `calibratedDomain:false`;
+- `calibratedDomain:true` is permitted only for an explicitly calibration-locked invocation whose **entire candidate set** is constrained to a documented B1–B4 lane;
+- no generic faction-shareable adapter may infer that lock from only gym identity, supported modifiers, and the pre-50m arithmetic boundary;
+- a future planner contract may replace the global boolean with plan-specific calibration classification.
+
+This avoids labeling unobserved Defense/Dexterity high-Happy plans, materially different stat magnitudes, or other generated recipes as CALIBRATED while preserving their arithmetic as supported extrapolation where otherwise allowed.
 
 ## 11. Failure isolation
 
@@ -290,14 +338,14 @@ Examples:
 
 ## 12. Remaining gate
 
-The normalized source mappings, capability/freshness behavior, and bounded v0.1 dynamic-item policy are specification-ready. The upstream point-refill semantics defect was corrected and merged in PR #125 at `0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97`; the remaining gate is independent 001D specification/fixture verification and owner freeze.
+The normalized source mappings, capability/freshness behavior, refill/special-refill mapping, conservative calibration-confidence policy, and bounded v0.1 dynamic-item projection are specification-frozen by the owner-requested [V]/[S] pass. The upstream Point-refill defect is resolved. Final adapter-build authorization remains blocked by the booster-use threshold mismatch in the merged pure planner.
 
 Before adapter implementation:
 
-1. independently verify the sanitized adapter and item-mechanic fixtures;
-2. perform complete-diff verification of PR #124;
+1. correct and re-verify the pure planner's booster-use threshold / one-item-overcap semantics;
+2. re-run final PR #126 fixture/spec consistency after that merge;
 3. retain elevated-Happy `ordinaryHappy` confirmation as desirable strengthening rather than a blocker;
-4. obtain explicit owner `[B]` authorization.
+4. obtain explicit owner `[B]` authorization for adapter implementation.
 
 No adapter implementation, networking, storage, UI, timer, DOM capture, or gameplay action is authorized by this contract.
 
