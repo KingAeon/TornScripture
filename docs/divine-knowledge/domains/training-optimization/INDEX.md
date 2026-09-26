@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **MATH AND PLANNER POLICY FROZEN; B1–B4 CALIBRATION COMPLETE IN DOCUMENTED DOMAIN; PURE PLANNER MERGED; ADAPTER SOURCE DISCOVERY ACTIVE**
+Status: **MATH/POLICY MOSTLY FROZEN; B1–B4 CALIBRATION COMPLETE; PURE PLANNER MERGED; POINT-REFILL ERRATUM BLOCKS ADAPTER FREEZE**
 
 ## Purpose
 
@@ -64,3 +64,7 @@ B5 special/boundary research remains parallel and opportunistic; it does not blo
 ## Active chapter
 
 - `../../chapters/dq-train-001/INDEX.md` — authoritative state for battle-stat training and Happy Jump mechanics, DQ-TRAIN-001A contract/fixtures, DQ-TRAIN-001B live calibration, aggregate results, and later optimization work.
+
+## Point-refill erratum
+
+DQ-TRAIN-001D verification found that frozen `REFILL_CAP_001` and the merged pure planner model a Point refill as additive stack Energy, contradicting the earlier source audit and current Energy documentation that a daily Point refill fills the ordinary Energy bar to its maximum. Adapter build/freeze is paused pending bounded correction and re-verification. See `../../chapters/dq-train-001/REFILL-SEMANTICS-ERRATUM-CANDIDATE-2026-09-26.md`.
