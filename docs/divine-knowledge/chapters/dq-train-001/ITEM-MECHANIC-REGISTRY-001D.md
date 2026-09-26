@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — v0.1 Training Item Mechanic Registry Candidate
 
-Status: **DISCOVERY CANDIDATE; BASE MECHANICS SOURCED; DYNAMIC MODIFIER APPLICATION NOT YET FROZEN**
+Status: **V0.1 MECHANIC SUBSET FROZEN FOR SPECIFICATION; RUNTIME IMPLEMENTATION NOT AUTHORIZED**
 
 Prepared: 2026-09-26
 
@@ -46,14 +46,15 @@ Planner boundary:
 Base supported success-path effects:
 
 - Happy multiplier: ×2
-- drug cooldown: random 200–231 minutes
+- drug cooldown: documented conservative envelope 200–231 minutes
 - type: Drug
 
 Planner boundary:
 
 - overdose remains a separate adverse outcome with no invented probability;
 - Ecstasy is an action after the required observed drug-cooldown checkpoint;
-- quarter-hour Happy-reset timing remains a separate readiness concern.
+- quarter-hour Happy-reset timing remains a separate readiness concern;
+- current Torn Wiki sources are internally inconsistent at the upper endpoint: the item-specific Ecstasy page says 200–231 minutes while the generic Drugs table says 200–230. v0.1 records the conservative 200–231 documented envelope and does not use either value as an exact future cooldown.
 
 ## Core booster mechanic
 
@@ -92,43 +93,52 @@ Live-observed current inventory IDs plus current official base Happy:
 
 The registry is intentionally not limited to items currently owned. Additional Candy IDs may be added from the same authoritative table when they become relevant to candidate generation.
 
-## Candy modifiers
+## Dynamic item modifiers — v0.1 frozen subset
 
-Current official mechanics permit Candy Happy to be modified by:
+Current mechanics can modify Candy Happy, consumable cooldown, eDVD Happy, and maximum booster cooldown through faction/company/book/event effects.
 
-- faction Candy-effect upgrades;
+**v0.1 deliberately does not numerically model those dynamic item modifiers.**
+
+Supported in v0.1:
+
+- base Candy Happy values from the registry;
+- base Candy booster cooldown of 30 minutes;
+- base eDVD +2,500 Happy / +6h booster cooldown;
+- base Xanax and Ecstasy success-path effects;
+- base maximum booster cooldown of 24 hours **only when a complete verified perk set contains no material booster-maximum modifier**.
+
+Not numerically supported in v0.1:
+
+- faction Candy-effect bonuses;
 - Grocery Store Absorption;
-- the Yes Please Diabetes book;
-- World Diabetes Day.
+- Grocery/Restaurant consumable-cooldown reductions;
+- Yes Please Diabetes;
+- Self Control Is For Losers;
+- World Diabetes Day;
+- eDVD company specials;
+- faction maximum-booster-cooldown additions;
+- any other item/booster/drug/Happy modifier not explicitly frozen elsewhere.
 
-Consumable cooldown can also be modified by applicable company specials and the Self Control Is For Losers book.
+Fail-closed rule:
 
-These are **dynamic account/event state**, not item constants.
+1. begin from base mechanics only;
+2. inspect the complete verified perk/effect state;
+3. if a potentially material string/effect mentions Candy, booster cooldown, consumable cooldown, eDVD, Happy-item effect, drug effect, or another preparation mechanic not frozen here, mark the affected preparation capability unsupported;
+4. do **not** assume the modifier is zero and do **not** attempt generic percentage parsing.
 
-Runtime rule candidate:
-
-1. begin from base Happy and base cooldown;
-2. apply only explicitly recognized active modifiers with recorded provenance;
-3. preserve the documented rounding order where frozen;
-4. if a potentially material candy/cooldown modifier is present but unrecognized, mark affected Happy-prep planning unsupported rather than assuming zero.
-
-The owner's current `/user/perks` sample contained no candy-effect, consumable-cooldown, active-book, or other training-special string, so the current observed account does not require such a modifier to explain the captured state.
+The owner's current live `/user/perks` sample contained no such item-preparation modifier, so base mechanics are valid for the observed account state.
 
 ## Booster maximum
 
-Official current mechanics:
+Official current mechanics give a base maximum booster cooldown of 24 hours, while faction Voracity may extend it by up to another 24 hours.
 
-- base maximum booster cooldown: 24 hours;
-- faction Voracity can add up to +24 hours, one hour per upgrade.
+v0.1 normalization is intentionally conservative:
 
-The current `/user/cooldowns` endpoint provides the present booster countdown but not the maximum.
+- if the complete verified perk/effect state contains no material maximum-booster-cooldown modifier, derive `boosterMaxSeconds = 86400`;
+- if any maximum-booster-cooldown modifier is present, `boosterMaxSeconds` is unknown/unsupported in v0.1 and booster-preparation planning fails closed;
+- `/user/cooldowns.booster` remains the independent observed current countdown.
 
-Candidate source for account-specific maximum:
-
-- recognized `/user/perks` faction string of the form `+ N hours maximum booster cooldown`, when present;
-- base 24h only when the complete verified perk set proves no applicable maximum-booster-cooldown modifier.
-
-This mapping still needs a live positive specimen or an independently frozen parser fixture before generic faction-shareable use.
+This avoids inventing a parser from an unobserved positive specimen while still supporting ordinary accounts/factions safely.
 
 ## Inventory identity
 
@@ -151,13 +161,14 @@ inventory item ID + amount
 
 Inventory never becomes the mechanic source.
 
-## Freeze blockers
+## Frozen v0.1 boundary
 
-Before this candidate becomes frozen adapter input:
+The v0.1 specification supports the base mechanics above and intentionally fails closed when a dynamic item-preparation modifier is detected.
 
-1. freeze recognized perk patterns for booster maximum and Candy modifiers, including fail-closed behavior;
-2. decide whether v0.1 supports only base/currently observed candy modifiers or broader faction/company/book/event modifiers;
-3. write synthetic, nonprivate registry fixtures;
-4. verify the fixture parser independently.
+Remaining work before adapter implementation:
 
-No runtime implementation is authorized by this candidate.
+1. verify synthetic, nonprivate registry fixtures;
+2. verify the complete PR #124 documentation diff;
+3. obtain explicit owner build authorization for adapters.
+
+No runtime implementation is authorized by this specification freeze.
