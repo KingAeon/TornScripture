@@ -155,10 +155,9 @@ Inventory never becomes the mechanic source.
 
 Before this candidate becomes frozen adapter input:
 
-1. resolve `/user/refills.energy` boolean polarity;
-2. freeze recognized perk patterns for booster maximum and Candy modifiers, including fail-closed behavior;
-3. decide whether v0.1 supports only base/currently observed candy modifiers or broader faction/company/book/event modifiers;
-4. write synthetic, nonprivate registry fixtures;
-5. verify the fixture parser independently.
+1. freeze recognized perk patterns for booster maximum and Candy modifiers, including fail-closed behavior;
+2. decide whether v0.1 supports only base/currently observed candy modifiers or broader faction/company/book/event modifiers;
+3. write synthetic, nonprivate registry fixtures;
+4. verify the fixture parser independently.
 
 No runtime implementation is authorized by this candidate.
