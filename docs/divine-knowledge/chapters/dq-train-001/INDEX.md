@@ -19,7 +19,8 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 13. [PR #123 verification correction](VERIFICATION-CORRECTION-2026-09-25.md) — reproduced findings, bounded fixes, freshness contract, tests, and rollback.
 14. [DQ-TRAIN-001D Adapter Source Map](ADAPTER-SOURCE-MAP-001D.md) — current source, permission, freshness, capability-degradation, and bounded live-proof plan for normalized adapters.
 15. [DQ-TRAIN-001D Live Adapter Proof Protocol](LIVE-ADAPTER-PROOF-PROTOCOL-001D.md) — minimal owner-assisted live captures, redaction rules, acceptance criteria, and freeze gate.
-16. [DQ-TRAIN-001D Live Adapter Proof Results](LIVE-ADAPTER-PROOF-RESULTS-001D.md) — sanitized live conclusions; Run A bars/cooldowns provisional pass and remaining semantic follow-ups.
+16. [DQ-TRAIN-001D Live Adapter Proof Results](LIVE-ADAPTER-PROOF-RESULTS-001D.md) — sanitized live conclusions; Runs A–E evidence and remaining semantic follow-ups.
+17. [DQ-TRAIN-001D Item Mechanic Registry Candidate](ITEM-MECHANIC-REGISTRY-001D.md) — sourced base Xanax/Ecstasy/eDVD/Candy mechanics, live item IDs, dynamic-modifier boundaries, and freeze blockers.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
