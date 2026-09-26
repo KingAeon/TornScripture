@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **MATH/POLICY + PURE PLANNER MERGED; DQ-TRAIN-001E REFILL CORRECTION MERGED; DQ-TRAIN-001D ADAPTER SPEC VERIFICATION READY**
+Status: **PURE PLANNER + REFILL CORRECTION MERGED; DQ-TRAIN-001D SOURCE/FRESHNESS SPEC AMENDED; FINAL ADAPTER FREEZE BLOCKED BY BOOSTER-THRESHOLD PLANNER CORRECTION**
 
 ## Purpose
 
@@ -64,3 +64,7 @@ B5 special/boundary research remains parallel and opportunistic; it does not blo
 ## Active chapter
 
 - `../../chapters/dq-train-001/INDEX.md` — authoritative state for battle-stat training and Happy Jump mechanics, DQ-TRAIN-001A contract/fixtures, DQ-TRAIN-001B live calibration, aggregate results, and later optimization work.
+
+## PR #126 verification correction
+
+The `[V]/[S]` pass froze the corrected adapter source/freshness direction, including special-refill precedence, current 30-Point refill cost provenance, dynamic item/event fail-closed projection, and conservative calibration confidence. It also found a blocking upstream planner mismatch: Torn booster maximum is a pre-use threshold and the final item may push cooldown above it, while the merged planner requires aggregate cooldown to remain at/below maximum. See `../../chapters/dq-train-001/ADAPTER-VERIFICATION-FINDINGS-2026-09-26.md`. Adapter build remains unauthorized until that planner correction is independently verified.
