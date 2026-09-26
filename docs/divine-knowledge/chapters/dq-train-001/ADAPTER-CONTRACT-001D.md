@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Normalized Adapter Contract Candidate
 
-Status: **V0.1 ADAPTER CONTRACT FROZEN FOR SPECIFICATION; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **VERIFICATION BLOCKED BY UPSTREAM POINT-REFILL SEMANTICS ERRATUM; OTHERWISE SPECIFICATION-READY; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Prepared: 2026-09-26
 Pure planner baseline: PR #123 merged at `37fe611cfeb58bf812272eef18c5d69eb9952d01`.
@@ -290,7 +290,7 @@ Examples:
 
 ## 12. Remaining gate
 
-The normalized source mappings, capability/freshness behavior, and bounded v0.1 dynamic-item policy are frozen for specification.
+The normalized source mappings, capability/freshness behavior, and bounded v0.1 dynamic-item policy are specification-ready, but the adapter build gate is blocked by the point-refill semantics erratum recorded on 2026-09-26.
 
 Before adapter implementation:
 
@@ -300,3 +300,8 @@ Before adapter implementation:
 4. obtain explicit owner `[B]` authorization.
 
 No adapter implementation, networking, storage, UI, timer, DOM capture, or gameplay action is authorized by this contract.
+
+
+## Blocking upstream erratum
+
+See `REFILL-SEMANTICS-ERRATUM-CANDIDATE-2026-09-26.md`. The `/user/refills` source mapping is valid, but the merged pure planner currently models a Point refill as additive stack Energy. Adapter implementation must wait for the frozen strategy/planner correction.
