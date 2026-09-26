@@ -17,7 +17,7 @@ TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen|Training Advisor + Happy Jump Navigator v0.1|pure_planner_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|DQ-TRAIN-001D bounded live-proof matrix for bars/cooldowns/battlestats/gym/gyms/perks/refills/inventory; then freeze adapter source mappings before adapter build
+TRAINING_NEXT|owner-assisted DQ-TRAIN-001D live proof Run A: /user/bars + /user/cooldowns; then B stats/gym, C perks, D refills, E planning inventory; freeze adapter fixtures before build
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 TRAINING_PR|#123|merged|37fe611cfeb58bf812272eef18c5d69eb9952d01
 
@@ -61,3 +61,4 @@ TRAINING_VERIFICATION|chapters/dq-train-001/VERIFICATION-CORRECTION-2026-09-25.m
 
 TRAINING_001D|discovery|adapter_source_map|openapi_6.13.6_rechecked|implementation_not_authorized
 TRAINING_001D_DOC|chapters/dq-train-001/ADAPTER-SOURCE-MAP-001D.md
+TRAINING_001D_PROTOCOL|chapters/dq-train-001/LIVE-ADAPTER-PROOF-PROTOCOL-001D.md
