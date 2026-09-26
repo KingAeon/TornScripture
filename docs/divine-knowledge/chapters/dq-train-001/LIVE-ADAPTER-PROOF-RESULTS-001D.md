@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Live Adapter Proof Results
 
-Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED; RUN C PASSED FOR CURRENT TRAINING MODIFIERS; RUN D SHAPE PASSED WITH BOOLEAN POLARITY FOLLOW-UP; RUN E PLANNING INVENTORY PASSED; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED; RUN C PASSED FOR CURRENT TRAINING MODIFIERS; RUN D PASSED; RUN E PLANNING INVENTORY PASSED; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Date: 2026-09-25
 OpenAPI baseline: 6.13.6
@@ -191,11 +191,21 @@ Historical API context matters: the previous v1 shape used names such as `energy
 
 Run D disposition:
 
-- response shape and source are live-proven;
-- boolean polarity remains a bounded semantic follow-up before adapter freeze;
-- until resolved, `refills.energy` must not be mapped directly to `pointRefill.allowed`.
+**PASS. Boolean polarity is resolved from the documented v2 migration history.**
 
-A controlled proof can resolve this cheaply by comparing the API field with the visible Points refill state before and after a routine daily refill, without purchasing an extra refill solely for testing.
+Evidence chain:
+
+- the historical v1 field was named `energy_refill_used`, where zero meant the daily refill had not been used;
+- Torn's September 2025 v2 refactor announcement explicitly described `user -> refills` as "just renamed fields";
+- the v2 boolean `energy:false` therefore preserves the old "used" polarity: **false = not used**, **true = used**.
+
+Adapter mapping:
+
+- `refills.energy == false` -> daily Energy points refill is available, subject to any separate game-state prerequisite;
+- `refills.energy == true` -> daily Energy points refill has been used;
+- the planner's normalized `pointRefill.allowed` is therefore the logical inverse of the API boolean when the source is current and otherwise valid.
+
+This removes the need for the owner to spend or consume a refill solely to prove field polarity.
 
 ## Next evidence — planning inventory
 
