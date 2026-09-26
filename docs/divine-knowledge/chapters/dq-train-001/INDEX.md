@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN WITH EXPLICIT 001E REFILL FIXTURE SUPERSESSION; PURE PLANNER REFILL CORRECTION IN DRAFT PR #125; UNMERGED**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN WITH 001E REFILL SUPERSESSION; PURE PLANNER + REFILL CORRECTION MERGED; DQ-TRAIN-001D ADAPTER SPEC VERIFICATION READY**
 
 ## Canonical reading order
 
@@ -19,6 +19,14 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 13. [PR #123 verification correction](VERIFICATION-CORRECTION-2026-09-25.md) — reproduced findings, bounded fixes, freshness contract, tests, and rollback.
 14. [Point refill correction handoff — 2026-09-26](WORK-TRANSFER-HANDOFF-REFILL-CORRECTION-2026-09-26.md) — owner-authorized fixture supersession and bounded sequential planner change.
 15. [Point refill semantics correction — 2026-09-26](REFILL-SEMANTICS-CORRECTION-2026-09-26.md) — six reproduced regressions, new natural-max and sequential training contract, verification, limitations, and rollback.
+16. [DQ-TRAIN-001D Adapter Source Map](ADAPTER-SOURCE-MAP-001D.md) — live-proven source, permission, freshness, capability-degradation, and remaining optional strengthening.
+17. [DQ-TRAIN-001D Live Adapter Proof Protocol](LIVE-ADAPTER-PROOF-PROTOCOL-001D.md) — minimal redacted live-capture protocol.
+18. [DQ-TRAIN-001D Live Adapter Proof Results](LIVE-ADAPTER-PROOF-RESULTS-001D.md) — sanitized Runs A–E conclusions.
+19. [DQ-TRAIN-001D Item Mechanic Registry](ITEM-MECHANIC-REGISTRY-001D.md) — bounded v0.1 base mechanics and dynamic-modifier fail-closed boundary.
+20. [`ITEM-MECHANIC-FIXTURES-001D.json`](ITEM-MECHANIC-FIXTURES-001D.json) — synthetic item-mechanic acceptance fixtures.
+21. [DQ-TRAIN-001D Adapter Contract](ADAPTER-CONTRACT-001D.md) — normalized capability/freshness contract prepared for final verification/freeze.
+22. [`ADAPTER-FIXTURES-001D.json`](ADAPTER-FIXTURES-001D.json) — synthetic nonprivate adapter fixtures.
+23. [Adapter freeze handoff — 2026-09-26](ADAPTER-FREEZE-HANDOFF-2026-09-26.md) — clean post-PR125 continuation baseline and next verification gate.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -129,4 +137,4 @@ No API key, private player state, inventory export, raw calibration history, or 
 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-DQ-TRAIN-001C is frozen and the authorized pure planner was implemented on `agent/training-advisor-pure-planner-001c`. The historical PR #123 verification correction fixed five blocking findings and two bounded gaps; its additive Point-refill finding was later falsified. The owner-authorized DQ-TRAIN-001E correction on `agent/training-refill-semantics-correction-001e` explicitly supersedes that one strategy fixture, replaces additive pre-stack refill with natural-max fill, and models post-stack refill as a second sequential training phase. The repository passed 326 Node tests; see [refill correction](REFILL-SEMANTICS-CORRECTION-2026-09-26.md). PR #125 remains draft and unmerged; no adapters, UI, live TornPDA verification, or release is authorized by this checkpoint. B5 remains a separate opportunistic evidence lane.
+DQ-TRAIN-001C is frozen with the explicit DQ-TRAIN-001E Point-refill supersession. The corrected pure planner was independently verified and merged through PR #125 at `0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97`. DQ-TRAIN-001D now resumes on a clean post-merge branch with its live source matrix substantially complete and its adapter/item-mechanic contract plus synthetic fixtures ready for independent specification verification and owner freeze. No adapter runtime, UI, network, storage, listener, timer, or gameplay implementation is authorized by this checkpoint. B5 remains a separate opportunistic evidence lane.
