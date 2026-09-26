@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Live Adapter Proof Results
 
-Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED; RUN C PERK NORMALIZATION PASSED FOR CURRENT TRAINING MODIFIERS; RUN D SHAPE PASSED WITH BOOLEAN POLARITY FOLLOW-UP; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED; RUN C PASSED FOR CURRENT TRAINING MODIFIERS; RUN D SHAPE PASSED WITH BOOLEAN POLARITY FOLLOW-UP; RUN E PLANNING INVENTORY PASSED; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Date: 2026-09-25
 OpenAPI baseline: 6.13.6
@@ -208,3 +208,44 @@ Use `GET /user/inventory` with category filters:
 The current OpenAPI inventory category enum explicitly includes Drug, Booster and Candy. Each category is cached for one hour, so this evidence is planning-only by design.
 
 For repository evidence retain only category, inventory timestamp, and whether required training-item IDs/amounts can be normalized. Raw full inventory contents remain private.
+
+
+## Run E — planning inventory
+
+The owner supplied three live `/user/inventory` category responses for Drug, Candy and Booster. Raw full inventory contents and live quantities are intentionally not committed.
+
+Observed semantics:
+
+- each category response contained `inventory.items[]`, a category-specific `inventory.timestamp`, and pagination metadata;
+- all three supplied category responses were complete single pages (`next == null`);
+- Drug included Ecstasy by stable item ID **197**;
+- Booster included Erotic DVD by stable item ID **366**;
+- Xanax was absent from the complete Drug snapshot, demonstrating that complete-category absence can normalize to quantity zero for planning;
+- Candy returned multiple stable item IDs/names, demonstrating that candy planning can be item-ID based rather than name-only;
+- stackable rows used integer `amount` with null UID in these observed examples.
+
+Adapter consequences:
+
+1. Planning inventory can normalize by stable item ID and amount from complete category snapshots.
+2. A required item absent from a fully paginated category may normalize to quantity zero for that snapshot.
+3. Pagination completeness must be checked before absence is interpreted as zero.
+4. `inventory.timestamp` is category-specific source provenance and should travel with normalized planning inventory.
+5. Because Torn documents one-hour caching per category, these snapshots remain **planning inventory**, not LIVE execution proof.
+6. Training item mechanics must not be inferred from inventory names. Exact Happy, cooldown and drug mechanics remain sourced from the versioned mechanic registry / independently verified item data.
+
+Privacy disposition:
+
+- exact live amounts are not retained in Divine Knowledge;
+- unrelated drug/candy holdings are not retained;
+- only stable training-relevant item identities and adapter semantics are recorded.
+
+## Run E disposition
+
+**PASS for planning-inventory shape, item-ID normalization, absence-to-zero semantics with complete pagination, and category timestamp provenance.**
+
+The remaining 001D blockers before adapter-fixture freeze are now narrow:
+
+- resolve `/user/refills.energy` boolean polarity;
+- resolve or explicitly bound the minimum-permission discrepancy for `/user/gym` and `/user/perks`;
+- freeze the exact recognized training-item mechanic registry used by v0.1;
+- optionally strengthen `ordinaryHappy` with an elevated-Happy bars specimen.
