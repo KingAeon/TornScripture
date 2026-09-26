@@ -1,0 +1,384 @@
+{
+  "schemaVersion": "dq-train-001d.adapter-fixtures.v1",
+  "modelId": "vladar-v2-pre50m-v1",
+  "notes": [
+    "Synthetic, nonprivate fixtures for adapter specification only.",
+    "No raw player state, API key, or live inventory quantity is included.",
+    "These fixtures do not authorize runtime implementation."
+  ],
+  "cases": [
+    {
+      "id": "BARS_DONATOR_ORDINARY_001",
+      "sources": {
+        "bars": {
+          "energy": {
+            "current": 150,
+            "maximum": 150,
+            "increment": 5,
+            "interval": 600,
+            "tick_time": 240,
+            "full_time": 0
+          },
+          "happy": {
+            "current": 4000,
+            "maximum": 4000,
+            "increment": 5,
+            "interval": 900,
+            "tick_time": 540,
+            "full_time": 0
+          }
+        }
+      },
+      "expected": {
+        "energy": 150,
+        "naturalEnergyMax": 150,
+        "naturalRegen": {
+          "energy": 5,
+          "everySeconds": 600
+        },
+        "happy": 4000,
+        "ordinaryHappy": 4000,
+        "invariants": [
+          "natural energy must not increase above 150 from tick_time alone",
+          "ordinaryHappy mapping remains guarded pending elevated-Happy strengthening"
+        ]
+      }
+    },
+    {
+      "id": "COOLDOWNS_POSITIVE_BOOSTER_001",
+      "sources": {
+        "cooldowns": {
+          "drug": 0,
+          "medical": 0,
+          "booster": 72000
+        }
+      },
+      "expected": {
+        "cooldowns": {
+          "drugSeconds": 0,
+          "boosterSeconds": 72000
+        },
+        "invariants": [
+          "positive boosterSeconds is countdown state, not boolean blocked state",
+          "booster legality requires separate boosterMaxSeconds"
+        ]
+      }
+    },
+    {
+      "id": "BATTLESTATS_RAW_VALUE_001",
+      "sources": {
+        "battlestats": {
+          "strength": {
+            "value": 25000,
+            "modifier": 0,
+            "modifiers": []
+          },
+          "defense": {
+            "value": 5000,
+            "modifier": 0,
+            "modifiers": []
+          },
+          "speed": {
+            "value": 90000,
+            "modifier": 0,
+            "modifiers": []
+          },
+          "dexterity": {
+            "value": 5000,
+            "modifier": 25,
+            "modifiers": [
+              {
+                "effect": "+25% to Dexterity from Company",
+                "value": 25,
+                "type": "Company"
+              }
+            ]
+          },
+          "total": 125000
+        }
+      },
+      "expected": {
+        "stats": {
+          "strength": 25000,
+          "defense": 5000,
+          "speed": 90000,
+          "dexterity": 5000
+        },
+        "gainPerksFromBattlestats": [],
+        "invariants": [
+          "combat/stat modifiers are not gym-gain modifiers"
+        ]
+      }
+    },
+    {
+      "id": "COMPLETE_CARDIO_JOIN_001",
+      "sources": {
+        "userGym": {
+          "gym": {
+            "id": 14,
+            "name": "Complete Cardio"
+          }
+        },
+        "tornGyms": [
+          {
+            "id": 14,
+            "name": "Complete Cardio",
+            "class": "Middleweight",
+            "energy_cost": 10,
+            "cost": 2000000,
+            "modifiers": {
+              "strength": 5.5,
+              "speed": 5.8,
+              "defense": 5.5,
+              "dexterity": 5.2
+            },
+            "note": null
+          }
+        ]
+      },
+      "targetStat": "speed",
+      "expected": {
+        "gym": {
+          "id": 14,
+          "name": "Complete Cardio",
+          "energyPerTrain": 10,
+          "dots": 5.8
+        },
+        "calibratedGymShape": true
+      }
+    },
+    {
+      "id": "PERKS_GAIN_PARSE_001",
+      "sources": {
+        "perks": {
+          "faction": [
+            "+ 7% strength gym gains",
+            "+ 7% speed gym gains",
+            "+ 6% defense gym gains",
+            "+ 6% dexterity gym gains"
+          ],
+          "property": [
+            "+ 2% gym gains"
+          ],
+          "job": [
+            "+ 25% passive dexterity"
+          ],
+          "education": [],
+          "enhancer": [],
+          "book": [],
+          "stock": [],
+          "merit": []
+        }
+      },
+      "expected": {
+        "gainPerksByTarget": {
+          "strength": [
+            {
+              "id": "faction:gym:strength",
+              "rate": 0.07
+            },
+            {
+              "id": "property:gym:all",
+              "rate": 0.02
+            }
+          ],
+          "speed": [
+            {
+              "id": "faction:gym:speed",
+              "rate": 0.07
+            },
+            {
+              "id": "property:gym:all",
+              "rate": 0.02
+            }
+          ],
+          "defense": [
+            {
+              "id": "faction:gym:defense",
+              "rate": 0.06
+            },
+            {
+              "id": "property:gym:all",
+              "rate": 0.02
+            }
+          ],
+          "dexterity": [
+            {
+              "id": "faction:gym:dexterity",
+              "rate": 0.06
+            },
+            {
+              "id": "property:gym:all",
+              "rate": 0.02
+            }
+          ]
+        },
+        "excluded": [
+          "+ 25% passive dexterity"
+        ]
+      }
+    },
+    {
+      "id": "PERKS_UNKNOWN_MATERIAL_001",
+      "sources": {
+        "perks": {
+          "faction": [
+            "+ 7% speed gym gains",
+            "+ 3% mysterious gym training effect"
+          ],
+          "property": [],
+          "job": [],
+          "education": [],
+          "enhancer": [],
+          "book": [],
+          "stock": [],
+          "merit": []
+        }
+      },
+      "expected": {
+        "unsupportedMaterialEffect": true,
+        "canPredictGain": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "REFILL_FALSE_MEANS_AVAILABLE_001",
+      "sources": {
+        "refills": {
+          "energy": false,
+          "nerve": false,
+          "token": false,
+          "special_count": 0
+        }
+      },
+      "expected": {
+        "pointRefill": {
+          "allowed": true,
+          "fillAmountPolicy": "natural_max"
+        },
+        "semantic": "v2 boolean preserves historical *_refill_used polarity"
+      }
+    },
+    {
+      "id": "REFILL_TRUE_MEANS_USED_001",
+      "sources": {
+        "refills": {
+          "energy": true,
+          "nerve": false,
+          "token": false,
+          "special_count": 0
+        }
+      },
+      "expected": {
+        "pointRefill": {
+          "allowed": false,
+          "fillAmountPolicy": "natural_max"
+        }
+      }
+    },
+    {
+      "id": "INVENTORY_COMPLETE_ABSENCE_ZERO_001",
+      "sources": {
+        "drugInventory": {
+          "inventory": {
+            "items": [
+              {
+                "id": 197,
+                "amount": 2,
+                "name": "Ecstasy",
+                "uid": null
+              }
+            ],
+            "timestamp": 1800000000
+          },
+          "_metadata": {
+            "links": {
+              "prev": null,
+              "next": null
+            },
+            "total": 1
+          }
+        }
+      },
+      "expected": {
+        "inventory": {
+          "ecstasy": 2,
+          "xanax": 0
+        },
+        "sourceTimestamp": 1800000000,
+        "inventoryFreshness": "FRESH",
+        "executionFreshness": "NOT_LIVE"
+      }
+    },
+    {
+      "id": "INVENTORY_INCOMPLETE_ABSENCE_UNKNOWN_001",
+      "sources": {
+        "drugInventory": {
+          "inventory": {
+            "items": [
+              {
+                "id": 197,
+                "amount": 2,
+                "name": "Ecstasy",
+                "uid": null
+              }
+            ],
+            "timestamp": 1800000000
+          },
+          "_metadata": {
+            "links": {
+              "prev": null,
+              "next": "next-page"
+            },
+            "total": 20
+          }
+        }
+      },
+      "expected": {
+        "inventory": {
+          "ecstasy": 2
+        },
+        "xanaxQuantityKnown": false,
+        "reason": "INCOMPLETE_PAGINATION"
+      }
+    },
+    {
+      "id": "SPECIAL_GYM_NOTE_FAIL_CLOSED_001",
+      "sources": {
+        "userGym": {
+          "gym": {
+            "id": 31,
+            "name": "The Sports Science Lab"
+          }
+        },
+        "tornGyms": [
+          {
+            "id": 31,
+            "name": "The Sports Science Lab",
+            "class": "Specialist",
+            "energy_cost": 25,
+            "cost": 500000000,
+            "modifiers": {
+              "strength": 9,
+              "speed": 9,
+              "defense": 9,
+              "dexterity": 9
+            },
+            "note": "The use of drugs may result in the loss of membership without refunds"
+          }
+        ]
+      },
+      "targetStat": "strength",
+      "expected": {
+        "gym": {
+          "id": 31,
+          "name": "The Sports Science Lab",
+          "energyPerTrain": 25,
+          "dots": 9
+        },
+        "calibratedDomain": false,
+        "materialGymNote": true
+      }
+    }
+  ]
+}
