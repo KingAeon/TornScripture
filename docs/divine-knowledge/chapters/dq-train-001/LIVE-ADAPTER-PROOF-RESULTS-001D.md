@@ -253,9 +253,22 @@ Privacy disposition:
 
 **PASS for planning-inventory shape, item-ID normalization, absence-to-zero semantics with complete pagination, and category timestamp provenance.**
 
-The remaining 001D blockers before adapter-fixture freeze are now narrow:
+Run E completed the owner-assisted source capture. Subsequent PR #126 [V]/[S] work resolved/bounded the earlier freeze items as follows:
 
-- resolve `/user/refills.energy` boolean polarity;
-- resolve or explicitly bound the minimum-permission discrepancy for `/user/gym` and `/user/perks`;
-- freeze the exact recognized training-item mechanic registry used by v0.1;
-- optionally strengthen `ordinaryHappy` with an elevated-Happy bars specimen.
+- refill boolean polarity: resolved;
+- `/user/gym` and `/user/perks` access-label discrepancy: bounded by capability-based success/failure rather than guessed minimum label;
+- v0.1 base item mechanic registry: specification-frozen with dynamic preparation modifiers fail-closed;
+- `ordinaryHappy <- happy.maximum`: remains optional elevated-Happy strengthening, not a blocker.
+
+PR #126 verification additionally found two semantics not exposed by the zero-special-refill live specimen:
+
+- `special_count` must gate the paid refill path because special/free refills precede the paid daily refill;
+- current paid Energy refill cost is a separate configured mechanic (30 Points as of 2026-09-26), not a field from `/user/refills`.
+
+It also found an upstream pure-planner booster-threshold mismatch: the planner currently treats booster maximum as a hard aggregate ceiling, while current Torn mechanics allow one item begun below the maximum to push the resulting cooldown above it. Final adapter build remains blocked on that planner correction.
+
+## PR #126 verification addendum
+
+The original Run C perk specimen contained no maximum-booster-cooldown faction perk, Candy effect, consumable-cooldown special, active book, or eDVD modifier. DQ-TRAIN-001B's separately captured live elevated-Happy session used five Erotic DVDs. Combined with current Torn cooldown documentation, this is material evidence that booster maximum must be modeled as the threshold for starting the next item, not as a hard post-item ceiling.
+
+The Run D specimen had `special_count = 0`, so it could not live-prove behavior when free/special refills exist. Historical API naming plus current Points documentation establish that this count is material; v0.1 therefore fails the paid-refill path closed when `special_count > 0` until special-refill sequencing is separately modeled.
