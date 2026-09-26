@@ -1,6 +1,6 @@
 # NOW
 
-Snapshot: 2026-09-26 PR #125 merged; DQ-TRAIN-001D adapter specification verification/freeze continuation prepared
+Snapshot: 2026-09-26 PR #126 [V]/[S] amended adapter specification; final 001D freeze blocked by booster-threshold planner correction
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97
@@ -11,13 +11,13 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
 
-PARALLEL|DQ-TRAIN-001|001d_adapter_spec_verification_ready
+PARALLEL|DQ-TRAIN-001|001d_spec_amended_booster_bug_blocking
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen_with_001E_refill_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_refill_corrected_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|[V]/[S] verify and freeze DQ-TRAIN-001D adapter contract + fixtures on clean post-PR125 baseline; elevated-Happy ordinaryHappy proof remains optional strengthening; adapter build still requires separate [B]
+TRAINING_NEXT|owner-authorized [B][BUG] booster-threshold / one-item-overcap pure-planner correction; then [V] and return to PR#126 final adapter freeze
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -60,6 +60,8 @@ TRAINING_VERIFICATION|chapters/dq-train-001/VERIFICATION-CORRECTION-2026-09-25.m
 TRAINING_REFILL_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-REFILL-CORRECTION-2026-09-26.md
 TRAINING_REFILL_CORRECTION|chapters/dq-train-001/REFILL-SEMANTICS-CORRECTION-2026-09-26.md|PR#125|merged_0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97
 
-TRAINING_001D|spec_verification_ready|source_matrix_substantially_complete|refill_blocker_resolved_by_PR125|runtime_not_authorized
+TRAINING_001D|source_freshness_spec_frozen_with_amendments|final_freeze_blocked_by_booster_threshold_planner_mismatch|runtime_not_authorized
 TRAINING_001D_BRANCH|docs/training-advisor-adapter-freeze-001d-r2
 TRAINING_001D_HANDOFF|chapters/dq-train-001/ADAPTER-FREEZE-HANDOFF-2026-09-26.md
+TRAINING_001D_VERIFICATION|chapters/dq-train-001/ADAPTER-VERIFICATION-FINDINGS-2026-09-26.md|PR#126
+TRAINING_BOOSTER_ERRATUM|blocking|planner_enforces_post_item_ceiling_but_source_backed_rule_is_pre_use_threshold_with_one_item_overcap|build_authorization_required
