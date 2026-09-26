@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Live Adapter Proof Results
 
-Status: **RUN A PROVISIONALLY PASSED; BOUNDED FOLLOW-UPS REMAIN; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED FOR SCHEMA/SEMANTICS; PERMISSION DETAIL FOLLOW-UP REMAINS; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Date: 2026-09-25
 OpenAPI baseline: 6.13.6
@@ -71,3 +71,76 @@ Run B:
 3. `/torn/gyms` — capture only the active-gym row and reconcile Energy cost + stat modifiers against the calibrated Complete Cardio values.
 
 No adapter, API runtime, UI, storage, timer, DOM, or gameplay implementation is authorized by this evidence.
+
+## Run B1 — `/user/battlestats`
+
+The owner supplied a live response in chat. Raw stat values are intentionally not committed.
+
+Observed schema/semantics:
+
+- all four battle-stat objects were present;
+- each stat exposed `value`, aggregate `modifier`, and detailed `modifiers[]`;
+- one stat carried a nonzero company-derived modifier while the others had no active modifier;
+- `total` matched the raw stat-value family rather than requiring the adapter to fold temporary modifier percentages into the trained-stat input.
+
+Adapter consequences:
+
+1. The planner's trained stat `S` should normalize from `battlestats.<stat>.value`, not from a combat-modified effective value.
+2. `battlestats.<stat>.modifier` and `modifiers[]` are separate observed combat/stat modifiers and MUST NOT be silently reinterpreted as gym-gain perks.
+3. A material modifier string may still matter elsewhere, but it needs independent source classification before entering `gainPerks`.
+4. Raw battle-stat values remain private runtime state and stay outside Divine Knowledge.
+
+## Run B2 — `/user/gym`
+
+Live response identified active gym ID **14**, name **Complete Cardio**.
+
+Adapter consequences:
+
+1. `/user/gym` is live-proven to return active gym identity in the expected shape under the owner's current key.
+2. The current description-versus-key-parameter permission discrepancy is **not yet resolved as a minimum-permission claim**, because this run did not isolate the exact smallest grant.
+3. Active gym identity can join to the public gym catalog by exact numeric ID.
+
+## Run B3 — `/torn/gyms`
+
+The owner supplied the live catalog response. Only the active-gym semantic row is retained here.
+
+For gym ID **14 / Complete Cardio**, live values were:
+
+- class: Middleweight;
+- Energy cost: **10**;
+- Strength modifier: **5.5**;
+- Speed modifier: **5.8**;
+- Defense modifier: **5.5**;
+- Dexterity modifier: **5.2**;
+- note: none.
+
+Cross-check:
+
+- these values exactly match the Complete Cardio inputs used during DQ-TRAIN-001B calibration;
+- the API catalog modifiers are already in the planner's familiar dot scale for this observed gym;
+- no ten-times conversion is needed for the current `/torn/gyms` response;
+- `energy_cost` maps directly to the internal train Energy cost used by the frozen planner.
+
+Adapter consequences:
+
+1. The active-gym join `/user/gym.gym.id -> /torn/gyms[id]` is live-proven for Complete Cardio.
+2. The current gym catalog can supply `gym.energyPerTrain` and per-stat `gym.dots` directly for this observed row.
+3. Because `/torn/gyms` is officially marked Unstable, any future adapter needs structural validation/schema guarding and must fail closed on a changed shape or missing active row.
+4. Specialist-gym notes demonstrate that `note` is semantically material in the catalog and must not be discarded globally, even though Complete Cardio has no note.
+
+## Run B disposition
+
+**PASS for response shape, active-gym join, raw-stat semantics, and Complete Cardio unit normalization.**
+
+Remaining permission detail:
+
+- the minimum exact grant for `/user/gym` remains unresolved because this live run proved success under the current key but did not isolate Public-versus-Minimal behavior;
+- this does not block Run C/D, but the permission contract must be resolved before adapter freeze.
+
+## Next evidence
+
+Run C: `/user/perks` training-relevant strings and permission behavior.
+
+Run D: `/user/refills` live response semantics.
+
+After C/D, the adapter source map can be tightened substantially before the planning-inventory pass.
