@@ -52,7 +52,7 @@ Do not resolve these discrepancies by assumption. Live permission and response-s
 | active gym identity | `GET /user/gym` | description says Minimal; key parameter says Public | Stable | permission conflict requires live proof |
 | gym Energy/train + stat modifiers | `GET /torn/gyms` joined by gym ID | Public | **Unstable** | Complete Cardio live-proven direct 10E + familiar dot scale; schema guard required |
 | gain perks/modifiers | `GET /user/perks` | description says Minimal; key parameter says Public | Stable | current +2% property and +7/+7/+6/+6 faction gym-gain strings live-proven; explicit parser registry required |
-| relevant inventory quantities | `GET /user/inventory` | Minimal | Stable, **1h/category cache** | planning snapshot only by default; not execution proof |
+| relevant inventory quantities | `GET /user/inventory` | Minimal | Stable, **1h/category cache** | live-proven for Drug/Candy/Booster planning snapshots; complete-pagination absence may normalize to zero; not execution proof |
 | refill availability | `GET /user/refills` | Minimal | Stable | response live-proven; boolean polarity not yet frozen |
 | Torn/server timestamp | public timestamp selection | Public | Stable | preferred timing anchor when needed |
 | item catalog identity | `GET /torn/{ids}/items` | Public | Stable | good for item identity/catalog metadata |
