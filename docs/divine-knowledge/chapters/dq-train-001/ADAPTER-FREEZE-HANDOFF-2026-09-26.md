@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Adapter Specification Freeze Handoff
 
-Status: **NEXT STEP READY; SPECIFICATION/VERIFICATION ONLY; NO ADAPTER RUNTIME BUILD AUTHORIZED**
+Status: **[V]/[S] PERFORMED; SOURCE/FRESHNESS SPEC AMENDED; FINAL FREEZE BLOCKED BY BOOSTER-THRESHOLD PLANNER CORRECTION; NO ADAPTER RUNTIME BUILD AUTHORIZED**
 
 Prepared: 2026-09-26
 
@@ -132,3 +132,32 @@ This handoff does not authorize:
 - merge/release of the continuation PR.
 
 The next action is **[V]/[S] adapter specification verification and freeze**, not product build.
+
+## [V]/[S] outcome — 2026-09-26
+
+PR #126 verification parsed both fixture sets, checked current OpenAPI 6.13.6 source contracts, reconciled the post-PR125 refill model, and inspected the merged pure planner dependency.
+
+Specification amendments made during verification:
+
+- paid refill mapping now consumes `special_count` and a versioned 30-Point current cost;
+- paid refill fails closed while free/special refills are pending;
+- dynamic Candy/eDVD/item effects project fail-closed by omitting unsupported mechanics from planner-facing `itemMechanics`;
+- World Diabetes Day/event state is explicit rather than assumed inactive;
+- general strategy search now fails calibrated confidence closed because the current planner has one global `calibratedDomain` boolean;
+- stale PR #124 / already-resolved blocker pointers are superseded.
+
+Blocking finding:
+
+- current Torn booster mechanics treat the maximum as a pre-use threshold: an item may be started below the maximum and leave cooldown above it; the merged planner instead enforces `current + planned <= max`.
+- this can suppress the fifth eDVD in a base-24h preparation and conflicts with DQ-TRAIN-001B's live five-eDVD calibration evidence.
+
+See `ADAPTER-VERIFICATION-FINDINGS-2026-09-26.md`.
+
+### Revised next gate
+
+1. owner authorizes a bounded `[B][BUG]` booster-threshold / one-item-overcap pure-planner correction;
+2. correction receives independent `[V]`;
+3. return to PR #126 for final fixture/spec consistency and owner freeze;
+4. only then request separate `[B]` adapter implementation authorization.
+
+PR #126 remains documentation/specification only.
