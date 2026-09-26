@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN; PURE PLANNER MERGED; DQ-TRAIN-001D ADAPTER SOURCE DISCOVERY ACTIVE**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C REFILL ERRATUM OPEN; PURE PLANNER MERGED WITH REFILL CORRECTION REQUIRED; DQ-TRAIN-001D ADAPTER SPEC VERIFICATION BLOCKED ON ERRATUM**
 
 ## Canonical reading order
 
@@ -23,6 +23,8 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 17. [DQ-TRAIN-001D Item Mechanic Registry Candidate](ITEM-MECHANIC-REGISTRY-001D.md) — sourced base Xanax/Ecstasy/eDVD/Candy mechanics, live item IDs, dynamic-modifier boundaries, and freeze blockers.
 18. [DQ-TRAIN-001D Normalized Adapter Contract Candidate](ADAPTER-CONTRACT-001D.md) — capability-based source acquisition, normalized field mappings, freshness/provenance, failure isolation, and calibrated-domain gate.
 19. [`ADAPTER-FIXTURES-001D.json`](ADAPTER-FIXTURES-001D.json) — synthetic nonprivate adapter acceptance fixtures for bars, cooldowns, stats, gym join, perks, refills, inventory pagination, and special-gym fail-closed behavior.
+20. [`ITEM-MECHANIC-FIXTURES-001D.json`](ITEM-MECHANIC-FIXTURES-001D.json) — synthetic base-item and dynamic-modifier fail-closed fixtures.
+21. [Point Refill Semantics Erratum Candidate](REFILL-SEMANTICS-ERRATUM-CANDIDATE-2026-09-26.md) — blocking contradiction between frozen refill fixture/merged planner and source-backed refill-to-natural-maximum behavior.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
