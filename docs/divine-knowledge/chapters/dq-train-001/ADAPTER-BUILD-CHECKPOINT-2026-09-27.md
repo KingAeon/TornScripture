@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Pure adapter implementation checkpoint
 
-Date: 2026-09-27 UTC. Owner-authorized `[B][WORK]` implementation from verified `main@f4777409632ee69f901ed0dbe41a882a95743f2d`, after PR #126 merged its frozen 001D contract. Isolated branch: `agent/training-adapter-001d-build`. This checkpoint records a proposed build pending independent `[V]`; it is not a release or merge authorization.
+Date: 2026-09-27 UTC. Owner-authorized `[B][WORK]` implementation from verified `main@f4777409632ee69f901ed0dbe41a882a95743f2d`, after PR #126 merged its frozen 001D contract. Isolated branch: `agent/training-adapter-001d-build`; draft PR #129. The tested implementation tree was published at `a560c69af241f05b05f2ccb850fc3fff58060b73`; the local tested commit is `573e8e99bb00080fb8d7271fa22b2701e9a9e6cd` with the same tree. This checkpoint records a proposed build pending independent `[V]`; it is not a release or merge authorization.
 
 ## Scope and implementation
 

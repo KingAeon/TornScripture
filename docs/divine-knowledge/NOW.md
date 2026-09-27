@@ -63,10 +63,10 @@ TRAINING_BOOSTER_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-BOOSTER-THR
 TRAINING_BOOSTER_CORRECTION|chapters/dq-train-001/BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md|PR#127|merged_in_fb9dce7_before_independent_V
 TRAINING_BOOSTER_FOLLOW_UP|chapters/dq-train-001/BOOSTER-FRONTIER-VERIFICATION-CORRECTION-2026-09-26.md|PR#128|merged_24701cccbaebbeae7b3e8bb3e05d9c2f9c478a82
 TRAINING_ADAPTER_SPEC|PR#126|merged_f4777409632ee69f901ed0dbe41a882a95743f2d|V1_V3_pass_spec_frozen
-TRAINING_ADAPTER_BUILD|agent/training-adapter-001d-build|main_f4777409632ee69f901ed0dbe41a882a95743f2d|136_focused_373_full_tests_pass|independent_V_pending|xanax_energy_route_withheld_pending_planner_happy_fix|no_userscript_integration
+TRAINING_ADAPTER_BUILD|PR#129|draft_unmerged|agent/training-adapter-001d-build|tested_tree_head_a560c69af241f05b05f2ccb850fc3fff58060b73|main_f4777409632ee69f901ed0dbe41a882a95743f2d|136_focused_373_full_tests_pass|independent_V_pending|xanax_energy_route_withheld_pending_planner_happy_fix|no_userscript_integration
 
 TRAINING_001D_BRANCH|docs/training-advisor-adapter-freeze-001d-r2
 TRAINING_001D_HANDOFF|chapters/dq-train-001/ADAPTER-FREEZE-HANDOFF-2026-09-26.md
 TRAINING_001D_VERIFICATION|chapters/dq-train-001/ADAPTER-VERIFICATION-FINDINGS-2026-09-26.md|PR#126
 TRAINING_001D_FREEZE|chapters/dq-train-001/ADAPTER-FINAL-FREEZE-2026-09-26.md|PR#126|merged_f4777409632ee69f901ed0dbe41a882a95743f2d
-TRAINING_001D_BUILD|chapters/dq-train-001/ADAPTER-BUILD-CHECKPOINT-2026-09-27.md|branch_unmerged_independent_V_pending
+TRAINING_001D_BUILD|chapters/dq-train-001/ADAPTER-BUILD-CHECKPOINT-2026-09-27.md|PR#129_draft_unmerged_independent_V_pending
