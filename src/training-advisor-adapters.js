@@ -402,9 +402,8 @@ function normalizeTrainingSources(input = {}) {
     inventory:inventory.inventory,inventoryFreshness:inventory.inventoryFreshness,
     pointRefill:fresh(refills.status.freshness) ? refills.pointRefill || undefined : undefined,
     pointsAvailable:refills.pointsAvailable ?? undefined,
-    // The current pure planner does not apply Xanax's +75 Happy during its
-    // prepared-training simulation. Keep the registry fact, but withhold the
-    // Energy route until that upstream composition is corrected and verified.
+    // The approved sources do not establish an Energy stack cap. Keep the
+    // Xanax registry mechanics but withhold its Energy route until one is sourced.
     xanax:undefined,
     calibratedDomain:false,
     freshness:{energy:fields.energy.freshness,happy:fields.happy.freshness,
@@ -440,7 +439,7 @@ function normalizeTrainingSources(input = {}) {
   return {observedState,itemMechanics:mechanics.itemMechanics,marketSnapshot,timing,
     fields,capabilities,inventory:inventory.categories,refillState:refills.refillState,
     unsupported:[...mechanics.unsupported,...mechanics.activeEffects.filter(x=>x.support==='UNSUPPORTED'),
-      {capability:'xanaxPreparation',reason:'UPSTREAM_PLANNER_HAPPY_EFFECT_UNMODELED'},
+      {capability:'xanaxPreparation',reason:'STACK_CAP_UNAVAILABLE'},
       ...(gym.materialGymNote ? [{capability:'gymPrediction',reason:'UNSUPPORTED_EFFECT',
         description:gym.gym.note}] : [])],
     sourceStatus:{bars:bars.status,cooldowns:cooldowns.status,battlestats:stats.status,

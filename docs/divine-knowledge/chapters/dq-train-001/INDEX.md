@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLETE IN DOCUMENTED DOMAIN; DQ-TRAIN-001D SPECIFICATION MERGED IN PR #126; OWNER-AUTHORIZED PURE ADAPTER BUILD AWAITS INDEPENDENT [V]**
+State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLETE IN DOCUMENTED DOMAIN; PURE ADAPTER PR #129 MERGED; DQ-TRAIN-001H CORRECTION ON DRAFT PR #130 AWAITS INDEPENDENT [V]**
 
 ## Canonical reading order
 
@@ -33,6 +33,8 @@ State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLE
 27. [PR #126 adapter verification findings — 2026-09-26](ADAPTER-VERIFICATION-FINDINGS-2026-09-26.md) — refill special-count/cost correction, dynamic-item/event fail-closed projection, conservative calibration-confidence correction, and blocking booster-threshold planner mismatch.
 28. [DQ-TRAIN-001D final adapter freeze — 2026-09-26](ADAPTER-FINAL-FREEZE-2026-09-26.md) — V1–V3 result after PR #128 merge, corrected fixture statuses, material gym-note gate, frozen v0.1 boundary, and separate adapter build gate.
 29. [DQ-TRAIN-001D pure adapter implementation checkpoint — 2026-09-27](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md) — owner-authorized isolated adapter build, frozen fixtures, provenance/freshness and capability gates, tests, and independent [V] handoff.
+30. [DQ-TRAIN-001H Xanax Happy-effect correction handoff — 2026-09-27](WORK-TRANSFER-HANDOFF-XANAX-HAPPY-CORRECTION-2026-09-27.md) — owner-authorized bounded planner defect, checkpoint semantics, adapter stack-cap boundary, and X1–X8 gates.
+31. [DQ-TRAIN-001H implementation checkpoint — 2026-09-27](XANAX-HAPPY-CORRECTION-2026-09-27.md) — immediate +75 Happy, delayed authoritative checkpoints, fail-closed adapter limitation, red/green regressions, and independent [V] gate.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -149,4 +151,4 @@ The owner-authorized DQ-TRAIN-001F correction on `agent/training-booster-thresho
 
 ## DQ-TRAIN-001D final verification
 
-The 001D adapter source, mechanic, fixture, and freshness contract from PR #126 passed final V1–V3 checks against merged PR #128. The [v0.1 documentation contract is specification-frozen](ADAPTER-FINAL-FREEZE-2026-09-26.md) and PR #126 merged at `f4777409632ee69f901ed0dbe41a882a95743f2d`. The owner separately authorized the [pure adapter implementation](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md); independent [V] precedes any merge decision. UI/TornPDA integration remains outside this build.
+The 001D adapter source, mechanic, fixture, and freshness contract from PR #126 passed final V1–V3 checks against merged PR #128. The [v0.1 documentation contract is specification-frozen](ADAPTER-FINAL-FREEZE-2026-09-26.md) and PR #126 merged at `f4777409632ee69f901ed0dbe41a882a95743f2d`. The owner separately authorized the [pure adapter implementation](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md); PR #129 merged into `443cb542e8b3f3d2b70404993d5dd322fe6f013d`. The [Xanax Happy correction](XANAX-HAPPY-CORRECTION-2026-09-27.md) is isolated on draft PR #130 for independent [V]. UI/TornPDA integration remains outside this build.

@@ -317,7 +317,7 @@ test('Xanax stack economics and owned-only constraint survive composition',()=>{
   assert.equal(result.primaryPlan.actions.some(a=>a.action==='TAKE_XANAX'),false);
   assert.ok(result.rejectedPlans.some(x=>x.reason==='USER_RESOURCE_RESTRICTION'));
 });
-test('future Happy is required before a delayed plan receives a gain forecast',()=>{
+test('X5 delayed Xanax still needs future Happy before a full gain forecast',()=>{
   const state={energy:750,naturalEnergyMax:150,stackCap:1000,happy:1000,
     stats:{speed:1000},targetStat:'speed',gym:{dots:5.8,energyPerTrain:10},
     xanax:{energyGain:250},cooldowns:{drugSeconds:3600},inventory:{xanax:1},freshness:liveFreshness,
@@ -374,8 +374,8 @@ test('structural identity distinguishes ownership choices, not quoted prices',()
   assert.notEqual(owned,bought);
   assert.equal(owned,m.structuralFingerprint({actions,targetStat:'speed',ownedItemsConsumed:{candy:1}}));
 });
-test('Xanax sets the next drug checkpoint before Ecstasy',()=>{
-  const state={energy:750,naturalEnergyMax:150,stackCap:1000,happy:3000,happyAtCheckpoint:3000,
+test('X6 Xanax sets the next drug checkpoint before Ecstasy and uses verified Happy',()=>{
+  const state={energy:750,naturalEnergyMax:150,stackCap:1000,happy:3000,happyAtCheckpoint:3075,
     stats:{speed:1000},targetStat:'speed',gym:{dots:5,energyPerTrain:10},
     xanax:{energyGain:250,cooldownSeconds:3600},cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:108000},
     inventory:{xanax:1,ecstasy:1},freshness:liveFreshness,gainPerks:[],activeEffects:[]};
@@ -390,6 +390,9 @@ test('Xanax sets the next drug checkpoint before Ecstasy',()=>{
   assert.ok(plan.actions.slice(xanaxIndex+1,ecstasyIndex).some(x=>x.action==='VERIFY_STATE'));
   assert.equal(plan.timing.waitSeconds,3600);
   assert.equal(plan.readiness.status,'WAITING');
+  assert.equal(plan.preEcstasyHappy,3075,'X6 checkpoint includes Xanax Happy already');
+  assert.equal(plan.postEcstasyHappy,6150,'X6 Ecstasy doubles the observed checkpoint once');
+  assert.equal(plan.simulation.trains[0].happyBefore,6150);
   const unknown=m.composePlan({state:{...state,xanax:{energyGain:250}},
     energy:m.generateEnergyCandidates({...state,xanax:{energyGain:250},maxWaitSeconds:0})
       .find(x=>x.type==='WAIT_XANAX'),recipe:{items:[],useEcstasy:true},
@@ -744,4 +747,73 @@ test('frontier legality retains the best sequentially legal mixed booster recipe
   assert.deepEqual(result.primaryPlan.actions.filter(action=>action.action==='USE_BOOSTER')
     .map(action=>action.item),['a','b']);
   assert.equal(result.primaryPlan.simulation.modeledGain,forced.simulation.modeledGain);
+});
+
+function immediateXanaxState(happy=1000) {
+  return {energy:500,naturalEnergyMax:150,stackCap:1000,happy,
+    stats:{speed:1000},targetStat:'speed',gym:{dots:5,energyPerTrain:10},
+    xanax:{energyGain:250},cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:108000},
+    inventory:{xanax:1},freshness:liveFreshness,gainPerks:[],activeEffects:[]};
+}
+function immediateXanaxPlan(state,mechanics={xanax:{happyGain:75,replacementValueEach:300}}) {
+  const energy=m.generateEnergyCandidates({...state,maxWaitSeconds:0}).find(c=>c.type==='WAIT_XANAX');
+  assert.ok(energy);
+  return {energy,plan:m.composePlan({state,energy,itemMechanics:mechanics})};
+}
+test('X1 immediate Xanax applies +75 before training and accounts for one owned drug',()=>{
+  const {energy,plan}=immediateXanaxPlan(immediateXanaxState());
+  assert.equal(energy.energyAtTraining,750);
+  assert.deepEqual(plan.actions.filter(a=>a.action==='TAKE_XANAX'),[{action:'TAKE_XANAX'}]);
+  assert.equal(plan.actions.some(a=>a.action==='WAIT'),false);
+  assert.equal(plan.simulation.trains[0].happyBefore,1075);
+  assert.equal(plan.preEcstasyHappy,1075);
+  assert.equal(plan.postEcstasyHappy,1075);
+  assert.deepEqual(plan.resources.ownedItemsConsumed,{xanax:1});
+  assert.equal(plan.economics.marketValueOfOwnedItemsConsumed,300);
+  assert.equal(plan.economics.economicValueConsumed,300);
+});
+test('X2 immediate Xanax clamps Happy at 99,999 before training',()=>{
+  const {plan}=immediateXanaxPlan(immediateXanaxState(99950));
+  assert.equal(plan.preEcstasyHappy,99999);
+  assert.equal(plan.postEcstasyHappy,99999);
+  assert.equal(plan.simulation.trains[0].happyBefore,99999);
+});
+test('X3 missing or unsupported immediate Xanax Happy mechanic fails closed',()=>{
+  const state=immediateXanaxState();
+  for (const happyGain of [undefined,-1,0.5]) {
+    const mechanics={xanax:{happyGain,replacementValueEach:0}};
+    const {plan}=immediateXanaxPlan(state,mechanics);
+    assert.equal(plan.status,'unsupported');
+    assert.ok(['DATA_MISSING','UNSUPPORTED_EFFECT'].includes(plan.reason));
+    const recommendation=m.recommend({observedState:state,preferences:{objective:'MAXIMUM_GAIN',
+      maxWaitSeconds:0,allowItems:false},itemMechanics:mechanics});
+    assert.ok(![recommendation.primaryPlan,...(recommendation.alternatives||[])].filter(Boolean)
+      .some(p=>p.actions.some(a=>a.action==='TAKE_XANAX')));
+  }
+});
+test('X4 delayed Xanax uses authoritative post-drug Happy without double counting',()=>{
+  const state={...immediateXanaxState(),happyAtCheckpoint:1075,
+    cooldowns:{drugSeconds:3600},xanax:{energyGain:250}};
+  const energy=m.generateEnergyCandidates({...state,maxWaitSeconds:3600})
+    .find(c=>c.type==='WAIT_XANAX');
+  const plan=m.composePlan({state,energy,itemMechanics:{xanax:{happyGain:75,replacementValueEach:0}}});
+  assert.equal(plan.timing.waitSeconds,3600);
+  assert.equal(plan.preEcstasyHappy,1075);
+  assert.equal(plan.simulation.trains[0].happyBefore,1075);
+});
+test('X7 immediate Xanax Happy is applied before a legal booster',()=>{
+  const state={...immediateXanaxState(),inventory:{xanax:1,eroticDvd:1}};
+  const energy=m.generateEnergyCandidates({...state,maxWaitSeconds:0}).find(c=>c.type==='WAIT_XANAX');
+  const plan=m.composePlan({state,energy,recipe:{items:[{id:'eroticDvd',quantity:1,
+    owned:1,newCashEach:0,replacementValueEach:0}],useEcstasy:false},
+  itemMechanics:{xanax:{happyGain:75,replacementValueEach:0},
+    eroticDvd:{happy:2500,cooldownSeconds:21600}}});
+  assert.deepEqual(plan.actions.filter(a=>['TAKE_XANAX','USE_BOOSTER','TRAIN'].includes(a.action))
+    .map(a=>a.action),['TAKE_XANAX','USE_BOOSTER','TRAIN']);
+  assert.equal(plan.actions.find(a=>a.action==='VERIFY_STATE' && 'expectedHappy' in a).expectedHappy,3575);
+  assert.equal(plan.preEcstasyHappy,3575);
+  assert.equal(plan.simulation.trains[0].happyBefore,3575);
+  const noBooster=m.composePlan({state,energy,
+    itemMechanics:{xanax:{happyGain:75,replacementValueEach:0}}});
+  near(plan.marginalGainFromFinalBooster,plan.simulation.modeledGain-noBooster.simulation.modeledGain);
 });

@@ -373,16 +373,18 @@ test('full normalized snapshot plans safely and preserves execution freshness ga
   assert.notEqual(happy.readiness.status,'READY');
   assert.equal(response.observedState.inventoryFreshness,'FRESH');
 });
-test('Xanax base fact remains in registry but unsupported upstream Happy composition cannot be recommended',()=>{
+test('X8 Xanax registry mechanics remain withheld until stack cap has an approved source',()=>{
   const r=normalize({sources:{perks:emptyPerks(),...fixture('BARS_DONATOR_ORDINARY_001').sources,
     ...fixture('COOLDOWNS_POSITIVE_BOOSTER_001').sources}});
   assert.equal(a.ITEM_REGISTRY[206].happyGain,75);
+  assert.deepEqual(r.itemMechanics.xanax,{energyGain:250,happyGain:75});
   assert.equal(r.observedState.xanax,undefined);
+  assert.equal(r.observedState.stackCap,undefined);
   assert.equal(r.capabilities.xanaxPreparation,false);
   assert.equal(planner.generateEnergyCandidates({...r.observedState,stackCap:1000})
     .some(candidate=>candidate.actions.some(action=>action.action==='TAKE_XANAX')),false);
   assert.ok(r.unsupported.some(x=>x.capability==='xanaxPreparation' &&
-    x.reason==='UPSTREAM_PLANNER_HAPPY_EFFECT_UNMODELED'));
+    x.reason==='STACK_CAP_UNAVAILABLE'));
 });
 test('paid refill may plan from a verified unused state but unknown Points prevents READY',()=>{
   const bars=structuredClone(fixture('BARS_DONATOR_ORDINARY_001').sources.bars);
