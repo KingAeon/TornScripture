@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **MATH AND PLANNER POLICY FROZEN; B1–B4 CALIBRATION COMPLETE IN DOCUMENTED DOMAIN; PR #127 MERGED BEFORE BLOCKING INDEPENDENT [V]; BOOSTER FRONTIER FOLLOW-UP IN DRAFT; ADAPTER FREEZE PR #126 PAUSED**
+Status: **MATH AND PLANNER POLICY FROZEN; B1–B4 CALIBRATION COMPLETE IN DOCUMENTED DOMAIN; PR #127 MERGED BEFORE BLOCKING [V]; FRONTIER FOLLOW-UP PR #128 INDEPENDENT [V] PASS, DRAFT/UNMERGED; ADAPTER FREEZE PR #126 PAUSED**
 
 ## Purpose
 
@@ -56,7 +56,7 @@ Resolve at runtime or recheck before consequential use:
 9. **Completed:** freeze the Training Advisor / Happy Jump Navigator product specification and ranking/strategy fixtures.
 10. **Implemented and verification corrected in draft PR #123:** pure math/planner and deterministic frozen-fixture tests after explicit owner build authorization; five blocking findings and two bounded gaps corrected, 318 Node tests passed. Its additive Point-refill finding was subsequently superseded.
 11. **DQ-TRAIN-001E correction, PR #125 merged into main:** owner-authorized supersession of the incorrect refill fixture; a refill fills to natural maximum and a 1,150E jump trains the stack and refill bar sequentially. Focused 89 and repository 326 Node tests passed at that checkpoint.
-12. **DQ-TRAIN-001F correction merged in PR #127:** per-item pre-use booster threshold; after exact-max four-eDVD checkpoint, fifth item requires observed below-max state. Focused 97 and repository 334 Node tests passed at the original checkpoint. The merge preceded independent [V], which found a legal mixed-booster plan pruned by an illegal competitor. A bounded [follow-up correction](../../chapters/dq-train-001/BOOSTER-FRONTIER-VERIFICATION-CORRECTION-2026-09-26.md) needs independent review and a separate merge decision before PR #126 final adapter-spec freeze.
+12. **DQ-TRAIN-001F correction merged in PR #127:** per-item pre-use booster threshold; after exact-max four-eDVD checkpoint, fifth item requires observed below-max state. Focused 97 and repository 334 Node tests passed at the original checkpoint. The merge preceded independent [V], which found a legal mixed-booster plan pruned by an illegal competitor. The bounded [follow-up correction](../../chapters/dq-train-001/BOOSTER-FRONTIER-VERIFICATION-CORRECTION-2026-09-26.md), draft PR #128, passed independent [V] at `0a8abe04cfe8a7d4e2ce346b7bb5f0867e29785c`; its own merge authorization remains required before PR #126 final adapter-spec freeze.
 13. **Later gate:** separately authorize adapters, then verify them; UI and TornPDA integration remain later.
 14. Release only after owner review, manual gates, and explicit merge/release authorization.
 
