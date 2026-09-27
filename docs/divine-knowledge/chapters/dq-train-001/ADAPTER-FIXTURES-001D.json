@@ -378,7 +378,9 @@
           "dots": 9
         },
         "calibratedDomain": false,
-        "materialGymNote": true
+        "materialGymNote": true,
+        "gymPredictionAvailable": false,
+        "reason": "UNSUPPORTED_EFFECT"
       }
     },
     {
@@ -499,6 +501,32 @@
       "expected": {
         "calibratedDomain": false,
         "reason": "PLAN_GLOBAL_BOOLEAN_CANNOT_PROVE_ALL_CANDIDATES_IN_CALIBRATED_LANE"
+      }
+    },
+    {
+      "id": "REFILL_POINTS_BALANCE_UNKNOWN_NEEDS_REFRESH_001",
+      "sources": {
+        "refills": {
+          "energy": false,
+          "special_count": 0
+        },
+        "pointsAvailable": null
+      },
+      "configuredMechanics": {
+        "paidEnergyRefillPoints": 30
+      },
+      "expected": {
+        "pointRefill": {
+          "allowed": true,
+          "fillAmountPolicy": "natural_max",
+          "pointsRequired": 30
+        },
+        "executionReadiness": "NEEDS_REFRESH",
+        "reason": "DATA_MISSING",
+        "invariants": [
+          "unused paid refill does not prove sufficient Points",
+          "do not infer pointsAvailable from /user/refills"
+        ]
       }
     }
   ]

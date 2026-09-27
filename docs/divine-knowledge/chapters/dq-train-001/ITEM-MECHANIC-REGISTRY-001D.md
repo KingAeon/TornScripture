@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — v0.1 Training Item Mechanic Registry Candidate
 
-Status: **V0.1 BASE MECHANIC SUBSET SPECIFICATION-FROZEN; BOOSTER-USE LEGALITY REQUIRES UPSTREAM PLANNER CORRECTION BEFORE RUNTIME BUILD**
+Status: **V0.1 BASE MECHANIC SUBSET FROZEN; BOOSTER LEGALITY AND FRONTIER CORRECTED IN MERGED PLANNER; ADAPTER BUILD REQUIRES SEPARATE OWNER [B]**
 
 Prepared: 2026-09-26
 
@@ -148,7 +148,7 @@ The maximum is a **pre-use threshold**, not a hard post-item ceiling:
 - once at/above maximum, no additional booster is usable until the cooldown is observed below the maximum again;
 - if a planned sequence lands exactly on the maximum, another booster requires an explicit wait/verification below the threshold.
 
-This rule is material to five-eDVD Happy Jump preparation. The merged pure planner currently enforces a stricter aggregate ceiling and requires a separate bounded correction before runtime adapter build.
+This rule is material to five-eDVD Happy Jump preparation. Merged PR #127 models per-item pre-use legality and a separate below-maximum checkpoint for a later fifth eDVD. Independently verified, merged PR #128 preserves legal recipes before economic frontier pruning. Neither correction models gain for an unobserved future Happy state.
 
 This avoids inventing a parser from an unobserved positive faction-max specimen while preserving the actual base-threshold legality contract.
 
@@ -179,8 +179,8 @@ The v0.1 specification supports the base mechanics above and intentionally fails
 
 Remaining work before adapter implementation:
 
-1. correct/re-verify the pure planner's booster threshold / one-item-overcap semantics;
-2. re-verify synthetic nonprivate registry fixtures and the complete PR #126 documentation diff;
-3. obtain explicit owner build authorization for adapters.
+1. retain the synthetic nonprivate registry fixtures and their verified upstream planner semantics;
+2. obtain explicit owner `[B]` build authorization for adapters;
+3. verify adapters before UI/TornPDA integration.
 
 No runtime implementation is authorized by this specification freeze.

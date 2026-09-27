@@ -229,6 +229,13 @@ function rankCandidates({ candidates, objective = 'BALANCED', riskPolicy = 'ALLO
 
 // Frontiers are generated in stable item-ID order. Owned and bought units remain
 // distinct until economics and dominance have been evaluated.
+function dominatesHappyRecipe(a,b) {
+  const key=c=>JSON.stringify(c.bundle);
+  return a.happy >= b.happy && a.newCash <= b.newCash &&
+    a.economicValueConsumed <= b.economicValueConsumed && a.cooldownSeconds <= b.cooldownSeconds &&
+    (a.happy > b.happy || a.newCash < b.newCash || a.economicValueConsumed < b.economicValueConsumed ||
+     a.cooldownSeconds < b.cooldownSeconds || key(a) < key(b));
+}
 function generateHappyFrontier({ boosterSlots, items, newCashBudget = Infinity } = {}) {
   if (!isInteger(boosterSlots) || !Array.isArray(items) || !items.every(item => item &&
       typeof item.id === 'string' && item.id && isNonnegative(item.happy) &&
@@ -262,11 +269,7 @@ function generateHappyFrontier({ boosterSlots, items, newCashBudget = Infinity }
   }
   visit(0,boosterSlots,{},0,0,0,0);
   const key = c => JSON.stringify(c.bundle);
-  const dominatesRecipe = (a,b) => a.happy >= b.happy && a.newCash <= b.newCash &&
-    a.economicValueConsumed <= b.economicValueConsumed && a.cooldownSeconds <= b.cooldownSeconds &&
-    (a.happy > b.happy || a.newCash < b.newCash || a.economicValueConsumed < b.economicValueConsumed ||
-     a.cooldownSeconds < b.cooldownSeconds || key(a) < key(b));
-  const frontier = rawCandidates.filter(c => !rawCandidates.some(other => other !== c && dominatesRecipe(other,c)))
+  const frontier = rawCandidates.filter(c => !rawCandidates.some(other => other !== c && dominatesHappyRecipe(other,c)))
     .sort((a,b)=>compareNumbers(a.happy,b.happy) || compareNumbers(a.newCash,b.newCash) || compareStrings(key(a),key(b)));
   return { status:'ok', rawCandidates, frontier, dominatedItemIds: sorted.filter(item =>
     sorted.some(other => other !== item && other.happy >= item.happy &&
@@ -389,6 +392,28 @@ function structuralFingerprint({ actions, targetStat, statAllocationMode = 'TARG
       [a.action,a.item || null,a.quantity || null,a.targetStat || null,
         a.trainCount ?? null,a.energySpent ?? null,a.checkpoint ?? null]) });
 }
+// A booster only needs to start below the threshold. Keep the old item-ID
+// order when legal; use a stable shorter-cooldown-first order if needed.
+function orderedBoosterUses(items, mechanics, start, maximum) {
+  if (!isNonnegative(start) || !isNonnegative(maximum) || maximum === 0) return null;
+  const byId=[...items].sort((a,b)=>compareStrings(a.id,b.id));
+  const legal=ordered=>{
+    let cooldown=start;
+    for (const item of ordered) {
+      const added=mechanics[item.id]?.cooldownSeconds;
+      if (!isNonnegative(added) || added === 0 || !isInteger(item.quantity) || item.quantity < 1) return false;
+      for (let use=0;use<item.quantity;use++) {
+        if (cooldown >= maximum) return false;
+        cooldown+=added;
+      }
+    }
+    return true;
+  };
+  if (legal(byId)) return byId;
+  const reordered=[...byId].sort((a,b)=>compareNumbers(mechanics[a.id]?.cooldownSeconds,
+    mechanics[b.id]?.cooldownSeconds) || compareStrings(a.id,b.id));
+  return legal(reordered) ? reordered : null;
+}
 function planReadiness(plan, state = {}, timing = {}) {
   if (state.inventoryFreshness === 'STALE' && plan.resources?.ownedItemsConsumed &&
       Object.keys(plan.resources.ownedItemsConsumed).length) return { status:'NEEDS_REFRESH',reason:'DATA_STALE',nextAction:'refresh inventory' };
@@ -399,10 +424,6 @@ function planReadiness(plan, state = {}, timing = {}) {
   if (plan.actions?.some(a=>a.action==='TAKE_ECSTASY') && state.cooldowns &&
       !isNonnegative(state.cooldowns.drugSeconds))
     return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh drug cooldown'};
-  if (plan.actions?.some(a=>a.action==='USE_BOOSTER') &&
-      isNonnegative(state.cooldowns?.boosterSeconds) && isNonnegative(state.cooldowns?.boosterMaxSeconds) &&
-      state.cooldowns.boosterSeconds+plan.economics.boosterCooldownSeconds > state.cooldowns.boosterMaxSeconds)
-    return {status:'BLOCKED',reason:'BOOSTER_LIMIT_REACHED',nextAction:'wait for booster capacity'};
   if (Object.keys(plan.resources?.boughtItems || {}).length && state.itemsAvailable !== true)
     return { status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',nextAction:'obtain and verify required items' };
   if (plan.economics?.newCashRequired > 0 && state.itemsAvailable === false)
@@ -427,6 +448,27 @@ function planReadiness(plan, state = {}, timing = {}) {
   if (booster && (!isNonnegative(state.cooldowns?.boosterSeconds) ||
       !isNonnegative(state.cooldowns?.boosterMaxSeconds)))
     return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh booster capacity'};
+  if (booster) {
+    const actions=plan.actions.filter(a=>a.action==='USE_BOOSTER');
+    if (!Array.isArray(plan.boosterUseSequence) || plan.boosterUseSequence.length !== actions.length ||
+        plan.boosterUseSequence.some((use,index)=>use.item !== actions[index].item ||
+          use.quantity !== actions[index].quantity) ||
+        plan.boosterUseSequence.reduce((sum,use)=>sum+use.quantity*use.cooldownSeconds,0) !==
+          plan.economics?.boosterCooldownSeconds)
+      return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'verify booster sequence'};
+    // The action order is the committed sequence; do not reorder a stale plan.
+    const committed=plan.boosterUseSequence;
+    let current=state.cooldowns.boosterSeconds;
+    for (const item of committed) {
+      if (!isNonnegative(item.cooldownSeconds) || !isInteger(item.quantity) || item.quantity < 1)
+        return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'verify booster sequence'};
+      for (let use=0;use<item.quantity;use++) {
+        if (current >= state.cooldowns.boosterMaxSeconds)
+          return {status:'BLOCKED',reason:'BOOSTER_LIMIT_REACHED',nextAction:'wait for booster capacity'};
+        current+=item.cooldownSeconds;
+      }
+    }
+  }
   if (inventory && !state.inventory)
     return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh inventory'};
   if (!Array.isArray(state.gainPerks) || !Array.isArray(state.activeEffects))
@@ -460,8 +502,10 @@ function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = 
   if (!mechanics.ecstasy || !isNonnegative(mechanics.ecstasy.happyMultiplier) ||
       !state?.inventory?.ecstasy && !isNonnegative(mechanics.ecstasy.newCash)) return [];
   const prices = Array.isArray(market.items) ? Object.fromEntries(market.items.map(x=>[x.id,x])) : market.items || {};
-  const slotsAvailable = state.cooldowns?.boosterMaxSeconds != null ?
-    state.cooldowns.boosterMaxSeconds - (state.cooldowns.boosterSeconds || 0) : null;
+  const maximum=state.cooldowns?.boosterMaxSeconds;
+  const start=state.cooldowns?.boosterSeconds ?? 0;
+  const slotsAvailable=isNonnegative(maximum) && isNonnegative(start) && maximum > 0 ?
+    maximum-start : null;
   const items = Object.entries(mechanics).filter(([id,m]) => id !== 'ecstasy' &&
     isNonnegative(m.happy) && m.happy > 0 && isNonnegative(m.cooldownSeconds) && m.cooldownSeconds > 0)
     .map(([id,m]) => {
@@ -479,9 +523,9 @@ function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = 
     }).filter(Boolean);
   const ecstasyOnly = [{items:[],useEcstasy:true,
     preparation:{happyAdded:0,newCashRequired:0,economicValueConsumed:0,boosterCooldownSeconds:0}}];
-  if (slotsAvailable == null || slotsAvailable < 0 || !items.length) return ecstasyOnly;
+  if (slotsAvailable == null || slotsAvailable <= 0 || !items.length) return ecstasyOnly;
   const maxSlots = Math.min(items.reduce((s,x)=>s+x.maxQuantity,0),
-    Math.floor(slotsAvailable/Math.min(...items.map(x=>x.cooldownSeconds))));
+    Math.ceil(slotsAvailable/Math.min(...items.map(x=>x.cooldownSeconds))));
   const out = ecstasyOnly;
   // Missing replacement value cannot enter an economic frontier. Enumerate
   // bounded owned subsets and pair them with known-value frontiers; retain null cost.
@@ -492,13 +536,30 @@ function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = 
       const frontier=generateHappyFrontier({boosterSlots:slots,items:knownValue,
         newCashBudget:preferences.budgetNewCash ?? Infinity});
       if (frontier.status !== 'ok') continue;
-      for (const c of frontier.frontier) {
-        if (cooldown+c.cooldownSeconds > slotsAvailable) continue;
+      // An economically dominant bundle may be illegal at the next-use threshold.
+      // Check the complete booster sequence before applying economic dominance.
+      const legal=frontier.rawCandidates.map(c=>{
         const recipeItems=knownValue.map(item=>({id:item.id,
           quantity:(c.bundle[`${item.id}Owned`] || 0)+(c.bundle[`${item.id}Bought`] || 0),
           owned:c.bundle[`${item.id}Owned`] || 0,newCashEach:item.newCashEach,
           replacementValueEach:item.replacementValueEach})).filter(item=>item.quantity);
-        out.push({items:[...unknownItems,...recipeItems],useEcstasy:true,
+        const ordered=orderedBoosterUses([...unknownItems,...recipeItems],mechanics,start,maximum);
+        return ordered ? {c,ordered} : null;
+      }).filter(Boolean);
+      for (const {c,ordered} of legal.filter(entry=>!legal.some(other=>other!==entry &&
+        dominatesHappyRecipe(other.c,entry.c)))) {
+        const next=ordered.at(-1)?.id;
+        const remaining=items.filter(item=>item.id===next || item.owned)
+          .map(item=>({id:item.id,quantity:(state.inventory?.[item.id] || 0)-
+            (ordered.find(used=>used.id===item.id)?.owned || 0)}))
+          .filter(item=>item.quantity > 0)
+          .sort((a,b)=>(a.id===next ? -1 : b.id===next ? 1 : compareStrings(a.id,b.id)))[0];
+        const nextBoosterCheckpoint=start+cooldown+c.cooldownSeconds >= maximum && remaining ?
+          {actions:[{action:'WAIT',checkpoint:'BOOSTER_BELOW_MAX'},
+            {action:'VERIFY_STATE',fields:['boosterCooldown','happy']}],
+          item:remaining.id,remainingQuantity:remaining.quantity,requiresBoosterSecondsBelow:maximum} : null;
+        out.push({items:ordered,useEcstasy:true,
+          ...(nextBoosterCheckpoint ? {nextBoosterCheckpoint} : {}),
           preparation:{happyAdded:happy+c.happy,newCashRequired:c.newCash,
             economicValueConsumed:unknownItems.length ? null : c.economicValueConsumed,
             boosterCooldownSeconds:cooldown+c.cooldownSeconds}});
@@ -509,7 +570,7 @@ function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = 
     if (index===unknownValue.length) return addKnownFrontier(selected,happy,cooldown,slotsUsed);
     const item=unknownValue[index];
     for (let quantity=0; quantity<=Math.min(item.owned,maxSlots-slotsUsed,
-      Math.floor((slotsAvailable-cooldown)/item.cooldownSeconds)); quantity++) {
+      Math.ceil(slotsAvailable/item.cooldownSeconds)); quantity++) {
       visitUnknown(index+1,quantity ? [...selected,{id:item.id,quantity,owned:quantity,
         newCashEach:0,replacementValueEach:null}] : selected,happy+quantity*item.happy,
       cooldown+quantity*item.cooldownSeconds,slotsUsed+quantity);
@@ -588,7 +649,15 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
     if (bought && !isNonnegative(cashEach)) {newCashRequired=null;resourceUnknown=true;}
     else if (bought) newCashRequired+=bought*cashEach;
   }
-  const boosters = [...(recipe.items || [])].sort((a,b)=>compareStrings(a.id,b.id));
+  const requestedBoosters=recipe.items || [];
+  if (requestedBoosters.some(item=>!itemMechanics[item.id] ||
+      !isNonnegative(itemMechanics[item.id].cooldownSeconds) ||
+      !itemMechanics[item.id].cooldownSeconds || !isInteger(item.quantity) || !item.quantity))
+    return fail('unsupported','UNSUPPORTED_EFFECT');
+  const boosters=requestedBoosters.length ? orderedBoosterUses(requestedBoosters,itemMechanics,
+    state.cooldowns?.boosterSeconds ?? 0,state.cooldowns?.boosterMaxSeconds) : [];
+  if (!boosters) return fail('unsupported',isNonnegative(state.cooldowns?.boosterMaxSeconds) ?
+    'BOOSTER_LIMIT_REACHED':'DATA_MISSING');
   for (const item of boosters) {
     const mechanic = itemMechanics[item.id];
     if (!mechanic || !isNonnegative(mechanic.happy) || !isNonnegative(mechanic.cooldownSeconds) ||
@@ -596,9 +665,6 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
         item.owned > (state.inventory?.[item.id] ?? 0) ||
         !isNonnegative(item.newCashEach) ||
         (item.replacementValueEach != null && !isNonnegative(item.replacementValueEach))) return fail('unsupported','UNSUPPORTED_EFFECT');
-    if (state.cooldowns?.boosterMaxSeconds != null &&
-        (state.cooldowns.boosterSeconds || 0)+boosterCooldownSeconds+item.quantity*mechanic.cooldownSeconds >
-        state.cooldowns.boosterMaxSeconds) return fail('unsupported','BOOSTER_LIMIT_REACHED');
     if (currentHappy != null) currentHappy = Math.min(99999,currentHappy+item.quantity*mechanic.happy);
     boosterCooldownSeconds += item.quantity*mechanic.cooldownSeconds;
     if (item.owned) ownedItemsConsumed[item.id] = item.owned;
@@ -676,6 +742,9 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
     projectedEndState:simulation?.status==='ok' || simulation?.status==='partial' ?
       {stat:simulation.modeledEndStat,happy:simulation.finalHappy,energy:simulation.remainingEnergy} : null,
     resources:{ownedItemsConsumed,boughtItems,energySpent:simulation?.energySpent ?? 0,resourceUnknown},economics,
+    ...(boosters.length ? {boosterUseSequence:boosters.map(item=>({item:item.id,quantity:item.quantity,
+      cooldownSeconds:itemMechanics[item.id].cooldownSeconds}))} : {}),
+    ...(recipe.nextBoosterCheckpoint ? {nextBoosterCheckpoint:recipe.nextBoosterCheckpoint} : {}),
     timing:{waitSeconds:totalWaitSeconds,timeToCompletionHours:totalWaitSeconds/3600},
     confidence:{level:state.calibratedDomain === true ? 'CALIBRATED' : 'SUPPORTED_EXTRAPOLATION',
       reasons:state.calibratedDomain === true ? ['DOCUMENTED_OBSERVED_DOMAIN'] : ['OUTSIDE_DOCUMENTED_CALIBRATION']},

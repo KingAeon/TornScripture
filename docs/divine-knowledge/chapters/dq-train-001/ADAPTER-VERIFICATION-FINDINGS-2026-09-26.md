@@ -1,5 +1,7 @@
 # DQ-TRAIN-001D — PR #126 Verification / Specification Findings
 
+Subsequent disposition (2026-09-26 America/Chicago): upstream finding V126-02 was corrected by PR #127 and the follow-up frontier issue by independently verified PR #128, merged as `24701cccbaebbeae7b3e8bb3e05d9c2f9c478a82`. This document preserves the earlier verification evidence and dated blocker state. See [final adapter freeze](ADAPTER-FINAL-FREEZE-2026-09-26.md).
+
 Status: **[V]/[S] COMPLETE WITH CORRECTIONS; FINAL 001D FREEZE BLOCKED BY ONE UPSTREAM PLANNER SEMANTICS DEFECT**
 
 Date: 2026-09-26

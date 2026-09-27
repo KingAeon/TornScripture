@@ -1,6 +1,6 @@
-# DQ-TRAIN-001D — Normalized Adapter Contract Candidate
+# DQ-TRAIN-001D — Normalized Adapter Contract v0.1
 
-Status: **[V]/[S] AMENDED; SOURCE/FRESHNESS CONTRACT SPECIFICATION-FROZEN EXCEPT BOOSTER-LEGALITY DEPENDENCY; FINAL ADAPTER BUILD GATE BLOCKED BY UPSTREAM BOOSTER SEMANTICS CORRECTION; NO RUNTIME IMPLEMENTATION AUTHORIZED**
+Status: **V0.1 SOURCE, FRESHNESS, AND MECHANIC CONTRACT FROZEN AFTER PR #128; ADAPTER RUNTIME BUILD REQUIRES SEPARATE OWNER [B] AUTHORIZATION**
 
 Prepared: 2026-09-26
 Pure planner baseline: PR #123 merged at `37fe611cfeb58bf812272eef18c5d69eb9952d01`.
@@ -114,7 +114,7 @@ gym.name           <- activeCatalog.name
 
 The catalog row MUST contain all expected structural fields. Because `/torn/gyms` is officially Unstable, shape mismatch or missing join fails closed.
 
-A non-null gym `note` is preserved as a material mechanic flag. Unrecognized special-gym notes prevent automatic promotion into calibrated-domain confidence.
+A non-null gym `note` is preserved as a material mechanic flag. If its training or preparation impact is not explicitly supported, gym-dependent prediction fails closed with `UNSUPPORTED_EFFECT`; unrelated inventory and market capabilities may continue. Lowering `calibratedDomain` alone is insufficient, because the note may change whether the recommended sequence is usable. A future supported note requires its own typed mechanic rule.
 
 ## 4. Gain-perk normalization
 
@@ -170,7 +170,7 @@ Frozen v0.1 normalization:
 
 This is intentionally conservative until a positive live specimen and parser contract justify broader faction-shareable support.
 
-### 5.1 Booster-use threshold semantics — upstream planner correction required
+### 5.1 Booster-use threshold semantics — corrected in the merged planner
 
 `boosterMaxSeconds` is the threshold that must be **above the current cooldown before the next item is used**, not a hard ceiling on the post-item result.
 
@@ -190,7 +190,7 @@ while currentBoosterSeconds >= boosterMaxSeconds:
 
 If a sequence reaches the maximum exactly, the planner must insert an explicit wait/verification before another booster rather than assume elapsed time.
 
-The merged pure planner currently uses a stricter aggregate `current + planned <= max` rule. Adapter normalization MUST NOT falsify `boosterMaxSeconds` to work around that defect. Runtime adapter build remains blocked on the bounded planner correction recorded by PR #126 verification.
+PR #127 corrected per-item pre-use legality, and independently verified PR #128 corrected raw-candidate frontier pruning before sequential legality filtering. Both are merged in main `24701cccbaebbeae7b3e8bb3e05d9c2f9c478a82`. The adapter passes the observed maximum as-is; it must not inflate or falsify `boosterMaxSeconds`. The four-eDVD phase at a base 24h maximum exposes a separate wait/verify continuation for the fifth item, without inventing future Happy or elapsed time.
 
 ## 6. Daily points Energy refill
 
@@ -219,6 +219,8 @@ Eligibility:
 - `special_count > 0` -> v0.1 MUST NOT expose the paid-refill path as READY; special/free refill sequencing is not yet modeled and the game requires those refills to be used first.
 
 The adapter does not infer the cash value of Points. `pointValue` remains a preference/economic input.
+
+`/user/refills` does not report `pointsAvailable`. Unless a separately approved current balance source or explicit current player confirmation supplies that quantity, leave it unknown. The pure planner may form a refill candidate for comparison, but execution readiness MUST be `NEEDS_REFRESH` until `pointsAvailable` and refill state meet the existing freshness checks; never infer enough Points from `refills.energy == false`. An unpriced `pointValue` also remains unknown economics for objectives that require it.
 
 Historical pure-planner tests using another synthetic `pointsRequired` value test arithmetic only and are not current-cost claims.
 
@@ -297,8 +299,11 @@ Minimum readiness semantics remain those already frozen in the pure planner:
 - execution inventory: LIVE-equivalent
 - gym: LIVE or FRESH
 - gain modifiers: LIVE or FRESH
+- a Point-refill plan: current `pointsAvailable` and refill eligibility proof
 
 Planning may continue with weaker inventory freshness where the pure planner permits it.
+
+Elevated-Happy execution also needs `timing.safeQuarterWindow == true` from approved current timing evidence. If no server-time/active-window rule is verified, the adapter leaves that capability unknown; the planner returns `NEEDS_REFRESH` instead of a READY Happy-preparation sequence.
 
 ## 10. Calibrated-domain flag
 
@@ -338,14 +343,13 @@ Examples:
 
 ## 12. Remaining gate
 
-The normalized source mappings, capability/freshness behavior, refill/special-refill mapping, conservative calibration-confidence policy, and bounded v0.1 dynamic-item projection are specification-frozen by the owner-requested [V]/[S] pass. The upstream Point-refill defect is resolved. Final adapter-build authorization remains blocked by the booster-use threshold mismatch in the merged pure planner.
+The normalized source mappings, capability/freshness behavior, refill/special-refill mapping, conservative calibration-confidence policy, material gym-note gate, and bounded v0.1 dynamic-item projection are specification-frozen by the final [V]/[S] pass. The upstream Point-refill, booster-threshold, and booster-frontier defects are resolved in main. This document approves no runtime build.
 
 Before adapter implementation:
 
-1. correct and re-verify the pure planner's booster-use threshold / one-item-overcap semantics;
-2. re-run final PR #126 fixture/spec consistency after that merge;
-3. retain elevated-Happy `ordinaryHappy` confirmation as desirable strengthening rather than a blocker;
-4. obtain explicit owner `[B]` authorization for adapter implementation.
+1. retain elevated-Happy `ordinaryHappy` confirmation as desirable strengthening rather than a blocker;
+2. obtain explicit owner `[B]` authorization for adapter implementation;
+3. verify the separately built adapters before requesting UI/TornPDA integration authority.
 
 No adapter implementation, networking, storage, UI, timer, DOM capture, or gameplay action is authorized by this contract.
 

@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Training Advisor Adapter Source Map and Live-Proof Plan
 
-Status: **SOURCE MATRIX SUBSTANTIALLY COMPLETE; SPECIFICATION VERIFICATION RESUMED AFTER DQ-TRAIN-001E MERGE; NO ADAPTER OR UI IMPLEMENTATION AUTHORIZED**
+Status: **V0.1 SOURCE AND FRESHNESS MATRIX FROZEN AFTER PR #128; NO ADAPTER OR UI IMPLEMENTATION AUTHORIZED**
 
 Opened: 2026-09-25 after verified merge of PR #123.
 Original discovery baseline: `main@37fe611cfeb58bf812272eef18c5d69eb9952d01`. Rebased continuation baseline after PR #125: `main@0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97`.
@@ -56,6 +56,7 @@ Do not resolve these discrepancies by assumption. Live permission and response-s
 | paid refill used-state + special refill count | `GET /user/refills` | Minimal | Stable | live-proven shape; `energy` preserves historical used polarity; `special_count` preserves historical special-refill count and must gate paid-refill readiness |
 | Torn/server timestamp | public timestamp selection | Public | Stable | preferred timing anchor when needed, including event-state guards |
 | current paid Energy-refill point cost | versioned configured mechanic backed by current Torn Points documentation | n/a | mutable game mechanic | 30 Points as of 2026-09-26; do not infer from `/user/refills` |
+| current Points balance for refill execution | separately approved current balance proof or explicit current player confirmation | capability-specific | must meet execution freshness | not present in `/user/refills`; unknown means `NEEDS_REFRESH` for paid refill execution |
 | item catalog identity | `GET /torn/{ids}/items` | Public | Stable | good for item identity/catalog metadata |
 | exact training-item mechanics | versioned TornScriptures mechanic registry backed by verified sources | n/a | explicit versioning required | do not parse free-text effects into exact mechanics without specification |
 | current market value | existing market capability layer where applicable | capability-specific | source-specific cache | separate MarketSnapshot adapter, not ObservedState |
@@ -202,7 +203,7 @@ Before freezing this adapter, prove:
 - special gym notes/effects do not get discarded;
 - behavior when `/torn/gyms` changes because the endpoint is marked Unstable.
 
-An unstable catalog MUST NOT silently change the planner's arithmetic semantics.
+An unstable catalog MUST NOT silently change the planner's arithmetic semantics. An unrecognized non-null gym note is material: until its training/preparation impact has a typed supported rule, suppress gym-dependent prediction with `UNSUPPORTED_EFFECT`, preserve the raw note for explanation, and leave unrelated inventory/market capabilities available. Marking calibration confidence false alone does not establish mechanic support.
 
 ## 9. Perk normalization
 
@@ -275,6 +276,7 @@ configured mechanic   -> paid Energy refill cost = 30 Points (verified 2026-09-2
 If `special_count > 0`, the paid-refill path is not exposed as READY in v0.1 because free/special refill sequencing is not yet modeled. The adapter must not charge 30 Points for a refill the game requires the player to consume for free first.
 
 The point's cash valuation remains separate economic preference/market data.
+Point balance is separate again: the boolean paid-refill state does not prove enough Points are currently held. Without a current `pointsAvailable` observation, refill planning can remain visible but execution readiness is `NEEDS_REFRESH`.
 
 ## 11.2 Dynamic preparation/event guard
 
@@ -294,7 +296,7 @@ Current booster cooldown from `/user/cooldowns` and the normalized maximum are s
 
 The maximum is the threshold for whether **another item may begin use**. An item started while current cooldown is below maximum may leave the resulting cooldown above maximum. When the current cooldown is at/above maximum, another booster waits until an observed state is below it.
 
-The current pure planner still applies a stricter aggregate ceiling. Do not mutate the adapter's `boosterMaxSeconds` to compensate; planner correction is the next blocking gate.
+The merged pure planner checks pre-use legality per item and filters illegal raw bundles before frontier pruning (PR #127 and independently verified PR #128). Keep the actual normalized maximum; a four-eDVD phase at the base limit offers a wait/verify continuation before any fifth item.
 
 ## 12. Timing and quarter-hour safety
 
@@ -303,6 +305,8 @@ The pure planner consumes normalized timing state and never reads the clock.
 The adapter layer should prefer Torn server timestamp when timing correctness matters.
 
 For elevated-Happy execution, the eventual timing adapter should provide enough information to decide whether the current quarter-hour window is safe for the expected manual training sequence.
+
+Without an approved source and window/duration calculation, leave `timing.safeQuarterWindow` unknown; the pure planner's readiness check then returns `NEEDS_REFRESH`. Do not promote local-clock guesses to an execution-safe result.
 
 No automatic action is implied.
 
@@ -355,4 +359,4 @@ Before adapter/UI implementation:
 7. implement adapters separately from presentation;
 8. integrate beginner/advanced UI only after adapter verification.
 
-The source-verification matrix is substantially complete. PR #126 [V]/[S] froze the source/freshness direction with refill/event/capability corrections, but final adapter-build authorization is **blocked on the pure planner booster-threshold correction**, not UI coding.
+The source-verification matrix and the final PR #126 [V]/[S] freeze preserve refill/event/capability safeguards and the material gym-note gate. Both planner booster corrections have merged. The next gate is **separate owner [B] authorization for adapter implementation**; UI integration requires its own later gate.

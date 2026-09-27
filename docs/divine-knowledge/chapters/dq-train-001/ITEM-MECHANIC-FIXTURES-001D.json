@@ -4,7 +4,7 @@
     "Synthetic, nonprivate fixtures for frozen v0.1 item-mechanic specification.",
     "Dynamic item-preparation modifiers are fail-closed in v0.1 rather than numerically parsed.",
     "Random drug cooldowns are documented ranges, never exact future values.",
-    "PR #126 [V]/[S] freezes pre-use booster-threshold semantics and planner-facing fail-closed projection; booster threshold fixtures intentionally identify an upstream planner correction requirement."
+    "PR #126 [V]/[S] freezes pre-use booster-threshold semantics and planner-facing fail-closed projection; PR #127 and independently verified PR #128 corrected the upstream planner before final adapter freeze."
   ],
   "cases": [
     {
@@ -149,7 +149,7 @@
         "anotherImmediateBoosterLegal": false,
         "rule": "legality is checked before item use; post-item cooldown may exceed maximum"
       },
-      "implementationStatus": "UPSTREAM_PLANNER_CORRECTION_REQUIRED"
+      "implementationStatus": "PLANNER_CORRECTED_AND_VERIFIED_IN_PR_127_128"
     },
     {
       "id": "BOOSTER_AT_MAX_BLOCKED_001",
@@ -166,7 +166,7 @@
         "reason": "BOOSTER_LIMIT_REACHED",
         "nextCondition": "observe currentBoosterSeconds < boosterMaxSeconds"
       },
-      "implementationStatus": "UPSTREAM_PLANNER_CORRECTION_REQUIRED"
+      "implementationStatus": "PLANNER_CORRECTED_AND_VERIFIED_IN_PR_127_128"
     },
     {
       "id": "FIVE_EDVD_BASE_MAX_CHECKPOINT_001",
@@ -205,7 +205,7 @@
         "fifthMayFinishAboveMaximum": true,
         "noImplicitElapsedTime": true
       },
-      "implementationStatus": "UPSTREAM_PLANNER_CORRECTION_REQUIRED"
+      "implementationStatus": "PLANNER_CORRECTED_AND_VERIFIED_IN_PR_127_128"
     },
     {
       "id": "CANDY_EVENT_UNKNOWN_FAIL_CLOSED_001",

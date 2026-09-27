@@ -1,5 +1,7 @@
 # DQ-TRAIN-001D — Live Adapter Proof Results
 
+Subsequent disposition (2026-09-26 America/Chicago): the planner blocker described in the dated Run E addendum was resolved by merged PR #127 and independently verified, merged PR #128. The live specimens and optional elevated-Happy strengthening remain as recorded; see [final adapter freeze](ADAPTER-FINAL-FREEZE-2026-09-26.md).
+
 Status: **RUN A PROVISIONALLY PASSED; RUN B PASSED; RUN C PASSED FOR CURRENT TRAINING MODIFIERS; RUN D PASSED; RUN E PLANNING INVENTORY PASSED; NO RUNTIME IMPLEMENTATION AUTHORIZED**
 
 Date: 2026-09-25

@@ -1,5 +1,7 @@
 # DQ-TRAIN-001D — Adapter Specification Freeze Handoff
 
+Subsequent disposition (2026-09-26 America/Chicago): PR #127 corrected the pre-use booster threshold; the post-merge independent [V] exposed frontier pruning of a legal mixed recipe; separately authorized PR #128 corrected that pruning and merged at `24701cccbaebbeae7b3e8bb3e05d9c2f9c478a82`. The dated blocker/next-gate sections below are historical. See [final 001D verification and freeze](ADAPTER-FINAL-FREEZE-2026-09-26.md). No adapter build was authorized by this handoff.
+
 Status: **[V]/[S] PERFORMED; SOURCE/FRESHNESS SPEC AMENDED; FINAL FREEZE BLOCKED BY BOOSTER-THRESHOLD PLANNER CORRECTION; NO ADAPTER RUNTIME BUILD AUTHORIZED**
 
 Prepared: 2026-09-26
