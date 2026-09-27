@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **MATH AND PLANNER POLICY FROZEN; B1–B4 CALIBRATION COMPLETE IN DOCUMENTED DOMAIN; POINT REFILL SEMANTICS CORRECTED IN DRAFT PR #125; UNMERGED**
+Status: **MATH AND PLANNER POLICY FROZEN; B1–B4 CALIBRATION COMPLETE IN DOCUMENTED DOMAIN; BOOSTER THRESHOLD CORRECTION IN DRAFT PR #127; ADAPTER FREEZE PR #126 PENDING**
 
 ## Purpose
 
@@ -55,9 +55,10 @@ Resolve at runtime or recheck before consequential use:
 8. **Accepted 2026-09-25:** owner promoted `vladar-v2-pre50m-v1` to `calibrated_observed_domain` for the documented Complete Cardio / 10E / recorded-modifier evidence domain only.
 9. **Completed:** freeze the Training Advisor / Happy Jump Navigator product specification and ranking/strategy fixtures.
 10. **Implemented and verification corrected in draft PR #123:** pure math/planner and deterministic frozen-fixture tests after explicit owner build authorization; five blocking findings and two bounded gaps corrected, 318 Node tests passed. Its additive Point-refill finding was subsequently superseded.
-11. **DQ-TRAIN-001E correction in draft PR #125:** owner-authorized supersession of the incorrect refill fixture; a refill fills to natural maximum and a 1,150E jump trains the stack and refill bar sequentially. Focused 89 and repository 326 Node tests passed. Independent [V] re-verification remains next.
-12. **Later gate:** authorize adapters/UI, then validate desktop userscript managers and TornPDA/Android.
-13. Release only after owner review, manual gates, and explicit merge/release authorization.
+11. **DQ-TRAIN-001E correction, PR #125 merged into main:** owner-authorized supersession of the incorrect refill fixture; a refill fills to natural maximum and a 1,150E jump trains the stack and refill bar sequentially. Focused 89 and repository 326 Node tests passed at that checkpoint.
+12. **DQ-TRAIN-001F correction in draft PR #127:** per-item pre-use booster threshold; after exact-max four-eDVD checkpoint, fifth item requires observed below-max state. Focused 97 and repository 334 Node tests passed. Independent [V] and explicit merge authorization precede PR #126 final adapter-spec freeze.
+13. **Later gate:** separately authorize adapters, then verify them; UI and TornPDA integration remain later.
+14. Release only after owner review, manual gates, and explicit merge/release authorization.
 
 B5 special/boundary research remains parallel and opportunistic; it does not block specification work.
 

@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN WITH EXPLICIT 001E REFILL FIXTURE SUPERSESSION; PURE PLANNER REFILL CORRECTION IN DRAFT PR #125; UNMERGED**
+State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED IN DOCUMENTED OBSERVED DOMAIN; DQ-TRAIN-001C FROZEN WITH EXPLICIT 001E REFILL FIXTURE SUPERSESSION; BOOSTER THRESHOLD CORRECTION IN DRAFT PR #127; ADAPTER SPEC PR #126 AWAITS FINAL FREEZE**
 
 ## Canonical reading order
 
@@ -19,6 +19,8 @@ State: **DQ-TRAIN-001A FROZEN; DQ-TRAIN-001B B1–B4 COMPLETE; MODEL CALIBRATED 
 13. [PR #123 verification correction](VERIFICATION-CORRECTION-2026-09-25.md) — reproduced findings, bounded fixes, freshness contract, tests, and rollback.
 14. [Point refill correction handoff — 2026-09-26](WORK-TRANSFER-HANDOFF-REFILL-CORRECTION-2026-09-26.md) — owner-authorized fixture supersession and bounded sequential planner change.
 15. [Point refill semantics correction — 2026-09-26](REFILL-SEMANTICS-CORRECTION-2026-09-26.md) — six reproduced regressions, new natural-max and sequential training contract, verification, limitations, and rollback.
+16. [Booster threshold correction handoff — 2026-09-26](WORK-TRANSFER-HANDOFF-BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md) — owner-authorized bounded pure-planner build before adapter specification freeze.
+17. [Booster threshold correction — 2026-09-26](BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md) — per-item pre-use legality, explicit fifth-item checkpoint, tests, limitations, and independent verification gate.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -129,4 +131,6 @@ No API key, private player state, inventory export, raw calibration history, or 
 
 DQ-TRAIN-001A and 001B currently cover documentation, arithmetic fixtures, calibration protocol, and bounded evidence only. They do **not** authorize product/runtime implementation, UI work, network integration, gameplay behavior, release, merge, or branch deletion.
 
-DQ-TRAIN-001C is frozen and the authorized pure planner was implemented on `agent/training-advisor-pure-planner-001c`. The historical PR #123 verification correction fixed five blocking findings and two bounded gaps; its additive Point-refill finding was later falsified. The owner-authorized DQ-TRAIN-001E correction on `agent/training-refill-semantics-correction-001e` explicitly supersedes that one strategy fixture, replaces additive pre-stack refill with natural-max fill, and models post-stack refill as a second sequential training phase. The repository passed 326 Node tests; see [refill correction](REFILL-SEMANTICS-CORRECTION-2026-09-26.md). PR #125 remains draft and unmerged; no adapters, UI, live TornPDA verification, or release is authorized by this checkpoint. B5 remains a separate opportunistic evidence lane.
+DQ-TRAIN-001C is frozen and the authorized pure planner was implemented on `agent/training-advisor-pure-planner-001c`. The historical PR #123 verification correction fixed five blocking findings and two bounded gaps; its additive Point-refill finding was later falsified. The owner-authorized DQ-TRAIN-001E correction on `agent/training-refill-semantics-correction-001e` explicitly supersedes that one strategy fixture, replaces additive pre-stack refill with natural-max fill, and models post-stack refill as a second sequential training phase. The repository passed 326 Node tests at that checkpoint; see [refill correction](REFILL-SEMANTICS-CORRECTION-2026-09-26.md). PR #125 is merged into main `0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97`. No adapters, UI, or live TornPDA integration was authorized by that checkpoint. B5 remains a separate opportunistic evidence lane.
+
+The owner-authorized DQ-TRAIN-001F correction on `agent/training-booster-threshold-correction-001f` replaces the erroneous hard post-use booster ceiling with a per-item pre-use threshold and an explicit below-max continuation checkpoint. The repository passed 334 Node tests; see [booster threshold correction](BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md). PR #127 remains draft and unmerged pending independent `[V]` and explicit merge authority; return to PR #126 for final adapter-spec `[V]/[S]` after that merge. Adapter implementation requires its own `[B]` authorization.
