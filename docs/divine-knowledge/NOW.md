@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-26 DQ-TRAIN-001F booster threshold correction verified on isolated branch; PR #127 draft and unmerged
+Snapshot: 2026-09-27 UTC; PR #127 merged before independent verification, which found a blocking frontier defect; follow-up PR #128 independently verified PASS, draft/unmerged
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97
+MAIN_AT_SNAPSHOT|fb9dce7c90bcc88eacfbfaff111f562793eb9f79
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,13 +11,13 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
 
-PARALLEL|DQ-TRAIN-001|booster_threshold_corrected_draft_unmerged
+PARALLEL|DQ-TRAIN-001|booster_frontier_follow_up_independently_verified_draft_unmerged
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
-TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_001E_merged_001F_draft_unmerged
+TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_001E_merged_001F_merged_with_follow_up_required
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|independent [V] re-verification of draft PR #127; explicit owner merge authorization before merge; return to draft PR #126 for final [V]/[S] adapter-spec freeze; separate [B] adapter build authorization; UI/TornPDA integration later
+TRAINING_NEXT|request separate owner merge decision for verified draft PR #128; after merge resume PR #126 final [V]/[S] adapter-spec freeze; adapter implementation requires separate [B]; UI/TornPDA integration later
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -53,12 +53,13 @@ REQ|applicable conditions preserved
 SEQUENCE|DQ-EXT-001>DQ-KEY-002>WAR-INTELLIGENCE-DISCOVERY
 NOTE|recheck current main SHA and mutable issue states before consequential action
 
-TRAINING_BUILD_BRANCH|agent/training-booster-threshold-correction-001f
-TRAINING_BUILD_STATE|booster_threshold_corrected_draft_unmerged|334_repo_tests_pass|correction_from_8069033aa1dcb79226d1d27ecf7e7c577f7b222c
+TRAINING_BUILD_BRANCH|agent/training-booster-frontier-legality-correction-001g
+TRAINING_BUILD_STATE|independent_V_blocked_PR127_after_external_merge|follow_up_PR128_independent_V_PASS_at_0a8abe04cfe8a7d4e2ce346b7bb5f0867e29785c|98_focused_335_repo_tests_pass
 TRAINING_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-2026-09-25.md
 TRAINING_VERIFICATION|chapters/dq-train-001/VERIFICATION-CORRECTION-2026-09-25.md
 TRAINING_REFILL_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-REFILL-CORRECTION-2026-09-26.md
 TRAINING_REFILL_CORRECTION|chapters/dq-train-001/REFILL-SEMANTICS-CORRECTION-2026-09-26.md|PR#125|merged_in_0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97
 TRAINING_BOOSTER_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md
-TRAINING_BOOSTER_CORRECTION|chapters/dq-train-001/BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md|PR#127|draft_unmerged
-TRAINING_ADAPTER_SPEC|PR#126|draft_unmerged|final_freeze_blocked_until_001F_independent_verification_and_authorized_merge
+TRAINING_BOOSTER_CORRECTION|chapters/dq-train-001/BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md|PR#127|merged_in_fb9dce7_before_independent_V
+TRAINING_BOOSTER_FOLLOW_UP|chapters/dq-train-001/BOOSTER-FRONTIER-VERIFICATION-CORRECTION-2026-09-26.md|PR#128|independent_V_PASS_draft_unmerged
+TRAINING_ADAPTER_SPEC|PR#126|draft_unmerged|final_freeze_paused_until_PR128_separately_authorized_and_merged

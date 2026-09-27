@@ -1,5 +1,7 @@
 # DQ-TRAIN-001F — Booster threshold correction
 
+Subsequent state (2026-09-27 UTC): PR #127 merged as `fb9dce7c90bcc88eacfbfaff111f562793eb9f79` **before** independent verification. That verification found a blocking frontier-pruning defect in otherwise legal mixed booster recipes. The historical draft/unmerged statements below describe the earlier implementation checkpoint, not the current PR status. See [the bounded follow-up](BOOSTER-FRONTIER-VERIFICATION-CORRECTION-2026-09-26.md); hold PR #126 final freeze until its correction is independently verified and merged.
+
 Date: 2026-09-26 (America/Chicago). Existing branch `agent/training-booster-threshold-correction-001f`, draft PR #127. Starting head `8069033aa1dcb79226d1d27ecf7e7c577f7b222c`; verified main baseline `0adcab679c07b6dc6d01e4aa2d2eea586f9a5f97`. The [owner-authorized Work handoff](WORK-TRANSFER-HANDOFF-BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md) limits this build to the pure planner, focused regressions, and correction records.
 
 ## Corrected legality
