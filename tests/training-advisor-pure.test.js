@@ -611,3 +611,114 @@ test('second training phase crossing 50m remains partial and unranked',()=>{
   assert.notEqual(result.primaryPlan.fingerprint,p.fingerprint);
   assert.ok(result.rejectedPlans.some(item=>item.reason==='MODEL_OUT_OF_DOMAIN'));
 });
+
+// DQ-TRAIN-001F: maximum booster cooldown limits the next use, not the post-use timer.
+function boosterThresholdState(boosterSeconds,boosterMaxSeconds,owned=5) {
+  return {energy:150,naturalEnergyMax:150,happy:1000,stats:{speed:1000},targetStat:'speed',
+    gym:{dots:5,energyPerTrain:10},inventory:{eroticDvd:owned,ecstasy:1},
+    cooldowns:{drugSeconds:0,boosterSeconds,boosterMaxSeconds},
+    gainPerks:[],activeEffects:[],freshness:liveFreshness};
+}
+const thresholdMechanics={eroticDvd:{happy:2500,cooldownSeconds:21600,replacementValueEach:0},
+  ecstasy:{happyMultiplier:2,replacementValue:0}};
+function dvdRecipe(state,quantity) {
+  return m.generateHappyRecipes(state,thresholdMechanics).find(r=>
+    r.items.find(item=>item.id==='eroticDvd')?.quantity===quantity);
+}
+test('B1 one booster may start below max and end above max',()=>{
+  const state=boosterThresholdState(86399,86400,2);
+  const recipe=dvdRecipe(state,1);
+  assert.ok(recipe);
+  assert.ok(!dvdRecipe(state,2));
+  const plan=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],recipe,
+    itemMechanics:thresholdMechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(plan.readiness.status,'READY');
+  assert.equal(plan.economics.boosterCooldownSeconds,21600);
+  assert.equal(state.cooldowns.boosterSeconds+plan.economics.boosterCooldownSeconds,107999);
+  assert.equal(m.planReadiness(plan,boosterThresholdState(86400,86400,2),
+    {safeQuarterWindow:true}).reason,'BOOSTER_LIMIT_REACHED');
+});
+test('B2 exactly at maximum blocks the next booster',()=>{
+  const state=boosterThresholdState(86400,86400,1);
+  assert.ok(!dvdRecipe(state,1));
+  const forced=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],
+    recipe:{items:[{id:'eroticDvd',quantity:1,owned:1,newCashEach:0,replacementValueEach:0}],useEcstasy:true},
+    itemMechanics:thresholdMechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(forced.reason,'BOOSTER_LIMIT_REACHED');
+});
+test('B3 five eDVDs at base max requires wait and observed below-max checkpoint',()=>{
+  const state=boosterThresholdState(0,86400);
+  const four=dvdRecipe(state,4);
+  assert.ok(four);
+  assert.ok(!dvdRecipe(state,5));
+  assert.deepEqual(four.nextBoosterCheckpoint,{actions:[{action:'WAIT',checkpoint:'BOOSTER_BELOW_MAX'},
+    {action:'VERIFY_STATE',fields:['boosterCooldown','happy']}],
+    item:'eroticDvd',remainingQuantity:1,requiresBoosterSecondsBelow:86400});
+  const firstPhase=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],recipe:four,
+    itemMechanics:thresholdMechanics,timing:{safeQuarterWindow:true}});
+  assert.deepEqual(firstPhase.nextBoosterCheckpoint,four.nextBoosterCheckpoint);
+  assert.equal(firstPhase.resources.ownedItemsConsumed.eroticDvd,4);
+  assert.equal(firstPhase.actions.some(a=>a.action==='WAIT'),false);
+  const afterObservation=boosterThresholdState(86399,86400,1);
+  const fifth=dvdRecipe(afterObservation,1);
+  assert.ok(fifth);
+  const plan=m.composePlan({state:afterObservation,energy:m.generateEnergyCandidates(afterObservation)[0],
+    recipe:fifth,itemMechanics:thresholdMechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(plan.readiness.status,'READY');
+  assert.equal(afterObservation.cooldowns.boosterSeconds+plan.economics.boosterCooldownSeconds,107999);
+});
+test('B4 already over max blocks immediate booster use',()=>{
+  const state=boosterThresholdState(107999,86400,1);
+  assert.ok(!dvdRecipe(state,1));
+  const forced=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],
+    recipe:{items:[{id:'eroticDvd',quantity:1,owned:1,newCashEach:0,replacementValueEach:0}],useEcstasy:true},
+    itemMechanics:thresholdMechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(forced.reason,'BOOSTER_LIMIT_REACHED');
+});
+test('B5 unknown booster maximum excludes recipes and forced booster plan',()=>{
+  const state=boosterThresholdState(0,undefined,1);
+  assert.ok(!dvdRecipe(state,1));
+  const forced=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],
+    recipe:{items:[{id:'eroticDvd',quantity:1,owned:1,newCashEach:0,replacementValueEach:0}],useEcstasy:true},
+    itemMechanics:thresholdMechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(forced.reason,'DATA_MISSING');
+});
+test('B6 ordinary two-booster route keeps actions, costs, Happy and fingerprint',()=>{
+  const state=boosterThresholdState(0,108000,2);
+  const recipe=dvdRecipe(state,2);
+  assert.ok(recipe);
+  const plan=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],recipe,
+    itemMechanics:thresholdMechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(plan.readiness.status,'READY');
+  assert.equal(plan.preEcstasyHappy,6000);
+  assert.equal(plan.economics.boosterCooldownSeconds,43200);
+  assert.equal(plan.economics.economicValueConsumed,0);
+  assert.deepEqual(plan.actions.filter(a=>a.action==='USE_BOOSTER'),
+    [{action:'USE_BOOSTER',item:'eroticDvd',quantity:2}]);
+  assert.equal(plan.fingerprint,m.structuralFingerprint({actions:plan.actions,targetStat:'speed',
+    ownedItemsConsumed:{eroticDvd:2,ecstasy:1}}));
+});
+test('mixed booster order may put the longer cooldown last but never hides a threshold crossing',()=>{
+  const state={...boosterThresholdState(0,100,1),inventory:{a:1,z:1,ecstasy:1}};
+  const mechanics={a:{happy:300,cooldownSeconds:100,replacementValueEach:0},
+    z:{happy:100,cooldownSeconds:2,replacementValueEach:0},ecstasy:{happyMultiplier:2,replacementValue:0}};
+  const recipe=m.generateHappyRecipes(state,mechanics).find(x=>x.items.length===2);
+  assert.ok(recipe);
+  assert.deepEqual(recipe.items.map(x=>x.id),['z','a']);
+  const plan=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],recipe,
+    itemMechanics:mechanics,timing:{safeQuarterWindow:true}});
+  assert.deepEqual(plan.actions.filter(x=>x.action==='USE_BOOSTER').map(x=>x.item),['z','a']);
+  assert.equal(plan.readiness.status,'READY');
+  assert.equal(plan.economics.boosterCooldownSeconds,102);
+});
+test('booster readiness rejects a missing committed sequence and unsupported mechanics stay local',()=>{
+  const state=boosterThresholdState(86399,86400,1);
+  const energy=m.generateEnergyCandidates(state)[0];
+  const recipe=dvdRecipe(state,1);
+  const plan=m.composePlan({state,energy,recipe,itemMechanics:thresholdMechanics,
+    timing:{safeQuarterWindow:true}});
+  assert.equal(m.planReadiness({...plan,boosterUseSequence:[]},state,
+    {safeQuarterWindow:true}).status,'NEEDS_REFRESH');
+  assert.equal(m.composePlan({state,energy,recipe,itemMechanics:{ecstasy:thresholdMechanics.ecstasy},
+    timing:{safeQuarterWindow:true}}).reason,'UNSUPPORTED_EFFECT');
+});
