@@ -1,9 +1,12 @@
 # NOW
 
-Snapshot: 2026-09-27 UTC; PR #126 adapter specification merged; owner-authorized 001D pure adapter build complete on isolated branch, independent [V] pending
+Snapshot: 2026-09-27 UTC; PR #129 pure adapter merged; PR #130 Xanax Happy correction implemented on its existing draft branch, independent [V] pending
+
+CURRENT_TRAINING|DQ-TRAIN-001H|PR#130_draft_unmerged|main_443cb542e8b3f3d2b70404993d5dd322fe6f013d|Xanax_Happy_correction_implemented_independent_V_pending
+CURRENT_TRAINING_DETAIL|Immediate Xanax requires explicit happyGain, adds once before preparation/training and caps at 99999; delayed happyAtCheckpoint remains authoritative; adapter Xanax preparation withheld because stackCap has no approved source; see chapters/dq-train-001/XANAX-HAPPY-CORRECTION-2026-09-27.md
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|f4777409632ee69f901ed0dbe41a882a95743f2d
+MAIN_AT_SNAPSHOT|443cb542e8b3f3d2b70404993d5dd322fe6f013d
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -11,13 +14,13 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
 
-PARALLEL|DQ-TRAIN-001|adapter_001d_build_complete_independent_V_pending
+PARALLEL|DQ-TRAIN-001|xanax_happy_001h_correction_draft_independent_V_pending
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_001E_001F_and_frontier_follow_up_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|independent [V] of pure 001D source adapters including Xanax Happy-effect capability gap; owner merge decision separately; UI/TornPDA integration later
+TRAINING_NEXT|independent [V] of PR#130 immediate Xanax Happy effect, authoritative delayed checkpoint, adapter stack-cap limitation; owner merge decision separately; UI/TornPDA integration later
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -63,10 +66,11 @@ TRAINING_BOOSTER_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-BOOSTER-THR
 TRAINING_BOOSTER_CORRECTION|chapters/dq-train-001/BOOSTER-THRESHOLD-CORRECTION-2026-09-26.md|PR#127|merged_in_fb9dce7_before_independent_V
 TRAINING_BOOSTER_FOLLOW_UP|chapters/dq-train-001/BOOSTER-FRONTIER-VERIFICATION-CORRECTION-2026-09-26.md|PR#128|merged_24701cccbaebbeae7b3e8bb3e05d9c2f9c478a82
 TRAINING_ADAPTER_SPEC|PR#126|merged_f4777409632ee69f901ed0dbe41a882a95743f2d|V1_V3_pass_spec_frozen
-TRAINING_ADAPTER_BUILD|PR#129|draft_unmerged|agent/training-adapter-001d-build|tested_tree_head_a560c69af241f05b05f2ccb850fc3fff58060b73|main_f4777409632ee69f901ed0dbe41a882a95743f2d|136_focused_373_full_tests_pass|independent_V_pending|xanax_energy_route_withheld_pending_planner_happy_fix|no_userscript_integration
+TRAINING_ADAPTER_BUILD|PR#129|merged_in_443cb542e8b3f3d2b70404993d5dd322fe6f013d|agent/training-adapter-001d-build|xanax_energy_route_withheld_pending_stack_cap_source|no_userscript_integration
 
 TRAINING_001D_BRANCH|docs/training-advisor-adapter-freeze-001d-r2
 TRAINING_001D_HANDOFF|chapters/dq-train-001/ADAPTER-FREEZE-HANDOFF-2026-09-26.md
 TRAINING_001D_VERIFICATION|chapters/dq-train-001/ADAPTER-VERIFICATION-FINDINGS-2026-09-26.md|PR#126
 TRAINING_001D_FREEZE|chapters/dq-train-001/ADAPTER-FINAL-FREEZE-2026-09-26.md|PR#126|merged_f4777409632ee69f901ed0dbe41a882a95743f2d
-TRAINING_001D_BUILD|chapters/dq-train-001/ADAPTER-BUILD-CHECKPOINT-2026-09-27.md|PR#129_draft_unmerged_independent_V_pending
+TRAINING_001D_BUILD|chapters/dq-train-001/ADAPTER-BUILD-CHECKPOINT-2026-09-27.md|PR#129_merged_in_443cb542e8b3f3d2b70404993d5dd322fe6f013d
+TRAINING_001H_CORRECTION|chapters/dq-train-001/XANAX-HAPPY-CORRECTION-2026-09-27.md|PR#130_draft_unmerged_independent_V_pending

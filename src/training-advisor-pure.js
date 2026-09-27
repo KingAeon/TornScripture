@@ -632,6 +632,13 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
     checkpoint:'DRUG_COOLDOWN'},{action:'VERIFY_STATE',fields:['energy','happy','cooldowns']});
   const futureHappy = futureHappyNeeded ? state.happyAtCheckpoint : state.happy;
   let currentHappy = isInteger(futureHappy) && futureHappy <= 99999 ? futureHappy : null;
+  if (energy.xanaxUses && !futureHappyNeeded) {
+    if (!isInteger(itemMechanics.xanax?.happyGain)) return fail('unsupported','UNSUPPORTED_EFFECT');
+    if (currentHappy != null)
+      currentHappy=Math.min(99999,currentHappy+energy.xanaxUses*itemMechanics.xanax.happyGain);
+  }
+  // A future Happy checkpoint already includes every preceding Xanax success.
+  const happyBeforeBoosters=currentHappy;
   const ownedItemsConsumed = {}, boughtItems = {};
   let newCashRequired = 0, ownedValue = 0, boosterCooldownSeconds = 0;
   let resourceUnknown = false;
@@ -709,7 +716,7 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
   let marginalGainFromFinalBooster = null;
   if (simulation?.status === 'ok' && boosters.length) {
     const last=boosters.at(-1);
-    let withoutLast=futureHappy;
+    let withoutLast=happyBeforeBoosters;
     for (const item of boosters) withoutLast=Math.min(99999,withoutLast+
       (item.quantity-(item===last ? 1 : 0))*itemMechanics[item.id].happy);
     if (recipe.useEcstasy) withoutLast=Math.min(99999,withoutLast*itemMechanics.ecstasy.happyMultiplier);
