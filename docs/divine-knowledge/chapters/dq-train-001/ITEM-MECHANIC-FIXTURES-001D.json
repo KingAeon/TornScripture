@@ -1,0 +1,250 @@
+{
+  "schemaVersion": "dq-train-001d.item-mechanic-fixtures.v1",
+  "notes": [
+    "Synthetic, nonprivate fixtures for frozen v0.1 item-mechanic specification.",
+    "Dynamic item-preparation modifiers are fail-closed in v0.1 rather than numerically parsed.",
+    "Random drug cooldowns are documented ranges, never exact future values.",
+    "PR #126 [V]/[S] freezes pre-use booster-threshold semantics and planner-facing fail-closed projection; PR #127 and independently verified PR #128 corrected the upstream planner before final adapter freeze."
+  ],
+  "cases": [
+    {
+      "id": "XANAX_BASE_001",
+      "itemId": 206,
+      "expected": {
+        "key": "xanax",
+        "type": "Drug",
+        "energyGain": 250,
+        "happyGain": 75,
+        "drugCooldownRangeSeconds": [
+          21600,
+          28800
+        ],
+        "exactFutureCooldownKnown": false
+      }
+    },
+    {
+      "id": "ECSTASY_BASE_001",
+      "itemId": 197,
+      "expected": {
+        "key": "ecstasy",
+        "type": "Drug",
+        "happyMultiplier": 2,
+        "documentedDrugCooldownEnvelopeSeconds": [
+          12000,
+          13860
+        ],
+        "exactFutureCooldownKnown": false,
+        "sourceNote": "item-specific page max 231m; generic Drugs table max 230m; conservative envelope retained"
+      }
+    },
+    {
+      "id": "EDVD_BASE_001",
+      "itemId": 366,
+      "expected": {
+        "key": "eroticDvd",
+        "type": "Booster",
+        "happyGain": 2500,
+        "boosterCooldownSeconds": 21600
+      }
+    },
+    {
+      "id": "CANDY_BASE_BONBONS_001",
+      "itemId": 37,
+      "expected": {
+        "type": "Candy",
+        "happyGain": 25,
+        "boosterCooldownSeconds": 1800
+      }
+    },
+    {
+      "id": "CANDY_BASE_CUPCAKE_001",
+      "itemId": 1028,
+      "expected": {
+        "type": "Candy",
+        "happyGain": 250,
+        "boosterCooldownSeconds": 1800
+      }
+    },
+    {
+      "id": "BOOSTER_MAX_BASE_ONLY_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [],
+      "expected": {
+        "boosterMaxSeconds": 86400,
+        "provenance": "DERIVED",
+        "boosterPreparationSupported": true
+      }
+    },
+    {
+      "id": "BOOSTER_MAX_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "boosterMaximum",
+          "description": "+ 3 hours maximum booster cooldown"
+        }
+      ],
+      "expected": {
+        "boosterMaxSeconds": null,
+        "boosterPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "CANDY_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "candyEffect",
+          "description": "+ 25% happy gain from candy"
+        }
+      ],
+      "expected": {
+        "baseCandyMechanicsStillKnown": true,
+        "candyPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "CONSUMABLE_COOLDOWN_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "consumableCooldown",
+          "description": "reduces consumable cooldown"
+        }
+      ],
+      "expected": {
+        "candyPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "EDVD_DYNAMIC_FAIL_CLOSED_001",
+      "completePerkState": true,
+      "materialPreparationEffects": [
+        {
+          "scope": "eroticDvdEffect",
+          "description": "modifies Erotic DVD happiness"
+        }
+      ],
+      "expected": {
+        "eroticDvdPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "BOOSTER_ONE_ITEM_OVERCAP_001",
+      "state": {
+        "currentBoosterSeconds": 86399,
+        "boosterMaxSeconds": 86400
+      },
+      "item": {
+        "key": "eroticDvd",
+        "boosterCooldownSeconds": 21600
+      },
+      "expected": {
+        "itemUseLegal": true,
+        "resultingBoosterSeconds": 107999,
+        "anotherImmediateBoosterLegal": false,
+        "rule": "legality is checked before item use; post-item cooldown may exceed maximum"
+      },
+      "implementationStatus": "PLANNER_CORRECTED_AND_VERIFIED_IN_PR_127_128"
+    },
+    {
+      "id": "BOOSTER_AT_MAX_BLOCKED_001",
+      "state": {
+        "currentBoosterSeconds": 86400,
+        "boosterMaxSeconds": 86400
+      },
+      "item": {
+        "key": "eroticDvd",
+        "boosterCooldownSeconds": 21600
+      },
+      "expected": {
+        "itemUseLegal": false,
+        "reason": "BOOSTER_LIMIT_REACHED",
+        "nextCondition": "observe currentBoosterSeconds < boosterMaxSeconds"
+      },
+      "implementationStatus": "PLANNER_CORRECTED_AND_VERIFIED_IN_PR_127_128"
+    },
+    {
+      "id": "FIVE_EDVD_BASE_MAX_CHECKPOINT_001",
+      "state": {
+        "currentBoosterSeconds": 0,
+        "boosterMaxSeconds": 86400
+      },
+      "sequence": [
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        },
+        {
+          "checkpoint": "WAIT_UNTIL_BELOW_MAXIMUM"
+        },
+        {
+          "item": "eroticDvd",
+          "addedSeconds": 21600
+        }
+      ],
+      "expected": {
+        "firstFourReachSeconds": 86400,
+        "fifthRequiresObservedBelowMaximum": true,
+        "fifthMayFinishAboveMaximum": true,
+        "noImplicitElapsedTime": true
+      },
+      "implementationStatus": "PLANNER_CORRECTED_AND_VERIFIED_IN_PR_127_128"
+    },
+    {
+      "id": "CANDY_EVENT_UNKNOWN_FAIL_CLOSED_001",
+      "itemId": 37,
+      "dynamicState": {
+        "worldDiabetesDay": "UNKNOWN"
+      },
+      "expected": {
+        "baseCandyMechanicsStillKnown": true,
+        "candyPreparationSupported": false,
+        "plannerItemMechanicExposed": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "CANDY_EVENT_ACTIVE_FAIL_CLOSED_001",
+      "itemId": 37,
+      "dynamicState": {
+        "worldDiabetesDay": "ACTIVE"
+      },
+      "expected": {
+        "baseCandyMechanicsStillKnown": true,
+        "candyPreparationSupported": false,
+        "plannerItemMechanicExposed": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "EDVD_UNSUPPORTED_PROJECTION_001",
+      "itemId": 366,
+      "dynamicState": {
+        "eroticDvdEffect": "UNSUPPORTED_ACTIVE"
+      },
+      "expected": {
+        "inventoryQuantityPreserved": true,
+        "plannerItemMechanicExposed": false,
+        "eroticDvdPreparationSupported": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    }
+  ]
+}
