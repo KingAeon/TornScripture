@@ -229,6 +229,13 @@ function rankCandidates({ candidates, objective = 'BALANCED', riskPolicy = 'ALLO
 
 // Frontiers are generated in stable item-ID order. Owned and bought units remain
 // distinct until economics and dominance have been evaluated.
+function dominatesHappyRecipe(a,b) {
+  const key=c=>JSON.stringify(c.bundle);
+  return a.happy >= b.happy && a.newCash <= b.newCash &&
+    a.economicValueConsumed <= b.economicValueConsumed && a.cooldownSeconds <= b.cooldownSeconds &&
+    (a.happy > b.happy || a.newCash < b.newCash || a.economicValueConsumed < b.economicValueConsumed ||
+     a.cooldownSeconds < b.cooldownSeconds || key(a) < key(b));
+}
 function generateHappyFrontier({ boosterSlots, items, newCashBudget = Infinity } = {}) {
   if (!isInteger(boosterSlots) || !Array.isArray(items) || !items.every(item => item &&
       typeof item.id === 'string' && item.id && isNonnegative(item.happy) &&
@@ -262,11 +269,7 @@ function generateHappyFrontier({ boosterSlots, items, newCashBudget = Infinity }
   }
   visit(0,boosterSlots,{},0,0,0,0);
   const key = c => JSON.stringify(c.bundle);
-  const dominatesRecipe = (a,b) => a.happy >= b.happy && a.newCash <= b.newCash &&
-    a.economicValueConsumed <= b.economicValueConsumed && a.cooldownSeconds <= b.cooldownSeconds &&
-    (a.happy > b.happy || a.newCash < b.newCash || a.economicValueConsumed < b.economicValueConsumed ||
-     a.cooldownSeconds < b.cooldownSeconds || key(a) < key(b));
-  const frontier = rawCandidates.filter(c => !rawCandidates.some(other => other !== c && dominatesRecipe(other,c)))
+  const frontier = rawCandidates.filter(c => !rawCandidates.some(other => other !== c && dominatesHappyRecipe(other,c)))
     .sort((a,b)=>compareNumbers(a.happy,b.happy) || compareNumbers(a.newCash,b.newCash) || compareStrings(key(a),key(b)));
   return { status:'ok', rawCandidates, frontier, dominatedItemIds: sorted.filter(item =>
     sorted.some(other => other !== item && other.happy >= item.happy &&
@@ -533,13 +536,18 @@ function generateHappyRecipes(state, mechanics = {}, market = {}, preferences = 
       const frontier=generateHappyFrontier({boosterSlots:slots,items:knownValue,
         newCashBudget:preferences.budgetNewCash ?? Infinity});
       if (frontier.status !== 'ok') continue;
-      for (const c of frontier.frontier) {
+      // An economically dominant bundle may be illegal at the next-use threshold.
+      // Check the complete booster sequence before applying economic dominance.
+      const legal=frontier.rawCandidates.map(c=>{
         const recipeItems=knownValue.map(item=>({id:item.id,
           quantity:(c.bundle[`${item.id}Owned`] || 0)+(c.bundle[`${item.id}Bought`] || 0),
           owned:c.bundle[`${item.id}Owned`] || 0,newCashEach:item.newCashEach,
           replacementValueEach:item.replacementValueEach})).filter(item=>item.quantity);
         const ordered=orderedBoosterUses([...unknownItems,...recipeItems],mechanics,start,maximum);
-        if (!ordered) continue;
+        return ordered ? {c,ordered} : null;
+      }).filter(Boolean);
+      for (const {c,ordered} of legal.filter(entry=>!legal.some(other=>other!==entry &&
+        dominatesHappyRecipe(other.c,entry.c)))) {
         const next=ordered.at(-1)?.id;
         const remaining=items.filter(item=>item.id===next || item.owned)
           .map(item=>({id:item.id,quantity:(state.inventory?.[item.id] || 0)-

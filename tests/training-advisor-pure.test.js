@@ -722,3 +722,26 @@ test('booster readiness rejects a missing committed sequence and unsupported mec
   assert.equal(m.composePlan({state,energy,recipe,itemMechanics:{ecstasy:thresholdMechanics.ecstasy},
     timing:{safeQuarterWindow:true}}).reason,'UNSUPPORTED_EFFECT');
 });
+
+test('frontier legality retains the best sequentially legal mixed booster recipe',()=>{
+  const state={...boosterThresholdState(0,23,0),inventory:{a:1,b:1,c:2,ecstasy:1}};
+  const mechanics={a:{happy:111,cooldownSeconds:6,replacementValueEach:0},
+    b:{happy:120,cooldownSeconds:83,replacementValueEach:0},
+    c:{happy:117,cooldownSeconds:28,replacementValueEach:0},
+    ecstasy:{happyMultiplier:2,replacementValue:0}};
+  const recipes=m.generateHappyRecipes(state,mechanics);
+  const ab=recipes.find(recipe=>recipe.items.length===2 &&
+    recipe.items.map(item=>item.id).join(',')==='a,b');
+  assert.ok(ab,'a then b is legal: 0 < 23 and 6 < 23');
+  assert.equal(ab.preparation.happyAdded,231);
+  const forced=m.composePlan({state,energy:m.generateEnergyCandidates(state)[0],recipe:ab,
+    itemMechanics:mechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(forced.readiness.status,'READY');
+  assert.equal(forced.preEcstasyHappy,1231);
+  const result=m.recommend({observedState:state,preferences:{objective:'MAXIMUM_GAIN'},
+    itemMechanics:mechanics,timing:{safeQuarterWindow:true}});
+  assert.equal(result.status,'ok');
+  assert.deepEqual(result.primaryPlan.actions.filter(action=>action.action==='USE_BOOSTER')
+    .map(action=>action.item),['a','b']);
+  assert.equal(result.primaryPlan.simulation.modeledGain,forced.simulation.modeledGain);
+});
