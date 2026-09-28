@@ -77,3 +77,4 @@ TRAINING_001H_CORRECTION|chapters/dq-train-001/XANAX-HAPPY-CORRECTION-2026-09-27
 
 TRAINING_001I_STACK_CAP|chapters/dq-train-001/STACK-CAP-SPEC-001I.md|frozen_owner_S|1000|official_Torn_Energy|implementation_pending
 TRAINING_001I_FIXTURES|chapters/dq-train-001/STACK-CAP-FIXTURES-001I.json|5_cases
+TRAINING_001I_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-STACK-CAP-XANAX-ENABLE-2026-09-27.md|compiled_waiting_spec_merge_then_work
