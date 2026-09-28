@@ -41,7 +41,8 @@ Do not resolve these discrepancies by assumption. Live permission and response-s
 | Planner field/domain | Preferred candidate source | Documented access | Stability/freshness | Current disposition |
 |---|---|---|---|---|
 | current Energy | `GET /user/bars` | Minimal | Stable | strong candidate |
-| natural Energy maximum | `/user/bars -> energy.maximum` | Minimal | Stable | live-proven for donator-class 150 cap |
+| natural Energy maximum | `/user/bars -> energy.maximum` | Minimal | Stable | live-proven for donator-class 150 cap; **not** the absolute stack cap |
+| absolute Energy stack cap | versioned TornScriptures mechanic `TORN_ENERGY_STACK_CAP_V1` backed by official Torn Wiki Energy | n/a | mechanic constant, reverified 2026-09-27 | **frozen at 1,000 by DQ-TRAIN-001I**; no runtime Wiki fetch |
 | natural Energy increment/interval | `/user/bars -> energy.increment/interval` | Minimal | Stable | live-proven +5 / 600s in observed donator state |
 | current Happy | `GET /user/bars` | Minimal | Stable | strong candidate |
 | ordinary/base Happy | `/user/bars -> happy.maximum` candidate | Minimal | Stable | ordinary-state mapping live-consistent; elevated-Happy strengthening still open, so adapter keeps guard provenance |
@@ -172,6 +173,28 @@ Live proof should establish:
 5. timestamp/tick fields can be normalized without local-clock assumptions.
 
 Until item 3 is proven, `ordinaryHappy` must not silently fall back to current Happy.
+
+## 7.1 Absolute Energy stack cap
+
+DQ-TRAIN-001I freezes the current absolute Energy stack cap as a versioned mechanic:
+
+```text
+stackCap = 1000
+sourceId = TORN_ENERGY_STACK_CAP_V1
+cacheClass = VERSIONED_MECHANIC
+```
+
+The official Torn Energy page distinguishes the natural bar maximum (100/150 depending on account state) from the absolute maximum Energy at any moment (1,000).
+
+Therefore:
+
+- `naturalEnergyMax` continues to come from `/user/bars.energy.maximum`;
+- `stackCap` MUST NOT be copied from that bars field;
+- no live player endpoint is required for the universal cap;
+- no runtime Wiki request is authorized;
+- the value is source-audited/versioned and must be reverified when Torn changes Energy mechanics.
+
+This unlocks Xanax adapter projection only when the existing supported Xanax mechanic survives dynamic-effect guards. Future random Xanax cooldowns remain checkpoint/replan based.
 
 ## 8. Gym source composition
 
@@ -359,4 +382,4 @@ Before adapter/UI implementation:
 7. implement adapters separately from presentation;
 8. integrate beginner/advanced UI only after adapter verification.
 
-The source-verification matrix and the final PR #126 [V]/[S] freeze preserve refill/event/capability safeguards and the material gym-note gate. Both planner booster corrections have merged. The next gate is **separate owner [B] authorization for adapter implementation**; UI integration requires its own later gate.
+The source-verification matrix and final PR #126 freeze preserve refill/event/capability safeguards and the material gym-note gate. PR #129 implemented the pure adapters and PR #130 corrected Xanax Happy composition. DQ-TRAIN-001I now freezes the missing `stackCap=1000` versioned mechanic. The next bounded gate is adapter enablement of Xanax from that frozen constant, followed by independent [V]; source acquisition/UI integration remains later.
