@@ -1,6 +1,6 @@
 # DQ-TRAIN-001D — Normalized Adapter Contract v0.1
 
-Status: **V0.1 SOURCE, FRESHNESS, AND MECHANIC CONTRACT FROZEN AFTER PR #128; ADAPTER RUNTIME BUILD REQUIRES SEPARATE OWNER [B] AUTHORIZATION**
+Status: **V0.1 CONTRACT FROZEN WITH DQ-TRAIN-001I STACK-CAP ADDENDUM; PURE ADAPTER MERGED; XANAX ADAPTER ENABLEMENT REQUIRES SEPARATE [B][WORK]**
 
 Prepared: 2026-09-26
 Pure planner baseline: PR #123 merged at `37fe611cfeb58bf812272eef18c5d69eb9952d01`.
@@ -68,6 +68,35 @@ Freshness:
 - current Energy and Happy may be marked LIVE only from a successful current bars response whose timestamp/provenance is accepted by the adapter;
 - `maximum`, `increment`, and `interval` inherit source provenance but are slower-changing mechanics;
 - a positive `tick_time` never means natural Energy may exceed `naturalEnergyMax`.
+
+### Absolute Energy stack cap — DQ-TRAIN-001I
+
+Source: versioned TornScriptures mechanic backed by the current official Torn Wiki Energy mechanic.
+
+```text
+stackCap = 1000
+sourceId = "TORN_ENERGY_STACK_CAP_V1"
+cacheClass = "VERSIONED_MECHANIC"
+provenance = CONFIGURED
+freshness = FRESH
+verifiedAt = "2026-09-27"
+```
+
+This is not player bar capacity. `naturalEnergyMax` remains sourced from `/user/bars.energy.maximum` and must not substitute for `stackCap`.
+
+The adapter may expose `observedState.stackCap=1000` without a runtime Wiki request. The mechanic is maintained as versioned source-audited configuration and must fail closed if its expected version/value is absent or inconsistent.
+
+When the supported Xanax mechanic survives existing dynamic-effect guards, the adapter may additionally expose:
+
+```text
+observedState.xanax = { energyGain: 250 }
+```
+
+while `itemMechanics.xanax` continues to carry the explicit Happy effect used by the corrected pure planner.
+
+Do not emit an exact future Xanax cooldown. Repeated stacking remains checkpoint/replan based.
+
+Canonical addendum: `STACK-CAP-SPEC-001I.md`.
 
 ### Cooldowns
 
@@ -343,13 +372,15 @@ Examples:
 
 ## 12. Remaining gate
 
-The normalized source mappings, capability/freshness behavior, refill/special-refill mapping, conservative calibration-confidence policy, material gym-note gate, and bounded v0.1 dynamic-item projection are specification-frozen by the final [V]/[S] pass. The upstream Point-refill, booster-threshold, and booster-frontier defects are resolved in main. This document approves no runtime build.
+The normalized source mappings, capability/freshness behavior, refill/special-refill mapping, conservative calibration-confidence policy, material gym-note gate, bounded v0.1 dynamic-item projection, and DQ-TRAIN-001I `stackCap=1000` versioned mechanic are specification-frozen. Point-refill, booster-threshold/frontier, and Xanax-Happy planner defects are resolved in main. PR #129's pure adapters are merged; the remaining bounded implementation is to project the frozen stack cap and enable Xanax only under the existing fail-closed mechanic guards.
 
-Before adapter implementation:
+Before Xanax adapter enablement:
 
 1. retain elevated-Happy `ordinaryHappy` confirmation as desirable strengthening rather than a blocker;
-2. obtain explicit owner `[B]` authorization for adapter implementation;
-3. verify the separately built adapters before requesting UI/TornPDA integration authority.
+2. use DQ-TRAIN-001I `TORN_ENERGY_STACK_CAP_V1=1000`; never substitute naturalEnergyMax;
+3. obtain/execute the owner-authorized `[B][WORK]` implementation on an isolated branch;
+4. independently verify the implementation before merge;
+5. request source-acquisition/UI/TornPDA integration authority separately.
 
 No adapter implementation, networking, storage, UI, timer, DOM capture, or gameplay action is authorized by this contract.
 

@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLETE IN DOCUMENTED DOMAIN; PURE ADAPTER PR #129 MERGED; DQ-TRAIN-001H CORRECTION ON DRAFT PR #130 AWAITS INDEPENDENT [V]**
+State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLETE; PR #129 PURE ADAPTER + PR #130 XANAX HAPPY CORRECTION MERGED; DQ-TRAIN-001I STACK-CAP SPEC FROZEN, IMPLEMENTATION PENDING**
 
 ## Canonical reading order
 
@@ -35,6 +35,9 @@ State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLE
 29. [DQ-TRAIN-001D pure adapter implementation checkpoint — 2026-09-27](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md) — owner-authorized isolated adapter build, frozen fixtures, provenance/freshness and capability gates, tests, and independent [V] handoff.
 30. [DQ-TRAIN-001H Xanax Happy-effect correction handoff — 2026-09-27](WORK-TRANSFER-HANDOFF-XANAX-HAPPY-CORRECTION-2026-09-27.md) — owner-authorized bounded planner defect, checkpoint semantics, adapter stack-cap boundary, and X1–X8 gates.
 31. [DQ-TRAIN-001H implementation checkpoint — 2026-09-27](XANAX-HAPPY-CORRECTION-2026-09-27.md) — immediate +75 Happy, delayed authoritative checkpoints, fail-closed adapter limitation, red/green regressions, and independent [V] gate.
+32. [DQ-TRAIN-001I Energy stack-cap specification — 2026-09-27](STACK-CAP-SPEC-001I.md) — owner-frozen official versioned mechanic `stackCap=1000`, provenance, Xanax capability rule, and timing/refill boundaries.
+33. [`STACK-CAP-FIXTURES-001I.json`](STACK-CAP-FIXTURES-001I.json) — synthetic acceptance cases for versioned stack cap, natural-max distinction, Xanax enablement, dynamic-drug fail-closed behavior, and version mismatch.
+34. [DQ-TRAIN-001I Work transfer handoff — 2026-09-27](WORK-TRANSFER-HANDOFF-STACK-CAP-XANAX-ENABLE-2026-09-27.md) — deliberate implementation bundle covering versioned stack-cap projection, Xanax enablement, S1–S8 regressions, full validation, publication, and independent [V] return.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -151,4 +154,4 @@ The owner-authorized DQ-TRAIN-001F correction on `agent/training-booster-thresho
 
 ## DQ-TRAIN-001D final verification
 
-The 001D adapter source, mechanic, fixture, and freshness contract from PR #126 passed final V1–V3 checks against merged PR #128. The [v0.1 documentation contract is specification-frozen](ADAPTER-FINAL-FREEZE-2026-09-26.md) and PR #126 merged at `f4777409632ee69f901ed0dbe41a882a95743f2d`. The owner separately authorized the [pure adapter implementation](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md); PR #129 merged into `443cb542e8b3f3d2b70404993d5dd322fe6f013d`. The [Xanax Happy correction](XANAX-HAPPY-CORRECTION-2026-09-27.md) is isolated on draft PR #130 for independent [V]. UI/TornPDA integration remains outside this build.
+The 001D adapter source, mechanic, fixture, and freshness contract from PR #126 passed final V1–V3 checks against merged PR #128. The [v0.1 documentation contract is specification-frozen](ADAPTER-FINAL-FREEZE-2026-09-26.md) and PR #126 merged at `f4777409632ee69f901ed0dbe41a882a95743f2d`. The owner separately authorized the [pure adapter implementation](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md); PR #129 merged into `443cb542e8b3f3d2b70404993d5dd322fe6f013d`. The [Xanax Happy correction](XANAX-HAPPY-CORRECTION-2026-09-27.md) passed independent [V] and PR #130 merged at `cfdf9000d9a8e37d52ad3d5fbf0861abe5c4b1c2`. DQ-TRAIN-001I now freezes the official absolute Energy stack cap at 1,000 as a versioned mechanic, separate from `/user/bars.energy.maximum`; adapter enablement is the next separately implemented gate. UI/TornPDA integration remains outside this build.
