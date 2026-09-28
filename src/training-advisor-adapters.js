@@ -5,6 +5,8 @@
 const STATS = ['strength', 'speed', 'defense', 'dexterity'];
 const CATEGORIES = ['faction', 'property', 'job', 'education', 'enhancer', 'book', 'stock', 'merit'];
 const INVENTORY_SOURCES = { Drug: 'drugInventory', Booster: 'boosterInventory', Candy: 'candyInventory' };
+const ENERGY_STACK_CAP_MECHANIC = Object.freeze({value:1000,
+  sourceId:'TORN_ENERGY_STACK_CAP_V1',cacheClass:'VERSIONED_MECHANIC',verifiedAt:'2026-09-27'});
 const ITEM_REGISTRY = Object.freeze({
   206: Object.freeze({ key: 'xanax', type: 'Drug', energyGain: 250, happyGain: 75,
     drugCooldownRangeSeconds: [21600, 28800], exactFutureCooldownKnown: false }),
@@ -55,6 +57,19 @@ function field(value, status, provenance = 'OBSERVED', extra = {}) {
 function unavailable(reason = 'DATA_MISSING', sourceId = null) {
   return { value: null, provenance: null, freshness: 'UNKNOWN', sourceId,
     observedAt: null, reason };
+}
+
+function adaptEnergyStackCap(configuredMechanics = {}) {
+  const configured = object(configuredMechanics) ? configuredMechanics : {};
+  // An explicit conflicting value cannot override the audited versioned mechanic.
+  if (Object.hasOwn(configured,'energyStackCap') &&
+      configured.energyStackCap !== ENERGY_STACK_CAP_MECHANIC.value)
+    return {available:false,field:unavailable('MECHANIC_VERSION_MISMATCH',
+      ENERGY_STACK_CAP_MECHANIC.sourceId)};
+  const status={sourceId:ENERGY_STACK_CAP_MECHANIC.sourceId,observedAt:null,
+    freshness:'FRESH',cacheClass:ENERGY_STACK_CAP_MECHANIC.cacheClass};
+  return {available:true,field:field(ENERGY_STACK_CAP_MECHANIC.value,status,'CONFIGURED',
+    {verifiedAt:ENERGY_STACK_CAP_MECHANIC.verifiedAt})};
 }
 
 function adaptBars(payload, meta) {
@@ -317,7 +332,8 @@ function projectItemMechanics(perks, dynamicState = {}) {
   const candy = booster || scopes.has('candyEffect') || !eventVerified;
   const dvd = booster || scopes.has('eroticDvdEffect');
   if (!drug) {
-    itemMechanics.xanax={energyGain:250,happyGain:75};
+    itemMechanics.xanax={energyGain:ITEM_REGISTRY[206].energyGain,
+      happyGain:ITEM_REGISTRY[206].happyGain};
     itemMechanics.ecstasy={happyMultiplier:2};
   } else block('drugPreparation',verified ? 'UNSUPPORTED_EFFECT' : 'DATA_MISSING');
   if (!dvd) itemMechanics.eroticDvd={happy:2500,cooldownSeconds:21600};
@@ -373,10 +389,11 @@ function normalizeTrainingSources(input = {}) {
   const gym=adaptGym(sources.userGym,sources.tornGyms,targetStat,sourceMeta.userGym,sourceMeta.tornGyms);
   const perks=adaptPerks(sources.perks,sourceMeta.perks);
   const refills=adaptRefills(sources.refills,sourceMeta.refills,configuredMechanics,currentPoints);
+  const stackCap=adaptEnergyStackCap(configuredMechanics);
   const inventory=adaptInventory(sources,sourceMeta,confirmedInventory);
   const mechanics=projectItemMechanics(perks,dynamicState);
   const marketSnapshot=adaptMarketSnapshot(marketInput);
-  const fields={...bars.fields,...cooldowns.fields,stats:stats.field,gym:gym.field,
+  const fields={...bars.fields,...cooldowns.fields,stackCap:stackCap.field,stats:stats.field,gym:gym.field,
     gainModifiers:perks.field,pointRefill:refills.field,points:refills.pointsField,
     boosterMaxSeconds:mechanics.boosterMaxField,inventory:inventory.fields,
     effectState:mechanics.effectEvidence ? field(dynamicState.materialPreparationEffects,
@@ -388,6 +405,7 @@ function normalizeTrainingSources(input = {}) {
   const value=key=>fields[key]?.value ?? undefined;
   const observedState={targetStat,stats:fresh(stats.field.freshness) ? stats.stats || undefined : undefined,
     energy:value('energy'),naturalEnergyMax:value('naturalEnergyMax'),
+    ...(stackCap.available ? {stackCap:value('stackCap')} : {}),
     naturalRegen:value('naturalRegen'),happy:value('happy'),ordinaryHappy:value('ordinaryHappy'),
     cooldowns:{drugSeconds:value('drugCooldown'),boosterSeconds:value('boosterCooldown'),
       boosterMaxSeconds:mechanics.boosterMaxSeconds ?? undefined},
@@ -402,9 +420,8 @@ function normalizeTrainingSources(input = {}) {
     inventory:inventory.inventory,inventoryFreshness:inventory.inventoryFreshness,
     pointRefill:fresh(refills.status.freshness) ? refills.pointRefill || undefined : undefined,
     pointsAvailable:refills.pointsAvailable ?? undefined,
-    // The approved sources do not establish an Energy stack cap. Keep the
-    // Xanax registry mechanics but withhold its Energy route until one is sourced.
-    xanax:undefined,
+    ...(stackCap.available && mechanics.itemMechanics.xanax ?
+      {xanax:{energyGain:mechanics.itemMechanics.xanax.energyGain}} : {}),
     calibratedDomain:false,
     freshness:{energy:fields.energy.freshness,happy:fields.happy.freshness,
       drugCooldown:fields.drugCooldown.freshness,boosterCooldown:fields.boosterCooldown.freshness,
@@ -430,7 +447,7 @@ function normalizeTrainingSources(input = {}) {
     candyPreparation:!!mechanics.itemMechanics.candy37,
     eroticDvdPreparation:!!mechanics.itemMechanics.eroticDvd,
     drugPreparation:!!mechanics.itemMechanics.ecstasy,
-    xanaxPreparation:false,
+    xanaxPreparation:!!observedState.xanax,
     calibratedDomain:false};
   const timing = timingInput?.confirmedCurrent === true &&
     timingInput.freshness === 'LIVE' && timingInput.observedAt != null &&
@@ -439,7 +456,9 @@ function normalizeTrainingSources(input = {}) {
   return {observedState,itemMechanics:mechanics.itemMechanics,marketSnapshot,timing,
     fields,capabilities,inventory:inventory.categories,refillState:refills.refillState,
     unsupported:[...mechanics.unsupported,...mechanics.activeEffects.filter(x=>x.support==='UNSUPPORTED'),
-      {capability:'xanaxPreparation',reason:'STACK_CAP_UNAVAILABLE'},
+      ...(!observedState.xanax ? [{capability:'xanaxPreparation',reason:stackCap.available ?
+        mechanics.unsupported.find(x=>x.capability==='drugPreparation')?.reason || 'UNSUPPORTED_EFFECT' :
+        stackCap.field.reason}] : []),
       ...(gym.materialGymNote ? [{capability:'gymPrediction',reason:'UNSUPPORTED_EFFECT',
         description:gym.gym.note}] : [])],
     sourceStatus:{bars:bars.status,cooldowns:cooldowns.status,battlestats:stats.status,
@@ -448,6 +467,7 @@ function normalizeTrainingSources(input = {}) {
     planningScope:{...planningScope,calibratedDomain:false}};
 }
 
-module.exports = { ITEM_REGISTRY, adaptBars, adaptCooldowns, adaptBattleStats,
+module.exports = { ITEM_REGISTRY, ENERGY_STACK_CAP_MECHANIC, adaptEnergyStackCap,
+  adaptBars, adaptCooldowns, adaptBattleStats,
   adaptGym, adaptPerks, adaptRefills, adaptInventory, projectItemMechanics,
   adaptMarketSnapshot, normalizeTrainingSources };

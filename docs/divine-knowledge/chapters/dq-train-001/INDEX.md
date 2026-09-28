@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLETE; PR #129 PURE ADAPTER + PR #130 XANAX HAPPY CORRECTION MERGED; DQ-TRAIN-001I STACK-CAP SPEC FROZEN, IMPLEMENTATION PENDING**
+State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLETE; PR #129 PURE ADAPTER + PR #130 XANAX HAPPY CORRECTION MERGED; PR #131 STACK-CAP SPEC MERGED; 001I PURE ADAPTER IMPLEMENTED FOR INDEPENDENT [V]**
 
 ## Canonical reading order
 
@@ -38,6 +38,7 @@ State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLE
 32. [DQ-TRAIN-001I Energy stack-cap specification — 2026-09-27](STACK-CAP-SPEC-001I.md) — owner-frozen official versioned mechanic `stackCap=1000`, provenance, Xanax capability rule, and timing/refill boundaries.
 33. [`STACK-CAP-FIXTURES-001I.json`](STACK-CAP-FIXTURES-001I.json) — synthetic acceptance cases for versioned stack cap, natural-max distinction, Xanax enablement, dynamic-drug fail-closed behavior, and version mismatch.
 34. [DQ-TRAIN-001I Work transfer handoff — 2026-09-27](WORK-TRANSFER-HANDOFF-STACK-CAP-XANAX-ENABLE-2026-09-27.md) — deliberate implementation bundle covering versioned stack-cap projection, Xanax enablement, S1–S8 regressions, full validation, publication, and independent [V] return.
+35. [DQ-TRAIN-001I implementation checkpoint — 2026-09-28](STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md) — isolated pure-adapter implementation, exact post-spec baseline, frozen fixture execution, regression results, limitations, and independent [V] gate.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 

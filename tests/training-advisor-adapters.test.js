@@ -7,8 +7,10 @@ const planner = require('../src/training-advisor-pure.js');
 const root = path.join(__dirname,'../docs/divine-knowledge/chapters/dq-train-001');
 const fixtures = require(path.join(root,'ADAPTER-FIXTURES-001D.json'));
 const mechanicsFixtures = require(path.join(root,'ITEM-MECHANIC-FIXTURES-001D.json'));
+const stackFixtures = require(path.join(root,'STACK-CAP-FIXTURES-001I.json'));
 const cases = Object.fromEntries(fixtures.cases.map(c=>[c.id,c]));
 const mechanicCases = Object.fromEntries(mechanicsFixtures.cases.map(c=>[c.id,c]));
+const stackCases = Object.fromEntries(stackFixtures.cases.map(c=>[c.id,c]));
 const time = '2026-09-27T06:00:00Z';
 const sources = {bars:'/user/bars',cooldowns:'/user/cooldowns',battlestats:'/user/battlestats',
   userGym:'/user/gym',tornGyms:'/torn/gyms',perks:'/user/perks',refills:'/user/refills',
@@ -39,6 +41,61 @@ test('all frozen 001D fixture IDs are unique and present',()=>{
   assert.equal(Object.keys(cases).length,17);
   assert.equal(mechanicsFixtures.cases.length,16);
   assert.equal(Object.keys(mechanicCases).length,16);
+});
+test('S1-S5 all five frozen 001I fixture IDs are unique',()=>{
+  assert.equal(stackFixtures.status,'FROZEN');
+  assert.equal(stackFixtures.cases.length,5);
+  assert.equal(Object.keys(stackCases).length,5);
+  assert.deepEqual(Object.keys(stackCases),[
+    'STACK_CAP_VERSIONED_001','STACK_CAP_DISTINCT_FROM_NATURAL_MAX_001',
+    'XANAX_ADAPTER_ENABLE_001','XANAX_DYNAMIC_DRUG_EFFECT_FAIL_CLOSED_001',
+    'STACK_CAP_VERSION_MISMATCH_FAIL_CLOSED_001']);
+});
+for (const [index,f] of stackFixtures.cases.entries()) test(`S${index+1} ${f.id}`,()=>{
+  const configuredMechanics=f.input.configuredMechanics;
+  const bars=f.input.bars;
+  const dynamicState=f.input.unsupportedDrugEffect ? {...activeState,
+    materialPreparationEffects:[{scope:'drugEffect',description:'unsupported Xanax modifier'}]} : activeState;
+  const r=normalize({configuredMechanics,dynamicState,
+    sources:{perks:emptyPerks(),...(bars ? {bars} : {})}});
+  if (f.id==='STACK_CAP_VERSIONED_001') {
+    assert.equal(r.observedState.stackCap,f.expected.observedState.stackCap);
+    for (const [key,value] of Object.entries(f.expected.field))
+      assert.equal(r.fields.stackCap[key],value,key);
+    assert.equal(r.fields.stackCap.verifiedAt,stackFixtures.verifiedAt);
+    assert.equal(r.fields.stackCap.observedAt,null);
+    assert.notEqual(r.fields.stackCap.sourceId,'/user/bars');
+    assert.equal(r.capabilities.xanaxPreparation,f.expected.capabilityAvailable);
+  } else if (f.id==='STACK_CAP_DISTINCT_FROM_NATURAL_MAX_001') {
+    assert.equal(r.observedState.naturalEnergyMax,f.expected.naturalEnergyMax);
+    assert.equal(r.observedState.stackCap,f.expected.stackCap);
+    assert.equal(r.fields.naturalEnergyMax.sourceId,'/user/bars');
+    assert.notEqual(r.fields.naturalEnergyMax.sourceId,r.fields.stackCap.sourceId);
+    assert.notEqual(r.observedState.naturalEnergyMax,r.observedState.stackCap);
+  } else if (f.id==='XANAX_ADAPTER_ENABLE_001') {
+    assert.deepEqual(r.itemMechanics.xanax,f.input.itemMechanics.xanax);
+    assert.equal(r.observedState.stackCap,f.expected.observedState.stackCap);
+    assert.deepEqual(r.observedState.xanax,f.expected.observedState.xanax);
+    assert.equal(r.capabilities.xanaxPreparation,f.expected.xanaxPreparation);
+    assert.equal(r.unsupported.some(x=>x.capability==='xanaxPreparation'),false);
+  } else if (f.id==='XANAX_DYNAMIC_DRUG_EFFECT_FAIL_CLOSED_001') {
+    assert.equal(r.observedState.stackCap,f.expected.observedState.stackCap);
+    assert.equal(r.itemMechanics.xanax,undefined);
+    assert.equal(r.observedState.xanax,undefined);
+    assert.equal(Object.hasOwn(r.observedState,'xanax'),false);
+    assert.equal(r.capabilities.xanaxPreparation,f.expected.xanaxPreparation);
+    assert.ok(r.unsupported.some(x=>x.capability==='xanaxPreparation' && x.reason===f.expected.reason));
+    assert.equal(r.capabilities.bars,false);
+    assert.equal(r.capabilities.drugPreparation,false);
+  } else if (f.id==='STACK_CAP_VERSION_MISMATCH_FAIL_CLOSED_001') {
+    assert.equal(r.observedState.stackCap,undefined);
+    assert.equal(r.observedState.xanax,undefined);
+    assert.equal(Object.hasOwn(r.observedState,'stackCap'),false);
+    assert.equal(Object.hasOwn(r.observedState,'xanax'),false);
+    assert.equal(r.capabilities.xanaxPreparation,f.expected.xanaxPreparation);
+    assert.equal(r.fields.stackCap.reason,f.expected.reason);
+    assert.ok(r.unsupported.some(x=>x.capability==='xanaxPreparation' && x.reason===f.expected.reason));
+  }
 });
 test('BARS_DONATOR_ORDINARY_001 maps current, maximum, explicit regeneration, and guarded base Happy',()=>{
   const f=fixture('BARS_DONATOR_ORDINARY_001');
@@ -373,18 +430,56 @@ test('full normalized snapshot plans safely and preserves execution freshness ga
   assert.notEqual(happy.readiness.status,'READY');
   assert.equal(response.observedState.inventoryFreshness,'FRESH');
 });
-test('X8 Xanax registry mechanics remain withheld until stack cap has an approved source',()=>{
+test('S3/S6/X8 supported Xanax projects one immediate +75 Happy checkpoint without future cooldown',()=>{
+  const bars=structuredClone(fixture('BARS_DONATOR_ORDINARY_001').sources.bars);
+  bars.energy.current=500;
   const r=normalize({sources:{perks:emptyPerks(),...fixture('BARS_DONATOR_ORDINARY_001').sources,
-    ...fixture('COOLDOWNS_POSITIVE_BOOSTER_001').sources}});
+    bars,...fixture('COOLDOWNS_POSITIVE_BOOSTER_001').sources,
+    ...fixture('BATTLESTATS_RAW_VALUE_001').sources,
+    ...fixture('COMPLETE_CARDIO_JOIN_001').sources,
+    drugInventory:page('Drug',[{id:206,amount:1}]),
+    boosterInventory:page('Booster',[]),candyInventory:page('Candy',[])}});
   assert.equal(a.ITEM_REGISTRY[206].happyGain,75);
   assert.deepEqual(r.itemMechanics.xanax,{energyGain:250,happyGain:75});
+  assert.deepEqual(r.observedState.xanax,{energyGain:250});
+  assert.equal(r.observedState.stackCap,1000);
+  assert.equal(r.capabilities.xanaxPreparation,true);
+  assert.equal(Object.hasOwn(r.observedState.xanax,'cooldownSeconds'),false);
+  const candidates=planner.generateEnergyCandidates({...r.observedState,maxWaitSeconds:28800});
+  const xanax=candidates.filter(candidate=>candidate.type==='WAIT_XANAX');
+  assert.equal(xanax.length,1);
+  assert.equal(xanax[0].xanaxUses,1);
+  assert.deepEqual(xanax[0].actions,[{action:'TAKE_XANAX'}]);
+  assert.equal(xanax[0].postDrugCooldownSeconds,null);
+  const plan=planner.composePlan({state:r.observedState,energy:xanax[0],itemMechanics:r.itemMechanics});
+  assert.equal(plan.reason,undefined);
+  assert.equal(plan.simulation.trains[0].happyBefore,4075);
+  assert.equal(plan.preEcstasyHappy,4075);
+  assert.equal(plan.actions.filter(action=>action.action==='TAKE_XANAX').length,1);
+  assert.equal(r.observedState.inventoryFreshness,'FRESH');
+  assert.equal(r.capabilities.inventoryExecution,false);
+  const blocked=normalize({sources:{bars,cooldowns:{drug:3600,booster:0},perks:emptyPerks()}});
+  assert.equal(planner.generateEnergyCandidates({...blocked.observedState,maxWaitSeconds:0})
+    .some(candidate=>candidate.type==='WAIT_XANAX'),false);
+  const afterWait=planner.generateEnergyCandidates({...blocked.observedState,maxWaitSeconds:3600})
+    .filter(candidate=>candidate.type==='WAIT_XANAX');
+  assert.equal(afterWait.length,1);
+  assert.equal(afterWait[0].xanaxUses,1);
+  assert.deepEqual(afterWait[0].actions.slice(0,1),
+    [{action:'WAIT',seconds:3600,checkpoint:'DRUG_COOLDOWN'}]);
+});
+test('S4 unsupported drug effect leaves unrelated gain prediction available',()=>{
+  const r=normalize({sources:{...fixture('BARS_DONATOR_ORDINARY_001').sources,
+    ...fixture('BATTLESTATS_RAW_VALUE_001').sources,
+    ...fixture('COMPLETE_CARDIO_JOIN_001').sources,perks:emptyPerks()},
+  dynamicState:{...activeState,materialPreparationEffects:[
+    {scope:'drugEffect',description:'unsupported Xanax modifier'}]}});
+  assert.equal(r.observedState.stackCap,1000);
   assert.equal(r.observedState.xanax,undefined);
-  assert.equal(r.observedState.stackCap,undefined);
   assert.equal(r.capabilities.xanaxPreparation,false);
-  assert.equal(planner.generateEnergyCandidates({...r.observedState,stackCap:1000})
-    .some(candidate=>candidate.actions.some(action=>action.action==='TAKE_XANAX')),false);
-  assert.ok(r.unsupported.some(x=>x.capability==='xanaxPreparation' &&
-    x.reason==='STACK_CAP_UNAVAILABLE'));
+  assert.equal(r.capabilities.gymPrediction,true);
+  assert.equal(r.capabilities.gainPrediction,true);
+  assert.ok(r.unsupported.some(x=>x.capability==='xanaxPreparation' && x.reason==='UNSUPPORTED_EFFECT'));
 });
 test('paid refill may plan from a verified unused state but unknown Points prevents READY',()=>{
   const bars=structuredClone(fixture('BARS_DONATOR_ORDINARY_001').sources.bars);
