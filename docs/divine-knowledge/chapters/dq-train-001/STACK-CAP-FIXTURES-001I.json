@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "id": "DQ-TRAIN-001I",
+  "status": "FROZEN",
+  "verifiedAt": "2026-09-27",
+  "mechanic": {
+    "id": "TORN_ENERGY_STACK_CAP_V1",
+    "energyStackCap": 1000,
+    "provenance": "CONFIGURED",
+    "cacheClass": "VERSIONED_MECHANIC",
+    "source": "Official Torn Wiki — Energy"
+  },
+  "cases": [
+    {
+      "id": "STACK_CAP_VERSIONED_001",
+      "input": {
+        "configuredMechanics": {
+          "energyStackCap": 1000
+        }
+      },
+      "expected": {
+        "observedState": {
+          "stackCap": 1000
+        },
+        "field": {
+          "value": 1000,
+          "provenance": "CONFIGURED",
+          "freshness": "FRESH",
+          "sourceId": "TORN_ENERGY_STACK_CAP_V1",
+          "cacheClass": "VERSIONED_MECHANIC"
+        },
+        "capabilityAvailable": true
+      }
+    },
+    {
+      "id": "STACK_CAP_DISTINCT_FROM_NATURAL_MAX_001",
+      "input": {
+        "bars": {
+          "energy": {
+            "current": 150,
+            "maximum": 150,
+            "increment": 5,
+            "interval": 600
+          }
+        },
+        "configuredMechanics": {
+          "energyStackCap": 1000
+        }
+      },
+      "expected": {
+        "naturalEnergyMax": 150,
+        "stackCap": 1000,
+        "notEqual": true
+      }
+    },
+    {
+      "id": "XANAX_ADAPTER_ENABLE_001",
+      "input": {
+        "configuredMechanics": {
+          "energyStackCap": 1000
+        },
+        "itemMechanics": {
+          "xanax": {
+            "energyGain": 250,
+            "happyGain": 75
+          }
+        },
+        "unsupportedDrugEffect": false
+      },
+      "expected": {
+        "observedState": {
+          "stackCap": 1000,
+          "xanax": {
+            "energyGain": 250
+          }
+        },
+        "xanaxPreparation": true
+      }
+    },
+    {
+      "id": "XANAX_DYNAMIC_DRUG_EFFECT_FAIL_CLOSED_001",
+      "input": {
+        "configuredMechanics": {
+          "energyStackCap": 1000
+        },
+        "itemMechanics": {},
+        "unsupportedDrugEffect": true
+      },
+      "expected": {
+        "observedState": {
+          "stackCap": 1000
+        },
+        "xanaxPresent": false,
+        "xanaxPreparation": false,
+        "reason": "UNSUPPORTED_EFFECT"
+      }
+    },
+    {
+      "id": "STACK_CAP_VERSION_MISMATCH_FAIL_CLOSED_001",
+      "input": {
+        "configuredMechanics": {
+          "energyStackCap": 999
+        }
+      },
+      "expected": {
+        "stackCapPresent": false,
+        "xanaxPresent": false,
+        "xanaxPreparation": false,
+        "reason": "MECHANIC_VERSION_MISMATCH"
+      }
+    }
+  ],
+  "notes": [
+    "The official current mechanic is 1000. A different configured value is not treated as a player-specific override.",
+    "Natural Energy maximum remains sourced from /user/bars and must never substitute for the absolute stack cap.",
+    "No exact future Xanax cooldown is implied by these fixtures."
+  ]
+}
