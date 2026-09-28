@@ -37,6 +37,7 @@ State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLE
 31. [DQ-TRAIN-001H implementation checkpoint — 2026-09-27](XANAX-HAPPY-CORRECTION-2026-09-27.md) — immediate +75 Happy, delayed authoritative checkpoints, fail-closed adapter limitation, red/green regressions, and independent [V] gate.
 32. [DQ-TRAIN-001I Energy stack-cap specification — 2026-09-27](STACK-CAP-SPEC-001I.md) — owner-frozen official versioned mechanic `stackCap=1000`, provenance, Xanax capability rule, and timing/refill boundaries.
 33. [`STACK-CAP-FIXTURES-001I.json`](STACK-CAP-FIXTURES-001I.json) — synthetic acceptance cases for versioned stack cap, natural-max distinction, Xanax enablement, dynamic-drug fail-closed behavior, and version mismatch.
+34. [DQ-TRAIN-001I Work transfer handoff — 2026-09-27](WORK-TRANSFER-HANDOFF-STACK-CAP-XANAX-ENABLE-2026-09-27.md) — deliberate implementation bundle covering versioned stack-cap projection, Xanax enablement, S1–S8 regressions, full validation, publication, and independent [V] return.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
