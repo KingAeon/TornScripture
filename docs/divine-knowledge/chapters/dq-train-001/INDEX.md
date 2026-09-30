@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **001A–001J-P PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B1–B4 COMPLETE; 001J RUNTIME/UI SPECIFICATION FROZEN FOR INDEPENDENT [V]; H1/H2 OPEN**
+State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; 001J RUNTIME/UI v0.1.0 IMPLEMENTED/TESTED; INDEPENDENT [V][WORK] AND OWNER BROWSER GATES PENDING; H1/H2 OPEN**
 
 ## Canonical reading order
 
@@ -43,6 +43,7 @@ State: **001A–001J-P PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B
 
 37. [DQ-TRAIN-001J Runtime / Browser / UI Integration Specification](RUNTIME-UI-INTEGRATION-SPEC-001J.md) — owner-frozen acquisition/refresh, deterministic standalone packaging/runtime, beginner/advanced UI, safety, storage, H1/H2, and implementation-gate contract.
 38. [`RUNTIME-UI-INTEGRATION-FIXTURES-001J.json`](RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) — 34 synthetic acceptance cases: 11 acquisition, 8 packaging/runtime, and 15 UI/interaction cases.
+39. [DQ-TRAIN-001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) — owner-authorized standalone 0.1.0 runtime/UI, deterministic build, 212 Training / 449 repository tests, unchanged canonical/frozen inputs, exact product head, pending independent [V][WORK] and owner browser gates.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -169,4 +170,8 @@ The owner then froze [DQ-TRAIN-001J](RUNTIME-UI-INTEGRATION-SPEC-001J.md) with [
 
 H1 Happy-reset timing and H2 personalized Candy-event interval remain open live-evidence gates. They fail closed only the dependent execution mechanics and are not silently resolved by this specification.
 
-Next gate: independent `[V]` of the documentation/fixture freeze and a separate owner merge decision. Runtime/browser/UI/userscript implementation remains unauthorized until a later explicit owner `[B][WORK]` decision from the verified post-spec baseline.
+PR #134 passed independent `[V]` at `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`. The owner separately authorized `[B][WORK]` from that exact baseline.
+
+The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested product head `4a6670d919223e92dc468ee31f576069947edd45`, 0.1.0 generated artifact, 212 focused / 449 repository passes, and preserved H1/H2 gates.
+
+Next gate: independent `[V][WORK]` pinned to the final draft PR head, followed by owner TornPDA/desktop manual verification and a separate merge decision. The implementation remains unmerged and unreleased.
