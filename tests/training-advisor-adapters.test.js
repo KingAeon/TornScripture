@@ -372,8 +372,12 @@ test('J-P2 explicit zero and missing API inventory never invent unrelated quanti
   assert.equal(r.capabilities.inventoryExecution,false);
 });
 test('J-P3 unverified, stale, malformed or unknown-item confirmations cannot promote quantities',()=>{
+  const invalidTimes=[null,{},[],false,'','not-a-timestamp',undefined,1800000000,
+    '2026-09-27','2026-09-27 06:00:00Z','2026-09-27T06:00:00',
+    '2026-02-30T06:00:00Z','2026-09-27T24:00:00Z','2026-09-27T06:60:00Z'];
   for (const patch of [{confirmedCurrent:false},{freshness:'FRESH'},{freshness:'STALE'},
-    {observedAt:null},{quantities:{xanax:-1}},{quantities:{xanax:0.5}},
+    {freshness:'UNKNOWN'},...invalidTimes.map(observedAt=>({observedAt})),
+    {quantities:{xanax:-1}},{quantities:{xanax:0.5}},
     {quantities:{xanax:'1'}},{quantities:{xanax:Number.MAX_SAFE_INTEGER+1}},
     {quantities:{unknownItem:1}}]) {
     const r=normalize({sources:confirmationSources(),confirmedInventory:
@@ -382,6 +386,23 @@ test('J-P3 unverified, stale, malformed or unknown-item confirmations cannot pro
     assert.equal(r.observedState.inventoryFreshnessByItem.xanax,'FRESH');
     assert.equal(r.fields.inventory.confirmation,undefined);
     assert.equal(Object.hasOwn(r.observedState.inventory,'unknownItem'),false);
+  }
+  for (const observedAt of invalidTimes) {
+    const quantities=Object.fromEntries(Object.values(a.ITEM_REGISTRY).map(item=>[item.key,1]));
+    const r=normalize({sources:confirmationSources(),confirmedInventory:
+      {...currentInventoryConfirmation(quantities),complete:true,observedAt}});
+    assert.equal(r.observedState.inventory.xanax,5);
+    assert.equal(r.observedState.inventoryFreshness,'FRESH');
+    assert.equal(r.capabilities.inventoryExecution,false);
+    assert.equal(r.fields.inventory.confirmation,undefined);
+  }
+  for (const observedAt of [time,'2026-09-27T06:00:00.123Z',
+    '2026-09-27T01:00:00-05:00','2024-02-29T06:00:00Z']) {
+    const r=normalize({sources:confirmationSources(),confirmedInventory:
+      {...currentInventoryConfirmation({xanax:1}),observedAt}});
+    assert.equal(r.observedState.inventory.xanax,1);
+    assert.equal(r.observedState.inventoryFreshnessByItem.xanax,'LIVE');
+    assert.equal(r.fields.inventory.confirmation.observedAt,observedAt);
   }
 });
 test('J-P4 complete confirmation preserves the existing all-registry LIVE path',()=>{
@@ -417,6 +438,12 @@ test('J-P5 adapter-to-planner selected-plan confirmation grants READY without pr
   assert.deepEqual(after.economics,before.economics);
   assert.deepEqual(after.primaryPlan.confidence,before.primaryPlan.confidence);
   const r=confirmationSnapshot(needed);
+  const mixed={actions:[{action:'TRAIN'}],
+    resources:{ownedItemsConsumed:{xanax:1},boughtItems:{xanax:1}}};
+  assert.equal(planner.planReadiness(mixed,{...r.observedState,itemsAvailable:true}).status,'READY');
+  assert.equal(planner.planReadiness({...mixed,
+    resources:{ownedItemsConsumed:{xanax:2},boughtItems:{xanax:1}}},
+    {...r.observedState,itemsAvailable:true}).status,'NEEDS_ITEMS');
   const unrelated=planner.planReadiness({actions:[{action:'TRAIN'}],
     resources:{ownedItemsConsumed:{candy37:1}}},r.observedState);
   assert.equal(unrelated.status,'NEEDS_REFRESH');

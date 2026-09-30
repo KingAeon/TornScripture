@@ -529,14 +529,48 @@ test('J-P9 explicit non-LIVE per-item proof wins over a legacy global LIVE claim
   const legacy=selectedInventoryState({inventoryFreshness:'LIVE',inventoryFreshnessByItem:undefined});
   assert.equal(m.planReadiness(selectedInventoryPlan,legacy).status,'READY');
 });
-test('J-P10 bought resources still require acquisition and confirmation of the total consumed quantity',()=>{
+test('J-P10 owned confirmation and bought-resource acquisition are distinct readiness gates',()=>{
   const plan={actions:[{action:'TRAIN'}],resources:{ownedItemsConsumed:{xanax:1},boughtItems:{xanax:1}}};
-  const state=selectedInventoryState({inventory:{xanax:2}});
-  assert.equal(m.planReadiness(plan,state).status,'NEEDS_ITEMS');
-  assert.equal(m.planReadiness(plan,{...state,itemsAvailable:true}).status,'READY');
-  assert.equal(m.planReadiness(plan,{...state,itemsAvailable:true,inventory:{xanax:1}}).status,'NEEDS_ITEMS');
-  assert.equal(m.planReadiness(plan,{...state,itemsAvailable:true,
-    inventoryFreshnessByItem:{xanax:'FRESH'}}).status,'NEEDS_REFRESH');
+  const state=selectedInventoryState({inventory:{xanax:1},itemsAvailable:true});
+  assert.equal(m.planReadiness(plan,state).status,'READY');
+  assert.deepEqual(m.planReadiness(plan,state),m.planReadiness(plan,state));
+  const insufficient={...plan,resources:{ownedItemsConsumed:{xanax:2},boughtItems:{xanax:1}}};
+  assert.deepEqual(m.planReadiness(insufficient,state),{status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',
+    nextAction:'obtain and verify required items'});
+  assert.equal(m.planReadiness(plan,{...state,inventory:{xanax:0}}).status,'NEEDS_ITEMS');
+  for (const proof of ['FRESH','STALE','UNKNOWN',undefined]) {
+    assert.equal(m.planReadiness(plan,{...state,
+      inventoryFreshnessByItem:{xanax:proof}}).status,'NEEDS_REFRESH');
+  }
+  assert.equal(m.planReadiness(plan,{...state,inventory:undefined}).status,'NEEDS_REFRESH');
+  for (const ownedItemsConsumed of [undefined,{xanax:0}]) {
+    const boughtOnly={actions:[{action:'TAKE_XANAX'},{action:'TRAIN'}],
+      resources:{ownedItemsConsumed,boughtItems:{xanax:1}}};
+    const noInventory={...state,inventory:undefined,inventoryFreshness:'STALE',
+      inventoryFreshnessByItem:undefined,cooldowns:{drugSeconds:0}};
+    assert.equal(m.planReadiness(boughtOnly,noInventory).status,'READY');
+    for (const itemsAvailable of [false,undefined]) {
+      const r=m.planReadiness(boughtOnly,{...noInventory,itemsAvailable});
+      assert.equal(r.status,'NEEDS_ITEMS');
+      assert.equal(r.reason,'RESOURCE_MISSING');
+    }
+  }
+  for (const itemsAvailable of [false,undefined])
+    assert.equal(m.planReadiness(plan,{...state,itemsAvailable}).status,'NEEDS_ITEMS');
+  for (const quantity of [-1,0,0.5,'1',Number.MAX_SAFE_INTEGER+1]) {
+    assert.equal(m.planReadiness({...plan,resources:{boughtItems:{xanax:quantity}}},state).status,'NEEDS_REFRESH');
+  }
+  const dvdState=selectedInventoryState({energy:100,naturalEnergyMax:150,happy:1000,
+    ordinaryHappy:1000,stats:{speed:1000},targetStat:'speed',gym:{dots:5.8,energyPerTrain:10},
+    cooldowns:{drugSeconds:0,boosterSeconds:0,boosterMaxSeconds:86400},
+    inventory:{eroticDvd:1},itemsAvailable:true});
+  const composed=m.composePlan({state:dvdState,energy:m.generateEnergyCandidates(dvdState)[0],
+    recipe:{items:[{id:'eroticDvd',quantity:2,owned:1,newCashEach:1000,replacementValueEach:1000}],
+      useEcstasy:false},itemMechanics:{eroticDvd:{happy:2500,cooldownSeconds:21600}}});
+  assert.deepEqual(composed.resources.ownedItemsConsumed,{eroticDvd:1});
+  assert.deepEqual(composed.resources.boughtItems,{eroticDvd:1});
+  assert.equal(composed.actions.find(a=>a.action==='USE_BOOSTER').quantity,2);
+  assert.equal(composed.readiness.status,'READY');
 });
 test('J-P11 item confirmation cannot bypass other material-state, timing or train-now gates',()=>{
   const state=selectedInventoryState();
@@ -551,7 +585,7 @@ test('J-P11 item confirmation cannot bypass other material-state, timing or trai
     selectedInventoryState({inventory:undefined,inventoryFreshness:'STALE'})).status,'READY');
 });
 test('J-P14 consumed quantities and explicit item proof fail closed without mutating inputs',()=>{
-  for (const quantity of [-1,0,0.5,'1',Number.MAX_SAFE_INTEGER+1]) {
+  for (const quantity of [undefined,null,-1,0,0.5,'1',Number.MAX_SAFE_INTEGER+1]) {
     const plan={actions:[{action:'TRAIN'}],resources:{ownedItemsConsumed:{xanax:quantity}}};
     assert.equal(m.planReadiness(plan,selectedInventoryState()).status,'NEEDS_REFRESH');
   }

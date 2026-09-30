@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-30 UTC; PR #132 independently verified/merged at 7352573; bounded DQ-TRAIN-001J-P inventory correction prepared for independent [V]
+Snapshot: 2026-09-30 UTC; PR #132 independently verified/merged at 7352573; draft PR #133's two inventory verification blockers amended for fresh independent [V]
 
 CURRENT_TRAINING|DQ-TRAIN-001J-P|implementation_branch_independent_V_pending|base_main_7352573be851f4cae590848af830975e905f6890|agent/training-selected-inventory-confirmation-001jp
-CURRENT_TRAINING_DETAIL|Selected-plan inventory confirmation overlays only confirmed quantities with item-local LIVE proof; API inventory stays FRESH; quantity insufficiency and unconfirmed items fail readiness closed; no runtime/UI build
+CURRENT_TRAINING_DETAIL|Valid ISO/RFC3339 inventory confirmation overlays only confirmed quantities with item-local LIVE proof; API inventory stays FRESH; owned consumption requires sufficient current proof; bought resources retain acquisition gates; PR#133 draft/unmerged; fresh V pending
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|7352573be851f4cae590848af830975e905f6890

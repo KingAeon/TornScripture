@@ -289,8 +289,14 @@ function adaptInventory(sources = {}, metas = {}, confirmedInventory) {
     'FRESH' : 'UNKNOWN';
   // Current player proof overrides cached quantities only for confirmed keys.
   // Partial confirmation must never promote unrelated inventory to LIVE.
+  const observedAt=confirmedInventory?.observedAt;
+  // Validate supplied inventory evidence only; no clock or age policy is used.
+  const validObservedAt=typeof observedAt === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(observedAt) &&
+    Number.isFinite(Date.parse(observedAt)) &&
+    new Date(`${observedAt.slice(0,10)}T00:00:00Z`).toISOString().slice(0,10) === observedAt.slice(0,10);
   const confirmationStatus = sourceStatus(confirmedInventory?.sourceId || 'PLAYER_CONFIRMED_INVENTORY',
-    confirmedInventory?.confirmedCurrent === true &&
+    confirmedInventory?.confirmedCurrent === true && validObservedAt &&
       object(confirmedInventory.quantities) ? confirmedInventory : null,
     {sourceId:confirmedInventory?.sourceId,requestSucceeded:confirmedInventory?.confirmedCurrent === true,
       observedAt:confirmedInventory?.observedAt,freshness:confirmedInventory?.freshness},

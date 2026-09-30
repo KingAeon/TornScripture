@@ -419,7 +419,8 @@ function planReadiness(plan, state = {}, timing = {}) {
   const inventoryItems=[...new Set([...Object.keys(ownedItems),...Object.keys(boughtItems)])];
   const itemFreshness=item=>Object.hasOwn(state.inventoryFreshnessByItem || {},item) ?
     state.inventoryFreshnessByItem[item] : state.inventoryFreshness ?? state.freshness?.inventory;
-  if (state.inventoryFreshness === 'STALE' && Object.keys(ownedItems).some(item=>itemFreshness(item)!=='LIVE'))
+  if (state.inventoryFreshness === 'STALE' && Object.keys(ownedItems)
+      .some(item=>ownedItems[item] > 0 && itemFreshness(item)!=='LIVE'))
     return { status:'NEEDS_REFRESH',reason:'DATA_STALE',nextAction:'refresh inventory' };
   if (plan.actions?.some(a => a.action === 'TAKE_ECSTASY') && timing.safeQuarterWindow === false)
     return { status:'BLOCKED',reason:'TIMING_UNSAFE',nextAction:'wait for next safe quarter-hour window' };
@@ -436,7 +437,7 @@ function planReadiness(plan, state = {}, timing = {}) {
   const required=[['energy',true],['happy',true],['gym',false],['gainModifiers',false]];
   const drug=plan.actions?.some(a=>['TAKE_XANAX','TAKE_ECSTASY'].includes(a.action));
   const booster=plan.actions?.some(a=>a.action==='USE_BOOSTER');
-  const inventory=inventoryItems.length > 0;
+  const inventory=Object.values(ownedItems).some(quantity=>quantity > 0);
   if (drug) required.push(['drugCooldown',true]);
   if (booster) required.push(['boosterCooldown',true]);
   for (const [field,liveOnly] of required) {
@@ -445,19 +446,23 @@ function planReadiness(plan, state = {}, timing = {}) {
       return {status:'NEEDS_REFRESH',reason:!freshness || freshness==='UNKNOWN' ? 'DATA_MISSING' : 'DATA_STALE',
         nextAction:`refresh ${field}`};
   }
-  // Readiness covers this plan's consumption, never the whole cached inventory.
+  // Owned proof covers only owned consumption; purchases use the acquisition gate.
   // Legacy fully-LIVE normalized input remains supported when no item proof exists.
   for (const item of inventoryItems) {
+    const owned=Object.hasOwn(ownedItems,item) ? ownedItems[item] : 0;
+    const bought=Object.hasOwn(boughtItems,item) ? boughtItems[item] : 0;
+    const total=owned+bought;
+    if (!isInteger(owned) || !isInteger(bought) || !isInteger(total) || !total)
+      return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh inventory'};
+    if (!owned) continue;
     const freshness=itemFreshness(item);
     if (freshness !== 'LIVE')
       return {status:'NEEDS_REFRESH',reason:!freshness || freshness==='UNKNOWN' ? 'DATA_MISSING' : 'DATA_STALE',
         nextAction:'refresh inventory'};
-    const owned=ownedItems[item] ?? 0, bought=boughtItems[item] ?? 0;
-    const needed=owned+bought, available=state.inventory?.[item];
-    if (!isInteger(owned) || !isInteger(bought) || !isInteger(needed) || !needed ||
-        !state.inventory || !Object.hasOwn(state.inventory,item) || !isInteger(available))
+    const available=state.inventory?.[item];
+    if (!state.inventory || !Object.hasOwn(state.inventory,item) || !isInteger(available))
       return {status:'NEEDS_REFRESH',reason:'DATA_MISSING',nextAction:'refresh inventory'};
-    if (available < needed)
+    if (available < owned)
       return {status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',nextAction:'obtain and verify required items'};
   }
   if (drug && !isNonnegative(state.cooldowns?.drugSeconds))
