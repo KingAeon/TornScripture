@@ -1,12 +1,12 @@
 # NOW
 
-Snapshot: 2026-09-28 UTC; PR #131 stack-cap specification merged at 3a812d8; DQ-TRAIN-001I implementation branch prepared for independent [V]
+Snapshot: 2026-09-30 UTC; PR #132 independently verified/merged at 7352573; bounded DQ-TRAIN-001J-P inventory correction prepared for independent [V]
 
-CURRENT_TRAINING|DQ-TRAIN-001I|implementation_branch_independent_V_pending|base_main_3a812d8fdf550dc35a9c9eddc7dd384e3631a86d|agent/training-stack-cap-xanax-001i-build
-CURRENT_TRAINING_DETAIL|Versioned stackCap=1000 projects CONFIGURED/FRESH mechanics independent of /user/bars naturalEnergyMax; supported Xanax adapter path enabled with dynamic-drug and mechanic-mismatch fail-closed guards; random future cooldown stays checkpoint/replan based
+CURRENT_TRAINING|DQ-TRAIN-001J-P|implementation_branch_independent_V_pending|base_main_7352573be851f4cae590848af830975e905f6890|agent/training-selected-inventory-confirmation-001jp
+CURRENT_TRAINING_DETAIL|Selected-plan inventory confirmation overlays only confirmed quantities with item-local LIVE proof; API inventory stays FRESH; quantity insufficiency and unconfirmed items fail readiness closed; no runtime/UI build
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|3a812d8fdf550dc35a9c9eddc7dd384e3631a86d
+MAIN_AT_SNAPSHOT|7352573be851f4cae590848af830975e905f6890
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -14,13 +14,13 @@ DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
 BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
 
-PARALLEL|DQ-TRAIN-001|001i_pure_adapter_implementation_independent_V_pending
+PARALLEL|DQ-TRAIN-001|001i_complete_merged_001jp_correction_independent_V_pending
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_001E_001F_and_frontier_follow_up_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|independent [V] of DQ-TRAIN-001I pure adapter implementation; owner merge decision separately; UI/TornPDA integration later
+TRAINING_NEXT|independent [V] of DQ-TRAIN-001J-P; separate owner merge decision; resume 001J [S] freeze only after prerequisite resolution and baseline recheck; runtime [B][WORK] remains separate
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -75,7 +75,11 @@ TRAINING_001D_FREEZE|chapters/dq-train-001/ADAPTER-FINAL-FREEZE-2026-09-26.md|PR
 TRAINING_001D_BUILD|chapters/dq-train-001/ADAPTER-BUILD-CHECKPOINT-2026-09-27.md|PR#129_merged_in_443cb542e8b3f3d2b70404993d5dd322fe6f013d
 TRAINING_001H_CORRECTION|chapters/dq-train-001/XANAX-HAPPY-CORRECTION-2026-09-27.md|PR#130|merged_cfdf9000d9a8e37d52ad3d5fbf0861abe5c4b1c2
 
-TRAINING_001I_STACK_CAP|chapters/dq-train-001/STACK-CAP-SPEC-001I.md|PR#131_merged_3a812d8fdf550dc35a9c9eddc7dd384e3631a86d|1000|official_Torn_Energy|implementation_branch_pending_V
+TRAINING_001I_STACK_CAP|chapters/dq-train-001/STACK-CAP-SPEC-001I.md|PR#131_merged_3a812d8fdf550dc35a9c9eddc7dd384e3631a86d|1000|official_Torn_Energy|PR#132_independent_V_PASS_merged_7352573be851f4cae590848af830975e905f6890
 TRAINING_001I_FIXTURES|chapters/dq-train-001/STACK-CAP-FIXTURES-001I.json|5_cases
 TRAINING_001I_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-STACK-CAP-XANAX-ENABLE-2026-09-27.md|implementation_executed_from_exact_post_spec_main
-TRAINING_001I_BUILD|chapters/dq-train-001/STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md|agent/training-stack-cap-xanax-001i-build|independent_V_pending
+TRAINING_001I_BUILD|chapters/dq-train-001/STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md|historical_checkpoint|PR#132_merged|verified_head_a5066c848ebd14c5045817947978646ef9af9578
+TRAINING_001J_FREEZE|stopped_before_edits_selected_inventory_contradiction|A_B_C_design_pending_authoritative_freeze|no_runtime_implementation_authorized
+TRAINING_001J_P|chapters/dq-train-001/SELECTED-INVENTORY-CONFIRMATION-CORRECTION-001J-P.md|bounded_pure_correction|independent_V_pending
+TRAINING_H1|open_live_evidence_gate|happy.tick_time_quarter_reset_unproven
+TRAINING_H2|open_live_evidence_gate|personalized_calendar_event_interval_unproven

@@ -323,7 +323,7 @@ test('EDVD_UNSUPPORTED_PROJECTION_001 preserves inventory and omits mechanic',()
   assert.equal(r.itemMechanics.eroticDvd,undefined);
   assert.equal(r.capabilities.eroticDvdPreparation,false);
 });
-test('cached inventory never becomes LIVE by a fresh HTTP fetch; partial confirmation stays unready',()=>{
+test('cached inventory never becomes LIVE by a fresh HTTP fetch; partial confirmation never promotes all inventory',()=>{
   const s={drugInventory:page('Drug',[{id:197,amount:1}])};
   const r=normalize({sources:s,sourceMeta:{drugInventory:meta('drugInventory','LIVE')},
     confirmedInventory:{sourceId:'PLAYER_CONFIRMED_INVENTORY',complete:true,
@@ -340,6 +340,124 @@ test('cached inventory never becomes LIVE by a fresh HTTP fetch; partial confirm
   assert.equal(stale.observedState.inventory.ecstasy,undefined);
   assert.equal(stale.capabilities.inventoryPlanning,false);
   assert.equal(stale.inventory.Drug.reason,'DATA_STALE');
+});
+
+const currentInventoryConfirmation = quantities => ({sourceId:'PLAYER_CONFIRMED_INVENTORY',
+  confirmedCurrent:true,quantities,observedAt:time,freshness:'LIVE'});
+const confirmationSources = () => ({drugInventory:page('Drug',[{id:206,amount:5},{id:197,amount:1}]),
+  boosterInventory:page('Booster',[{id:366,amount:2}]),
+  candyInventory:page('Candy',[{id:37,amount:7}])});
+test('J-P1 required-only confirmation overlays quantities with item-local LIVE proof',()=>{
+  const r=normalize({sources:confirmationSources(),confirmedInventory:
+    currentInventoryConfirmation({xanax:1,eroticDvd:2,ecstasy:1})});
+  assert.deepEqual(r.observedState.inventoryFreshnessByItem,
+    Object.fromEntries(Object.values(a.ITEM_REGISTRY).map(item=>[item.key,
+      ['xanax','eroticDvd','ecstasy'].includes(item.key)?'LIVE':'FRESH'])));
+  assert.equal(r.observedState.inventory.xanax,1);
+  assert.equal(r.observedState.inventory.candy37,7);
+  assert.equal(r.observedState.inventoryFreshness,'FRESH');
+  assert.equal(r.observedState.freshness.inventory,'FRESH');
+  assert.equal(r.capabilities.inventoryExecution,false);
+  assert.deepEqual(r.fields.inventory.confirmation.value,{xanax:1,eroticDvd:2,ecstasy:1});
+  assert.equal(r.fields.inventory.confirmation.observedAt,time);
+  assert.equal(r.fields.inventory.confirmation.cacheClass,'PLAYER_CONFIRMATION');
+  assert.equal(r.inventory.Drug.freshness,'FRESH');
+});
+test('J-P2 explicit zero and missing API inventory never invent unrelated quantities',()=>{
+  const r=normalize({confirmedInventory:currentInventoryConfirmation({xanax:0})});
+  assert.equal(r.observedState.inventory.xanax,0);
+  assert.deepEqual(r.observedState.inventoryFreshnessByItem,{xanax:'LIVE'});
+  assert.equal(Object.hasOwn(r.observedState.inventory,'ecstasy'),false);
+  assert.equal(r.observedState.inventoryFreshness,'UNKNOWN');
+  assert.equal(r.capabilities.inventoryExecution,false);
+});
+test('J-P3 unverified, stale, malformed or unknown-item confirmations cannot promote quantities',()=>{
+  for (const patch of [{confirmedCurrent:false},{freshness:'FRESH'},{freshness:'STALE'},
+    {observedAt:null},{quantities:{xanax:-1}},{quantities:{xanax:0.5}},
+    {quantities:{xanax:'1'}},{quantities:{xanax:Number.MAX_SAFE_INTEGER+1}},
+    {quantities:{unknownItem:1}}]) {
+    const r=normalize({sources:confirmationSources(),confirmedInventory:
+      {...currentInventoryConfirmation({xanax:1}),...patch}});
+    assert.equal(r.observedState.inventory.xanax,5,JSON.stringify(patch));
+    assert.equal(r.observedState.inventoryFreshnessByItem.xanax,'FRESH');
+    assert.equal(r.fields.inventory.confirmation,undefined);
+    assert.equal(Object.hasOwn(r.observedState.inventory,'unknownItem'),false);
+  }
+});
+test('J-P4 complete confirmation preserves the existing all-registry LIVE path',()=>{
+  const quantities=Object.fromEntries(Object.values(a.ITEM_REGISTRY).map(item=>[item.key,0]));
+  quantities.xanax=1;
+  const r=normalize({sources:confirmationSources(),confirmedInventory:
+    {...currentInventoryConfirmation(quantities),complete:true}});
+  assert.deepEqual(r.observedState.inventory,quantities);
+  assert.ok(Object.values(r.observedState.inventoryFreshnessByItem).every(f=>f==='LIVE'));
+  assert.equal(r.observedState.inventoryFreshness,'LIVE');
+  assert.equal(r.capabilities.inventoryExecution,true);
+});
+function confirmationSnapshot(quantities,sources={}) {
+  return normalize({sources:{...confirmationSources(),...fixture('BARS_DONATOR_ORDINARY_001').sources,
+    cooldowns:{drug:0,booster:0},...fixture('BATTLESTATS_RAW_VALUE_001').sources,
+    ...fixture('COMPLETE_CARDIO_JOIN_001').sources,perks:emptyPerks(),...sources},
+    confirmedInventory:quantities && currentInventoryConfirmation(quantities),
+    timingInput:{sourceId:'SYNTHETIC_VERIFIED_WINDOW',confirmedCurrent:true,
+      observedAt:time,freshness:'LIVE',safeQuarterWindow:true}});
+}
+const confirmationRecommendation = r => planner.recommend({observedState:r.observedState,
+  itemMechanics:r.itemMechanics,timing:r.timing,
+  preferences:{objective:'MAXIMUM_GAIN',allowItems:true,maxWaitSeconds:0}});
+test('J-P5 adapter-to-planner selected-plan confirmation grants READY without promoting alternatives',()=>{
+  const before=confirmationRecommendation(confirmationSnapshot());
+  assert.equal(before.readiness.status,'NEEDS_REFRESH');
+  const needed=before.primaryPlan.resources.ownedItemsConsumed;
+  assert.deepEqual(needed,{xanax:1});
+  const after=confirmationRecommendation(confirmationSnapshot(needed));
+  assert.equal(after.readiness.status,'READY');
+  assert.equal(after.primaryPlan.fingerprint,before.primaryPlan.fingerprint);
+  assert.deepEqual(after.outcome,before.outcome);
+  assert.deepEqual(after.economics,before.economics);
+  assert.deepEqual(after.primaryPlan.confidence,before.primaryPlan.confidence);
+  const r=confirmationSnapshot(needed);
+  const unrelated=planner.planReadiness({actions:[{action:'TRAIN'}],
+    resources:{ownedItemsConsumed:{candy37:1}}},r.observedState);
+  assert.equal(unrelated.status,'NEEDS_REFRESH');
+});
+test('J-P6 conflicting confirmation changes the next recommendation without reusing cached resource counts',()=>{
+  const before=confirmationRecommendation(confirmationSnapshot());
+  const r=confirmationSnapshot({xanax:0,eroticDvd:0,ecstasy:0});
+  const after=confirmationRecommendation(r);
+  assert.equal(planner.compareRecommendationIdentity(before.primaryPlan,after.primaryPlan)
+    .recommendationIdentityChanged,true);
+  assert.deepEqual(after.primaryPlan.resources.ownedItemsConsumed,{});
+  assert.equal(after.primaryPlan.actions.some(x=>['TAKE_XANAX','TAKE_ECSTASY','USE_BOOSTER']
+    .includes(x.action)),false);
+  assert.equal(planner.planReadiness(before.primaryPlan,r.observedState,before.timing).status,'NEEDS_ITEMS');
+});
+test('J-P12 Happy preparation confirms just the selected boosters and Ecstasy with timing still required',()=>{
+  const sources={drugInventory:page('Drug',[{id:197,amount:1}]),candyInventory:page('Candy',[])};
+  const before=confirmationRecommendation(confirmationSnapshot(undefined,sources));
+  const needed=before.primaryPlan.resources.ownedItemsConsumed;
+  assert.deepEqual(needed,{eroticDvd:2,ecstasy:1});
+  const r=confirmationSnapshot(needed,sources);
+  const after=confirmationRecommendation(r);
+  assert.equal(after.readiness.status,'READY');
+  assert.equal(after.primaryPlan.fingerprint,before.primaryPlan.fingerprint);
+  assert.deepEqual(after.outcome,before.outcome);
+  assert.equal(r.observedState.inventoryFreshnessByItem.xanax,'FRESH');
+  assert.equal(planner.planReadiness(after.primaryPlan,r.observedState,{}).status,'NEEDS_REFRESH');
+});
+test('J-P13 invalid keys stay isolated and confirmation is not retained by a later normalization',()=>{
+  const input={sources:confirmationSources(),confirmedInventory:
+    currentInventoryConfirmation({xanax:0,ecstasy:-1,unknownItem:9})};
+  const before=structuredClone(input);
+  const r=normalize(input);
+  assert.deepEqual(input,before);
+  assert.deepEqual(r.fields.inventory.confirmation.value,{xanax:0});
+  assert.equal(r.observedState.inventory.ecstasy,1);
+  assert.equal(r.observedState.inventoryFreshnessByItem.ecstasy,'FRESH');
+  const later=normalize({sources:confirmationSources()});
+  assert.equal(later.observedState.inventory.xanax,5);
+  assert.equal(later.observedState.inventoryFreshnessByItem.xanax,'FRESH');
+  assert.equal(later.fields.inventory.confirmation,undefined);
 });
 test('multi-page inventory requires linked pages, stable timestamps, and complete totals',()=>{
   const first={...page('Drug',[{id:197,amount:1}], 'p2',2),pageId:'p1'};

@@ -487,6 +487,83 @@ test('execution readiness requires field-level freshness while planning can proc
     assert.equal(result.readiness.status,'NEEDS_REFRESH',field);
   }
 });
+
+function selectedInventoryState(overrides={}) {
+  return {inventory:{xanax:1,eroticDvd:2,ecstasy:1,candy:7},inventoryFreshness:'FRESH',
+    inventoryFreshnessByItem:{xanax:'LIVE',eroticDvd:'LIVE',ecstasy:'LIVE'},
+    freshness:{...liveFreshness,inventory:'FRESH'},gainPerks:[],activeEffects:[],...overrides};
+}
+const selectedInventoryPlan = {actions:[{action:'TRAIN'}],
+  resources:{ownedItemsConsumed:{xanax:1,eroticDvd:2,ecstasy:1}}};
+test('J-P7 readiness uses only consumed-item freshness, including otherwise stale/unknown inventory',()=>{
+  for (const inventoryFreshness of ['FRESH','STALE','UNKNOWN']) {
+    const state=selectedInventoryState({inventoryFreshness});
+    assert.equal(m.planReadiness(selectedInventoryPlan,state).status,'READY');
+    assert.equal(m.planReadiness({...selectedInventoryPlan,
+      resources:{ownedItemsConsumed:{candy:1}}},state).status,'NEEDS_REFRESH');
+    assert.equal(m.planReadiness({...selectedInventoryPlan,
+      resources:{ownedItemsConsumed:{xanax:1,candy:1}}},state).status,'NEEDS_REFRESH');
+  }
+});
+test('J-P8 current insufficient quantities block even a previously planned or globally LIVE plan',()=>{
+  for (const count of [0,1]) for (const inventoryFreshness of ['FRESH','LIVE']) {
+    const state=selectedInventoryState({inventoryFreshness,
+      inventory:{xanax:1,eroticDvd:count,ecstasy:1}});
+    const r=m.planReadiness(selectedInventoryPlan,state);
+    assert.equal(r.status,'NEEDS_ITEMS');
+    assert.equal(r.reason,'RESOURCE_MISSING');
+  }
+  for (const count of [undefined,-1,0.5,'2',Number.MAX_SAFE_INTEGER+1]) {
+    const r=m.planReadiness(selectedInventoryPlan,selectedInventoryState({
+      inventory:{xanax:1,eroticDvd:count,ecstasy:1}}));
+    assert.equal(r.status,'NEEDS_REFRESH');
+    assert.equal(r.reason,'DATA_MISSING');
+  }
+});
+test('J-P9 explicit non-LIVE per-item proof wins over a legacy global LIVE claim',()=>{
+  for (const freshness of ['STALE','FRESH','UNKNOWN']) {
+    const state=selectedInventoryState({inventoryFreshness:'LIVE',
+      inventoryFreshnessByItem:{xanax:'LIVE',eroticDvd:freshness,ecstasy:'LIVE'}});
+    assert.equal(m.planReadiness(selectedInventoryPlan,state).status,'NEEDS_REFRESH');
+  }
+  const legacy=selectedInventoryState({inventoryFreshness:'LIVE',inventoryFreshnessByItem:undefined});
+  assert.equal(m.planReadiness(selectedInventoryPlan,legacy).status,'READY');
+});
+test('J-P10 bought resources still require acquisition and confirmation of the total consumed quantity',()=>{
+  const plan={actions:[{action:'TRAIN'}],resources:{ownedItemsConsumed:{xanax:1},boughtItems:{xanax:1}}};
+  const state=selectedInventoryState({inventory:{xanax:2}});
+  assert.equal(m.planReadiness(plan,state).status,'NEEDS_ITEMS');
+  assert.equal(m.planReadiness(plan,{...state,itemsAvailable:true}).status,'READY');
+  assert.equal(m.planReadiness(plan,{...state,itemsAvailable:true,inventory:{xanax:1}}).status,'NEEDS_ITEMS');
+  assert.equal(m.planReadiness(plan,{...state,itemsAvailable:true,
+    inventoryFreshnessByItem:{xanax:'FRESH'}}).status,'NEEDS_REFRESH');
+});
+test('J-P11 item confirmation cannot bypass other material-state, timing or train-now gates',()=>{
+  const state=selectedInventoryState();
+  for (const field of ['energy','happy','gym','gainModifiers']) {
+    assert.equal(m.planReadiness(selectedInventoryPlan,{...state,
+      freshness:{...state.freshness,[field]:'STALE'}}).status,'NEEDS_REFRESH');
+  }
+  const drug={...selectedInventoryPlan,actions:[{action:'TAKE_ECSTASY'}]};
+  assert.equal(m.planReadiness(drug,state).status,'NEEDS_REFRESH');
+  assert.equal(m.planReadiness(drug,state,{safeQuarterWindow:false}).status,'BLOCKED');
+  assert.equal(m.planReadiness({actions:[{action:'TRAIN'}],resources:{}},
+    selectedInventoryState({inventory:undefined,inventoryFreshness:'STALE'})).status,'READY');
+});
+test('J-P14 consumed quantities and explicit item proof fail closed without mutating inputs',()=>{
+  for (const quantity of [-1,0,0.5,'1',Number.MAX_SAFE_INTEGER+1]) {
+    const plan={actions:[{action:'TRAIN'}],resources:{ownedItemsConsumed:{xanax:quantity}}};
+    assert.equal(m.planReadiness(plan,selectedInventoryState()).status,'NEEDS_REFRESH');
+  }
+  const state=selectedInventoryState(), before=structuredClone(state);
+  assert.equal(m.planReadiness(selectedInventoryPlan,state).status,'READY');
+  assert.deepEqual(state,before);
+  const missing=structuredClone(state);
+  delete missing.inventory.ecstasy;
+  assert.equal(m.planReadiness(selectedInventoryPlan,missing).status,'NEEDS_REFRESH');
+  assert.equal(m.planReadiness(selectedInventoryPlan,{...state,
+    inventoryFreshness:'LIVE',inventoryFreshnessByItem:{ecstasy:undefined}}).status,'NEEDS_REFRESH');
+});
 test('owned unknown-value and known-value boosters can combine for Maximum Gain',()=>{
   const state={energy:100,naturalEnergyMax:100,happy:1000,stats:{speed:1000},targetStat:'speed',
     gym:{dots:5,energyPerTrain:10},inventory:{mystery:1,known:1,ecstasy:1},
