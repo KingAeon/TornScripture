@@ -12,7 +12,7 @@ ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
 DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
-BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
+BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001J H1/H2 remain dependency-local live-evidence gates, not blockers to specification verification
 
 PARALLEL|DQ-TRAIN-001|001j_runtime_ui_specification_frozen_independent_V_pending
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only

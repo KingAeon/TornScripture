@@ -53,7 +53,7 @@
       "expected": [
         "disable only dependent capability",
         "preserve unrelated normalized state/recommendations",
-        "show source-specific reason"
+        "preserve the canonical machine reason; current adapter permission failure is CAPABILITY_UNAVAILABLE"
       ]
     },
     {

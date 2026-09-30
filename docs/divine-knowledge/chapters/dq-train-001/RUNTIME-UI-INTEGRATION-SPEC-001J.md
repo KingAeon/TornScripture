@@ -474,7 +474,9 @@ Beginner wording should be stable in meaning:
 
 Stable reason codes remain inspectable in Advanced mode, including at least:
 
-`DATA_STALE`, `DATA_MISSING`, `PERMISSION_MISSING`, `RESOURCE_MISSING`, `COOLDOWN_BLOCKED`, `TIMING_UNSAFE`, `STATE_CHANGED`, `MODEL_OUT_OF_DOMAIN`, `UNSUPPORTED_EFFECT`, `ECONOMICS_UNAVAILABLE`, `NO_SAFE_RECOMMENDATION`, and `BOOSTER_LIMIT_REACHED`.
+`DATA_STALE`, `DATA_MISSING`, `CAPABILITY_UNAVAILABLE`, `RESOURCE_MISSING`, `COOLDOWN_BLOCKED`, `TIMING_UNSAFE`, `STATE_CHANGED`, `MODEL_OUT_OF_DOMAIN`, `UNSUPPORTED_EFFECT`, `ECONOMICS_UNAVAILABLE`, `NO_SAFE_RECOMMENDATION`, and `BOOSTER_LIMIT_REACHED`.
+
+The browser/UI layer must expose the machine reason actually emitted by the merged canonical layers. In particular, current adapter permission failures normalize to `CAPABILITY_UNAVAILABLE`; the UI must not invent or substitute the older specification label `PERMISSION_MISSING`.
 
 ## 28. Required-item confirmation UX
 
