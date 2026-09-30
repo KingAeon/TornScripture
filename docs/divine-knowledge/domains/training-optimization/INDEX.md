@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **MATH/PLANNER POLICY FROZEN; B1–B4 CALIBRATED IN DOCUMENTED DOMAIN; PR #132 MERGED / 001I COMPLETE; 001J-P INVENTORY CORRECTION AWAITS INDEPENDENT [V]; 001J RUNTIME/UI SPEC FREEZE PENDING**
+Status: **MATH/PLANNER POLICY FROZEN; B1–B4 CALIBRATED IN DOCUMENTED DOMAIN; 001J-P MERGED; 001J RUNTIME/UI SPECIFICATION FROZEN FOR INDEPENDENT [V]; H1/H2 OPEN**
 
 ## Purpose
 
@@ -59,8 +59,9 @@ Resolve at runtime or recheck before consequential use:
 12. **DQ-TRAIN-001F correction merged in PR #127:** per-item pre-use booster threshold; after exact-max four-eDVD checkpoint, fifth item requires observed below-max state. Focused 97 and repository 334 Node tests passed at the original checkpoint. The merge preceded independent [V], which found a legal mixed-booster plan pruned by an illegal competitor. The bounded [follow-up correction](../../chapters/dq-train-001/BOOSTER-FRONTIER-VERIFICATION-CORRECTION-2026-09-26.md), draft PR #128, passed independent [V] at `0a8abe04cfe8a7d4e2ce346b7bb5f0867e29785c`; its separately authorized merge landed as `24701cccbaebbeae7b3e8bb3e05d9c2f9c478a82`; PR #126 final adapter-spec verification has resumed.
 13. **DQ-TRAIN-001D completed:** pure source adapters built from `main@f4777409632ee69f901ed0dbe41a882a95743f2d`, independently verified, and merged in PR #129. UI and TornPDA integration remain later.
 14. **DQ-TRAIN-001H/001I complete:** PR #130's immediate Xanax +75 Happy correction and PR #131's 1,000E stack-cap specification merged. PR #132 passed independent [V] at `a5066c848ebd14c5045817947978646ef9af9578` and merged at `7352573be851f4cae590848af830975e905f6890`, completing versioned-cap and supported Xanax normalization. The [001I build checkpoint](../../chapters/dq-train-001/STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md) retains its historical pending-V language.
-15. **DQ-TRAIN-001J-P implemented for independent [V]:** the 001J-A/B/C freeze stopped before edits on an inventory-confirmation contradiction. The owner separately authorized the [bounded selected-plan correction](../../chapters/dq-train-001/SELECTED-INVENTORY-CONFIRMATION-CORRECTION-001J-P.md). Its independent [V] and merge decision precede resuming `[S]` against a verified baseline. H1/H2 live-evidence gates remain unresolved; no runtime/UI build is authorized.
-16. Release only after owner review, manual gates, and explicit merge/release authorization.
+15. **DQ-TRAIN-001J-P complete/merged:** the selected-plan inventory prerequisite passed independent executable [V] at `7b1b31c60efcd8cbd0c13d32ee1d44fa84b7bcf0` and merged in PR #133 at `8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`. Partial current confirmation can prove only selected-plan owned quantities; bought resources remain acquisition-gated.
+16. **DQ-TRAIN-001J specification frozen for independent [V]:** [runtime/UI integration](../../chapters/dq-train-001/RUNTIME-UI-INTEGRATION-SPEC-001J.md) plus [34 synthetic fixtures](../../chapters/dq-train-001/RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) freeze user-triggered acquisition/refresh, deterministic standalone packaging/runtime boundaries, mission-first beginner/advanced UI, and advisory-only interaction. H1/H2 remain open live-evidence gates; no runtime build is authorized.
+17. Release only after implementation, independent verification, owner review, manual gates, and explicit merge/release authorization.
 
 B5 special/boundary research remains parallel and opportunistic; it does not block specification work.
 
@@ -70,4 +71,4 @@ B5 special/boundary research remains parallel and opportunistic; it does not blo
 
 ## DQ-TRAIN-001D adapter specification
 
-Merged PR #126 carries the normalized source map, item mechanic registry, live proof, and synthetic fixtures. Its final [V]/[S] checks passed after the verified PR #128 planner merge; see the [freeze result](../../chapters/dq-train-001/ADAPTER-FINAL-FREEZE-2026-09-26.md). The owner separately authorized the [001D pure adapter build](../../chapters/dq-train-001/ADAPTER-BUILD-CHECKPOINT-2026-09-27.md), later merged in PR #129. PR #131 froze the versioned Energy stack cap; PR #132's independently verified 001I implementation is merged. Selected-plan inventory execution proof is the bounded 001J-P follow-up, pending independent [V]. UI and TornPDA integration remain later gates.
+Merged PR #126 carries the normalized source map, item mechanic registry, live proof, and synthetic fixtures. Its final [V]/[S] checks passed after the verified PR #128 planner merge; see the [freeze result](../../chapters/dq-train-001/ADAPTER-FINAL-FREEZE-2026-09-26.md). The owner separately authorized the [001D pure adapter build](../../chapters/dq-train-001/ADAPTER-BUILD-CHECKPOINT-2026-09-27.md), later merged in PR #129. PR #131 froze the versioned Energy stack cap; PR #132's independently verified 001I implementation is merged. Selected-plan inventory execution proof is complete through independently verified/merged PR #133. DQ-TRAIN-001J now freezes the later acquisition, standalone packaging/runtime, and beginner/advanced UI contract; implementation still requires separate authorization.

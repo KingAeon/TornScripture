@@ -1,0 +1,463 @@
+{
+  "schemaVersion": "dq-train-001j.runtime-ui-fixtures.v1",
+  "id": "DQ-TRAIN-001J",
+  "status": "FROZEN_SPECIFICATION_PENDING_INDEPENDENT_V",
+  "baseline": "8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1",
+  "prerequisite": {
+    "id": "DQ-TRAIN-001J-P",
+    "pr": 133,
+    "verifiedHead": "7b1b31c60efcd8cbd0c13d32ee1d44fa84b7bcf0",
+    "mergeCommit": "8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1",
+    "state": "MERGED_VERIFIED"
+  },
+  "notes": [
+    "Synthetic, nonprivate specification fixtures. They authorize no runtime implementation.",
+    "Gameplay actions remain human-controlled; UI controls may refresh/confirm/navigate but may not consume items, train, refill, or purchase.",
+    "H1 and H2 remain open live-evidence gates and cannot be closed by these synthetic fixtures.",
+    "Selected-plan owned inventory proof follows merged DQ-TRAIN-001J-P; bought resources use acquisition availability rather than confirmed-owned quantities."
+  ],
+  "openEvidenceGates": {
+    "H1": {
+      "state": "OPEN_LIVE_EVIDENCE_REQUIRED",
+      "claim": "happy.tick_time quarter-hour reset relationship is not live-proven",
+      "failClosed": "do not emit authoritative safeQuarterWindow from the unverified relationship"
+    },
+    "H2": {
+      "state": "OPEN_LIVE_EVIDENCE_REQUIRED",
+      "claim": "personalized Candy-event interval calculation is not live-proven",
+      "failClosed": "do not apply event-dependent Candy execution mechanics where material"
+    }
+  },
+  "cases": [
+    {
+      "id": "J-A1_FULL_SUPPORTED_REFRESH_001",
+      "layer": "acquisition",
+      "given": [
+        "user triggers Refresh & Plan",
+        "all required approved sources return valid evidence"
+      ],
+      "expected": [
+        "create one refresh epoch",
+        "normalize each field with its own provenance/freshness",
+        "produce recommendation without claiming server-atomic snapshot",
+        "perform no background polling"
+      ]
+    },
+    {
+      "id": "J-A2_CAPABILITY_LOCAL_FAILURE_001",
+      "layer": "acquisition",
+      "given": [
+        "one source/permission fails",
+        "unrelated sources remain valid"
+      ],
+      "expected": [
+        "disable only dependent capability",
+        "preserve unrelated normalized state/recommendations",
+        "show source-specific reason"
+      ]
+    },
+    {
+      "id": "J-A3_INVENTORY_CACHE_PLANNING_ONLY_001",
+      "layer": "acquisition",
+      "given": [
+        "Drug/Booster/Candy inventory fetched now from category-cached API"
+      ],
+      "expected": [
+        "inventory may support planning",
+        "API item freshness is not execution-LIVE solely due to HTTP recency",
+        "selected-plan owned use still needs current proof"
+      ]
+    },
+    {
+      "id": "J-A4_SELECTED_PLAN_CONFIRMATION_001",
+      "layer": "acquisition",
+      "given": [
+        "selected plan owns Xanax 1 and eDVD 2",
+        "player confirms those exact owned quantities with valid current inventory-confirmation evidence",
+        "unrelated cached items remain unconfirmed"
+      ],
+      "expected": [
+        "confirmed keys override cached values and receive item-local LIVE",
+        "unrelated inventory remains planning-grade",
+        "aggregate inventory freshness is not globally promoted",
+        "bought quantities, if any, remain acquisition-gated separately"
+      ]
+    },
+    {
+      "id": "J-A5_CHECKPOINT_NEW_EPOCH_001",
+      "layer": "acquisition",
+      "given": [
+        "player performs a material recommended action",
+        "plan reaches VERIFY_STATE"
+      ],
+      "expected": [
+        "previous execution-sensitive epoch cannot authorize continuation",
+        "UI requires Refresh & Plan",
+        "new recommendation is based on re-observed state"
+      ]
+    },
+    {
+      "id": "J-A6_COUNTDOWN_NOT_AUTHORITY_001",
+      "layer": "acquisition",
+      "given": [
+        "observed cooldown is displayed as local countdown",
+        "local countdown reaches zero"
+      ],
+      "expected": [
+        "display may say refresh now",
+        "freshness is not promoted",
+        "next drug/booster action is not authorized until refreshed"
+      ]
+    },
+    {
+      "id": "J-A7_ECONOMICS_OPTIONAL_GAIN_001",
+      "layer": "acquisition",
+      "given": [
+        "market/economic source unavailable",
+        "selected objective does not require economics"
+      ],
+      "expected": [
+        "gain planning may continue if otherwise supported",
+        "cost comparison is explicitly unavailable",
+        "no fabricated prices"
+      ]
+    },
+    {
+      "id": "J-A8_BATTLESTATS_MANUAL_FALLBACK_001",
+      "layer": "acquisition",
+      "given": [
+        "automatic battlestats capability unavailable",
+        "player supplies complete explicit supported manual stats"
+      ],
+      "expected": [
+        "manual-stat path may restore dependent prediction",
+        "automatic capability remains unavailable",
+        "no stat value is inferred"
+      ]
+    },
+    {
+      "id": "J-A9_GYM_SCHEMA_LOCAL_FAIL_001",
+      "layer": "acquisition",
+      "given": [
+        "/torn/gyms shape does not satisfy adapter schema guard"
+      ],
+      "expected": [
+        "gym/gain prediction fails closed",
+        "unrelated bars/inventory/economic state remains usable where independent",
+        "reason identifies schema/source problem"
+      ]
+    },
+    {
+      "id": "J-A10_H1_UNPROVEN_TIMING_FAIL_CLOSED_001",
+      "layer": "acquisition",
+      "given": [
+        "happy.tick_time is available",
+        "H1 live proof is still open"
+      ],
+      "expected": [
+        "runtime does not derive authoritative safeQuarterWindow from that relationship",
+        "Ecstasy execution timing remains NEEDS_REFRESH/BLOCKED per existing planner contract",
+        "unrelated planning continues"
+      ]
+    },
+    {
+      "id": "J-A11_H2_UNPROVEN_CANDY_FAIL_CLOSED_001",
+      "layer": "acquisition",
+      "given": [
+        "calendar candidates are available",
+        "H2 personalized interval proof is still open",
+        "Candy result materially depends on event state"
+      ],
+      "expected": [
+        "affected Candy execution mechanic is withheld",
+        "calendar date alone is insufficient",
+        "unrelated strategy families continue"
+      ]
+    },
+    {
+      "id": "J-B1_CANONICAL_SOURCE_SINGLE_TRUTH_001",
+      "layer": "packaging",
+      "given": [
+        "planner/adapters exist under src",
+        "standalone userscript is generated"
+      ],
+      "expected": [
+        "canonical planner/adapter source remains under src",
+        "generated artifact is not independently edited logic",
+        "no duplicate maintained implementation"
+      ]
+    },
+    {
+      "id": "J-B2_STANDALONE_GENERATED_ARTIFACT_001",
+      "layer": "packaging",
+      "given": [
+        "future build runs"
+      ],
+      "expected": [
+        "one self-contained TornScripture-Training-Advisor.user.js is produced",
+        "canonical CommonJS interfaces are preserved through private build wrapping or equivalent",
+        "no runtime source fetch is required"
+      ]
+    },
+    {
+      "id": "J-B3_DETERMINISTIC_REBUILD_001",
+      "layer": "packaging",
+      "given": [
+        "identical canonical inputs and generator version"
+      ],
+      "expected": [
+        "two builds are byte-identical",
+        "build output does not depend on wall clock/network/randomness"
+      ]
+    },
+    {
+      "id": "J-B4_DRIFT_DETECTION_001",
+      "layer": "packaging",
+      "given": [
+        "checked-in generated artifact differs from deterministic rebuild or embedded source provenance"
+      ],
+      "expected": [
+        "verification fails",
+        "manual embedded-core drift is detectable",
+        "release does not proceed"
+      ]
+    },
+    {
+      "id": "J-B5_VM_PARITY_001",
+      "layer": "packaging",
+      "given": [
+        "generated userscript loaded in test mode without Torn networking",
+        "representative frozen planner/adapter fixtures are invoked"
+      ],
+      "expected": [
+        "embedded behavior matches canonical Node behavior",
+        "test hook exposes only intended test surface",
+        "normal startup/network side effects are suppressed in test mode"
+      ]
+    },
+    {
+      "id": "J-B6_NO_RUNTIME_DEPENDENCY_LOADING_001",
+      "layer": "packaging",
+      "given": [
+        "userscript installed in TornPDA/Tampermonkey-compatible environment"
+      ],
+      "expected": [
+        "no @require dependency is necessary",
+        "no CDN/GitHub planner source is fetched",
+        "no remote TornScriptures planning service is required"
+      ]
+    },
+    {
+      "id": "J-B7_LOCAL_KEY_BOUNDARY_001",
+      "layer": "packaging",
+      "given": [
+        "TornPDA managed key or desktop fallback key is used"
+      ],
+      "expected": [
+        "key remains local except official Torn API requests",
+        "key is never placed in generated diagnostics/export/Divine Knowledge",
+        "missing key degrades acquisition rather than inventing state"
+      ]
+    },
+    {
+      "id": "J-B8_NO_PDA_STORAGE_REQUIRED_001",
+      "layer": "packaging",
+      "given": [
+        "v0.1 starts with only ordinary UI/planning preferences"
+      ],
+      "expected": [
+        "startup/planning does not require PDA_storage",
+        "no new storage architecture is introduced",
+        "future larger-history storage remains a separate decision"
+      ]
+    },
+    {
+      "id": "J-C1_READY_SEPARATE_CONFIDENCE_001",
+      "layer": "ui",
+      "given": [
+        "recommendation readiness is READY",
+        "confidence is SUPPORTED_EXTRAPOLATION"
+      ],
+      "expected": [
+        "beginner UI says ready now and shows manual next action",
+        "confidence is displayed separately",
+        "confidence label does not replace readiness"
+      ]
+    },
+    {
+      "id": "J-C2_WAITING_NO_RANDOM_FORECAST_001",
+      "layer": "ui",
+      "given": [
+        "plan readiness is WAITING on drug checkpoint",
+        "future exact random drug cooldown is unknown"
+      ],
+      "expected": [
+        "show known wait/checkpoint semantics",
+        "do not fabricate future Xanax use timestamps",
+        "prompt refresh at the next observation point"
+      ]
+    },
+    {
+      "id": "J-C3_NEEDS_REFRESH_SMALLEST_FIELD_001",
+      "layer": "ui",
+      "given": [
+        "selected plan lacks one material current proof"
+      ],
+      "expected": [
+        "show NEEDS_REFRESH",
+        "identify the smallest relevant refresh/confirmation need",
+        "do not present unrelated fields as failed"
+      ]
+    },
+    {
+      "id": "J-C4_NEEDS_ITEMS_SELECTED_RESOURCES_001",
+      "layer": "ui",
+      "given": [
+        "selected plan requires resources not currently satisfied"
+      ],
+      "expected": [
+        "show NEEDS_ITEMS",
+        "list selected-plan resource requirement",
+        "do not require unrelated registry inventory"
+      ]
+    },
+    {
+      "id": "J-C5_BLOCKED_SPECIFIC_REASON_001",
+      "layer": "ui",
+      "given": [
+        "planner returns BLOCKED with stable reason such as BOOSTER_LIMIT_REACHED or TIMING_UNSAFE"
+      ],
+      "expected": [
+        "show not-ready treatment",
+        "translate the specific reason into human guidance",
+        "retain machine reason in Advanced mode"
+      ]
+    },
+    {
+      "id": "J-C6_CONFIDENCE_NOT_READINESS_001",
+      "layer": "ui",
+      "given": [
+        "confidence is EXPERIMENTAL",
+        "readiness is NEEDS_REFRESH"
+      ],
+      "expected": [
+        "readiness remains NEEDS_REFRESH",
+        "experimental is shown only as confidence",
+        "no visual/copy path implies experimental equals ready"
+      ]
+    },
+    {
+      "id": "J-C7_SELECTED_PLAN_CONFIRMATION_SCOPE_001",
+      "layer": "ui",
+      "given": [
+        "selected plan owns Xanax 1, eDVD 2, Ecstasy 1",
+        "other registry items exist"
+      ],
+      "expected": [
+        "confirmation prompt lists only those selected-plan owned items/quantities",
+        "purchased quantities are shown separately",
+        "confirmation does not claim complete inventory execution proof"
+      ]
+    },
+    {
+      "id": "J-C8_CONFIRMATION_CONTRADICTION_REPLAN_001",
+      "layer": "ui",
+      "given": [
+        "cached planning Xanax is 5",
+        "current valid confirmation says Xanax 1"
+      ],
+      "expected": [
+        "current confirmation is displayed as authoritative for that key",
+        "old recommendation is replanned/rechecked",
+        "UI does not continue using cached 5 for owned execution"
+      ]
+    },
+    {
+      "id": "J-C9_ECONOMICS_DEGRADED_GAIN_ONLY_001",
+      "layer": "ui",
+      "given": [
+        "gain recommendation is valid",
+        "economics unavailable",
+        "objective permits gain-only planning"
+      ],
+      "expected": [
+        "show gain recommendation",
+        "state cost comparison unavailable",
+        "do not display invented dollar values"
+      ]
+    },
+    {
+      "id": "J-C10_NO_SAFE_RECOMMENDATION_ACTIONABLE_001",
+      "layer": "ui",
+      "given": [
+        "planner returns NO_SAFE_RECOMMENDATION because material gym/modifier proof is unavailable"
+      ],
+      "expected": [
+        "render deliberate no-safe-recommendation screen",
+        "explain known versus missing state",
+        "show smallest action that may restore support",
+        "show machine reason in Advanced mode"
+      ]
+    },
+    {
+      "id": "J-C11_BEGINNER_ALTERNATIVES_BOUNDED_001",
+      "layer": "ui",
+      "given": [
+        "planner returns many frontier alternatives"
+      ],
+      "expected": [
+        "beginner surface displays only a bounded meaningful subset, normally two or three",
+        "tradeoffs use gain/cash/wait language",
+        "full frontier is not dumped into beginner mode"
+      ]
+    },
+    {
+      "id": "J-C12_ADVANCED_TRANSPARENCY_NO_OUTCOME_CHANGE_001",
+      "layer": "ui",
+      "given": [
+        "user opens Advanced details"
+      ],
+      "expected": [
+        "show plan/state/sources/economics/alternatives/model/diagnostics information",
+        "opening Advanced does not rerank or alter recommendation",
+        "provenance/freshness remain inspectable"
+      ]
+    },
+    {
+      "id": "J-C13_NO_GAMEPLAY_ACTION_CONTROLS_001",
+      "layer": "ui",
+      "given": [
+        "next planner action is TAKE_XANAX or USE_BOOSTER or TRAIN or USE_REFILL"
+      ],
+      "expected": [
+        "UI renders instruction as text",
+        "no control performs the gameplay action",
+        "allowed controls are refresh/confirm/navigation/preferences only"
+      ]
+    },
+    {
+      "id": "J-C14_REFRESH_PLAN_NEW_EPOCH_001",
+      "layer": "ui",
+      "given": [
+        "user presses Refresh & Plan after a material action"
+      ],
+      "expected": [
+        "new observation epoch begins",
+        "old execution authority is replaced by new normalized evidence",
+        "UI reflects the new recommendation/readiness rather than advancing stale plan state"
+      ]
+    },
+    {
+      "id": "J-C15_PERSIST_PREFERENCES_NOT_LIVE_STATE_001",
+      "layer": "ui",
+      "given": [
+        "user closes/reloads the Advisor"
+      ],
+      "expected": [
+        "approved preferences/UI state may persist",
+        "raw current bars/stats/Happy/cooldowns/Points/inventory/recommendation history are not durable authority by default",
+        "no new PDA_storage dependency is required"
+      ]
+    }
+  ]
+}

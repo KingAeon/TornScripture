@@ -1,6 +1,6 @@
 # DQ-TRAIN-001J-P — Selected-Plan Inventory Confirmation Correction
 
-Status: **PR #133 DRAFT/UNMERGED; TWO INDEPENDENT [V] BLOCKERS CORRECTED UNDER OWNER [B][WORK]; FRESH INDEPENDENT [V] PENDING**
+Status: **INDEPENDENT EXECUTABLE [V] PASS; PR #133 MERGED AT `8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`; PREREQUISITE COMPLETE**
 
 Prepared: 2026-09-30.
 
@@ -14,7 +14,7 @@ The attempted DQ-TRAIN-001J specification freeze stopped before edits: the merge
 
 The owner separately authorized this bounded correction. It changes inventory normalization and inventory readiness only. It does not freeze or implement the remaining DQ-TRAIN-001J acquisition, packaging, or UI contract.
 
-Independent `[V]` at head `36b535f8df647b5b33948cbef773641ff20c23c0` returned **BLOCKED**: malformed observation timestamps could grant LIVE inventory proof, and bought quantities were charged against confirmed owned inventory. The owner authorized exactly those two amendments on the existing branch/PR. They are implementation corrections awaiting fresh verification, not an independent `[V]` PASS.
+Independent `[V]` at head `36b535f8df647b5b33948cbef773641ff20c23c0` returned **BLOCKED**: malformed observation timestamps could grant LIVE inventory proof, and bought quantities were charged against confirmed owned inventory. The owner authorized exactly those two amendments on the existing branch/PR. The amended head `7b1b31c60efcd8cbd0c13d32ee1d44fa84b7bcf0` subsequently passed independent executable `[V]` and was merged through PR #133 as `8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`.
 
 ## Normalized contract
 
@@ -67,10 +67,10 @@ Baseline: focused **148/148**, repository **385/385** across 21 suites. Ten of t
 
 Amendment preflight at the blocked head reproduced **162/162** focused and **399/399** repository passes. Expanded J-P3, J-P5 and corrected J-P10 failed against that head before code changes. They now cover malformed timestamp rejection without cached-quantity overwrite (including complete confirmation), valid UTC/fraction/offset forms, mixed owned/bought readiness, insufficient or unconfirmed owned shares, bought-only acquisition success/failure, and canonical mixed eDVD composition. J-P IDs remain unchanged and unique; final regression results are recorded in the updated draft PR.
 
-Required checks: syntax for both canonical source/test pairs; focused and repository Node regressions; frozen JSON parse/ID checks; edited NDJSON parse/ID checks; Markdown link/heading inspection; `git diff --check`; complete exact-base diff review and prohibited-file review. Final executed counts are recorded in the draft PR.
+Independent executable verification at the amended head reproduced focused **162/162** and repository **399/399** passes across 21 suites, exercised malformed timestamp rejection and owned-versus-bought separation, checked syntax/diffs/NDJSON/frozen fixtures, and confirmed no runtime/UI/browser/userscript/storage/workflow/release scope entered.
 
 No live Torn/TornPDA behavior was exercised. Future runtime work still requires its separate specification, independent verification, owner `[B][WORK]` authorization, and desktop/TornPDA manual gates.
 
-Rollback: leave draft PR #133 unmerged, or revert its bounded amendment on the isolated branch to recover blocked head `36b535f8df647b5b33948cbef773641ff20c23c0`. No durable player data is changed.
+Rollback after merge is to revert PR #133 / merge commit `8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`. No durable player data was changed by the correction.
 
-Next: independent `[V]` of this correction, then a separate owner merge decision. Resume the DQ-TRAIN-001J `[S]` freeze against a freshly verified baseline only after this prerequisite is resolved. Runtime implementation remains unauthorized.
+Next: DQ-TRAIN-001J specification freeze resumes from `main@8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`. Runtime implementation remains separately gated and unauthorized until the 001J specification passes independent `[V]` and receives owner `[B][WORK]` authorization.
