@@ -1,26 +1,26 @@
 # NOW
 
-Snapshot: 2026-09-30 UTC; PR #132 independently verified/merged at 7352573; draft PR #133's two inventory verification blockers amended for fresh independent [V]
+Snapshot: 2026-09-30 UTC; PR #133 independently verified/merged at 8665d1e; DQ-TRAIN-001J runtime/UI specification frozen on documentation branch for independent [V]
 
-CURRENT_TRAINING|DQ-TRAIN-001J-P|implementation_branch_independent_V_pending|base_main_7352573be851f4cae590848af830975e905f6890|agent/training-selected-inventory-confirmation-001jp
-CURRENT_TRAINING_DETAIL|Valid ISO/RFC3339 inventory confirmation overlays only confirmed quantities with item-local LIVE proof; API inventory stays FRESH; owned consumption requires sufficient current proof; bought resources retain acquisition gates; PR#133 draft/unmerged; fresh V pending
+CURRENT_TRAINING|DQ-TRAIN-001J|runtime_ui_specification_frozen_independent_V_pending|base_main_8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1|docs/training-runtime-ui-001j-freeze
+CURRENT_TRAINING_DETAIL|001J-A acquisition/refresh + 001J-B deterministic standalone packaging + 001J-C mission-first beginner/advanced UI frozen in docs/fixtures; J-P prerequisite merged; H1/H2 remain open live-evidence gates; no runtime implementation authorized
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|7352573be851f4cae590848af830975e905f6890
+MAIN_AT_SNAPSHOT|8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
 DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
-BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001 pure-planner Work preflight passed
+BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001J H1/H2 remain dependency-local live-evidence gates, not blockers to specification verification
 
-PARALLEL|DQ-TRAIN-001|001i_complete_merged_001jp_correction_independent_V_pending
+PARALLEL|DQ-TRAIN-001|001j_runtime_ui_specification_frozen_independent_V_pending
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_001E_001F_and_frontier_follow_up_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|independent [V] of DQ-TRAIN-001J-P; separate owner merge decision; resume 001J [S] freeze only after prerequisite resolution and baseline recheck; runtime [B][WORK] remains separate
+TRAINING_NEXT|independent [V] of DQ-TRAIN-001J documentation/fixture freeze; separate owner merge decision; only after verified spec merge may runtime implementation receive separate [B][WORK] authorization
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -79,7 +79,7 @@ TRAINING_001I_STACK_CAP|chapters/dq-train-001/STACK-CAP-SPEC-001I.md|PR#131_merg
 TRAINING_001I_FIXTURES|chapters/dq-train-001/STACK-CAP-FIXTURES-001I.json|5_cases
 TRAINING_001I_HANDOFF|chapters/dq-train-001/WORK-TRANSFER-HANDOFF-STACK-CAP-XANAX-ENABLE-2026-09-27.md|implementation_executed_from_exact_post_spec_main
 TRAINING_001I_BUILD|chapters/dq-train-001/STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md|historical_checkpoint|PR#132_merged|verified_head_a5066c848ebd14c5045817947978646ef9af9578
-TRAINING_001J_FREEZE|stopped_before_edits_selected_inventory_contradiction|A_B_C_design_pending_authoritative_freeze|no_runtime_implementation_authorized
-TRAINING_001J_P|chapters/dq-train-001/SELECTED-INVENTORY-CONFIRMATION-CORRECTION-001J-P.md|bounded_pure_correction|independent_V_pending
+TRAINING_001J_FREEZE|chapters/dq-train-001/RUNTIME-UI-INTEGRATION-SPEC-001J.md|fixtures_RUNTIME-UI-INTEGRATION-FIXTURES-001J.json|owner_S_frozen_pending_independent_V|no_runtime_implementation_authorized
+TRAINING_001J_P|chapters/dq-train-001/SELECTED-INVENTORY-CONFIRMATION-CORRECTION-001J-P.md|PR#133_independent_V_PASS|merged_8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1|verified_head_7b1b31c60efcd8cbd0c13d32ee1d44fa84b7bcf0
 TRAINING_H1|open_live_evidence_gate|happy.tick_time_quarter_reset_unproven
 TRAINING_H2|open_live_evidence_gate|personalized_calendar_event_interval_unproven
