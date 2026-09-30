@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLETE; PR #129 PURE ADAPTER + PR #130 XANAX HAPPY CORRECTION MERGED; PR #131 STACK-CAP SPEC MERGED; 001I PURE ADAPTER IMPLEMENTED FOR INDEPENDENT [V]**
+State: **001A–001I PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B1–B4 COMPLETE; PR #132 MERGED; 001J FREEZE PAUSED ON INVENTORY PREREQUISITE; 001J-P BOUNDED CORRECTION AWAITS INDEPENDENT [V]**
 
 ## Canonical reading order
 
@@ -39,6 +39,7 @@ State: **DQ-TRAIN-001A/001C FROZEN WITH 001E REFILL SUPERSESSION; B1–B4 COMPLE
 33. [`STACK-CAP-FIXTURES-001I.json`](STACK-CAP-FIXTURES-001I.json) — synthetic acceptance cases for versioned stack cap, natural-max distinction, Xanax enablement, dynamic-drug fail-closed behavior, and version mismatch.
 34. [DQ-TRAIN-001I Work transfer handoff — 2026-09-27](WORK-TRANSFER-HANDOFF-STACK-CAP-XANAX-ENABLE-2026-09-27.md) — deliberate implementation bundle covering versioned stack-cap projection, Xanax enablement, S1–S8 regressions, full validation, publication, and independent [V] return.
 35. [DQ-TRAIN-001I implementation checkpoint — 2026-09-28](STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md) — isolated pure-adapter implementation, exact post-spec baseline, frozen fixture execution, regression results, limitations, and independent [V] gate.
+36. [DQ-TRAIN-001J-P selected-plan inventory correction](SELECTED-INVENTORY-CONFIRMATION-CORRECTION-001J-P.md) — current confirmed quantities, per-item execution freshness, selected-plan quantity readiness, preserved full confirmation, tests, and separate independent [V]/merge gate.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -155,4 +156,10 @@ The owner-authorized DQ-TRAIN-001F correction on `agent/training-booster-thresho
 
 ## DQ-TRAIN-001D final verification
 
-The 001D adapter source, mechanic, fixture, and freshness contract from PR #126 passed final V1–V3 checks against merged PR #128. The [v0.1 documentation contract is specification-frozen](ADAPTER-FINAL-FREEZE-2026-09-26.md) and PR #126 merged at `f4777409632ee69f901ed0dbe41a882a95743f2d`. The owner separately authorized the [pure adapter implementation](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md); PR #129 merged into `443cb542e8b3f3d2b70404993d5dd322fe6f013d`. The [Xanax Happy correction](XANAX-HAPPY-CORRECTION-2026-09-27.md) passed independent [V] and PR #130 merged at `cfdf9000d9a8e37d52ad3d5fbf0861abe5c4b1c2`. DQ-TRAIN-001I now freezes the official absolute Energy stack cap at 1,000 as a versioned mechanic, separate from `/user/bars.energy.maximum`; adapter enablement is the next separately implemented gate. UI/TornPDA integration remains outside this build.
+The 001D adapter source, mechanic, fixture, and freshness contract from PR #126 passed final V1–V3 checks against merged PR #128. The [v0.1 documentation contract is specification-frozen](ADAPTER-FINAL-FREEZE-2026-09-26.md) and PR #126 merged at `f4777409632ee69f901ed0dbe41a882a95743f2d`. The owner separately authorized the [pure adapter implementation](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md); PR #129 merged into `443cb542e8b3f3d2b70404993d5dd322fe6f013d`. The [Xanax Happy correction](XANAX-HAPPY-CORRECTION-2026-09-27.md) passed independent [V] and PR #130 merged at `cfdf9000d9a8e37d52ad3d5fbf0861abe5c4b1c2`. PR #132 independently passed [V] at implementation head `a5066c848ebd14c5045817947978646ef9af9578` and merged at `7352573be851f4cae590848af830975e905f6890`: DQ-TRAIN-001I's versioned absolute 1,000E stack cap and supported Xanax adapter are complete. Natural Energy maximum remains distinct.
+
+## DQ-TRAIN-001J prerequisite and next gate
+
+The owner requested the 001J-A acquisition, 001J-B packaging, and 001J-C beginner/advanced UI specification freeze. That documentation task stopped before edits when canonical inventory confirmation required all 14 registry items, contradicting selected-plan-only confirmation. The separately authorized [001J-P correction](SELECTED-INVENTORY-CONFIRMATION-CORRECTION-001J-P.md) adds item-local proof and quantity readiness; it awaits independent [V] and a separate merge decision.
+
+The 001J-A/B/C design is pending authoritative specification freeze; runtime/UI/browser implementation is not authorized. After prerequisite resolution, recheck the baseline and resume `[S]`. H1 Happy-reset timing and H2 personalized Candy-event interval remain open live-evidence gates. A successful later specification [V] still requires separate owner `[B][WORK]` authorization for runtime integration.

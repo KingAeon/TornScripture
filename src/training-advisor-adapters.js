@@ -235,7 +235,7 @@ function adaptRefills(payload, meta, configuredMechanics = {}, currentPoints) {
 function adaptInventory(sources = {}, metas = {}, confirmedInventory) {
   sources = object(sources) ? sources : {};
   metas = object(metas) ? metas : {};
-  const inventory = {}, fields = {}, categories = {}, sourceStatuses = {};
+  const inventory = {}, inventoryFreshnessByItem = {}, fields = {}, categories = {}, sourceStatuses = {};
   for (const [category,key] of Object.entries(INVENTORY_SOURCES)) {
     const input = sources[key], pages = Array.isArray(input) ? input : input ? [input] : [];
     const status = sourceStatus(`/user/inventory?cat=${category}`, input,
@@ -273,6 +273,9 @@ function adaptInventory(sources = {}, metas = {}, confirmedInventory) {
     if (!status.reason && fresh(status.freshness)) Object.assign(inventory,known);
     if (complete && fresh(status.freshness)) for (const item of Object.values(ITEM_REGISTRY))
       if (item.type === category && !Object.hasOwn(inventory,item.key)) inventory[item.key] = 0;
+    for (const item of Object.values(ITEM_REGISTRY))
+      if (item.type === category && Object.hasOwn(inventory,item.key))
+        inventoryFreshnessByItem[item.key] = status.freshness;
     const reason = status.reason || (!complete ? 'INCOMPLETE_PAGINATION' :
       !fresh(status.freshness) ? status.freshness === 'STALE' ? 'DATA_STALE' : 'DATA_MISSING' : null);
     categories[category] = { complete, reason, sourceTimestamp:timestamp,
@@ -284,22 +287,34 @@ function adaptInventory(sources = {}, metas = {}, confirmedInventory) {
   }
   let inventoryFreshness = Object.values(categories).every(c=>c.complete && fresh(c.freshness)) ?
     'FRESH' : 'UNKNOWN';
-  // The pure planner has a plan-global inventory readiness class. Partial
-  // confirmation must never make unconfirmed items execution-ready.
+  // Current player proof overrides cached quantities only for confirmed keys.
+  // Partial confirmation must never promote unrelated inventory to LIVE.
+  const observedAt=confirmedInventory?.observedAt;
+  // Validate supplied inventory evidence only; no clock or age policy is used.
+  const validObservedAt=typeof observedAt === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(observedAt) &&
+    Number.isFinite(Date.parse(observedAt)) &&
+    new Date(`${observedAt.slice(0,10)}T00:00:00Z`).toISOString().slice(0,10) === observedAt.slice(0,10);
   const confirmationStatus = sourceStatus(confirmedInventory?.sourceId || 'PLAYER_CONFIRMED_INVENTORY',
-    confirmedInventory?.confirmedCurrent === true && confirmedInventory.complete === true &&
+    confirmedInventory?.confirmedCurrent === true && validObservedAt &&
       object(confirmedInventory.quantities) ? confirmedInventory : null,
     {sourceId:confirmedInventory?.sourceId,requestSucceeded:confirmedInventory?.confirmedCurrent === true,
       observedAt:confirmedInventory?.observedAt,freshness:confirmedInventory?.freshness},
     'PLAYER_CONFIRMATION');
-  if (!confirmationStatus.reason && confirmationStatus.freshness === 'LIVE' &&
-      Object.values(ITEM_REGISTRY).every(item => whole(confirmedInventory.quantities[item.key]))) {
-    for (const [key,value] of Object.entries(confirmedInventory.quantities))
-      if (Object.values(ITEM_REGISTRY).some(item=>item.key===key)) inventory[key] = value;
-    inventoryFreshness='LIVE';
-    fields.confirmation=field(confirmedInventory.quantities,confirmationStatus,'CONFIGURED');
+  if (!confirmationStatus.reason && confirmationStatus.freshness === 'LIVE') {
+    const quantities = {};
+    for (const {key} of Object.values(ITEM_REGISTRY))
+      if (Object.hasOwn(confirmedInventory.quantities,key) && whole(confirmedInventory.quantities[key])) {
+        quantities[key] = inventory[key] = confirmedInventory.quantities[key];
+        inventoryFreshnessByItem[key] = 'LIVE';
+      }
+    if (Object.keys(quantities).length)
+      fields.confirmation=field(quantities,confirmationStatus,'CONFIGURED');
+    if (confirmedInventory.complete === true &&
+        Object.values(ITEM_REGISTRY).every(item => Object.hasOwn(quantities,item.key)))
+      inventoryFreshness='LIVE';
   }
-  return { inventory, inventoryFreshness, categories, fields, sourceStatuses };
+  return { inventory, inventoryFreshness, inventoryFreshnessByItem, categories, fields, sourceStatuses };
 }
 
 function projectItemMechanics(perks, dynamicState = {}) {
@@ -418,6 +433,7 @@ function normalizeTrainingSources(input = {}) {
       ...(!perks.complete || !fresh(perks.status.freshness) ? [{id:'gain:unknown',
         support:'UNSUPPORTED',scope:'gymGain',affects:['gymGain']}] : [])],
     inventory:inventory.inventory,inventoryFreshness:inventory.inventoryFreshness,
+    inventoryFreshnessByItem:inventory.inventoryFreshnessByItem,
     pointRefill:fresh(refills.status.freshness) ? refills.pointRefill || undefined : undefined,
     pointsAvailable:refills.pointsAvailable ?? undefined,
     ...(stackCap.available && mechanics.itemMechanics.xanax ?
