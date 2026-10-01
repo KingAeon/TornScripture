@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const ui=require('../src/training-advisor-ui.js');
 const runtime=require('../src/training-advisor-runtime.js');
 const frozen=require('../docs/divine-knowledge/chapters/dq-train-001/RUNTIME-UI-INTEGRATION-FIXTURES-001J.json');
-const {harness}=require('./helpers/training-advisor-fixtures.js');
+const {harness,v2Responses}=require('./helpers/training-advisor-fixtures.js');
 const id=prefix=>frozen.cases.find(f=>f.id.startsWith(prefix+'_')).id;
 function snapshot({status='READY',reason=null,confidence='SUPPORTED_EXTRAPOLATION',nextAction='TRAIN',actions}={}) {
   const plan={id:'SYNTHETIC_PLAN',fingerprint:'SYNTHETIC_PLAN',target:{stat:'speed',allocationMode:'TARGET_STAT'},
@@ -19,10 +19,65 @@ function snapshot({status='READY',reason=null,confidence='SUPPORTED_EXTRAPOLATIO
     recommendation:{status:'ok',primaryPlan:plan,alternatives:[],objective:'BALANCED',explanation:['Selected by BALANCED'],rejectedPlans:[]}};
 }
 const html=s=>ui.fullHtml(s,ui.buildView(s));
+test('beginner missing evidence separates bars refresh, current effects and open gates',()=>{
+  const s=snapshot();s.recommendation={status:'NO_SAFE_RECOMMENDATION',reason:'DATA_MISSING',primaryPlan:null};
+  for (const name of ['energy','naturalEnergyMax','naturalRegen','happy','ordinaryHappy'])
+    s.normalized.fields[name]={value:null,sourceId:'/user/bars',reason:'SCHEMA_MISMATCH'};
+  s.normalized.fields.effectState={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.boosterMaxSeconds={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.worldDiabetesDay={value:null,reason:'UNSUPPORTED_EFFECT'};
+  const v=ui.buildView(s),text=html(s),panel=text.match(/<section><h3>No safe recommendation<\/h3>[\s\S]*?<\/section>/)[0];
+  assert.match(v.next,/\/user\/bars.*Refresh & Plan/);
+  assert.deepEqual(v.missing.map(x=>x.field),['bars','effectState']);
+  assert.match(panel,/Confirm current effects below.*replan immediately/);
+  assert.match(panel,/Booster capacity depends on verified effect and mechanic evidence/);
+  assert.doesNotMatch(panel,/worldDiabetesDay|boosterMaxSeconds|naturalEnergyMax|naturalRegen/);
+  assert.match(text,/H1 open/);assert.match(text,/H2 open/);
+  assert.doesNotMatch(text,/name="worldDiabetesDay"|Provide the missing current input, then refresh/);
+  assert.deepEqual(v.advanced['Rejected / Diagnostics'].missing.map(x=>x.field),
+    ['energy','naturalEnergyMax','naturalRegen','happy','ordinaryHappy','effectState','boosterMaxSeconds','worldDiabetesDay']);
+  assert.equal(v.advanced.Sources.fields.worldDiabetesDay.reason,'UNSUPPORTED_EFFECT');
+});
+test('selected-plan inventory and current Points guidance asks for immediate confirmation replan',async()=>{
+  const h=harness({fail:['money']});h.input.bars.energy.current=10;
+  h.advisor.setPreferences({objective:'MAXIMUM_GAIN',allowItems:false,allowRefill:true});
+  let s=await h.advisor.refresh();assert.match(ui.buildView(s).next,/Confirm current Points below.*replan immediately/);
+  s=h.advisor.confirmPoints(30);assert.equal(ui.buildView(s).readiness,'READY');
+  const owned=snapshot({status:'NEEDS_REFRESH',reason:'DATA_STALE',nextAction:'refresh inventory'});
+  owned.recommendation.primaryPlan.resources.ownedItemsConsumed={xanax:1};
+  const v=ui.buildView(owned);assert.match(v.next,/Confirm the selected-plan owned quantities below.*replan immediately/);
+  assert.match(v.reasonText,/replan immediately/);
+  assert.doesNotMatch(v.next,/refresh/i);
+});
+test('H1 execution proof is an open gate rather than a user-fillable confirmation',async()=>{
+  const h=harness();await h.advisor.refresh();h.advisor.setPreferences({objective:'MAXIMUM_GAIN'});
+  const s=h.advisor.confirmEffects(true),v=ui.buildView(s),before=structuredClone(s.recommendation);
+  assert.equal(s.recommendation.readiness.nextAction,'confirm safe quarter-hour window');
+  assert.match(v.next,/H1 open.*withheld.*approved timing proof/);
+  assert.doesNotMatch(v.next,/confirm safe quarter-hour window/i);
+  assert.equal(v.advanced['Rejected / Diagnostics'].nextAction,'confirm safe quarter-hour window');
+  assert.deepEqual(h.advisor.snapshot().recommendation,before);assert.equal(v.reason,'DATA_MISSING');
+});
+test('unsupported booster evidence and elevated ordinary Happy remain explicit limitations',()=>{
+  const s=snapshot();s.recommendation={status:'NO_SAFE_RECOMMENDATION',reason:'UNSUPPORTED_EFFECT',primaryPlan:null};
+  s.normalized.fields.ordinaryHappy={value:null,reason:'ORDINARY_HAPPY_ELEVATED_UNVERIFIED'};
+  s.normalized.fields.effectState={value:[],freshness:'LIVE'};
+  s.normalized.fields.boosterMaxSeconds={value:null,reason:'UNSUPPORTED_EFFECT'};
+  const v=ui.buildView(s);assert.match(html(s),/Ordinary Happy.*verified elevated-Happy mapping/);
+  assert.match(html(s),/Booster capacity.*unsupported.*withheld/);
+  assert.ok(v.missing.every(x=>x.kind==='limitation'));
+});
+test('optional missing preparation evidence does not replace a genuine model-domain blocker',()=>{
+  const s=snapshot();s.recommendation={status:'NO_SAFE_RECOMMENDATION',reason:'MODEL_OUT_OF_DOMAIN',primaryPlan:null};
+  s.normalized.fields.effectState={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.worldDiabetesDay={value:null,reason:'UNSUPPORTED_EFFECT'};
+  const v=ui.buildView(s);assert.match(v.next,/supported 50m model domain/);
+  assert.equal(v.reason,'MODEL_OUT_OF_DOMAIN');assert.doesNotMatch(v.next,/Confirm|Refresh/);
+});
 test(id('J-C1'),()=>{
   const s=snapshot(),v=ui.buildView(s);assert.equal(v.readiness,'READY');assert.equal(v.confidence,'SUPPORTED_EXTRAPOLATION');
   assert.match(html(s),/Ready now/);assert.match(html(s),/Confidence: SUPPORTED_EXTRAPOLATION/);
-  assert.match(v.next,/Train speed manually/);assert.match(v.next,/Refresh after training/);
+  assert.match(v.next,/Train speed manually/);assert.match(v.next,/Mark State changed \/ checkpoint reached, then Refresh & Plan/);
   assert.equal(v.reason,null);assert.doesNotMatch(html(s),/Provide the missing current input/);
 });
 test(id('J-C2'),()=>{
@@ -82,7 +137,7 @@ test(id('J-C10'),()=>{
   const s=snapshot();s.recommendation={status:'NO_SAFE_RECOMMENDATION',reason:'UNSUPPORTED_EFFECT',primaryPlan:null};
   s.normalized.fields.gym={value:null,reason:'SCHEMA_MISMATCH'};
   const v=ui.buildView(s),text=html(s);assert.match(text,/No safe recommendation/);assert.match(text,/Known: Energy: 150/);
-  assert.match(text,/Missing or unsupported: gym/);assert.match(text,/material gym, modifier, or item effect is unsupported/);
+  assert.match(text,/Gym evidence \(\/user\/gym \+ \/torn\/gyms\)/);assert.match(text,/material gym, modifier, or item effect is unsupported/);
   assert.equal(v.advanced['Rejected / Diagnostics'].reason,'UNSUPPORTED_EFFECT');assert.ok(v.next);
 });
 test(id('J-C11'),()=>{
@@ -214,4 +269,33 @@ test('mounted preference and confirmation forms route explicit input into the ca
   submit('inventory',{xanax:'0'});assert.equal(h.advisor.snapshot().normalized.observedState.inventory.xanax,0);
   submit('points',{points:'30'});assert.equal(h.advisor.snapshot().normalized.observedState.pointsAvailable,30);
   assert.equal(h.requests.length,11);mounted.dispose();
+});
+test('all mounted current confirmations immediately replan in one epoch; refresh and checkpoint clear proof',async()=>{
+  const d=dom(),h=harness({input:v2Responses(),fail:['battlestats','money']});
+  h.advisor.setPreferences({objective:'MAXIMUM_GAIN',prohibitedItems:['eroticDvd','ecstasy'],allowRefill:true});
+  const initial=await h.advisor.refresh(),mounted=ui.mount({...d,advisor:h.advisor});
+  const root=d.document.getElementById(ui.ROOT_ID);
+  const submit=(name,values)=>root.fire('submit',{preventDefault(){},target:{dataset:{form:name},values}});
+  assert.match(ui.buildView(initial).next,/Confirm all four current raw battle stats below.*replan immediately/);
+  submit('stats',{strength:'25000',speed:'90000',defense:'5000',dexterity:'5000'});
+  assert.equal(h.advisor.snapshot().normalized.capabilities.manualStats,true);
+  assert.equal(h.advisor.snapshot().recommendation.status,'ok');
+  submit('effects',{none:'on'});assert.equal(h.advisor.snapshot().normalized.capabilities.xanaxPreparation,true);
+  submit('inventory',{xanax:'0'});assert.equal(h.advisor.snapshot().normalized.observedState.inventory.xanax,0);
+  submit('points',{points:'30'});const confirmed=h.advisor.snapshot();
+  assert.equal(confirmed.normalized.observedState.pointsAvailable,30);
+  assert.equal(confirmed.normalized.fields.inventory.confirmation.value.xanax,0);
+  assert.equal(confirmed.phase,'CURRENT');assert.equal(confirmed.epoch,initial.epoch);assert.equal(h.requests.length,11);
+  assert.doesNotMatch(root.innerHTML,/Provide the missing current input, then refresh/);
+  const fresh=await h.advisor.refresh();assert.equal(fresh.epoch,initial.epoch+1);
+  assert.equal(fresh.normalized.capabilities.manualStats,false);assert.equal(fresh.normalized.fields.effectState.value,null);
+  assert.equal(fresh.normalized.fields.inventory.confirmation,undefined);assert.equal(fresh.normalized.fields.points.value,null);
+  submit('stats',{strength:'25000',speed:'90000',defense:'5000',dexterity:'5000'});submit('effects',{none:'on'});
+  submit('inventory',{xanax:'1'});submit('points',{points:'30'});
+  root.fire('click',{target:{inside:true,closest:()=>({dataset:{action:'checkpoint'}})}});
+  const checkpoint=h.advisor.snapshot();assert.equal(checkpoint.phase,'NEEDS_REFRESH');
+  assert.equal(checkpoint.normalized.fields.inventory.confirmation,undefined);
+  assert.equal(checkpoint.normalized.fields.energy.freshness,'STALE');
+  assert.equal(checkpoint.normalized.fields.effectState.value,null);assert.equal(checkpoint.normalized.fields.points.value,null);
+  mounted.dispose();
 });

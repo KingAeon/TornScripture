@@ -17,6 +17,16 @@ function responses() {
   input.boosterInventory=page([{id:366,amount:2}]);input.candyInventory=page([{id:37,amount:10}]);
   return input;
 }
+function v2Responses() {
+  const input=responses();
+  input.bars={bars:{...input.bars,
+    nerve:{current:35,maximum:35,increment:1,interval:300,tick_time:120,full_time:0},
+    life:{current:100,maximum:100,increment:5,interval:300,tick_time:120,full_time:0},chain:null}};
+  for (const name of ['cooldowns','battlestats','perks','refills']) input[name]={[name]:input[name]};
+  input.tornGyms={gyms:input.tornGyms};
+  // Gym, money and inventory envelopes are already the canonical acquisition inputs.
+  return input;
+}
 function harness({input=responses(),fail=[],storage:store=storage(),managedKey=key,fetchOverride}={}) {
   let clock=TIME;const requests=[],timers=new Map();let serial=0;
   const fetch=fetchOverride || (async(url,options)=>{
@@ -31,4 +41,4 @@ function harness({input=responses(),fail=[],storage:store=storage(),managedKey=k
     setTimer:(fn,ms)=>{timers.set(++serial,{fn,ms});return serial;},clearTimer:id=>timers.delete(id)});
   return {advisor,store,requests,timers,input,advance:ms=>{clock+=ms;},expire:()=>{for (const {fn} of [...timers.values()]) fn();}};
 }
-module.exports={harness,responses,storage,TIME,key};
+module.exports={harness,responses,v2Responses,storage,TIME,key};

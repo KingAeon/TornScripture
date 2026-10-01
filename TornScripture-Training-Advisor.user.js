@@ -17,7 +17,7 @@
 // SAFETY BOUNDARY: advisory only; no gameplay actions, background polling, or state uploads.
 // Only user-triggered GET requests to the official Torn API; keys remain local.
 // Only preferences/UI state and an optional local key persist. Current evidence is memory-only.
-// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"b4d984f6290ca41766ac53d816c23a9080d1069bdba92ab27fb1f1e29136627f","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}}
+// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"b01fbf1d318b7ac5c46ef1de10eeb3d52ddee4cad86149887f5e17d0aa8a8340","src/training-advisor-ui.js":"6e2c5e8852fed87109de0e01722a6c537fbdf8796d048b8be09a18435d5b23ad","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}}
 (() => {
   'use strict';
   const factories={
@@ -1471,6 +1471,7 @@ function pageIdentity(link, source) {
   return url.href;
 }
 function unwrap(key,payload) {
+  if (key==='bars') return payload.bars ?? payload;
   if (key==='cooldowns') return payload.cooldowns ?? payload;
   if (key==='perks') return payload.perks ?? payload;
   if (key==='refills') return payload.refills ?? payload;
@@ -1671,8 +1672,8 @@ const ROOT_ID='tornscripture-training-advisor';
 const STYLE_ID='tornscripture-training-style';
 const LABELS={READY:'Ready now',WAITING:'Waiting for a checkpoint',NEEDS_ITEMS:'Needs items',
   NEEDS_REFRESH:'Needs current proof',BLOCKED:'Blocked'};
-const REASONS={DATA_STALE:'Refresh the relevant observation or confirm required items now.',
-  DATA_MISSING:'Provide the missing current input, then refresh.',
+const REASONS={DATA_STALE:'Refresh the relevant Torn state with Refresh & Plan.',
+  DATA_MISSING:'Current proof is missing. Follow the evidence guidance below.',
   CAPABILITY_UNAVAILABLE:'This source is unavailable with the current API key.',
   RESOURCE_MISSING:'Obtain and verify the selected plan requirements.',
   COOLDOWN_BLOCKED:'Wait for the observed checkpoint, then Refresh & Plan.',
@@ -1687,16 +1688,17 @@ const REASONS={DATA_STALE:'Refresh the relevant observation or confirm required 
 const escape=value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const approximate=value=>Number.isFinite(value) ? new Intl.NumberFormat('en-US',{maximumSignificantDigits:3}).format(value) : 'Unavailable';
 const itemName=id=>({xanax:'Xanax',ecstasy:'Ecstasy',eroticDvd:'eDVD'}[id] || id);
+const CHECKPOINT='Mark State changed / checkpoint reached, then Refresh & Plan.';
 function instruction(action) {
   if (!action) return 'Refresh & Plan';
   switch (action.action) {
-    case 'TAKE_XANAX':return 'Take 1 Xanax manually in Torn. Refresh after taking it.';
-    case 'TAKE_ECSTASY':return 'Take 1 Ecstasy manually in Torn. Refresh after taking it.';
-    case 'USE_BOOSTER':return `Use ${action.quantity} ${itemName(action.item)} manually in Torn. Refresh after each use.`;
-    case 'TRAIN':return `Train ${action.targetStat} manually in Torn (${action.energySpent}E). Refresh after training.`;
-    case 'USE_REFILL':return 'Use the Energy refill manually in Torn. Refresh after using it.';
+    case 'TAKE_XANAX':return `Take 1 Xanax manually in Torn. ${CHECKPOINT}`;
+    case 'TAKE_ECSTASY':return `Take 1 Ecstasy manually in Torn. ${CHECKPOINT}`;
+    case 'USE_BOOSTER':return `Use ${action.quantity} ${itemName(action.item)} manually in Torn. ${CHECKPOINT}`;
+    case 'TRAIN':return `Train ${action.targetStat} manually in Torn (${action.energySpent}E). ${CHECKPOINT}`;
+    case 'USE_REFILL':return `Use the Energy refill manually in Torn. ${CHECKPOINT}`;
     case 'WAIT':return `${Number.isFinite(action.seconds) ? `Wait approximately ${approximate(action.seconds/60)} min` : 'Wait for the checkpoint'}, then Refresh & Plan.`;
-    case 'VERIFY_STATE':return 'Checkpoint: Refresh & Plan to observe reality and replan.';
+    case 'VERIFY_STATE':return `${CHECKPOINT} Observe reality and replan.`;
     default:return 'Refresh & Plan before continuing.';
   }
 }
@@ -1723,21 +1725,79 @@ function beginnerAlternatives(rec) {
     waitDelta:Number.isFinite(plan.timing?.waitSeconds) && Number.isFinite(selected?.timing?.waitSeconds) ?
       plan.timing.waitSeconds-selected.timing.waitSeconds : null}));
 }
+// Present existing evidence requirements; never promote proof or reinterpret readiness.
+function missingEvidence(snapshot,plan) {
+  const n=snapshot.normalized,fields=n?.fields;
+  if (!fields) return [{field:'observation',label:'Current observation',kind:'source',reason:'DATA_MISSING',action:'Refresh & Plan.'}];
+  const missing=names=>names.some(name=>fields[name]?.value===null);
+  const out=[],add=(field,label,kind,action,reason)=>out.push({field,label,kind,reason,
+    action:kind==='source' && reason==='CAPABILITY_UNAVAILABLE' ? `${label}: this source is unavailable with the current API key. Check its access before retrying.` : action});
+  const bars=['energy','naturalEnergyMax','naturalRegen','happy'];
+  if (missing(bars)) add('bars','Energy / Happy (/user/bars)','source',
+    'Refresh /user/bars with Refresh & Plan. Supported current bars evidence is required.',
+    bars.map(name=>fields[name]).find(f=>f?.value===null)?.reason);
+  else if (missing(['ordinaryHappy'])) add('ordinaryHappy','Ordinary Happy','limitation',
+    'A verified elevated-Happy mapping is unavailable; dependent projections are withheld.',fields.ordinaryHappy.reason);
+  if (missing(['stats'])) add('stats','Current battle stats','confirmation',
+    'Confirm all four current raw battle stats below. The Advisor will replan immediately.',fields.stats.reason);
+  if (missing(['gym']) || fields.gym?.reason) add('gym','Gym evidence (/user/gym + /torn/gyms)',
+    fields.gym.reason==='UNSUPPORTED_EFFECT' ? 'limitation' : 'source',fields.gym.reason==='UNSUPPORTED_EFFECT' ?
+      'This gym has an unsupported material effect; dependent prediction is withheld.' :
+      'Refresh /user/gym and /torn/gyms with Refresh & Plan. Supported gym evidence is required.',fields.gym.reason);
+  if (missing(['gainModifiers']) || fields.gainModifiers?.reason) add('gainModifiers','Training modifiers (/user/perks)','source',
+    'Refresh /user/perks with Refresh & Plan. Unsupported material modifiers remain withheld.',fields.gainModifiers.reason);
+  if (missing(['drugCooldown','boosterCooldown'])) add('cooldowns','Cooldowns (/user/cooldowns)','source',
+    'Refresh /user/cooldowns with Refresh & Plan.',fields.drugCooldown?.reason || fields.boosterCooldown?.reason);
+  const refill=snapshot.preferences.allowRefill || plan?.actions?.some(a=>a.action==='USE_REFILL');
+  if (refill && missing(['pointRefill'])) add('pointRefill','Refill availability (/user/refills)','source',
+    'Refresh /user/refills with Refresh & Plan. Current refill availability is required.',fields.pointRefill.reason);
+  if (refill && missing(['points'])) add('points','Current Points','confirmation',
+    'Confirm current Points below. The Advisor will replan immediately.',fields.points.reason);
+  const owned=ownedRequirements(plan);
+  if (owned.some(item=>n.observedState.inventoryFreshnessByItem?.[item.key]!=='LIVE'))
+    add('inventory','Selected-plan owned quantities','confirmation',
+      'Confirm the selected-plan owned quantities below. The Advisor will replan immediately.','DATA_MISSING');
+  if (snapshot.preferences.allowItems && missing(['effectState'])) add('effectState','Preparation effects (for item plans)','confirmation',
+    'Confirm current effects below. The Advisor will replan immediately. Booster capacity depends on verified effect and mechanic evidence.',fields.effectState.reason);
+  else if (snapshot.preferences.allowItems && missing(['boosterMaxSeconds'])) add('boosterMaxSeconds','Booster capacity','limitation',
+    'Verified effect or mechanic evidence is unsupported; dependent booster preparation is withheld.',fields.boosterMaxSeconds.reason);
+  if (missing(['stackCap'])) add('stackCap','Energy stack-cap mechanic','limitation',
+    'The versioned stack-cap mechanic is unavailable; dependent preparation is withheld.',fields.stackCap.reason);
+  // worldDiabetesDay is H2, not a player-editable field. Both open gates stay visible below.
+  return out;
+}
 function buildView(snapshot) {
   const rec=snapshot.recommendation, plan=rec?.primaryPlan, n=snapshot.normalized;
   const readiness=plan?.readiness?.status || 'NEEDS_REFRESH';
   const reason=plan?.readiness ? plan.readiness.reason ?? null : rec?.reason || 'DATA_MISSING';
   const invalidEpoch=snapshot.phase==='NEEDS_REFRESH' || snapshot.phase==='REFRESHING';
+  const missing=missingEvidence(snapshot,plan);
+  const rawMissing=n ? Object.entries(n.fields).filter(([,f])=>f && Object.hasOwn(f,'value') && f.value==null)
+    .map(([field,value])=>({field,reason:value.reason})) : [];
   let next=invalidEpoch ? 'Refresh & Plan before continuing.' : readiness==='READY' ?
     instruction(plan.actions.find(a=>a.action!=='VERIFY_STATE')) : plan?.readiness?.nextAction ||
     REASONS[reason] || 'Refresh & Plan or provide supported state.';
-  if (!invalidEpoch && rec?.status==='NO_SAFE_RECOMMENDATION') {
-    if (n?.fields.stats?.value==null) next='Enter all four current raw battle stats, or refresh /user/battlestats.';
-    else if (n?.fields.gym?.value==null || n?.fields.gym?.reason) next='Refresh /user/gym and /torn/gyms; supported gym evidence is required.';
-    else if (n?.fields.gainModifiers?.reason) next='Refresh /user/perks; material modifier evidence is unavailable.';
+  if (!invalidEpoch && plan?.readiness?.nextAction==='confirm safe quarter-hour window')
+    next='H1 open: this Ecstasy step is withheld until approved timing proof is available.';
+  else if (!invalidEpoch && rec?.status==='NO_SAFE_RECOMMENDATION') {
+    const entry=['DATA_MISSING','DATA_STALE'].includes(reason) ? missing[0] :
+      ['SCHEMA_MISMATCH','UNSUPPORTED_EFFECT','CAPABILITY_UNAVAILABLE'].includes(reason) ?
+        missing.find(x=>x.kind!=='confirmation' && x.reason===reason) : null;
+    if (entry) next=entry.action;
   }
+  else if (!invalidEpoch && readiness==='NEEDS_REFRESH' && ['DATA_MISSING','DATA_STALE'].includes(reason)) {
+    const required=plan?.readiness?.nextAction;
+    const sourceField={'refresh energy':'bars','refresh happy':'bars',
+      'refresh drug cooldown':'cooldowns','refresh gain modifiers':'gainModifiers'}[required];
+    const entry=missing.find(x=>required==='refresh inventory' ? x.field==='inventory' :
+      required==='refresh refill and points' ? ['pointRefill','points'].includes(x.field) :
+      required==='refresh booster capacity' ? ['effectState','boosterMaxSeconds'].includes(x.field) :
+      x.field===sourceField || required===`refresh ${x.field}`);
+    if (entry) next=entry.action;
+  }
+  const reasonText=['DATA_MISSING','DATA_STALE'].includes(reason) ? next : REASONS[reason] || reason;
   return {status:rec?.status || 'NO_SAFE_RECOMMENDATION',readiness:invalidEpoch ? 'NEEDS_REFRESH' : readiness,
-    readinessLabel:LABELS[invalidEpoch ? 'NEEDS_REFRESH' : readiness], reason,
+    readinessLabel:LABELS[invalidEpoch ? 'NEEDS_REFRESH' : readiness], reason,reasonText,
     confidence:plan?.confidence?.level || 'Unavailable', planName:planName(plan), identity:plan?.id || null,
     target:plan?.target?.stat || snapshot.preferences.targetStat,
     objective:rec?.objective || snapshot.preferences.objective,next,
@@ -1747,11 +1807,10 @@ function buildView(snapshot) {
     bought:Object.entries(plan?.resources?.boughtItems || {}).filter(([,n])=>n>0)
       .map(([key,quantity])=>({key,name:itemName(key),quantity})),
     sequence:plan?.actions?.map(instruction) || [],alternatives:beginnerAlternatives(rec),
-    why:rec?.explanation?.join('; ') || REASONS[reason] || reason,
+    why:rec?.explanation?.join('; ') || reasonText,
     known:n ? {Energy:n.observedState.energy,Happy:n.observedState.happy,
       Stats:n.observedState.stats ? 'Available' : 'Missing',Gym:n.observedState.gym?.name} : {},
-    missing:n ? Object.entries(n.fields).filter(([,f])=>f && Object.hasOwn(f,'value') && f.value==null)
-      .map(([field,value])=>({field,reason:value.reason})) : [{field:'Current observation',reason:'DATA_MISSING'}],
+    missing,
     sources:n?.sourceStatus || {},
     advanced:{Plan:plan,State:n?.observedState,Sources:{fields:n?.fields,sources:n?.sourceStatus,
       acquisition:snapshot.acquisition,epoch:snapshot.epoch,startedAt:snapshot.startedAt,
@@ -1759,7 +1818,8 @@ function buildView(snapshot) {
       Alternatives:rec?.alternatives,Model:{id:plan?.explanation?.modelId || 'vladar-v2-pre50m-v1',
         confidence:plan?.confidence,calibratedDomain:n?.capabilities?.calibratedDomain,
         gainInterval:plan?.simulation?.gainInterval || null,assumption:plan?.simulation?.assumption},
-      'Rejected / Diagnostics':{reason,capabilities:n?.capabilities,unsupported:n?.unsupported,rejected:rec?.rejectedPlans}},
+      'Rejected / Diagnostics':{reason,nextAction:plan?.readiness?.nextAction,missing:rawMissing,
+        capabilities:n?.capabilities,unsupported:n?.unsupported,rejected:rec?.rejectedPlans}},
     gates:['H1 open: Happy reset timing is unproven; elevated-Happy/Ecstasy execution needs approved timing proof.',
       'H2 open: personalized Candy event state is unproven; event-dependent Candy mechanics are withheld.']};
 }
@@ -1771,13 +1831,14 @@ function fullHtml(snapshot,view) {
   const stat=options(['strength','speed','defense','dexterity'].map(s=>[s,s]),prefs.targetStat);
   const resource=list=>list.length ? list.map(x=>`${escape(x.name)} ×${x.quantity}`).join(' · ') : 'None';
   const noSafe=view.status==='NO_SAFE_RECOMMENDATION' ? `<section><h3>No safe recommendation</h3>
-    <p>${escape(REASONS[view.reason] || view.reason)}</p><p>Known: ${escape(Object.entries(view.known)
+    <p>${escape(view.reasonText)}</p><p>Known: ${escape(Object.entries(view.known)
       .filter(([,v])=>v!=null).map(([k,v])=>`${k}: ${v}`).join(' · ') || 'No current observation')}</p>
-    <p>Missing or unsupported: ${escape(view.missing.map(x=>x.field).join(', ') || view.reason)}</p>
+    <p>Missing or unsupported evidence:</p><ul>${view.missing.map(x=>
+      `<li>${escape(x.label)}: ${escape(x.action)}</li>`).join('') || `<li>${escape(view.reasonText)}</li>`}</ul>
     <p>${escape(view.next)}</p></section>` : '';
   const summary=`<section><h3>${escape(view.planName)}</h3><p class="ta-ready">${escape(view.readinessLabel)}</p>
     <p>Confidence: ${escape(view.confidence)}</p><p class="ta-next"><strong>NEXT</strong> ${escape(view.next)}</p>
-    <p>${escape(REASONS[view.reason] || (view.reason==='DATA_MISSING' ? '' : view.reason) || '')}</p>
+    <p>${escape(view.reasonText || '')}</p>
     <p>Approximate expected gain: ${approximate(view.gain)} · Target: ${escape(view.target)}</p>
     <p>Owned use: ${resource(view.owned)}<br>To acquire: ${resource(view.bought)}</p>
     <p>${view.economicsAvailable ? `New cash: ${approximate(view.economics?.newCashRequired)} · Replacement value: ${approximate(view.economics?.marketValueOfOwnedItemsConsumed)}` : 'Cost comparison unavailable; no market prices supplied.'}
@@ -1814,7 +1875,8 @@ function fullHtml(snapshot,view) {
     <div class="ta-actions">${button('refresh','Refresh & Plan')}${button('mode',prefs.mode==='advanced'?'Beginner':'Advanced')}</div>
     <p>${escape(snapshot.connection)} · Epoch ${snapshot.epoch} · ${escape(snapshot.phase)}.
     Independent observations; not an atomic Torn server snapshot.</p>${noSafe}${summary}${confirmationSummary}${confirmation}${alternatives}
-    <section><h3>Current evidence</h3><form data-form="effects"><label><input name="none" type="checkbox" required>
+    <section><h3>Current evidence</h3><p>Submit current confirmation below. The Advisor replans immediately within this epoch.</p>
+    <form data-form="effects"><label><input name="none" type="checkbox" required>
     I checked my current effects: no other temporary training, drug, booster, or preparation effects beyond the fetched perks.</label>
     <button type="submit">Confirm current effect state & replan</button></form>
     ${snapshot.normalized?.capabilities.automaticStats ? '' : `<form data-form="stats"><p>Automatic stats unavailable. Enter all four current raw battle stats.</p>
@@ -1906,7 +1968,8 @@ function mount({document,window,advisor}) {
         case 'points':advisor.confirmPoints(number('points'));break;
         case 'key':advisor.setKey(data.get('key'));break;
       }
-    } catch {error='Input could not be accepted. Check the current values and Refresh & Plan before confirming.';}
+    } catch {error=snapshot.phase==='CURRENT' ? 'Input could not be accepted. Check the current values and submit again; accepted confirmation replans immediately.' :
+      'Refresh & Plan before confirming current evidence.';}
     render();
   });
   on(root,'pointerdown',event=>{
@@ -1954,7 +2017,7 @@ module.exports={ROOT_ID,STYLE_ID,CSS,escape,approximate,instruction,planName,own
       runtime:Object.freeze({createAdvisor:runtime.createAdvisor,requestUrl:runtime.requestUrl,
         preferences:runtime.preferences,countdown:runtime.countdown}),
       ui:Object.freeze({buildView:ui.buildView,fullHtml:ui.fullHtml,clamp:ui.clamp,instruction:ui.instruction}),
-      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"b4d984f6290ca41766ac53d816c23a9080d1069bdba92ab27fb1f1e29136627f","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}})});
+      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"b01fbf1d318b7ac5c46ef1de10eeb3d52ddee4cad86149887f5e17d0aa8a8340","src/training-advisor-ui.js":"6e2c5e8852fed87109de0e01722a6c537fbdf8796d048b8be09a18435d5b23ad","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}})});
     return;
   }
   if (typeof document==='undefined' || document.getElementById(ui.ROOT_ID)) return;

@@ -6,8 +6,50 @@ const adapters=require('../src/training-advisor-adapters.js');
 const planner=require('../src/training-advisor-pure.js');
 const frozen=require('../docs/divine-knowledge/chapters/dq-train-001/RUNTIME-UI-INTEGRATION-FIXTURES-001J.json');
 const fixture=(prefix)=>frozen.cases.find(f=>f.id.startsWith(prefix+'_'));
-const {harness,responses,storage,TIME,key}=require('./helpers/training-advisor-fixtures.js');
+const {harness,responses,v2Responses,storage,TIME,key}=require('./helpers/training-advisor-fixtures.js');
 for (const f of frozen.cases.filter(f=>f.layer==='acquisition')) assert.ok(f.expected.length && f.given.length);
+test('official v2 wrapped bars normalize through canonical adapters with unchanged source evidence',async()=>{
+  const input=v2Responses(),h=harness({input}),s=await h.advisor.refresh();
+  assert.equal(s.normalized.observedState.energy,150);
+  assert.equal(s.normalized.observedState.naturalEnergyMax,150);
+  assert.deepEqual(s.normalized.observedState.naturalRegen,{energy:5,everySeconds:600});
+  assert.equal(s.normalized.observedState.happy,4000);
+  assert.equal(s.normalized.observedState.ordinaryHappy,4000);
+  assert.equal(s.normalized.capabilities.bars,true);
+  assert.deepEqual(s.normalized.fields.energy,{value:150,provenance:'OBSERVED',freshness:'LIVE',
+    sourceId:'/user/bars',observedAt:new Date(TIME).toISOString(),cacheClass:'UNCACHED'});
+  assert.deepEqual(s.normalized.sourceStatus.bars,{...s.acquisition.bars,permissionFailure:false,
+    cacheClass:'UNCACHED',reason:null});
+  const expected=adapters.adaptBars(input.bars.bars,s.acquisition.bars);
+  for (const [name,field] of Object.entries(expected.fields)) assert.deepEqual(s.normalized.fields[name],field);
+  assert.deepEqual(s.normalized,(await harness().advisor.refresh()).normalized);
+  assert.equal(s.phase,'CURRENT');assert.equal(s.atomic,false);assert.equal(h.requests.length,11);
+});
+test('malformed or missing v2 bars fail closed without degrading unrelated sources',async()=>{
+  for (const bars of [{},{bars:null},{bars:[]},{bars:'invalid'},{bars:{}},
+    {bars:{energy:{current:'150'},happy:{current:-1,maximum:4000}}}]) {
+    const input=v2Responses();input.bars=bars;const s=await harness({input}).advisor.refresh();
+    assert.equal(s.normalized.capabilities.bars,false);
+    for (const name of ['energy','naturalEnergyMax','naturalRegen','happy','ordinaryHappy'])
+      assert.equal(s.normalized.fields[name].value,null,name);
+    assert.equal(s.normalized.capabilities.automaticStats,true);assert.equal(s.normalized.capabilities.gymPrediction,true);
+    assert.equal(s.normalized.sourceStatus.bars.sourceId,'/user/bars');
+    assert.equal(s.recommendation.status,'NO_SAFE_RECOMMENDATION');
+  }
+});
+test('direct frozen bars fixtures and wrapped elevated Happy retain canonical mapping rules',async()=>{
+  const cases=require('../docs/divine-knowledge/chapters/dq-train-001/ADAPTER-FIXTURES-001D.json').cases;
+  for (const f of cases.filter(f=>f.sources?.bars)) {
+    const input=responses();input.bars=structuredClone(f.sources.bars);
+    const s=await harness({input}).advisor.refresh(),expected=adapters.adaptBars(input.bars,s.acquisition.bars);
+    for (const [name,field] of Object.entries(expected.fields)) assert.deepEqual(s.normalized.fields[name],field,f.id);
+  }
+  const input=v2Responses();input.bars.bars.happy.current=5000;
+  const s=await harness({input}).advisor.refresh();assert.equal(s.normalized.fields.happy.value,5000);
+  assert.equal(s.normalized.fields.ordinaryHappy.value,null);
+  assert.equal(s.normalized.fields.ordinaryHappy.reason,'ORDINARY_HAPPY_ELEVATED_UNVERIFIED');
+  assert.deepEqual(s.normalized.timing,{});
+});
 test(fixture('J-A1').id,async()=>{
   const h=harness();const first=h.advisor.refresh(),second=h.advisor.refresh();assert.equal(first,second);
   const s=await first;assert.equal(s.epoch,1);assert.equal(s.phase,'CURRENT');assert.equal(s.atomic,false);

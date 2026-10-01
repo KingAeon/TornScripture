@@ -67,6 +67,7 @@ function pageIdentity(link, source) {
   return url.href;
 }
 function unwrap(key,payload) {
+  if (key==='bars') return payload.bars ?? payload;
   if (key==='cooldowns') return payload.cooldowns ?? payload;
   if (key==='perks') return payload.perks ?? payload;
   if (key==='refills') return payload.refills ?? payload;
