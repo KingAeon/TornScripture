@@ -582,7 +582,7 @@ Required curation priority, with exact-fingerprint deduplication and role badges
 1. current objective winner: **RECOMMENDED**;
 2. winner under existing `MAXIMUM_GAIN`: **HIGHEST GAIN**;
 3. winner under existing `BEST_VALUE`, when valid: **BEST VALUE**;
-4. winner under existing `USE_MY_INVENTORY`, when valid: **USE WHAT I OWN**;
+4. winner under existing `USE_MY_INVENTORY`, when valid: **USE WHAT I OWN** only when it actually requires no bought items and no new cash; otherwise **LOWEST NEW CASH** or equivalent truthful wording;
 5. highest-gain supported representatives of materially distinct preparation signatures until the cap is reached.
 
 A preparation signature is a deterministic planner-side presentation grouping derived only from the canonical plan, using:
