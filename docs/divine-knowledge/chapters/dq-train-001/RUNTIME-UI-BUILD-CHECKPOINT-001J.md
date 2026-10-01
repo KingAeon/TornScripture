@@ -1,13 +1,14 @@
 # DQ-TRAIN-001J — Runtime/UI implementation checkpoint
 
-State: **IMPLEMENTED / AUTOMATED REGRESSIONS PASS / INDEPENDENT [V][WORK] AND OWNER BROWSER GATES PENDING / UNMERGED**
+State: **TORNPDA QUOTE COMPATIBILITY CORRECTED / AUTOMATED REGRESSIONS PASS / REPEATED OWNER BROWSER GATES PENDING / UNMERGED**
 
-Owner authorization: `[B][WORK]`, 2026-09-30. Repository: `KingAeon/TornScripture`.
+Owner authorization: `[B][WORK]`, 2026-09-30; bounded TornPDA compatibility amendment, 2026-10-01. Repository: `KingAeon/TornScripture`.
 
 Authoritative base: `776d8e8044f317cd8feca58fb5197710b9c69b64`.
 Branch: `agent/training-runtime-ui-001j-build`.
-Tested amended product head: `a151435e18de2a15eebbcd818cdc8ea1b296cebe`.
-Product tree: `006ba49d6cb83bc4a45169c62d38c81645ba5165`.
+Tested amended product head: `29a4b6bc80a59889cc336d43cbf166c601092309`.
+Product tree: `7ee992a75756c4c60cec91658b2058f8da6ac876`.
+Previous independently verified draft head: `f9c37b181c22a23f093830e33d987abdfeb7d380` (PASS; owner browser gates remained pending).
 
 This checkpoint is a subsequent documentation commit. The final branch head, including this checkpoint, must be pinned from draft PR metadata in the independent verification request; a commit cannot contain its own resulting SHA. Product bytes are identical to the tested implementation head above.
 
@@ -62,7 +63,7 @@ node scripts/build-training-advisor.js --check
 
 The generator uses only Node `fs`, `path`, and `crypto`. It embeds SHA-256 hashes of all four canonical/integration input sources and the generator itself. It does not incorporate wall-clock time, randomness, network results, or machine-specific paths.
 
-Two consecutive CLI builds were byte-identical; the checked-in artifact equals regeneration. Final artifact SHA-256:
+Two consecutive CLI builds were byte-identical; the checked-in artifact equals regeneration. Historical freshness-correction artifact SHA-256 (superseded by the compatibility build below):
 
 `e3a3de9aa432de7709e3e4173b89a97e678a04284a6c097c194881ae62008306`
 
@@ -81,6 +82,38 @@ Product/test amendment files: `src/training-advisor-runtime.js`, `src/training-a
 Amended product commit: `a151435e18de2a15eebbcd818cdc8ea1b296cebe`, parent `cc6d330a66f54faf2e0bb62ec40269632a574c26`; fetched and checked against the tested local tree. Final documentation-inclusive head is pinned in PR #135 metadata and the owner completion/independent-verification prompt.
 
 Seven additional regressions plus corrected existing assertions prove persistent current epochs/confirmation beyond 60 seconds, nonauthoritative countdown zero, hide/show and unrelated navigation neutrality, explicit checkpoint/new-refresh/key invalidation, and memory-only disposal/reload. Full results below were executed after correction. Real TornPDA/desktop smoke tests remain pending.
+
+## Bounded TornPDA source-normalization correction — 2026-10-01
+
+The first owner live TornPDA Android startup smoke test failed at the previously independently verified draft head `f9c37b181c22a23f093830e33d987abdfeb7d380`: installation succeeded, injection was set to END, but no Training Advisor HUD appeared on a normal Torn page, both without a configured key and after setting one. API configuration does not govern HUD mounting. This live failure is owner evidence; it is not a verifier-performed browser test.
+
+The known [TornPDA normalization evidence](../../../discovery/evidence/TORN-PDA-USERSCRIPT-SOURCE-NORMALIZATION.md) documents whole-source replacement of literal U+2018/U+2019 with ASCII apostrophes and U+201C/U+201D with ASCII double quotes before injection. Raw generated JavaScript parsed, but applying that exact transform reproduced `SyntaxError: Unexpected identifier 's'`: the U+2019 in the single-quoted `plan\u2019s` copy became an unescaped ASCII apostrophe. The second literal U+2019 was in the `TornPDA\u2019s` template copy. Each also occurred in the generated artifact: two canonical occurrences and two embedded occurrences.
+
+The only product-source changes are ASCII-safe wording: `Obtain and verify the selected plan requirements.` and `TornPDA managed key takes priority.` No Unicode stripping or runtime normalization layer is added. The generated artifact is regenerated from unchanged canonical planner/adapters, unchanged runtime, and unchanged Node-core generator; only UI bytes and their provenance hash change.
+
+The permanent build-suite test `TornPDA quote normalization cannot rewrite Training Advisor sources or artifact` scans every build input (planner, adapters, runtime, UI), the generator, and the checked-in userscript for exactly `[\u2018\u2019\u201C\u201D]`, then parses the post-normalization artifact. It failed against the original UI source and passes after correction. Existing J-B3/J-B4 guards still enforce regeneration/provenance and reject deliberate embedded-core drift. This is a hard automated build/release guard, not a live compatibility claim.
+
+Tested compatibility product commit: `29a4b6bc80a59889cc336d43cbf166c601092309`, parent `f9c37b181c22a23f093830e33d987abdfeb7d380`; fetched into the executable workspace and verified against local tree `7ee992a75756c4c60cec91658b2058f8da6ac876`. The subsequent active-record commit preserves these tested product bytes. The final documentation-inclusive head is pinned in PR #135 metadata and the owner completion report.
+
+Current generated artifact SHA-256: `8d722e08d817fd1165c688f94572639242999618ac17733ef7afebf58690790e`.
+
+| Executed compatibility validation | Result |
+| --- | --- |
+| Existing Training | 162/162 |
+| Runtime/UI/build, including one added compatibility guard | 58/58 |
+| Focused Training | 220/220 |
+| Full repository | 457/457, 21 suites |
+| Frozen J fixtures | 34/34, 11 acquisition / 8 packaging / 15 UI |
+| Syntax checks, UI/build test/generated userscript | 3/3 |
+| Six source/artifact files, four literal quote characters | Zero occurrences |
+| CLI double build / checked-in regeneration / five provenance hashes | PASS |
+| Intentional embedded-core drift rejection / generated-artifact VM parity | PASS |
+| Canonical planner/adapters and frozen/historical chapter bytes versus authoritative base | Unchanged |
+| Complete amendment diff / secrets / scope / JSON / NDJSON history / Markdown / whitespace | PASS |
+
+Exact test commands use `node --test --test-reporter=tap` with the same file lists recorded below. Syntax commands are `node --check src/training-advisor-ui.js`, `node --check tests/training-advisor-build.test.js`, and `node --check TornScripture-Training-Advisor.user.js`. Two `node scripts/build-training-advisor.js` invocations and `cmp` prove identical builds and equality with the pre-regeneration artifact; `node scripts/build-training-advisor.js --check` verifies checked-in generation. SHA-256 is computed independently with `sha256sum`; Python separately scans all six files, validates embedded hashes and frozen bytes, and matches all 34 frozen IDs to executed TAP results. `git diff --check` passes.
+
+No epoch/confirmation policy, API acquisition, Points/H1/H2 gate, key/storage behavior, controls, version, endpoint, listener, timer, observer, dependency, frozen expectation, or unrelated product changes. H1/H2 remain open. **Repeat the owner TornPDA Android smoke test after installing the amended pinned artifact; HUD startup, managed key injection, actual requests and the entire original mobile workflow are still pending.** Tampermonkey/Violentmonkey live API/CORS and reload gates also remain pending. The PR stays open/draft/unmerged/unreleased; no ready, auto-merge or release action is authorized.
 
 ## Acquisition and session control
 
@@ -131,7 +164,7 @@ Listeners: Advisor click/submit/pointerdown/pointermove/pointerup/pointercancel;
 
 ## Executed automated acceptance
 
-Final product results:
+Historical freshness-correction results at `f9c37b181c22a23f093830e33d987abdfeb7d380` (the compatibility amendment adds one build test; current results are above):
 
 | Validation | Result |
 | --- | --- |
@@ -164,7 +197,9 @@ git diff 776d8e8044f317cd8feca58fb5197710b9c69b64..HEAD --check
 
 Protected canonical regressions pass unchanged: vladar-v2-pre50m-v1 and calibration boundaries; 001A math; 001C policy/ranking; natural-max refill and 1,150E sequential route; booster pre-use threshold and legal mixed frontier; +250E/+75 Happy Xanax exactly once; absolute 1,000E versus natural maximum; no invented future Xanax cooldown; J-P valid/malformed confirmation, owned/bought separation, ordinaryHappy, regeneration, 50m limit, source-local capability failure, and H1/H2 gates.
 
-## Owner manual gates — NOT exercised
+## Owner manual gates — repeated TornPDA startup and remaining workflow pending
+
+The first owner TornPDA startup attempt failed before HUD mounting; no later mobile workflow was reached. Repeat with the corrected pinned artifact. Desktop gates have not been exercised.
 
 TornPDA Android:
 
@@ -189,4 +224,4 @@ H1/H2 are unresolved; Ecstasy timing and affected Candy support cannot be enable
 
 Before merge: leave the draft PR unmerged and disable/uninstall the test script. If separately authorized/merged later, revert the implementation commits in this branch's baseline-to-head range and remove/disable the new Advisor artifact. Optionally remove only its two named local keys; other TornScriptures data is untouched. No data migration or irreversible state exists.
 
-Independent `[V][WORK]` must pin the **final draft PR head**, prove the full executable workspace from the exact base, inspect the complete baseline-to-head diff, reproduce all commands/counts, preserve frozen documents/canonical bytes, check generated parity/drift, key/privacy and lifecycle boundaries, and evaluate this manual-gate distinction. Keep the PR draft/unmerged; no ready, auto-merge, release, or merge action is authorized. The owner completion report supplies the exact final-head prompt.
+The prior independent `[V][WORK]` passed at `f9c37b181c22a23f093830e33d987abdfeb7d380`. Any subsequent independent verification must pin the **final amended draft PR head**, prove the full executable workspace from the exact base, inspect the complete baseline-to-head diff, reproduce all commands/counts, preserve frozen documents/canonical bytes, check generated parity/drift, key/privacy and lifecycle boundaries, and evaluate this manual-gate distinction. Keep the PR draft/unmerged; no ready, auto-merge, release, or merge action is authorized. The owner completion report supplies the exact final-head prompt.

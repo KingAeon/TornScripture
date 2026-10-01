@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; 001J RUNTIME/UI v0.1.0 IMPLEMENTED/TESTED; INDEPENDENT [V][WORK] AND OWNER BROWSER GATES PENDING; H1/H2 OPEN**
+State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; PRIOR 001J RUNTIME/UI HEAD INDEPENDENTLY VERIFIED; TORNPDA QUOTE COMPATIBILITY CORRECTED; REPEATED OWNER BROWSER GATES PENDING; H1/H2 OPEN**
 
 ## Canonical reading order
 
@@ -43,7 +43,7 @@ State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; 001J R
 
 37. [DQ-TRAIN-001J Runtime / Browser / UI Integration Specification](RUNTIME-UI-INTEGRATION-SPEC-001J.md) — owner-frozen acquisition/refresh, deterministic standalone packaging/runtime, beginner/advanced UI, safety, storage, H1/H2, and implementation-gate contract.
 38. [`RUNTIME-UI-INTEGRATION-FIXTURES-001J.json`](RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) — 34 synthetic acceptance cases: 11 acquisition, 8 packaging/runtime, and 15 UI/interaction cases.
-39. [DQ-TRAIN-001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) — owner-authorized standalone 0.1.0 runtime/UI, deterministic build, 219 Training / 456 repository tests, unchanged canonical/frozen inputs, exact product head, pending independent [V][WORK] and owner browser gates.
+39. [DQ-TRAIN-001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) — owner-authorized standalone 0.1.0 runtime/UI, deterministic build, 220 Training / 457 repository tests after the TornPDA quote correction, unchanged canonical/frozen inputs, prior independent PASS, repeated owner browser gates pending.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -172,8 +172,10 @@ H1 Happy-reset timing and H2 personalized Candy-event interval remain open live-
 
 PR #134 passed independent `[V]` at `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`. The owner separately authorized `[B][WORK]` from that exact baseline.
 
-The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested amended product head `a151435e18de2a15eebbcd818cdc8ea1b296cebe`, 0.1.0 generated artifact, 219 focused / 456 repository passes, and preserved H1/H2 gates.
+The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested compatibility product head `29a4b6bc80a59889cc336d43cbf166c601092309`, 0.1.0 generated artifact, 220 focused / 457 repository passes, and preserved H1/H2 gates.
 
-Next gate: independent `[V][WORK]` pinned to the final draft PR head, followed by owner TornPDA/desktop manual verification and a separate merge decision. The implementation remains unmerged and unreleased.
+Prior independent `[V][WORK]` passed at `f9c37b181c22a23f093830e33d987abdfeb7d380`. Next gate: repeat owner TornPDA smoke on the amended pinned artifact, complete desktop manual verification, then a separate merge decision. The implementation remains unmerged and unreleased.
 
 Owner-authorized PR #135 amendment (2026-10-01) removes the unsupported 60-second authority expiry and blanket foreground/page-interaction invalidation. Current epochs/confirmation persist until an explicit approved transition; checkpoint → Refresh & Plan → observe → replan remains required after material actions. Tested amended product head `a151435e18de2a15eebbcd818cdc8ea1b296cebe`; 219 focused / 456 repository passes; final draft PR head is the independent-verification pin.
+
+First owner TornPDA Android smoke failed before HUD startup despite successful install and END injection, both without and with an API key. The [known source-normalization hazard](../../../discovery/evidence/TORN-PDA-USERSCRIPT-SOURCE-NORMALIZATION.md) reproduced a SyntaxError from the literal U+2019 in `plan\u2019s`. Owner-authorized compatibility amendment removes the two literal smart apostrophes through ASCII-safe UI copy, regenerates the artifact, and adds a build guard against all four known normalized quote characters in every source input/generator/artifact. Product head `29a4b6bc80a59889cc336d43cbf166c601092309`; 220 focused / 457 repository tests and 34 frozen J cases pass. The [checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records hashes and exact evidence. Live HUD/API/mobile workflow must be retested; automated coverage does not establish live TornPDA compatibility. Frozen/canonical bytes, H1/H2 and same draft/unmerged PR remain unchanged.
