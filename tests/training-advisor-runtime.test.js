@@ -12,7 +12,7 @@ test(fixture('J-A1').id,async()=>{
   const h=harness();const first=h.advisor.refresh(),second=h.advisor.refresh();assert.equal(first,second);
   const s=await first;assert.equal(s.epoch,1);assert.equal(s.phase,'CURRENT');assert.equal(s.atomic,false);
   assert.equal(s.recommendation.status,'ok');assert.equal(s.normalized.capabilities.gainPrediction,true);
-  assert.equal(h.requests.length,11);assert.equal(h.timers.size,1); // one expiry, no polling
+  assert.equal(h.requests.length,11);assert.equal(h.timers.size,0); // only bounded in-flight request timers
   assert.equal(s.normalized.fields.energy.sourceId,'/user/bars');
   assert.equal(s.normalized.fields.energy.observedAt,new Date(TIME).toISOString());
   assert.equal(s.normalized.fields.energy.freshness,'LIVE');
@@ -64,8 +64,10 @@ test(fixture('J-A5').id,async()=>{
   assert.notEqual(s.recommendation.primaryPlan.id,plan.id);
 });
 test(fixture('J-A6').id,async()=>{
-  const h=harness();h.input.cooldowns.drug=1;const before=await h.advisor.refresh();h.advance(2000);
-  assert.match(runtime.countdown(1,before.normalized.fields.drugCooldown.observedAt,TIME+2000),/Refresh now/);
+  const h=harness();h.input.cooldowns.drug=1;const before=await h.advisor.refresh();h.advance(60_001);
+  assert.match(runtime.countdown(1,before.normalized.fields.drugCooldown.observedAt,TIME+60_001),/Refresh now/);
+  assert.equal(h.advisor.snapshot().phase,'CURRENT');
+  assert.deepEqual(h.advisor.snapshot().recommendation,before.recommendation);
   assert.deepEqual(h.advisor.snapshot().normalized,before.normalized);
   assert.equal(h.advisor.snapshot().normalized.observedState.cooldowns.drugSeconds,1);
   assert.equal(h.requests.length,11);
@@ -116,17 +118,41 @@ test('current Points require independent money evidence; denied money needs expl
   assert.equal(s.recommendation.primaryPlan.resources.energySpent,150);
   h.advisor.invalidate();assert.equal(h.advisor.snapshot().normalized.observedState.pointsAvailable,undefined);
 });
-test('expiry and foreground changes invalidate confirmations without polling',async()=>{
-  const h=harness();await h.advisor.refresh();h.advisor.confirmEffects(true);h.advance(60_001);h.expire();
-  assert.equal(h.advisor.snapshot().phase,'NEEDS_REFRESH');assert.equal(h.requests.length,11);
-  assert.equal(h.advisor.snapshot().normalized.capabilities.xanaxPreparation,false);
-  assert.throws(()=>h.advisor.confirmEffects(true),/Refresh & Plan/);
+test('a completed observation epoch remains CURRENT after elapsed wall time without timers or requests',async()=>{
+  const h=harness();const before=await h.advisor.refresh();h.advance(600_001);
+  assert.deepEqual(h.advisor.snapshot(),before);assert.equal(h.timers.size,0);assert.equal(h.requests.length,11);
 });
-test('foreground state change during a slow refresh cannot restore stale authority',async()=>{
+test('selected-plan confirmation remains current after more than 60 seconds within the same epoch',async()=>{
+  const h=harness();await h.advisor.refresh();
+  h.advisor.setPreferences({objective:'MAXIMUM_GAIN',prohibitedItems:['eroticDvd','ecstasy']});
+  h.advisor.confirmEffects(true);const before=h.advisor.confirmInventory({xanax:1});
+  assert.equal(before.normalized.fields.inventory.confirmation.value.xanax,1);
+  h.advance(600_001);assert.deepEqual(h.advisor.snapshot(),before);
+  assert.equal(h.advisor.snapshot().normalized.observedState.inventoryFreshnessByItem.xanax,'LIVE');
+  const reconfirmed=h.advisor.confirmInventory({xanax:1});
+  assert.equal(reconfirmed.normalized.fields.inventory.confirmation.observedAt,new Date(TIME+600_001).toISOString());
+  assert.equal(h.timers.size,0);assert.equal(h.requests.length,11);
+});
+test('explicit state change during a slow refresh cannot restore stale authority',async()=>{
   let unblock;const pending=new Promise(resolve=>{unblock=resolve;});
   const h=harness({fetchOverride:async()=>{await pending;return {ok:true,json:async()=>({})};}});
   const refresh=h.advisor.refresh();h.advisor.invalidate();unblock();const s=await refresh;
   assert.equal(s.phase,'NEEDS_REFRESH');assert.equal(h.timers.size,0);
+});
+test('a long completed refresh has no wall-clock authority deadline',async()=>{
+  let unblock;const pending=new Promise(resolve=>{unblock=resolve;});
+  const h=harness({fetchOverride:async()=>{await pending;return {ok:true,json:async()=>({})};}});
+  const refresh=h.advisor.refresh();h.advance(60_001);unblock();
+  assert.equal((await refresh).phase,'CURRENT');assert.equal(h.timers.size,0);
+});
+test('a new refresh immediately clears previous confirmation and replaces the observation epoch',async()=>{
+  const h=harness();await h.advisor.refresh();h.advisor.setPreferences({objective:'MAXIMUM_GAIN'});
+  h.advisor.confirmEffects(true);h.advisor.confirmInventory(h.advisor.snapshot().recommendation.primaryPlan.resources.ownedItemsConsumed);
+  const pending=h.advisor.refresh(),during=h.advisor.snapshot();
+  assert.equal(during.epoch,2);assert.equal(during.phase,'REFRESHING');assert.equal(during.normalized,null);
+  const after=await pending;assert.equal(after.phase,'CURRENT');
+  assert.equal(after.normalized.fields.inventory.confirmation,undefined);
+  assert.notEqual(after.normalized.observedState.inventoryFreshnessByItem.xanax,'LIVE');
 });
 test('bounded same-category pagination and local failure on foreign links',async()=>{
   const input=responses(),h=harness({input});let calls=0;
@@ -187,10 +213,12 @@ test('per-request timeout degrades one capability and clears bounded timers',asy
       return {ok:true,json:async()=>input[name]};
     }});
   const pending=a.refresh();await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(timers.size,1);timers.values().next().value.fn();const s=await pending;
+  assert.equal(timers.size,1);assert.equal(timers.values().next().value.ms,15_000);
+  timers.values().next().value.fn();const s=await pending;
   assert.equal(s.normalized.sourceStatus.battlestats.reason,'DATA_MISSING');assert.equal(s.normalized.capabilities.bars,true);
-  assert.equal(timers.size,1);assert.equal(timers.values().next().value.ms,60_000);
-  clock+=60_001;assert.equal(a.snapshot().phase,'NEEDS_REFRESH');assert.equal(timers.size,0);
+  assert.equal(timers.size,0);
+  clock+=60_001;assert.equal(a.snapshot().phase,'CURRENT');assert.deepEqual(a.snapshot().normalized,s.normalized);
+  a.dispose();
   h.advisor.dispose();
 });
 test('malformed cached source may be reacquired on the next user refresh',async()=>{
@@ -215,6 +243,27 @@ test('changing the local key during refresh cannot reuse the previous account in
   const second=await h.advisor.refresh();assert.equal(second.normalized.observedState.inventory.xanax,1);
   assert.equal(requests.filter(r=>r==='ApiKey NEW_SYNTHETIC_KEY').length,11);
 });
+test('key change clears current confirmation, player proof and inventory/catalog caches',async()=>{
+  const h=harness({managedKey:'###PDA-APIKEY###'});h.advisor.setKey('OLD_SYNTHETIC_KEY');
+  await h.advisor.refresh();h.advisor.setPreferences({objective:'MAXIMUM_GAIN'});
+  h.advisor.confirmEffects(true);h.advisor.confirmInventory(h.advisor.snapshot().recommendation.primaryPlan.resources.ownedItemsConsumed);
+  const changed=h.advisor.setKey('NEW_SYNTHETIC_KEY');assert.equal(changed.phase,'NEEDS_REFRESH');
+  assert.equal(changed.normalized.fields.inventory.confirmation,undefined);
+  assert.equal(changed.normalized.fields.energy.freshness,'STALE');
+  assert.equal(changed.normalized.observedState.pointsAvailable,undefined);
+  h.input.drugInventory.inventory.items[0].amount=2;
+  const next=await h.advisor.refresh();assert.equal(h.requests.length,22);
+  assert.equal(next.normalized.observedState.inventory.xanax,2);
+});
+test('dispose drops all in-memory live state and confirmation; reload restores only preferences',async()=>{
+  const h=harness();await h.advisor.refresh();h.advisor.setPreferences({objective:'MAXIMUM_GAIN'});
+  h.advisor.confirmEffects(true);h.advisor.confirmInventory(h.advisor.snapshot().recommendation.primaryPlan.resources.ownedItemsConsumed);
+  h.advisor.dispose();const disposed=h.advisor.snapshot();assert.equal(disposed.phase,'NEEDS_REFRESH');
+  assert.equal(disposed.normalized,null);assert.equal(disposed.recommendation,null);assert.deepEqual(disposed.acquisition,{});
+  const reloaded=harness({storage:h.store}).advisor.snapshot();assert.equal(reloaded.phase,'NEEDS_REFRESH');
+  assert.equal(reloaded.normalized,null);assert.equal(reloaded.preferences.objective,'MAXIMUM_GAIN');
+  assert.equal(h.timers.size,0);await assert.rejects(h.advisor.refresh(),/disposed/);
+});
 test('disposing while a refresh is in flight leaves no timers or subscriptions behind',async()=>{
   let unblock;const pending=new Promise(resolve=>{unblock=resolve;});
   const h=harness({fetchOverride:async()=>{await pending;return {ok:true,json:async()=>({})};}});
@@ -222,5 +271,6 @@ test('disposing while a refresh is in flight leaves no timers or subscriptions b
   const refresh=h.advisor.refresh();await new Promise(resolve=>setImmediate(resolve));
   h.advisor.dispose();const before=notifications;assert.equal(h.timers.size,0);unblock();
   const s=await refresh;assert.equal(s.phase,'NEEDS_REFRESH');assert.equal(h.timers.size,0);
+  assert.equal(s.normalized,null);assert.deepEqual(s.acquisition,{});
   assert.equal(notifications,before);await assert.rejects(h.advisor.refresh(),/disposed/);
 });

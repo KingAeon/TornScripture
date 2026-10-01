@@ -172,9 +172,35 @@ test('mounted HUD navigation, pointer drag, checkpoint, visibility and cleanup a
   root.fire('click',{target:target('collapse')});assert.equal(h.advisor.snapshot().preferences.collapsed,true);
   root.fire('click',{target:target('checkpoint')});assert.equal(h.advisor.snapshot().phase,'NEEDS_REFRESH');
   root.fire('click',{target:target('refresh')});await h.advisor.refresh();assert.equal(h.advisor.snapshot().epoch,2);
-  d.document.hidden=true;d.document.fire('visibilitychange',{});assert.equal(h.advisor.snapshot().phase,'NEEDS_REFRESH');
+  d.document.hidden=true;d.document.fire('visibilitychange',{});assert.equal(h.advisor.snapshot().phase,'CURRENT');
   mounted.dispose();assert.equal(d.elements.length,0);assert.equal(h.timers.size,0);
   for (const element of [root,d.document,d.window]) for (const set of element.handlers.values()) assert.equal(set.size,0);
+});
+test('hiding and showing the document preserves the epoch and selected-plan confirmation',async()=>{
+  const d=dom(),h=harness();await h.advisor.refresh();h.advisor.setPreferences({objective:'MAXIMUM_GAIN'});
+  h.advisor.confirmEffects(true);const before=h.advisor.confirmInventory(h.advisor.snapshot().recommendation.primaryPlan.resources.ownedItemsConsumed);
+  const mounted=ui.mount({...d,advisor:h.advisor});
+  for (const hidden of [true,false]) {d.document.hidden=hidden;d.document.fire('visibilitychange',{});
+    assert.deepEqual(h.advisor.snapshot(),before);}
+  mounted.dispose();
+});
+test('unrelated Torn links, buttons, inputs and form submissions preserve current proof; checkpoint clears it',async()=>{
+  const d=dom(),h=harness();await h.advisor.refresh();h.advisor.setPreferences({objective:'MAXIMUM_GAIN'});
+  h.advisor.confirmEffects(true);const before=h.advisor.confirmInventory(h.advisor.snapshot().recommendation.primaryPlan.resources.ownedItemsConsumed);
+  const mounted=ui.mount({...d,advisor:h.advisor}),root=d.document.getElementById(ui.ROOT_ID);
+  for (const tagName of ['a','button','input']) {
+    d.document.fire('click',{target:{inside:false,closest:()=>({tagName})}});
+    assert.deepEqual(h.advisor.snapshot(),before);
+  }
+  d.document.fire('submit',{target:{inside:false}});assert.deepEqual(h.advisor.snapshot(),before);
+  root.fire('click',{target:{inside:true,closest:()=>({dataset:{action:'checkpoint'}})}});
+  const changed=h.advisor.snapshot();assert.equal(changed.phase,'NEEDS_REFRESH');
+  assert.equal(changed.normalized.fields.inventory.confirmation,undefined);
+  assert.equal(changed.normalized.fields.energy.freshness,'STALE');
+  root.fire('click',{target:{inside:true,closest:()=>({dataset:{action:'open'}})}});
+  assert.match(root.innerHTML,/After each manual player action: checkpoint → Refresh & Plan → observe → replan\./);
+  assert.doesNotMatch(root.innerHTML,/expires after state changes or 60 seconds/);
+  mounted.dispose();
 });
 test('mounted preference and confirmation forms route explicit input into the canonical runtime',async()=>{
   const d=dom(),h=harness();await h.advisor.refresh();const mounted=ui.mount({...d,advisor:h.advisor});

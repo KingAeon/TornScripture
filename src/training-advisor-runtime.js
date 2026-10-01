@@ -80,18 +80,15 @@ function countdown(seconds, observedAt, now) {
   return remaining ? `${remaining}s observed wait; refresh at checkpoint` : 'Refresh now; countdown is not current proof';
 }
 function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(),
-  setTimer=setTimeout, clearTimer=clearTimeout, liveWindowMs=60_000} = {}) {
-  let prefs=loadPreferences(storage), epoch=0, inFlight=null, expiry=null, invalidation=0, keyRevision=0, disposed=false;
+  setTimer=setTimeout, clearTimer=clearTimeout} = {}) {
+  let prefs=loadPreferences(storage), epoch=0, inFlight=null, invalidation=0, keyRevision=0, disposed=false;
   let raw={}, meta={}, normalized=null, recommendation=null, phase='NEEDS_REFRESH', startedAt=null, completedAt=null;
   let inventoryConfirmation, manualInput, effectState, pointsConfirmation;
   const cache=new Map(), subscribers=new Set(), pendingRequests=new Map();
   const iso=()=>new Date(now()).toISOString();
-  const clearExpiry=()=>{if (expiry!=null) clearTimer(expiry); expiry=null;};
-  const current=()=>phase==='CURRENT' && completedAt!=null &&
-    now()-Date.parse(startedAt)<liveWindowMs;
+  // Current proof belongs to the observation epoch, until an explicit state transition.
+  const current=()=>!disposed && phase==='CURRENT' && completedAt!=null;
   function snapshot() {
-    // A suspended browser timer is never a reason to retain execution authority.
-    if (phase==='CURRENT' && !current()) invalidate();
     const value={version:VERSION, epoch, phase, startedAt, completedAt, atomic:false,
       preferences:prefs, normalized, recommendation, acquisition:meta,
       connection:resolveKey(managedKey,storage) ? validKey(managedKey) ? 'TornPDA managed key' : 'Local browser key' : 'Not connected'};
@@ -113,7 +110,7 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
     notify(); return snapshot();
   }
   function invalidate() {
-    invalidation++; clearExpiry(); inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
+    invalidation++; inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
     for (const [key,value] of Object.entries(meta)) if (!key.endsWith('Inventory') && key!=='tornGyms')
       value.freshness=value.requestSucceeded ? 'STALE' : 'UNKNOWN';
     phase=inFlight ? 'REFRESHING' : 'NEEDS_REFRESH';
@@ -182,7 +179,7 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
   function refresh() {
     if (disposed) return Promise.reject(new Error('Advisor disposed'));
     if (inFlight) return inFlight;
-    clearExpiry(); epoch++; invalidation++;
+    epoch++; invalidation++;
     inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
     raw={}; meta={}; normalized=recommendation=null;
     phase='REFRESHING'; startedAt=iso(); completedAt=null;
@@ -193,10 +190,10 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
         const result=key ? await acquire(name,key,revision) : {value:{status:'PERMISSION_DENIED'},
           meta:{sourceId:source,requestedSelection:source,requestSucceeded:false,permissionFailure:true,
             observedAt:iso(),freshness:'UNKNOWN'}};
-        raw[name]=result.value; meta[name]=result.meta;
+        if (!disposed) {raw[name]=result.value; meta[name]=result.meta;}
       }));
       if (disposed) return snapshot();
-      completedAt=iso(); phase=token===invalidation && now()-Date.parse(startedAt)<liveWindowMs ? 'CURRENT' : 'NEEDS_REFRESH';
+      completedAt=iso(); phase=token===invalidation ? 'CURRENT' : 'NEEDS_REFRESH';
       const points=raw.money?.money?.points;
       if (phase==='CURRENT' && meta.money.requestSucceeded && Number.isSafeInteger(points) && points>=0)
         pointsConfirmation={sourceId:SOURCES.money,confirmedCurrent:true,observedAt:meta.money.observedAt,
@@ -204,8 +201,6 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
       if (phase!=='CURRENT') for (const [name,value] of Object.entries(meta))
         if (!name.endsWith('Inventory') && name!=='tornGyms' && value.requestSucceeded) value.freshness='STALE';
       replan();
-      if (phase==='CURRENT') expiry=setTimer(()=>{expiry=null;invalidate();},
-        Math.max(0,liveWindowMs-(now()-Date.parse(startedAt))));
       return snapshot();
     }).finally(()=>{inFlight=null;notify();});
     notify(); return inFlight;
@@ -253,8 +248,9 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
         observedAt:iso(),freshness:'LIVE',value};return replan();
     },
     dispose() {
-      disposed=true;invalidation++;phase='NEEDS_REFRESH';clearExpiry();
+      disposed=true;invalidation++;phase='NEEDS_REFRESH';
       inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
+      raw={};meta={};normalized=recommendation=null;cache.clear();
       for (const [controller,timeout] of pendingRequests) {clearTimer(timeout);controller.abort();}
       subscribers.clear();
     }

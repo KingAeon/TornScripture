@@ -17,7 +17,7 @@
 // SAFETY BOUNDARY: advisory only; no gameplay actions, background polling, or state uploads.
 // Only user-triggered GET requests to the official Torn API; keys remain local.
 // Only preferences/UI state and an optional local key persist. Current evidence is memory-only.
-// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"da45392c5888f2313e24d37f7e33001db0020755b113814cdd780d384f55035d","src/training-advisor-ui.js":"b0fc211eaabcb5554c3fbbdd0c7b1fe429ea38dd07fdad3ca496c18a91c9296c","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}}
+// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"4a1cd6ac4619f08795aae0b4321e761922a5201bb392f8d093aa55e1f4fd1d7a","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}}
 (() => {
   'use strict';
   const factories={
@@ -1484,18 +1484,15 @@ function countdown(seconds, observedAt, now) {
   return remaining ? `${remaining}s observed wait; refresh at checkpoint` : 'Refresh now; countdown is not current proof';
 }
 function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(),
-  setTimer=setTimeout, clearTimer=clearTimeout, liveWindowMs=60_000} = {}) {
-  let prefs=loadPreferences(storage), epoch=0, inFlight=null, expiry=null, invalidation=0, keyRevision=0, disposed=false;
+  setTimer=setTimeout, clearTimer=clearTimeout} = {}) {
+  let prefs=loadPreferences(storage), epoch=0, inFlight=null, invalidation=0, keyRevision=0, disposed=false;
   let raw={}, meta={}, normalized=null, recommendation=null, phase='NEEDS_REFRESH', startedAt=null, completedAt=null;
   let inventoryConfirmation, manualInput, effectState, pointsConfirmation;
   const cache=new Map(), subscribers=new Set(), pendingRequests=new Map();
   const iso=()=>new Date(now()).toISOString();
-  const clearExpiry=()=>{if (expiry!=null) clearTimer(expiry); expiry=null;};
-  const current=()=>phase==='CURRENT' && completedAt!=null &&
-    now()-Date.parse(startedAt)<liveWindowMs;
+  // Current proof belongs to the observation epoch, until an explicit state transition.
+  const current=()=>!disposed && phase==='CURRENT' && completedAt!=null;
   function snapshot() {
-    // A suspended browser timer is never a reason to retain execution authority.
-    if (phase==='CURRENT' && !current()) invalidate();
     const value={version:VERSION, epoch, phase, startedAt, completedAt, atomic:false,
       preferences:prefs, normalized, recommendation, acquisition:meta,
       connection:resolveKey(managedKey,storage) ? validKey(managedKey) ? 'TornPDA managed key' : 'Local browser key' : 'Not connected'};
@@ -1517,7 +1514,7 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
     notify(); return snapshot();
   }
   function invalidate() {
-    invalidation++; clearExpiry(); inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
+    invalidation++; inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
     for (const [key,value] of Object.entries(meta)) if (!key.endsWith('Inventory') && key!=='tornGyms')
       value.freshness=value.requestSucceeded ? 'STALE' : 'UNKNOWN';
     phase=inFlight ? 'REFRESHING' : 'NEEDS_REFRESH';
@@ -1586,7 +1583,7 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
   function refresh() {
     if (disposed) return Promise.reject(new Error('Advisor disposed'));
     if (inFlight) return inFlight;
-    clearExpiry(); epoch++; invalidation++;
+    epoch++; invalidation++;
     inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
     raw={}; meta={}; normalized=recommendation=null;
     phase='REFRESHING'; startedAt=iso(); completedAt=null;
@@ -1597,10 +1594,10 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
         const result=key ? await acquire(name,key,revision) : {value:{status:'PERMISSION_DENIED'},
           meta:{sourceId:source,requestedSelection:source,requestSucceeded:false,permissionFailure:true,
             observedAt:iso(),freshness:'UNKNOWN'}};
-        raw[name]=result.value; meta[name]=result.meta;
+        if (!disposed) {raw[name]=result.value; meta[name]=result.meta;}
       }));
       if (disposed) return snapshot();
-      completedAt=iso(); phase=token===invalidation && now()-Date.parse(startedAt)<liveWindowMs ? 'CURRENT' : 'NEEDS_REFRESH';
+      completedAt=iso(); phase=token===invalidation ? 'CURRENT' : 'NEEDS_REFRESH';
       const points=raw.money?.money?.points;
       if (phase==='CURRENT' && meta.money.requestSucceeded && Number.isSafeInteger(points) && points>=0)
         pointsConfirmation={sourceId:SOURCES.money,confirmedCurrent:true,observedAt:meta.money.observedAt,
@@ -1608,8 +1605,6 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
       if (phase!=='CURRENT') for (const [name,value] of Object.entries(meta))
         if (!name.endsWith('Inventory') && name!=='tornGyms' && value.requestSucceeded) value.freshness='STALE';
       replan();
-      if (phase==='CURRENT') expiry=setTimer(()=>{expiry=null;invalidate();},
-        Math.max(0,liveWindowMs-(now()-Date.parse(startedAt))));
       return snapshot();
     }).finally(()=>{inFlight=null;notify();});
     notify(); return inFlight;
@@ -1657,8 +1652,9 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
         observedAt:iso(),freshness:'LIVE',value};return replan();
     },
     dispose() {
-      disposed=true;invalidation++;phase='NEEDS_REFRESH';clearExpiry();
+      disposed=true;invalidation++;phase='NEEDS_REFRESH';
       inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
+      raw={};meta={};normalized=recommendation=null;cache.clear();
       for (const [controller,timeout] of pendingRequests) {clearTimer(timeout);controller.abort();}
       subscribers.clear();
     }
@@ -1826,7 +1822,7 @@ function fullHtml(snapshot,view) {
       <button type="submit">Confirm current stats & replan</button></form>`}
     <form data-form="points"><label>Current Points (only if API proof unavailable)<input name="points" type="number" min="0" step="1" required></label>
     <button type="submit">Confirm current Points & replan</button></form>
-    <p>Confirmation lasts only in this current observation session and expires after state changes or 60 seconds.</p>
+    <p>Confirmation belongs to this observation epoch. Refresh & Plan, State changed / checkpoint reached, key changes, or reload clear it.</p>
     ${view.gates.map(text=>`<p>${escape(text)}</p>`).join('')}</section>${advanced}
     <details><summary>Connection</summary><form data-form="key"><label>Desktop local API key<input name="key" type="password" autocomplete="off" placeholder="Never included in diagnostics"></label>
     <button type="submit">Save local key</button>${button('forget-key','Forget local key')}</form>
@@ -1927,12 +1923,8 @@ function mount({document,window,advisor}) {
   const finishDrag=event=>{if (!drag || event.pointerId!==drag.id) return;
     const hud=root.querySelector('.ta-hud');drag=null;advisor.setPreferences({position:{x:parseFloat(hud.style.left),y:parseFloat(hud.style.top)}});};
   on(root,'pointerup',finishDrag);on(root,'pointercancel',finishDrag);on(window,'resize',position);
-  on(document,'visibilitychange',()=>{if (document.hidden) advisor.invalidate();else render();});
   const scheme=window.matchMedia?.('(prefers-color-scheme: dark)');
   if (scheme?.addEventListener) on(scheme,'change',()=>{if (snapshot.preferences.theme==='Auto') render();});
-  // Conservatively invalidate before foreground Torn interactions, without performing them.
-  on(document,'click',event=>{if (!root.contains(event.target) && event.target.closest('a,button,input') && snapshot.phase==='CURRENT') advisor.invalidate();},true);
-  on(document,'submit',event=>{if (!root.contains(event.target) && snapshot.phase==='CURRENT') advisor.invalidate();},true);
   const unsubscribe=advisor.subscribe(render);render();
   return {dispose(){unsubscribe();for (const remove of listeners) remove();advisor.dispose();root.remove();style.remove();}};
 }
@@ -1962,7 +1954,7 @@ module.exports={ROOT_ID,STYLE_ID,CSS,escape,approximate,instruction,planName,own
       runtime:Object.freeze({createAdvisor:runtime.createAdvisor,requestUrl:runtime.requestUrl,
         preferences:runtime.preferences,countdown:runtime.countdown}),
       ui:Object.freeze({buildView:ui.buildView,fullHtml:ui.fullHtml,clamp:ui.clamp,instruction:ui.instruction}),
-      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"da45392c5888f2313e24d37f7e33001db0020755b113814cdd780d384f55035d","src/training-advisor-ui.js":"b0fc211eaabcb5554c3fbbdd0c7b1fe429ea38dd07fdad3ca496c18a91c9296c","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}})});
+      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"4a1cd6ac4619f08795aae0b4321e761922a5201bb392f8d093aa55e1f4fd1d7a","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}})});
     return;
   }
   if (typeof document==='undefined' || document.getElementById(ui.ROOT_ID)) return;

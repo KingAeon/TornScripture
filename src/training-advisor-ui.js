@@ -155,7 +155,7 @@ function fullHtml(snapshot,view) {
       <button type="submit">Confirm current stats & replan</button></form>`}
     <form data-form="points"><label>Current Points (only if API proof unavailable)<input name="points" type="number" min="0" step="1" required></label>
     <button type="submit">Confirm current Points & replan</button></form>
-    <p>Confirmation lasts only in this current observation session and expires after state changes or 60 seconds.</p>
+    <p>Confirmation belongs to this observation epoch. Refresh & Plan, State changed / checkpoint reached, key changes, or reload clear it.</p>
     ${view.gates.map(text=>`<p>${escape(text)}</p>`).join('')}</section>${advanced}
     <details><summary>Connection</summary><form data-form="key"><label>Desktop local API key<input name="key" type="password" autocomplete="off" placeholder="Never included in diagnostics"></label>
     <button type="submit">Save local key</button>${button('forget-key','Forget local key')}</form>
@@ -256,12 +256,8 @@ function mount({document,window,advisor}) {
   const finishDrag=event=>{if (!drag || event.pointerId!==drag.id) return;
     const hud=root.querySelector('.ta-hud');drag=null;advisor.setPreferences({position:{x:parseFloat(hud.style.left),y:parseFloat(hud.style.top)}});};
   on(root,'pointerup',finishDrag);on(root,'pointercancel',finishDrag);on(window,'resize',position);
-  on(document,'visibilitychange',()=>{if (document.hidden) advisor.invalidate();else render();});
   const scheme=window.matchMedia?.('(prefers-color-scheme: dark)');
   if (scheme?.addEventListener) on(scheme,'change',()=>{if (snapshot.preferences.theme==='Auto') render();});
-  // Conservatively invalidate before foreground Torn interactions, without performing them.
-  on(document,'click',event=>{if (!root.contains(event.target) && event.target.closest('a,button,input') && snapshot.phase==='CURRENT') advisor.invalidate();},true);
-  on(document,'submit',event=>{if (!root.contains(event.target) && snapshot.phase==='CURRENT') advisor.invalidate();},true);
   const unsubscribe=advisor.subscribe(render);render();
   return {dispose(){unsubscribe();for (const remove of listeners) remove();advisor.dispose();root.remove();style.remove();}};
 }
