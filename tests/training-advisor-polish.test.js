@@ -89,7 +89,14 @@ check('K-A4',async()=>{
 });
 check('K-A5',()=>{
   assert.match(html(snapshot()),/data-action="close" aria-label="Close Training Advisor">X/);
-  assert.match(ui.CSS,/min-height:44px/);assert.doesNotMatch(ui.CSS,/data-action=close[^}]*blocked/);
+  const controls=ui.CSS.match(/button,[^{]+select\{([^}]+)\}/)[1];
+  const close=ui.CSS.match(/button\[data-action=close\]\{([^}]+)\}/)?.[1] || '';
+  for (const dimension of ['width','height']) {
+    const expression=new RegExp(`min-${dimension}:(\\d+)px`);
+    const value=close.match(expression)?.[1] || controls.match(expression)?.[1];
+    assert.ok(Number(value)>=44,`Close min-${dimension} must be at least 44px`);
+  }
+  assert.doesNotMatch(close,/blocked|#E26464|#B63A3A/);
 });
 check('K-A6',()=>{
   const s=snapshot();s.effectivePlan={...s.effectivePlan,readiness:{status:'READY',reason:null,nextAction:'TRAIN'}};
@@ -125,15 +132,18 @@ check('K-B2',async()=>{
   assert.equal(v.readiness,'READY');assert.match(v.next,/Train .*manually in Torn/);assert.match(html(s),/I completed this step/);
 });
 check('K-B3',async()=>{
-  const h=await prepared(),d=mounted(h);d.click('open');const before=ui.buildView(h.advisor.snapshot());d.click('checkpoint');
+  const h=await prepared(),d=mounted(h);h.advisor.selectRoute(option(h.advisor.snapshot(),'TAKE_ECSTASY').fingerprint);
+  d.click('open');const before=ui.buildView(h.advisor.snapshot());d.click('checkpoint');
   assert.equal(h.advisor.snapshot().phase,'NEEDS_REFRESH');assert.equal(ui.buildView(h.advisor.snapshot()).identity,before.identity);
   assert.match(d.root.innerHTML,/ta-stale/);assert.match(d.root.innerHTML,/NEEDS REFRESH/);
   assert.match(d.root.innerHTML,/data-action="compare" disabled/);assert.match(d.root.innerHTML,/<fieldset disabled>/);d.dispose();
 });
 check('K-B4',async()=>{
-  const h=harness();await h.advisor.refresh();const d=mounted(h);d.click('open');d.submit('effects',{none:'on'});
+  const h=harness();await h.advisor.refresh();const d=mounted(h);d.click('open');d.click('tab-Advanced');
+  assert.match(d.root.innerHTML,/data-form="effects"/);d.submit('effects',{none:'on'});
   assert.match(d.root.innerHTML,/Preparation effects confirmed/);assert.match(d.root.innerHTML,/Current for Epoch 1/);
   assert.doesNotMatch(d.root.innerHTML,/data-form="effects"/);
+  d.click('tab-Plan');
   h.advisor.setPreferences({objective:'MAXIMUM_GAIN',prohibitedItems:['eroticDvd','ecstasy']});
   d.submit('inventory',{xanax:'1'});assert.match(d.root.innerHTML,/Preparation effects confirmed/);
   assert.match(d.root.innerHTML,/Required inventory confirmed/);assert.match(d.root.innerHTML,/Current for Epoch 1/);
@@ -408,4 +418,62 @@ test('001K generated-artifact route projection/selection and confirmation UI hav
   const rec=recommendation();assert.deepEqual(plain(e.planner.recommend({observedState:state(),preferences:{objective:'BALANCED'},itemMechanics:mechanics})),rec);
   const h=await prepared(),s=h.advisor.selectRoute(option(h.advisor.snapshot(),'TAKE_ECSTASY').fingerprint);
   assert.deepEqual(plain(e.ui.buildView(s)),ui.buildView(s));assert.equal(e.ui.fullHtml(s,e.ui.buildView(s)),html(s));
+});
+
+test('001K Beginner Train Now suppresses preference-only preparation prompts and forms',()=>{
+  const s=snapshot(recommendation({preferences:{objective:'BALANCED',allowItems:false}}));
+  s.preferences.allowItems=true;s.normalized.fields.effectState={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.boosterMaxSeconds={value:null,reason:'DATA_MISSING'};
+  assert.ok(s.effectivePlan.actions.every(a=>!['TAKE_XANAX','TAKE_ECSTASY','USE_BOOSTER'].includes(a.action)));
+  assert.doesNotMatch(html(s),/data-form="effects"|Preparation effects confirmed/);
+  assert.ok(ui.buildView(s).missing.every(x=>!['effectState','boosterMaxSeconds'].includes(x.field)));
+});
+test('001K Beginner non-refill route suppresses preference-only Points/refill prompts and forms',()=>{
+  const s=snapshot();s.preferences.allowRefill=true;
+  s.normalized.fields.points={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.pointRefill={value:null,reason:'DATA_MISSING'};
+  assert.ok(!s.effectivePlan.actions.some(a=>a.action==='USE_REFILL'));
+  assert.doesNotMatch(html(s),/data-form="points"/);
+  assert.ok(ui.buildView(s).missing.every(x=>!['points','pointRefill'].includes(x.field)));
+});
+test('001K Beginner effective preparation route keeps required effect and booster evidence visible',()=>{
+  const s=snapshot(),route=s.recommendation.routeOptions.find(o=>
+    o.plan.actions.some(a=>a.action==='TAKE_ECSTASY') && o.plan.actions.some(a=>a.action==='USE_BOOSTER'));
+  assert.ok(route);s.effectivePlan=route.plan;s.selectedRouteFingerprint=route.fingerprint;
+  s.preferences.allowItems=false;s.normalized.fields.effectState={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.boosterMaxSeconds={value:null,reason:'DATA_MISSING'};
+  assert.match(html(s),/data-form="effects"/);assert.ok(ui.buildView(s).missing.some(x=>x.field==='effectState'));
+  assert.equal(ui.buildView(s).readinessLabel,'RESEARCH GATE');assert.match(html(s),/H1 open/);
+  s.normalized.fields.effectState={value:[],freshness:'LIVE'};
+  assert.match(html(s),/Preparation effects confirmed/);assert.ok(ui.buildView(s).missing.some(x=>x.field==='boosterMaxSeconds'));
+  assert.doesNotMatch(html(s),/data-form="effects"/);
+});
+test('001K Beginner effective refill route keeps required current Points evidence visible',()=>{
+  const current=state({energy:10,pointsAvailable:35,pointRefill:{allowed:true,fillAmountPolicy:'natural_max',pointsRequired:30}});
+  current.freshness.points=current.freshness.pointRefill='LIVE';
+  const s=snapshot(recommendation({observedState:current,preferences:{objective:'MAXIMUM_GAIN',allowItems:false,allowRefill:true}}));
+  s.effectivePlan=option(s,'USE_REFILL').plan;s.preferences.allowRefill=false;
+  s.normalized.fields.points={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.pointRefill={value:null,reason:'DATA_MISSING'};
+  assert.match(html(s),/data-form="points"/);assert.ok(ui.buildView(s).missing.some(x=>x.field==='points'));
+  assert.ok(ui.buildView(s).missing.some(x=>x.field==='pointRefill'));
+});
+test('001K Advanced keeps full applicable evidence despite Beginner route suppression',()=>{
+  const s=snapshot(recommendation({preferences:{objective:'BALANCED',allowItems:false}}));
+  s.preferences.allowItems=s.preferences.allowRefill=false;
+  s.normalized.fields.effectState={value:null,reason:'DATA_MISSING'};
+  s.normalized.fields.points={value:null,reason:'DATA_MISSING'};
+  assert.doesNotMatch(html(s),/data-form="effects"|data-form="points"/);
+  const advanced=html(s,{tab:'Advanced'});assert.match(advanced,/data-form="effects"/);assert.match(advanced,/data-form="points"/);
+  s.normalized.fields.effectState={value:[],freshness:'LIVE'};
+  assert.match(html(s,{tab:'Advanced'}),/Preparation effects confirmed/);
+});
+test('001K no-safe-plan recovery retains current confirmation guidance without changing recommendation',()=>{
+  const s=snapshot();s.effectivePlan=null;s.recommendation={status:'NO_SAFE_RECOMMENDATION',reason:'DATA_MISSING',primaryPlan:null};
+  s.preferences.allowItems=s.preferences.allowRefill=true;
+  s.normalized.fields.effectState={value:null,reason:'DATA_MISSING'};s.normalized.fields.points={value:null,reason:'DATA_MISSING'};
+  const before=structuredClone(s),view=ui.buildView(s),text=html(s);
+  assert.match(text,/No safe recommendation/);assert.match(text,/data-form="effects"/);assert.match(text,/data-form="points"/);
+  assert.ok(view.missing.some(x=>x.field==='effectState'));assert.ok(view.missing.some(x=>x.field==='points'));
+  assert.deepEqual(s,before);
 });

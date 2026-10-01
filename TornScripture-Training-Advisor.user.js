@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Training Advisor
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.1
+// @version      0.1.2
 // @description  User-triggered training advice, current proof, and transparent manual checkpoints.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,7 +17,7 @@
 // SAFETY BOUNDARY: advisory only; no gameplay actions, background polling, or state uploads.
 // Only user-triggered GET requests to the official Torn API; keys remain local.
 // Only preferences/UI state and an optional local key persist. Current evidence is memory-only.
-// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.1","hashes":{"src/training-advisor-pure.js":"10e5ad7425e3b1377c9bab4dadc4796371001d80a3487f07841e14b7d2ca9245","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"641e68367305bf0512e437f9cfe0e3dac8fdd9103816018e116aff032375589a","src/training-advisor-ui.js":"39073f1f43aabdfd9e4fdfb554f5cc8ac09938701b5413856868473a620d41fe","scripts/build-training-advisor.js":"bac9d095d91809a942afb8608d4e00913c8db9488b07fca9669badda59326ab2"}}
+// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.2","hashes":{"src/training-advisor-pure.js":"10e5ad7425e3b1377c9bab4dadc4796371001d80a3487f07841e14b7d2ca9245","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"f291a711a866bf19db260202325cf970397f9d9532c33c7eba1438137f80be7b","src/training-advisor-ui.js":"3ce902c6c10a02392d7d74aa9c7224fd3e1e404be0c87f6b886c2834770f1549","scripts/build-training-advisor.js":"5316e37cefb865e47cc554f345a275d0307aa827f2b9773a6f4755c947bc2e5d"}}
 (() => {
   'use strict';
   const factories={
@@ -1468,7 +1468,7 @@ module.exports = { ITEM_REGISTRY, ENERGY_STACK_CAP_MECHANIC, adaptEnergyStackCap
 // Acquisition and session control only. Calculation and normalization stay canonical.
 const planner = require('./training-advisor-pure.js');
 const adapters = require('./training-advisor-adapters.js');
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const PREFS_KEY = 'tornscripture-training-settings-v1';
 const API_KEY = 'tornscripture-training-api-key-v1';
 const SOURCES = Object.freeze({bars:'/user/bars', cooldowns:'/user/cooldowns',
@@ -1821,6 +1821,15 @@ function beginnerAlternatives(rec) {
       plan.timing.waitSeconds-selected.timing.waitSeconds : null}));
 }
 // Present existing evidence requirements; never promote proof or reinterpret readiness.
+function evidenceDependencies(snapshot,plan) {
+  const uses=actions=>plan?.actions?.some(action=>actions.includes(action.action));
+  // Without an exact plan, retain the existing supported-planning recovery surface.
+  return {
+    preparation:plan ? uses(['TAKE_XANAX','TAKE_ECSTASY','USE_BOOSTER']) : snapshot.preferences.allowItems,
+    booster:plan ? uses(['USE_BOOSTER']) : snapshot.preferences.allowItems,
+    refill:plan ? uses(['USE_REFILL']) : snapshot.preferences.allowRefill
+  };
+}
 function missingEvidence(snapshot,plan) {
   const n=snapshot.normalized,fields=n?.fields;
   if (!fields) return [{field:'observation',label:'Current observation',kind:'source',reason:'DATA_MISSING',action:'Refresh & Plan.'}];
@@ -1843,7 +1852,7 @@ function missingEvidence(snapshot,plan) {
     'Refresh /user/perks with Refresh & Plan. Unsupported material modifiers remain withheld.',fields.gainModifiers.reason);
   if (missing(['drugCooldown','boosterCooldown'])) add('cooldowns','Cooldowns (/user/cooldowns)','source',
     'Refresh /user/cooldowns with Refresh & Plan.',fields.drugCooldown?.reason || fields.boosterCooldown?.reason);
-  const refill=snapshot.preferences.allowRefill || plan?.actions?.some(a=>a.action==='USE_REFILL');
+  const {preparation,booster,refill}=evidenceDependencies(snapshot,plan);
   if (refill && missing(['pointRefill'])) add('pointRefill','Refill availability (/user/refills)','source',
     'Refresh /user/refills with Refresh & Plan. Current refill availability is required.',fields.pointRefill.reason);
   if (refill && missing(['points'])) add('points','Current Points','confirmation',
@@ -1852,9 +1861,9 @@ function missingEvidence(snapshot,plan) {
   if (owned.some(item=>n.observedState.inventoryFreshnessByItem?.[item.key]!=='LIVE'))
     add('inventory','Selected-plan owned quantities','confirmation',
       'Confirm the selected-plan owned quantities below. The Advisor will replan immediately.','DATA_MISSING');
-  if (snapshot.preferences.allowItems && missing(['effectState'])) add('effectState','Preparation effects (for item plans)','confirmation',
+  if (preparation && missing(['effectState'])) add('effectState','Preparation effects (for item plans)','confirmation',
     'Confirm current effects below. The Advisor will replan immediately. Booster capacity depends on verified effect and mechanic evidence.',fields.effectState.reason);
-  else if (snapshot.preferences.allowItems && missing(['boosterMaxSeconds'])) add('boosterMaxSeconds','Booster capacity','limitation',
+  else if (booster && missing(['boosterMaxSeconds'])) add('boosterMaxSeconds','Booster capacity','limitation',
     'Verified effect or mechanic evidence is unsupported; dependent booster preparation is withheld.',fields.boosterMaxSeconds.reason);
   if (missing(['stackCap'])) add('stackCap','Energy stack-cap mechanic','limitation',
     'The versioned stack-cap mechanic is unavailable; dependent preparation is withheld.',fields.stackCap.reason);
@@ -1960,8 +1969,8 @@ function evidenceHtml(snapshot,view,session={},all=false) {
   const inventoryConfirmed=view.owned.length && view.owned.every(item=>
     n.observedState.inventoryFreshnessByItem?.[item.key]==='LIVE' && values[item.key]>=item.quantity);
   const effectConfirmed=fields?.effectState?.value!=null;
-  const preparation=view.advanced.Plan?.actions?.some(action=>['TAKE_XANAX','TAKE_ECSTASY','USE_BOOSTER'].includes(action.action));
-  const effectsRelevant=all || preparation || snapshot.preferences.allowItems;
+  const {preparation,refill}=evidenceDependencies(snapshot,view.advanced.Plan);
+  const effectsRelevant=all || preparation;
   const effects=effectsRelevant ? effectConfirmed && !session.editEffects ? `<section class="ta-confirmed"><h3>Preparation effects confirmed</h3>
     <p>Current for Epoch ${snapshot.epoch}</p>${button('edit-effects','Change',disabled)}</section>` :
     `<form data-form="effects"><fieldset${disabled}><legend>Current preparation effects</legend><label><input name="none" type="checkbox" required${effectConfirmed?' checked':''}>
@@ -1975,7 +1984,7 @@ function evidenceHtml(snapshot,view,session={},all=false) {
   const stats=!n?.capabilities.automaticStats && (all || fields?.stats?.value==null) ? `<form data-form="stats"><fieldset${disabled}><legend>Current battle stats</legend><p>Automatic stats unavailable. Enter all four current raw battle stats.</p>
     ${['strength','speed','defense','dexterity'].map(stat=>`<label>${stat}<input name="${stat}" type="number" min="0" step="any" required></label>`).join('')}
     <button type="submit">Confirm current stats & replan</button></fieldset></form>` : '';
-  const pointsRelevant=all || view.advanced.Plan?.actions?.some(action=>action.action==='USE_REFILL') || snapshot.preferences.allowRefill;
+  const pointsRelevant=all || refill;
   const points=pointsRelevant && fields?.points?.value==null ? `<form data-form="points"><fieldset${disabled}><legend>Current Points</legend><label>Current Points (only if API proof unavailable)<input name="points" type="number" min="0" step="1" required></label>
     <button type="submit">Confirm current Points & replan</button></fieldset></form>` : '';
   const summary=confirmation ? `<p class="ta-telemetry">Current confirmed inventory: ${escape(Object.entries(values).map(([key,value])=>`${itemName(key)} ×${value}`).join(' · '))}. Item-local ${escape(confirmation.freshness)} proof at ${escape(confirmation.observedAt)}.</p>` : '';
@@ -2083,6 +2092,7 @@ const CSS=`#${ROOT_ID}{${palette('Light')};position:fixed;inset:0;z-index:214748
 #${ROOT_ID}[data-theme=Auto]{${palette('Light')}}
 #${ROOT_ID} *{box-sizing:border-box;min-width:0}#${ROOT_ID} button,#${ROOT_ID} input,#${ROOT_ID} select{font:inherit;color:var(--text);background:var(--control);border:1px solid var(--border);border-radius:8px;min-height:44px;padding:10px;max-width:100%;transition:border-color 150ms,background-color 150ms}
 #${ROOT_ID} button{cursor:pointer}#${ROOT_ID} :focus-visible{outline:2px solid var(--action);outline-offset:3px}
+#${ROOT_ID} button[data-action=close]{min-width:44px}
 #${ROOT_ID} button[data-action=refresh],#${ROOT_ID} .ta-primary{background:var(--action);color:var(--shell);font-weight:700;min-height:48px}
 #${ROOT_ID} button:disabled{opacity:.55;cursor:default}#${ROOT_ID} .ta-scrim{position:fixed;inset:0;z-index:1;background:rgba(5, 8, 14, 0.76);pointer-events:auto}
 #${ROOT_ID} .ta-hud{position:fixed;z-index:2;pointer-events:auto;width:min(340px,calc(100vw - 16px));max-height:calc(100dvh - 8px);overflow:auto;background:var(--hud-surface);border:1px solid var(--border);border-radius:12px;padding:10px;overflow-wrap:anywhere}
@@ -2244,7 +2254,7 @@ module.exports={ROOT_ID,STYLE_ID,CSS,THEMES,escape,approximate,instruction,planN
       runtime:Object.freeze({createAdvisor:runtime.createAdvisor,requestUrl:runtime.requestUrl,
         preferences:runtime.preferences,countdown:runtime.countdown}),
       ui:Object.freeze({buildView:ui.buildView,fullHtml:ui.fullHtml,clamp:ui.clamp,instruction:ui.instruction}),
-      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.1","hashes":{"src/training-advisor-pure.js":"10e5ad7425e3b1377c9bab4dadc4796371001d80a3487f07841e14b7d2ca9245","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"641e68367305bf0512e437f9cfe0e3dac8fdd9103816018e116aff032375589a","src/training-advisor-ui.js":"39073f1f43aabdfd9e4fdfb554f5cc8ac09938701b5413856868473a620d41fe","scripts/build-training-advisor.js":"bac9d095d91809a942afb8608d4e00913c8db9488b07fca9669badda59326ab2"}})});
+      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.2","hashes":{"src/training-advisor-pure.js":"10e5ad7425e3b1377c9bab4dadc4796371001d80a3487f07841e14b7d2ca9245","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"f291a711a866bf19db260202325cf970397f9d9532c33c7eba1438137f80be7b","src/training-advisor-ui.js":"3ce902c6c10a02392d7d74aa9c7224fd3e1e404be0c87f6b886c2834770f1549","scripts/build-training-advisor.js":"5316e37cefb865e47cc554f345a275d0307aa827f2b9773a6f4755c947bc2e5d"}})});
     return;
   }
   if (typeof document==='undefined' || document.getElementById(ui.ROOT_ID)) return;

@@ -61,6 +61,15 @@ function beginnerAlternatives(rec) {
       plan.timing.waitSeconds-selected.timing.waitSeconds : null}));
 }
 // Present existing evidence requirements; never promote proof or reinterpret readiness.
+function evidenceDependencies(snapshot,plan) {
+  const uses=actions=>plan?.actions?.some(action=>actions.includes(action.action));
+  // Without an exact plan, retain the existing supported-planning recovery surface.
+  return {
+    preparation:plan ? uses(['TAKE_XANAX','TAKE_ECSTASY','USE_BOOSTER']) : snapshot.preferences.allowItems,
+    booster:plan ? uses(['USE_BOOSTER']) : snapshot.preferences.allowItems,
+    refill:plan ? uses(['USE_REFILL']) : snapshot.preferences.allowRefill
+  };
+}
 function missingEvidence(snapshot,plan) {
   const n=snapshot.normalized,fields=n?.fields;
   if (!fields) return [{field:'observation',label:'Current observation',kind:'source',reason:'DATA_MISSING',action:'Refresh & Plan.'}];
@@ -83,7 +92,7 @@ function missingEvidence(snapshot,plan) {
     'Refresh /user/perks with Refresh & Plan. Unsupported material modifiers remain withheld.',fields.gainModifiers.reason);
   if (missing(['drugCooldown','boosterCooldown'])) add('cooldowns','Cooldowns (/user/cooldowns)','source',
     'Refresh /user/cooldowns with Refresh & Plan.',fields.drugCooldown?.reason || fields.boosterCooldown?.reason);
-  const refill=snapshot.preferences.allowRefill || plan?.actions?.some(a=>a.action==='USE_REFILL');
+  const {preparation,booster,refill}=evidenceDependencies(snapshot,plan);
   if (refill && missing(['pointRefill'])) add('pointRefill','Refill availability (/user/refills)','source',
     'Refresh /user/refills with Refresh & Plan. Current refill availability is required.',fields.pointRefill.reason);
   if (refill && missing(['points'])) add('points','Current Points','confirmation',
@@ -92,9 +101,9 @@ function missingEvidence(snapshot,plan) {
   if (owned.some(item=>n.observedState.inventoryFreshnessByItem?.[item.key]!=='LIVE'))
     add('inventory','Selected-plan owned quantities','confirmation',
       'Confirm the selected-plan owned quantities below. The Advisor will replan immediately.','DATA_MISSING');
-  if (snapshot.preferences.allowItems && missing(['effectState'])) add('effectState','Preparation effects (for item plans)','confirmation',
+  if (preparation && missing(['effectState'])) add('effectState','Preparation effects (for item plans)','confirmation',
     'Confirm current effects below. The Advisor will replan immediately. Booster capacity depends on verified effect and mechanic evidence.',fields.effectState.reason);
-  else if (snapshot.preferences.allowItems && missing(['boosterMaxSeconds'])) add('boosterMaxSeconds','Booster capacity','limitation',
+  else if (booster && missing(['boosterMaxSeconds'])) add('boosterMaxSeconds','Booster capacity','limitation',
     'Verified effect or mechanic evidence is unsupported; dependent booster preparation is withheld.',fields.boosterMaxSeconds.reason);
   if (missing(['stackCap'])) add('stackCap','Energy stack-cap mechanic','limitation',
     'The versioned stack-cap mechanic is unavailable; dependent preparation is withheld.',fields.stackCap.reason);
@@ -200,8 +209,8 @@ function evidenceHtml(snapshot,view,session={},all=false) {
   const inventoryConfirmed=view.owned.length && view.owned.every(item=>
     n.observedState.inventoryFreshnessByItem?.[item.key]==='LIVE' && values[item.key]>=item.quantity);
   const effectConfirmed=fields?.effectState?.value!=null;
-  const preparation=view.advanced.Plan?.actions?.some(action=>['TAKE_XANAX','TAKE_ECSTASY','USE_BOOSTER'].includes(action.action));
-  const effectsRelevant=all || preparation || snapshot.preferences.allowItems;
+  const {preparation,refill}=evidenceDependencies(snapshot,view.advanced.Plan);
+  const effectsRelevant=all || preparation;
   const effects=effectsRelevant ? effectConfirmed && !session.editEffects ? `<section class="ta-confirmed"><h3>Preparation effects confirmed</h3>
     <p>Current for Epoch ${snapshot.epoch}</p>${button('edit-effects','Change',disabled)}</section>` :
     `<form data-form="effects"><fieldset${disabled}><legend>Current preparation effects</legend><label><input name="none" type="checkbox" required${effectConfirmed?' checked':''}>
@@ -215,7 +224,7 @@ function evidenceHtml(snapshot,view,session={},all=false) {
   const stats=!n?.capabilities.automaticStats && (all || fields?.stats?.value==null) ? `<form data-form="stats"><fieldset${disabled}><legend>Current battle stats</legend><p>Automatic stats unavailable. Enter all four current raw battle stats.</p>
     ${['strength','speed','defense','dexterity'].map(stat=>`<label>${stat}<input name="${stat}" type="number" min="0" step="any" required></label>`).join('')}
     <button type="submit">Confirm current stats & replan</button></fieldset></form>` : '';
-  const pointsRelevant=all || view.advanced.Plan?.actions?.some(action=>action.action==='USE_REFILL') || snapshot.preferences.allowRefill;
+  const pointsRelevant=all || refill;
   const points=pointsRelevant && fields?.points?.value==null ? `<form data-form="points"><fieldset${disabled}><legend>Current Points</legend><label>Current Points (only if API proof unavailable)<input name="points" type="number" min="0" step="1" required></label>
     <button type="submit">Confirm current Points & replan</button></fieldset></form>` : '';
   const summary=confirmation ? `<p class="ta-telemetry">Current confirmed inventory: ${escape(Object.entries(values).map(([key,value])=>`${itemName(key)} ×${value}`).join(' · '))}. Item-local ${escape(confirmation.freshness)} proof at ${escape(confirmation.observedAt)}.</p>` : '';
@@ -323,6 +332,7 @@ const CSS=`#${ROOT_ID}{${palette('Light')};position:fixed;inset:0;z-index:214748
 #${ROOT_ID}[data-theme=Auto]{${palette('Light')}}
 #${ROOT_ID} *{box-sizing:border-box;min-width:0}#${ROOT_ID} button,#${ROOT_ID} input,#${ROOT_ID} select{font:inherit;color:var(--text);background:var(--control);border:1px solid var(--border);border-radius:8px;min-height:44px;padding:10px;max-width:100%;transition:border-color 150ms,background-color 150ms}
 #${ROOT_ID} button{cursor:pointer}#${ROOT_ID} :focus-visible{outline:2px solid var(--action);outline-offset:3px}
+#${ROOT_ID} button[data-action=close]{min-width:44px}
 #${ROOT_ID} button[data-action=refresh],#${ROOT_ID} .ta-primary{background:var(--action);color:var(--shell);font-weight:700;min-height:48px}
 #${ROOT_ID} button:disabled{opacity:.55;cursor:default}#${ROOT_ID} .ta-scrim{position:fixed;inset:0;z-index:1;background:rgba(5, 8, 14, 0.76);pointer-events:auto}
 #${ROOT_ID} .ta-hud{position:fixed;z-index:2;pointer-events:auto;width:min(340px,calc(100vw - 16px));max-height:calc(100dvh - 8px);overflow:auto;background:var(--hud-surface);border:1px solid var(--border);border-radius:12px;padding:10px;overflow-wrap:anywhere}
