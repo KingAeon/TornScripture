@@ -1,6 +1,6 @@
 # DQ-TRAIN-001J — Runtime/UI polish discussion checkpoint
 
-State: **ACTIVE [D] DISCUSSION CHECKPOINT; NOT SPECIFICATION-FROZEN; NO PRODUCT EDIT AUTHORIZATION**
+State: **HISTORICAL [D] DISCUSSION CHECKPOINT; SUPERSEDED AS ACTIVE DESIGN AUTHORITY BY DQ-TRAIN-001K SPECIFICATION; NO PRODUCT EDIT AUTHORIZATION**
 
 Date: 2026-10-01.
 
@@ -301,3 +301,8 @@ Continue owner/assistant `[D]` until the visual language and remaining copy/inte
 Then use a separate explicit `[S]` step to freeze the bounded UI-polish delta and its acceptance expectations before any implementation amendment.
 
 PR #135 remains draft/unmerged during this discussion.
+
+
+## Supersession note
+
+The owner subsequently entered `[S]` and froze DQ-TRAIN-001K, `UI-POLISH-ROUTE-SELECTION-SPEC-001K.md`. This file remains the design-discussion record. Where wording differs, the 001K specification/fixtures are authoritative for the proposed polish delta.

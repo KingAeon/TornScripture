@@ -1,26 +1,26 @@
 # NOW
 
-Snapshot: 2026-10-01 PR #135 owner TornPDA core live workflow PASS through bars/effects/selected-plan confirmation/zero-override/refresh reset; [D] UI-polish discussion active; desktop gates and merge remain pending; draft/unmerged
+Snapshot: 2026-10-01 UTC; draft PR #135 core TornPDA workflow owner-smoke passed through bars/effects/selected-plan confirmation/zero-override/refresh reset; DQ-TRAIN-001K UI polish + canonical route-selection follow-on frozen for independent [V]; PR #135 remains draft/unmerged
 
-CURRENT_TRAINING|DQ-TRAIN-001J|owner_tornpda_core_smoke_pass_ui_polish_discussion_active|base_main_776d8e8044f317cd8feca58fb5197710b9c69b64|agent/training-runtime-ui-001j-build
-CURRENT_TRAINING_DETAIL|001J-A acquisition/epochs + 001J-B deterministic standalone 0.1.0 + 001J-C mobile beginner/advanced UI implemented; owner TornPDA live smoke now passes managed key, bars/stats/gym, explicit checkpoint/new epoch, same-epoch effect confirmation, selected-plan item-local proof, lower/zero override and refresh-reset behavior; [D] polish checkpoint records true-modal stacking, semantic color/hierarchy, confirmed-evidence states and mobile header/safe-area direction; H1/H2 open; no polish implementation/merge/release authorized
+CURRENT_TRAINING|DQ-TRAIN-001K|001k_spec_verified_merged_build_authorized|base_main_776d8e8044f317cd8feca58fb5197710b9c69b64|docs/training-ui-polish-route-selection-001k-freeze
+CURRENT_TRAINING_DETAIL|follow-on to frozen/merged 001J and active draft PR#135; Midnight Ledger/Dark Terminal shell, modal stacking, Plan-Options-Advanced, transformed confirmations, structured Advanced, compact HUD, canonical bounded routeOptions, ephemeral exact-route selection, selected-route confirmation scope, and safe marginal-booster labeling frozen in docs/fixtures; no implementation authorized
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|776d8e8044f317cd8feca58fb5197710b9c69b64
+MAIN_AT_SNAPSHOT|b8474253237e63485100fdcc51b2cb82530d2efc
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
 DQ_EXT|001B falsification testing evidence-saturated
 NEXT|DQ-EXT-001C synchronized official Torn vs external specimen comparison
-BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001J H1/H2 remain dependency-local live-evidence gates, not blockers to unrelated implementation/verification
+BLOCKERS|DQ-EXT-001C synchronized specimens pending; DQ-TRAIN-001J H1/H2 remain dependency-local live-evidence gates; DQ-TRAIN-001K awaits independent documentation/fixture verification
 
-PARALLEL|DQ-TRAIN-001|001j_owner_tornpda_core_smoke_pass_ui_polish_discussion_active
+PARALLEL|DQ-TRAIN-001|001k_001k_spec_verified_merged_build_authorized
 TRAINING_ADVISOR|faction-shareable; newbie-first; advanced transparency; advisory-only
 TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10E_documented_modifier_domain_only
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_001E_001F_and_frontier_follow_up_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|continue [D] UI-polish choices, then explicit [S] freeze before any polish code; remaining TornPDA polish/manual checks, desktop live gates and separate merge decision remain pending
+TRAINING_NEXT|independent [V] of DQ-TRAIN-001K docs/fixtures; separate owner merge decision; only after verified spec merge may PR#135 receive separate [B][WORK] polish/route-selection amendment authorization
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
@@ -88,4 +88,10 @@ TRAINING_001J_BUILD|chapters/dq-train-001/RUNTIME-UI-BUILD-CHECKPOINT-001J.md|ag
 TRAINING_001J_VERIFIED_PRIOR|f9c37b181c22a23f093830e33d987abdfeb7d380|independent_executable_PASS|owner_browser_gates_pending_at_review
 TRAINING_001J_TORNPDA|owner_live_startup_END_HUD_expanded_key_CURRENT_stats_gym_PASS_at_efbe6b34a36dc72896c54f0c29f388cbebd02765|bars_normalization_BLOCKED_then_corrected|official_v2_wrapper_audit_bars_only_missing_unwrap|actionable_API_confirmation_open_gate_guidance|artifact_sha256_961dd9fc2c56eef9106d89403217db6661c05243d771cdd52610e82d515e4a36|repeat_bars_workflow_smoke_pending
 
-TRAINING_001J_POLISH|chapters/dq-train-001/RUNTIME-UI-POLISH-DISCUSSION-001J.md|active_D_not_frozen|true_modal_stacking|scrim_high_opacity_surface|semantic_status_confidence_colors|confirmed_evidence_transform|sticky_mobile_header_state_strip|no_product_edit_authorization
+HISTORICAL_TRAINING_001J_POLISH|chapters/dq-train-001/RUNTIME-UI-POLISH-DISCUSSION-001J.md|active_D_not_frozen|true_modal_stacking|scrim_high_opacity_surface|semantic_status_confidence_colors|confirmed_evidence_transform|sticky_mobile_header_state_strip|no_product_edit_authorization
+
+TRAINING_001J_DRAFT|PR#135|agent/training-runtime-ui-001j-build|head_at_001k_freeze_4067c82c52439e97bb22856ac5e3e451d6a33591|product_bytes_f309913a223520e720701d5e5c25cb092796b618|draft_open_unmerged|owner_core_TornPDA_smoke_pass|desktop_and_post_polish_V_pending
+TRAINING_001K_DISCUSSION|chapters/dq-train-001/RUNTIME-UI-POLISH-DISCUSSION-001J.md|historical_D_record
+TRAINING_001K_FREEZE|chapters/dq-train-001/UI-POLISH-ROUTE-SELECTION-SPEC-001K.md|fixtures_UI-POLISH-ROUTE-SELECTION-FIXTURES-001K.json|owner_S_frozen_pending_independent_V|no_product_implementation_authorized
+
+TRAINING_001K_RECONCILIATION|owner_B_WORK_2026-10-01|PR136_verified_0b17df647129634675913b8f7c9ad2844986609c|merged_main_b8474253237e63485100fdcc51b2cb82530d2efc|PR135_preserved_4067c82c52439e97bb22856ac5e3e451d6a33591|ordinary_two_parent_merge|implementation_authorized_not_release
