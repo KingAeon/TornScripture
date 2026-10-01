@@ -36,6 +36,15 @@ test(id('J-B2'),()=>{
   assert.match(text,/==UserScript==/);assert.match(text,/module.exports =/);
   assert.match(text,/factories\[id\]\(modules\[id\]/);assert.doesNotThrow(()=>new vm.Script(text));
 });
+test('TornPDA quote normalization cannot rewrite Training Advisor sources or artifact',()=>{
+  // TornPDA rewrites these four literal quotes before injection.
+  // Evidence: docs/discovery/evidence/TORN-PDA-USERSCRIPT-SOURCE-NORMALIZATION.md.
+  const unsafeQuotes=/[\u2018\u2019\u201C\u201D]/;
+  for (const file of [...build.INPUTS,'scripts/build-training-advisor.js',build.OUTPUT])
+    assert.doesNotMatch(fs.readFileSync(path.join(root,file),'utf8'),unsafeQuotes,file+' TornPDA source normalization');
+  const normalized=artifact().replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"');
+  assert.doesNotThrow(()=>new vm.Script(normalized));
+});
 test(id('J-B3'),()=>{
   const first=build.generate(),second=build.generate();assert.equal(first,second);
   assert.equal(crypto.createHash('sha256').update(first).digest('hex'),crypto.createHash('sha256').update(second).digest('hex'));

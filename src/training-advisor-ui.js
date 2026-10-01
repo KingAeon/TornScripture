@@ -7,7 +7,7 @@ const LABELS={READY:'Ready now',WAITING:'Waiting for a checkpoint',NEEDS_ITEMS:'
 const REASONS={DATA_STALE:'Refresh the relevant observation or confirm required items now.',
   DATA_MISSING:'Provide the missing current input, then refresh.',
   CAPABILITY_UNAVAILABLE:'This source is unavailable with the current API key.',
-  RESOURCE_MISSING:'Obtain and verify the selected plan’s required resources.',
+  RESOURCE_MISSING:'Obtain and verify the selected plan requirements.',
   COOLDOWN_BLOCKED:'Wait for the observed checkpoint, then Refresh & Plan.',
   TIMING_UNSAFE:'Happy reset timing is not safe for this step.',
   STATE_CHANGED:'Player state changed. Refresh & Plan before continuing.',
@@ -159,7 +159,7 @@ function fullHtml(snapshot,view) {
     ${view.gates.map(text=>`<p>${escape(text)}</p>`).join('')}</section>${advanced}
     <details><summary>Connection</summary><form data-form="key"><label>Desktop local API key<input name="key" type="password" autocomplete="off" placeholder="Never included in diagnostics"></label>
     <button type="submit">Save local key</button>${button('forget-key','Forget local key')}</form>
-    <p>TornPDA’s managed key takes priority. Keys are sent only to the official Torn API.</p></details></div>`;
+    <p>TornPDA managed key takes priority. Keys are sent only to the official Torn API.</p></details></div>`;
 }
 function clamp(position,width,height,viewport) {
   return {x:Math.max(0,Math.min(Number.isFinite(position.x)?position.x:0,Math.max(0,viewport.width-width))),

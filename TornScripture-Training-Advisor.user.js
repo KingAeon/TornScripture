@@ -17,7 +17,7 @@
 // SAFETY BOUNDARY: advisory only; no gameplay actions, background polling, or state uploads.
 // Only user-triggered GET requests to the official Torn API; keys remain local.
 // Only preferences/UI state and an optional local key persist. Current evidence is memory-only.
-// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"4a1cd6ac4619f08795aae0b4321e761922a5201bb392f8d093aa55e1f4fd1d7a","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}}
+// BUILD_PROVENANCE {"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"b4d984f6290ca41766ac53d816c23a9080d1069bdba92ab27fb1f1e29136627f","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}}
 (() => {
   'use strict';
   const factories={
@@ -1674,7 +1674,7 @@ const LABELS={READY:'Ready now',WAITING:'Waiting for a checkpoint',NEEDS_ITEMS:'
 const REASONS={DATA_STALE:'Refresh the relevant observation or confirm required items now.',
   DATA_MISSING:'Provide the missing current input, then refresh.',
   CAPABILITY_UNAVAILABLE:'This source is unavailable with the current API key.',
-  RESOURCE_MISSING:'Obtain and verify the selected plan’s required resources.',
+  RESOURCE_MISSING:'Obtain and verify the selected plan requirements.',
   COOLDOWN_BLOCKED:'Wait for the observed checkpoint, then Refresh & Plan.',
   TIMING_UNSAFE:'Happy reset timing is not safe for this step.',
   STATE_CHANGED:'Player state changed. Refresh & Plan before continuing.',
@@ -1826,7 +1826,7 @@ function fullHtml(snapshot,view) {
     ${view.gates.map(text=>`<p>${escape(text)}</p>`).join('')}</section>${advanced}
     <details><summary>Connection</summary><form data-form="key"><label>Desktop local API key<input name="key" type="password" autocomplete="off" placeholder="Never included in diagnostics"></label>
     <button type="submit">Save local key</button>${button('forget-key','Forget local key')}</form>
-    <p>TornPDA’s managed key takes priority. Keys are sent only to the official Torn API.</p></details></div>`;
+    <p>TornPDA managed key takes priority. Keys are sent only to the official Torn API.</p></details></div>`;
 }
 function clamp(position,width,height,viewport) {
   return {x:Math.max(0,Math.min(Number.isFinite(position.x)?position.x:0,Math.max(0,viewport.width-width))),
@@ -1954,7 +1954,7 @@ module.exports={ROOT_ID,STYLE_ID,CSS,escape,approximate,instruction,planName,own
       runtime:Object.freeze({createAdvisor:runtime.createAdvisor,requestUrl:runtime.requestUrl,
         preferences:runtime.preferences,countdown:runtime.countdown}),
       ui:Object.freeze({buildView:ui.buildView,fullHtml:ui.fullHtml,clamp:ui.clamp,instruction:ui.instruction}),
-      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"4a1cd6ac4619f08795aae0b4321e761922a5201bb392f8d093aa55e1f4fd1d7a","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}})});
+      provenance:Object.freeze({"generator":"training-advisor-node-core-v1","version":"0.1.0","hashes":{"src/training-advisor-pure.js":"41ba57363c837bbb578fcf72f4161c632637eb3de4c161ae1f69d228d08f5719","src/training-advisor-adapters.js":"d04b0a6253681997ea705ca245139cd65ccc2f11315bddef21be7365821eae68","src/training-advisor-runtime.js":"1f20b5fc8118e26d0b12fd29e86eddb3cf1879bd55fbfec4cd2f2145cf2b1115","src/training-advisor-ui.js":"b4d984f6290ca41766ac53d816c23a9080d1069bdba92ab27fb1f1e29136627f","scripts/build-training-advisor.js":"16635afe9272d32ed88b4952b3af70e290955fe50ca85563dd95fb5ff1a8aa07"}})});
     return;
   }
   if (typeof document==='undefined' || document.getElementById(ui.ROOT_ID)) return;
