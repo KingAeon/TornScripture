@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **PURE STACK AND 001J SPECIFICATION VERIFIED/MERGED; 001J RUNTIME/UI v0.1.0 IMPLEMENTED/TESTED; PRIOR HEAD INDEPENDENTLY VERIFIED; OWNER TORNPDA STARTUP/KEY/STATS/GYM SMOKE PASS; BARS/INPUT GUIDANCE CORRECTED; REPEATED OWNER BROWSER GATES PENDING; H1/H2 OPEN**
+Status: **PURE STACK AND 001J SPECIFICATION VERIFIED/MERGED; 001J RUNTIME/UI v0.1.0 IMPLEMENTED/TESTED; PRIOR HEAD INDEPENDENTLY VERIFIED; OWNER TORNPDA CORE WORKFLOW LIVE PASS; UI-POLISH [D] ACTIVE; DESKTOP/MERGE GATES PENDING; H1/H2 OPEN**
 
 ## Purpose
 
@@ -61,8 +61,9 @@ Resolve at runtime or recheck before consequential use:
 14. **DQ-TRAIN-001H/001I complete:** PR #130's immediate Xanax +75 Happy correction and PR #131's 1,000E stack-cap specification merged. PR #132 passed independent [V] at `a5066c848ebd14c5045817947978646ef9af9578` and merged at `7352573be851f4cae590848af830975e905f6890`, completing versioned-cap and supported Xanax normalization. The [001I build checkpoint](../../chapters/dq-train-001/STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md) retains its historical pending-V language.
 15. **DQ-TRAIN-001J-P complete/merged:** the selected-plan inventory prerequisite passed independent executable [V] at `7b1b31c60efcd8cbd0c13d32ee1d44fa84b7bcf0` and merged in PR #133 at `8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`. Partial current confirmation can prove only selected-plan owned quantities; bought resources remain acquisition-gated.
 16. **DQ-TRAIN-001J specification independently verified/merged in PR #134:** [runtime/UI integration](../../chapters/dq-train-001/RUNTIME-UI-INTEGRATION-SPEC-001J.md) plus [34 synthetic fixtures](../../chapters/dq-train-001/RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) freeze user-triggered acquisition/refresh, deterministic standalone packaging/runtime boundaries, mission-first beginner/advanced UI, and advisory-only interaction. H1/H2 remain open live-evidence gates. Verified head `49fe20463c2e1568cc953e729129a8aa92ee5f38` merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`; the owner subsequently authorized the separate runtime build.
-17. **DQ-TRAIN-001J implementation complete on isolated branch:** the [build checkpoint](../../chapters/dq-train-001/RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records standalone 0.1.0, canonical modules unchanged, all 34 runtime/UI cases executable, 229 focused / 466 repository passes after bounded v2 bars/input-guidance correction; prior independent verification and owner startup/key/stats/gym PASS, repeated bars/mobile smoke and desktop gates pending.
-18. Release only after independent verification, owner review, manual gates, and explicit merge/release authorization.
+17. **DQ-TRAIN-001J implementation complete on isolated branch:** the [build checkpoint](../../chapters/dq-train-001/RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records standalone 0.1.0, canonical modules unchanged, all 34 runtime/UI cases executable, 229 focused / 466 repository passes after bounded v2 bars/input-guidance correction. Owner TornPDA live smoke now also exercises the core bars/stats/gym, checkpoint/new-epoch, same-epoch effect confirmation, selected-plan current inventory, lower/zero override and refresh-reset behavior while H1 remains fail-closed.
+18. **DQ-TRAIN-001J UI polish discussion active:** [polish discussion checkpoint](../../chapters/dq-train-001/RUNTIME-UI-POLISH-DISCUSSION-001J.md) records true-modal stacking after owner-observed Torn chrome overlap, scrim/high-opacity direction, sticky header/state strip, semantic color roles, cleaner recommendation hierarchy and acknowledged evidence states. Exact visual tokens/copy remain [D], with separate [S] required before polish implementation.
+19. Release only after independent verification, owner review, manual gates, and explicit merge/release authorization.
 
 B5 special/boundary research remains parallel and opportunistic; it does not block specification work.
 
