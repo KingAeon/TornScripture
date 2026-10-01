@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; PRIOR 001J RUNTIME/UI HEAD INDEPENDENTLY VERIFIED; TORNPDA QUOTE COMPATIBILITY CORRECTED; REPEATED OWNER BROWSER GATES PENDING; H1/H2 OPEN**
+State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; PRIOR 001J RUNTIME/UI HEAD INDEPENDENTLY VERIFIED; OWNER TORNPDA STARTUP/KEY/STATS/GYM SMOKE PASS; BARS/INPUT GUIDANCE CORRECTED; REPEATED OWNER BROWSER GATES PENDING; H1/H2 OPEN**
 
 ## Canonical reading order
 
@@ -43,7 +43,7 @@ State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; PRIOR 
 
 37. [DQ-TRAIN-001J Runtime / Browser / UI Integration Specification](RUNTIME-UI-INTEGRATION-SPEC-001J.md) — owner-frozen acquisition/refresh, deterministic standalone packaging/runtime, beginner/advanced UI, safety, storage, H1/H2, and implementation-gate contract.
 38. [`RUNTIME-UI-INTEGRATION-FIXTURES-001J.json`](RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) — 34 synthetic acceptance cases: 11 acquisition, 8 packaging/runtime, and 15 UI/interaction cases.
-39. [DQ-TRAIN-001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) — owner-authorized standalone 0.1.0 runtime/UI, deterministic build, 220 Training / 457 repository tests after the TornPDA quote correction, unchanged canonical/frozen inputs, prior independent PASS, repeated owner browser gates pending.
+39. [DQ-TRAIN-001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) — owner-authorized standalone 0.1.0 runtime/UI, deterministic build, 229 Training / 466 repository tests after the live-v2 bars/input-guidance correction, unchanged canonical/frozen inputs, prior independent PASS, repeated owner browser gates pending.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -172,10 +172,12 @@ H1 Happy-reset timing and H2 personalized Candy-event interval remain open live-
 
 PR #134 passed independent `[V]` at `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`. The owner separately authorized `[B][WORK]` from that exact baseline.
 
-The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested compatibility product head `29a4b6bc80a59889cc336d43cbf166c601092309`, 0.1.0 generated artifact, 220 focused / 457 repository passes, and preserved H1/H2 gates.
+The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested bars/input-guidance product head `0ba12a007f0b1fe241b63b563586bb543990e679`, 0.1.0 generated artifact, 229 focused / 466 repository passes, and preserved H1/H2 gates.
 
-Prior independent `[V][WORK]` passed at `f9c37b181c22a23f093830e33d987abdfeb7d380`. Next gate: repeat owner TornPDA smoke on the amended pinned artifact, complete desktop manual verification, then a separate merge decision. The implementation remains unmerged and unreleased.
+Prior independent `[V][WORK]` passed at `f9c37b181c22a23f093830e33d987abdfeb7d380`. Next gate: repeat owner TornPDA bars/confirmation smoke on the amended pinned artifact, complete desktop manual verification, then a separate merge decision. The implementation remains unmerged and unreleased.
 
 Owner-authorized PR #135 amendment (2026-10-01) removes the unsupported 60-second authority expiry and blanket foreground/page-interaction invalidation. Current epochs/confirmation persist until an explicit approved transition; checkpoint → Refresh & Plan → observe → replan remains required after material actions. Tested amended product head `a151435e18de2a15eebbcd818cdc8ea1b296cebe`; 219 focused / 456 repository passes; final draft PR head is the independent-verification pin.
 
 First owner TornPDA Android smoke failed before HUD startup despite successful install and END injection, both without and with an API key. The [known source-normalization hazard](../../../discovery/evidence/TORN-PDA-USERSCRIPT-SOURCE-NORMALIZATION.md) reproduced a SyntaxError from the literal U+2019 in `plan\u2019s`. Owner-authorized compatibility amendment removes the two literal smart apostrophes through ASCII-safe UI copy, regenerates the artifact, and adds a build guard against all four known normalized quote characters in every source input/generator/artifact. Product head `29a4b6bc80a59889cc336d43cbf166c601092309`; 220 focused / 457 repository tests and 34 frozen J cases pass. The [checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records hashes and exact evidence. Live HUD/API/mobile workflow must be retested; automated coverage does not establish live TornPDA compatibility. Frozen/canonical bytes, H1/H2 and same draft/unmerged PR remain unchanged.
+
+The next owner live smoke at `efbe6b34a36dc72896c54f0c29f388cbebd02765` established successful END execution, HUD/expanded rendering, managed-key injection, real CURRENT acquisition, battle stats and active Complete Cardio gym. Missing bars fields were a source-envelope normalization defect, not authentication: official OpenAPI 6.13.6 wraps UserBars in bars, while the canonical adapter accepts direct bars. Nine-endpoint audit found only that missing unwrap. Product head `0ba12a007f0b1fe241b63b563586bb543990e679` adds the one-line runtime boundary correction, preserves direct/frozen adapter inputs, and separates API refresh tasks from immediate current confirmation and unavailable H1/H2 gates in beginner guidance. Advanced retains complete raw missing/reason evidence. Nine added regressions bring results to 67 runtime/UI/build / 229 focused / 466 full, with 162 canonical and 34 J cases unchanged. The [checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records exact schema/build hashes, failed-before/passed-after reproduction and the repeated owner bars/UX smoke gate. No merge/release; no H1/H2 closure.

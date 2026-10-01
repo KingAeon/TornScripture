@@ -1,16 +1,17 @@
 # DQ-TRAIN-001J — Runtime/UI implementation checkpoint
 
-State: **TORNPDA QUOTE COMPATIBILITY CORRECTED / AUTOMATED REGRESSIONS PASS / REPEATED OWNER BROWSER GATES PENDING / UNMERGED**
+State: **OWNER TORNPDA STARTUP/KEY/STATS/GYM SMOKE PASS / BARS NORMALIZATION AND INPUT GUIDANCE CORRECTED / AUTOMATED REGRESSIONS PASS / REPEATED OWNER BROWSER GATES PENDING / UNMERGED**
 
-Owner authorization: `[B][WORK]`, 2026-09-30; bounded TornPDA compatibility amendment, 2026-10-01. Repository: `KingAeon/TornScripture`.
+Owner authorization: `[B][WORK]`, 2026-09-30; bounded TornPDA quote compatibility and subsequent bars/input-guidance amendments, 2026-10-01. Repository: `KingAeon/TornScripture`.
 
 Authoritative base: `776d8e8044f317cd8feca58fb5197710b9c69b64`.
 Branch: `agent/training-runtime-ui-001j-build`.
-Tested amended product head: `29a4b6bc80a59889cc336d43cbf166c601092309`.
-Product tree: `7ee992a75756c4c60cec91658b2058f8da6ac876`.
+Tested amended product head: `0ba12a007f0b1fe241b63b563586bb543990e679`.
+Product tree: `a0bcf678b9a563b3b2df15d1fc84c9b3a22c4782`.
+Previous quote-corrected draft / owner smoke head: `efbe6b34a36dc72896c54f0c29f388cbebd02765`.
 Previous independently verified draft head: `f9c37b181c22a23f093830e33d987abdfeb7d380` (PASS; owner browser gates remained pending).
 
-This checkpoint is a subsequent documentation commit. The final branch head, including this checkpoint, must be pinned from draft PR metadata in the independent verification request; a commit cannot contain its own resulting SHA. Product bytes are identical to the tested implementation head above.
+This checkpoint is a subsequent documentation commit. The final branch head, including this checkpoint, is pinned from draft PR metadata in the owner completion report; a commit cannot contain its own resulting SHA. Product bytes are identical to the tested implementation head above.
 
 PR #134 froze the specification at independently verified head `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at the authoritative base. PR #133/J-P was independently verified at `7b1b31c60efcd8cbd0c13d32ee1d44fa84b7bcf0` and is already contained in that base. The frozen specification, fixtures, historical checkpoints, planner, and adapters remain byte-for-byte unchanged.
 
@@ -95,7 +96,7 @@ The permanent build-suite test `TornPDA quote normalization cannot rewrite Train
 
 Tested compatibility product commit: `29a4b6bc80a59889cc336d43cbf166c601092309`, parent `f9c37b181c22a23f093830e33d987abdfeb7d380`; fetched into the executable workspace and verified against local tree `7ee992a75756c4c60cec91658b2058f8da6ac876`. The subsequent active-record commit preserves these tested product bytes. The final documentation-inclusive head is pinned in PR #135 metadata and the owner completion report.
 
-Current generated artifact SHA-256: `8d722e08d817fd1165c688f94572639242999618ac17733ef7afebf58690790e`.
+Historical quote-correction artifact SHA-256 (superseded by the bars/UX build below): `8d722e08d817fd1165c688f94572639242999618ac17733ef7afebf58690790e`.
 
 | Executed compatibility validation | Result |
 | --- | --- |
@@ -114,6 +115,63 @@ Current generated artifact SHA-256: `8d722e08d817fd1165c688f94572639242999618ac1
 Exact test commands use `node --test --test-reporter=tap` with the same file lists recorded below. Syntax commands are `node --check src/training-advisor-ui.js`, `node --check tests/training-advisor-build.test.js`, and `node --check TornScripture-Training-Advisor.user.js`. Two `node scripts/build-training-advisor.js` invocations and `cmp` prove identical builds and equality with the pre-regeneration artifact; `node scripts/build-training-advisor.js --check` verifies checked-in generation. SHA-256 is computed independently with `sha256sum`; Python separately scans all six files, validates embedded hashes and frozen bytes, and matches all 34 frozen IDs to executed TAP results. `git diff --check` passes.
 
 No epoch/confirmation policy, API acquisition, Points/H1/H2 gate, key/storage behavior, controls, version, endpoint, listener, timer, observer, dependency, frozen expectation, or unrelated product changes. H1/H2 remain open. **Repeat the owner TornPDA Android smoke test after installing the amended pinned artifact; HUD startup, managed key injection, actual requests and the entire original mobile workflow are still pending.** Tampermonkey/Violentmonkey live API/CORS and reload gates also remain pending. The PR stays open/draft/unmerged/unreleased; no ready, auto-merge or release action is authorized.
+
+## Bounded live-v2 bars and actionable-input correction — 2026-10-01
+
+Owner-reported live TornPDA Android smoke at `efbe6b34a36dc72896c54f0c29f388cbebd02765` establishes **startup PASS after the quote correction**, successful END injection, compact HUD and expanded mobile UI rendering, managed-key injection PASS, real Refresh & Plan reaching CURRENT, successful `/user/battlestats`, and active gym resolution as Complete Cardio. These are owner-exercised live results, not verifier browser claims. Authentication was not the blocker. The same screen lacked Energy, natural maximum/regeneration, Happy and ordinary Happy together; bars response normalization remained BLOCKED. Repeated refresh while following the input instruction exposed a second bounded UX defect. No private player values, API key or raw response are recorded.
+
+### Current official response-wrapper audit
+
+Before product edits, downloaded [official Torn OpenAPI](https://www.torn.com/swagger/openapi.json), version **6.13.6**, with a descriptive User-Agent. Schema SHA-256: `f6c076e923032177016f6615b1a7d2b06c0db6ddfec222b731123ecb760c193e`. This is a response-shape audit, not a claim that every endpoint was exercised live. No schema/dependency or endpoint is added to the product.
+
+| Acquired endpoint | Official successful response | Existing consumer boundary / audit result |
+| --- | --- | --- |
+| `/user/bars` | `UserBarsResponse -> {bars: UserBars}` | **Only missing unwrap**: canonical adaptBars expects direct energy/happy |
+| `/user/cooldowns` | `{cooldowns: {...}}` | Existing runtime unwrap matches direct cooldown adapter |
+| `/user/battlestats` | `{battlestats: {...}}` | Existing runtime unwrap matches direct stat adapter |
+| `/user/gym` | `{gym: {id, name}}` | Envelope retained intentionally; canonical adaptGym reads gym.id/name |
+| `/user/perks` | `{perks: {...}}` | Existing runtime unwrap matches direct perk adapter |
+| `/user/refills` | `{refills: {...}}` | Existing runtime unwrap matches direct refill adapter |
+| `/user/money` | `{money: {...}}` | Envelope retained intentionally; runtime reads money.points for current proof |
+| `/user/inventory` | `{inventory: {items, timestamp}, _metadata: {...}}` | Entire page retained intentionally for canonical pagination/provenance |
+| `/torn/gyms` | `{gyms: [...]}` | Existing runtime unwrap matches canonical catalog array |
+
+No other current wrapper mismatch was found. Additional wrappers were not added or removed.
+
+### Reproduction and bounded correction
+
+First added `official v2 wrapped bars normalize through canonical adapters with unchanged source evidence` against the previous product. It failed with `undefined !== 150` for Energy: HTTP success/source metadata were present, but the wrapper prevented canonical field normalization. The browser acquisition boundary now adds exactly `if (key==='bars') return payload.bars ?? payload;`. That is the entire runtime diff. Canonical adaptBars, arithmetic, ordinary-Happy rules, provenance/freshness policy, and direct synthetic inputs are unchanged.
+
+The new synthetic v2 input includes wrapped bars with energy/happy/nerve/life/chain and uses the current envelope boundaries for every acquired endpoint. The passing regression proves Energy, naturalEnergyMax, naturalRegen, Happy, guarded ordinaryHappy, bars capability, `/user/bars` source IDs, LIVE observation timestamps and OBSERVED provenance. Its full normalized output equals the existing direct-input output. Missing/malformed wrappers fail closed locally. Existing frozen direct bars cases and elevated-Happy withholding retain canonical results. No adapter policy is duplicated in runtime.
+
+UI-only evidence guidance replaces the undifferentiated null-field list and the instruction to provide current input then refresh. Missing source-backed Energy/Happy identifies `/user/bars` and Refresh & Plan; stats/Points/selected owned quantities/current effects direct the existing immediate-replan confirmation forms. Preparation effect evidence describes booster capacity as dependent on verified effect/mechanic evidence. Unsupported booster mechanics and elevated ordinary-Happy mapping remain explicit limitations. Optional preparation gaps do not replace a real 50m model-domain blocker. Material gameplay action wording explicitly names State changed / checkpoint reached, then Refresh & Plan. Form validation errors in CURRENT request corrected input and resubmission rather than a new epoch.
+
+H1/H2 remain open and fail closed. Canonical `confirm safe quarter-hour window` is shown as the unavailable H1 timing gate; its unchanged machine nextAction remains in Advanced. H2/worldDiabetesDay never appears as a normal missing-input task and no override is offered. Dedicated H1/H2 messaging remains visible. Advanced retains all raw missing fields, source evidence, reasons, capabilities, unsupported entries and canonical nextAction. Presentation does not change recommendations, ranking, readiness states or reason codes.
+
+Nine additional regressions (three runtime, six UI) cover wrapped/direct/malformed bars; actionable source/manual/gate guidance; genuine blocker preservation; and all four mounted confirmation forms replanning with no API request or epoch change. A fresh refresh still clears all old confirmations; explicit checkpoint still invalidates authority. Frozen J-C tests retain their frozen behavioral expectations while their assertions match the new actionable wording; frozen fixture/spec bytes are unchanged.
+
+Tested product commit: `0ba12a007f0b1fe241b63b563586bb543990e679`, parent `efbe6b34a36dc72896c54f0c29f388cbebd02765`; fetched and matched to executable local tree `a0bcf678b9a563b3b2df15d1fc84c9b3a22c4782`. Product/test files: runtime, UI, their two tests, synthetic fixture helper, regenerated artifact. Active documentation: this checkpoint, NOW, chapter/domain indexes, only the Training open-node row, and one appended changelog event. Historical evidence remains intact. Final documentation-inclusive head is pinned in PR #135 metadata and completion report.
+
+Current generated artifact SHA-256: `961dd9fc2c56eef9106d89403217db6661c05243d771cdd52610e82d515e4a36`.
+
+| Final executed validation | Result |
+| --- | --- |
+| Existing canonical Training | 162/162 |
+| Runtime/UI/build | 67/67 |
+| All focused Training | 229/229 |
+| Full repository | 466/466, 21 suites |
+| Frozen J cases | 34/34, 11 acquisition / 8 packaging / 15 UI |
+| Changed JavaScript syntax | 6/6 |
+| Deterministic double CLI build / checked-in regeneration | PASS |
+| Five provenance hashes / deliberate embedded-core drift rejection | PASS |
+| Existing VM fixture parity plus wrapped-v2 acquisition/confirmation/UI artifact parity | PASS |
+| Four-quote guard / zero target literals / post-normalization syntax | PASS |
+| Canonical/frozen/historical chapter files versus authoritative base | 39 unchanged files |
+| Complete diff/scope/secrets/version/JSON/NDJSON history/Markdown/whitespace | PASS |
+
+Exact suite commands are `node --test --test-reporter=tap tests/training-advisor-pure.test.js tests/training-advisor-adapters.test.js`, `node --test --test-reporter=tap tests/training-advisor-runtime.test.js tests/training-advisor-ui.test.js tests/training-advisor-build.test.js`, `node --test --test-reporter=tap tests/training-advisor-*.test.js`, and `node --test --test-reporter=tap tests/*.test.js`. `node --check` ran for all six changed JS files. Two CLI builds, saved byte comparisons, `node scripts/build-training-advisor.js --check`, independent SHA-256, embedded hash checks, deliberate drift and side-effect-guarded artifact VM acquisition were executed. Python matched all 34 IDs to successful TAP results and checked frozen bytes/structured docs. Both base-to-head and previous-head amendment pass `git diff --check`.
+
+No version bump, new endpoint, listener, timer, observer, storage key/schema, migration, dependency, polling, gameplay control or new authority rule. No 60-second TTL returns; caches, request deadlines, keys, Points, inventory separation, protected mechanics and all other products remain unchanged. **Repeat owner TornPDA smoke with the corrected pinned artifact to verify live bars normalization and input guidance.** Prior live startup/key/stats/gym PASS does not establish completion of mobile drag/themes/confirmation/checkpoint/authority persistence or desktop API/CORS/reload gates. PR #135 stays draft/open/unmerged/unreleased.
 
 ## Acquisition and session control
 
@@ -197,9 +255,9 @@ git diff 776d8e8044f317cd8feca58fb5197710b9c69b64..HEAD --check
 
 Protected canonical regressions pass unchanged: vladar-v2-pre50m-v1 and calibration boundaries; 001A math; 001C policy/ranking; natural-max refill and 1,150E sequential route; booster pre-use threshold and legal mixed frontier; +250E/+75 Happy Xanax exactly once; absolute 1,000E versus natural maximum; no invented future Xanax cooldown; J-P valid/malformed confirmation, owned/bought separation, ordinaryHappy, regeneration, 50m limit, source-local capability failure, and H1/H2 gates.
 
-## Owner manual gates — repeated TornPDA startup and remaining workflow pending
+## Owner manual gates — repeated bars/input workflow and remaining browser checks pending
 
-The first owner TornPDA startup attempt failed before HUD mounting; no later mobile workflow was reached. Repeat with the corrected pinned artifact. Desktop gates have not been exercised.
+The initial pre-quote-correction startup failed. The subsequent owner smoke passed startup/END injection, compact and expanded mobile UI rendering, managed key, real CURRENT refresh, stats and gym acquisition. Bars normalization then failed and the input/refresh wording loop was observed. Repeat using the latest pinned bars/UX artifact. Desktop gates and remaining mobile interactions have not been claimed exercised.
 
 TornPDA Android:
 
@@ -209,6 +267,8 @@ TornPDA Android:
 4. For supported owned-item planning, explicitly confirm current effect state, then only required owned quantities. Confirm a lower quantity/zero and verify a replan plus item-local proof, with purchases separate.
 5. After a material manual Torn action or VERIFY_STATE checkpoint, press State changed / checkpoint reached; observe invalidation, then Refresh & Plan and verify the new epoch/recommendation. No control may consume, train, refill, buy, or chain actions.
 6. Wait beyond 60 seconds and hide/show Torn; ordinary links/buttons/inputs and unrelated form submissions must preserve the same epoch/confirmation. Explicit checkpoint/key change/new refresh must clear confirmation. Reload: preferences/HUD state persist; live state and confirmation do not.
+
+7. Inspect `/user/bars` Energy/natural maximum/regeneration and Happy; ordinaryHappy follows the existing guarded mapping. Confirm current effects, selected owned quantities, manual stats or Points where applicable: each accepted submission replans immediately in the same epoch without a subsequent refresh. Refresh only to reacquire API evidence or after explicit checkpoint/material action. H1/H2 are open limitations, never normal fill-in tasks; Advanced retains raw missing/reason diagnostics.
 
 Desktop Tampermonkey and Violentmonkey:
 
