@@ -1,4 +1,115 @@
-# DQ-TRAIN-001J — Runtime/UI implementation checkpoint
+# DQ-TRAIN-001J / 001K - Runtime/UI implementation checkpoint
+
+Current state: **001K IMPLEMENTED / AUTOMATED PASS / OWNER BROWSER AND INDEPENDENT IMPLEMENTATION VERIFICATION PENDING / PR #135 DRAFT, OPEN, UNMERGED, UNRELEASED / H1/H2 OPEN**
+
+## Current 001K implementation and reconciliation
+
+Separate owner `[B][WORK]` authorization: 2026-10-01. Risk Tier 2: advisory calculation, read-only acquisition, mobile presentation and sanitized local preferences. No accounting or storage migration.
+
+| Reference | Exact value |
+| --- | --- |
+| Repository | `KingAeon/TornScripture` |
+| Authoritative reconciled main | `b8474253237e63485100fdcc51b2cb82530d2efc` |
+| Independently verified spec PR #136 head | `0b17df647129634675913b8f7c9ad2844986609c` |
+| Previous PR #135 head | `4067c82c52439e97bb22856ac5e3e451d6a33591` |
+| Previous product-bearing predecessor | `f309913a223520e720701d5e5c25cb092796b618` |
+| Original 001J base | `776d8e8044f317cd8feca58fb5197710b9c69b64` |
+| Ordinary two-parent reconciliation | `0e435bd1e4f3262e77c72b370e9bf35e64b55bba` |
+| Tested implementation commit | `6a6cfdaf4097b4d7a4266e325d5e7e67380ad76d` |
+| Tested product tree | `fa9db6a71acbaf84938b0b12fcee94a027626a26` |
+| Existing branch | `agent/training-runtime-ui-001j-build` |
+| Training Advisor version | `0.1.1` |
+
+The final documentation-inclusive branch SHA is reported from live PR metadata at handoff; a commit cannot contain its own SHA. This documentation amendment preserves the exact tested product/test blobs above.
+
+Full executable preflight confirmed repository/branch/main/previous head and live PR draft/open/unmerged state; complete nonshallow materialization, clean understood worktree, executable Git 2.51.1 / Node v24.19.0 / Python 3.12.14, tests/build/full-diff inspection, and publication/readback capability. Baseline Training tests passed **229/229** both before and after reconciliation; baseline generation check passed. Reconciliation preserved history with parents in order previous PR head and authoritative main. Only active continuity records conflicted; their histories were retained. All prior product bytes and merged 001K specification/fixture bytes were preserved before implementation. Merge base with current main is the authoritative main above. No branch recreation, rebase, force push or main update.
+
+### Architecture and exact files
+
+Product/test amendment:
+
+- `src/training-advisor-pure.js`: additive canonical route-option curation and final-included-booster metadata; existing primaryPlan/rank/math semantics preserved.
+- `src/training-advisor-runtime.js`: in-memory exact selection/effective-plan owner, proof re-scoping, stale context, same-epoch Apply & Replan and supported weakest-stat target mapping.
+- `src/training-advisor-ui.js`: frozen visual/navigation/modal/HUD/confirmation/route presentation.
+- `scripts/build-training-advisor.js`: patch version `0.1.1`.
+- `TornScripture-Training-Advisor.user.js`: deterministic regeneration from canonical sources.
+- `tests/training-advisor-polish.test.js`: 46 frozen K IDs mapped one-to-one plus eight scope/lifecycle/parity regressions.
+- `tests/training-advisor-ui.test.js`: approved 001K human presentation assertions; frozen J fixture file untouched.
+- `tests/training-advisor-build.test.js`: consistent patch-version assertion; drift/normalization guards retained.
+
+Active continuity updates: this checkpoint, `NOW.md`, Training chapter/domain indexes, only the Training row in `OPEN-NODES.ndjson`, and one appended `CHANGELOG.ndjson` event. Ordinary reconciliation also retains the merged 001K specification, fixtures and historical discussion supersession note exactly as main. Historical evidence below is not rewritten.
+
+Canonical `routeOptions` are maximum seven distinct exact fingerprints. Current winner comes first; existing MAXIMUM_GAIN, valid BEST_VALUE and valid USE_MY_INVENTORY winners follow, with duplicate roles accumulated. USE WHAT I OWN requires no bought quantity and known zero cash; otherwise LOWEST NEW CASH. Highest-gain supported preparation-family representatives fill remaining slots, ordered deterministically by structural signature (distinct booster IDs, Ecstasy, Xanax, refill or TRAIN_ONLY). Every option references an already generated/simulated canonical plan and reuses existing objective policy. Unavailable economics/reference evidence omits dependent roles. The UI does not rank, simulate, splice recipes or invent economic/marginal data.
+
+Existing `primaryPlan` remains the objective winner. Runtime owns ephemeral selected fingerprint and resolves only an exact current canonical route. Route change clears selected-plan inventory proof, preserves valid other current evidence and replans in the same epoch. Confirmations request only effective-route owned quantities; bought items stay separate. Lower/zero contradiction still replans and clears a fingerprint that no longer exists. Refresh, key change, dispose/reload and Apply & Replan clear selection. Apply also clears route-scoped inventory proof when returning to the winner, even with unchanged preferences. Close/reopen may preserve selection in memory. Checkpoint preserves old selected context visibly stale, clears authority/proof and disables execution-affecting controls. Theme/HUD changes neither replan nor clear selection.
+
+Canonical `marginalFinalBooster` identifies the final included item/unit, uses the existing modeled without-final-booster delta, and reports only derivable unit economic delta. Currently legal fifth eDVD and exact-max four-eDVD/conditional later fifth remain distinct. A later booster requires checkpoint/observation/replan; future gain is unavailable. No fourth-unit gain is labeled as fifth-unit gain. Candy quantities come from canonical recipes. No math/mechanic or ranking objective changed. A separate 288-scenario whole-recommendation comparison against the previous pure module passed after excluding only additive metadata.
+
+### UI, lifecycle, persistence and network
+
+Midnight Ledger dark and frozen opaque Light translation, Auto/Dark/Light, exact 0.98 expanded / 0.94 HUD dark surfaces, 0.76 scrim, and restrained 2px blue-to-cyan accent. Explicit fixed isolated root owns scrim/HUD/expanded layers above ordinary Torn document content; no Torn selector hiding or required blur. Sticky identity/44px Close, Plan/Options/Advanced tabs and state strip precede scrolling safe-area content. Plan opens initially and after Refresh/Apply. NEXT is strongest; readiness and violet confidence remain separate. H1/H2 are presentation-only research gates with canonical reasons visible in Advanced; dependent instructions are withheld. No worldDiabetesDay input or local-clock timing guess.
+
+Successful current effect/inventory confirmation transforms into epoch-scoped acknowledgment with Change/Edit. Missing-source refresh differs from same-epoch manual confirmation. Staged Options reuse approved objective/resource/risk/economic preferences; supported Target/Weakest stat maps through canonical normalization. Structured Advanced retains full raw objects one level deeper and never changes selection/ranking. Compare Routes is a Plan subview with collapsed exact-route cards, truthful Cash needed / Owned value used / Total resource value / Points used and unavailable-price labels. Compact HUD excludes inventory/economics/diagnostics/checkpoint controls; collapsed chip never auto-expands. Only dedicated grip is draggable and fully clamps; controls do not drag.
+
+Unchanged durable keys: `tornscripture-training-settings-v1`, `tornscripture-training-api-key-v1`. No keys added/renamed and no migration/reset. Settings add only the approved `statAllocationMode` preference (default TARGET_STAT); old sanitized preferences/HUD position/collapse/theme remain compatible. Selection, staged options, observed player state, confirmations, recommendation/history and API/cache data remain memory-only. No PDA_storage.
+
+Owned UI adds root input/change staging and root keydown Escape/focus handling to the existing click/submit/pointer lifecycle; optional color-scheme/window resize ownership remains. All listeners dispose with the mounted surface. No document-wide/capture/visibility invalidation listener, MutationObserver, polling or new timer. Existing bounded 15-second request abort timers and one-hour memory planning caches remain separate from authority. CURRENT survives time, hide/show and unrelated interactions until explicit approved transition. Countdown zero remains nonauthoritative. No new endpoint or price provider; all existing eleven source selections/GETs, bars unwrap, concurrency, bounded pagination, foreign/query/redirect rejection, key revision/redaction and Authorization-only official Torn key boundary remain intact. Startup acquires nothing. No GitHub/CDN runtime import, remote planner, backend or dependency addition. Controls only observe/replan/compare/confirm/select/invalidate; no item/drug/refill use, training, buying or unattended action.
+
+### Executed validation
+
+| Exact command/check | PASS result |
+| --- | --- |
+| `node --test --test-reporter=tap tests/training-advisor-pure.test.js` | 109/109 |
+| `node --test --test-reporter=tap tests/training-advisor-adapters.test.js` | 53/53; 162 existing canonical tests total |
+| `node --test --test-reporter=tap tests/training-advisor-runtime.test.js` | 30/30 |
+| `node --test --test-reporter=tap tests/training-advisor-ui.test.js` | 26/26 |
+| `node --test --test-reporter=tap tests/training-advisor-build.test.js` | 11/11; 67 existing runtime/UI/build tests total |
+| `node --test --test-reporter=tap tests/training-advisor-polish.test.js` | 54/54; all 46 K IDs plus eight additional regressions |
+| `node --test --test-reporter=tap tests/training-advisor-*.test.js` | 283/283 |
+| `node --test --test-reporter=tap tests/*.test.js` | 520/520 across 21 suites |
+| `node --check` for every JS added/changed against reconciled main and canonical adapters | 11/11 |
+| `node scripts/build-training-advisor.js` twice; saved byte comparisons | Byte-identical and equals checked-in bytes |
+| `node scripts/build-training-advisor.js --check` | PASS |
+| All five independent provenance SHA-256 comparisons | PASS |
+| Deliberate embedded +75-to-+74 drift rejection and generated VM parity | PASS in build/polish tests |
+| Four-quote scan / post-normalization syntax / bounded test-mode surface | PASS in build tests |
+| Frozen J acceptance IDs | 34/34: 11 acquisition, 8 packaging, 15 UI |
+| Frozen K acceptance IDs | 46/46: 11 visual, 14 UX, 21 routes; mapped executable assertions |
+| Historical recommendation parity excluding additive metadata | 288/288 deterministic scenarios |
+| `git diff --check`; complete reconciled diff review | PASS |
+| JSON IDs, NDJSON parse/history, Markdown headings/fences/local links, version/scope/secret scans | PASS |
+
+Generated userscript SHA-256:
+
+`bf74185164dac5d0eb16ce6975e4422d567d3b48645e8584a76dc576866f079e`
+
+Canonical adapters and all frozen specifications/Training JSON remain byte-for-byte equal to authoritative main. Pure planner changes are only the authorized additive projection/metadata. Protected math/model/domain/50m/ranking, natural-max/sequential refill, threshold/legal mixed frontier, Xanax +250E/+75 Happy once, 1000E stack distinction, no invented future cooldown, J-P timestamp/owned-bought proof, ordinaryHappy/regeneration, local failures/CAPABILITY_UNAVAILABLE and unresolved H1/H2 regressions pass. Complete final diff excludes unrelated IMM/ISH/WIH/hub, casino/trade/market/DQ-EXT, workflows/dependencies/backend/storage edits.
+
+### Owner manual gates and rollback
+
+Prior owner 001J live smoke PASS is recorded in the historical discussion: END injection, HUD/expanded rendering, managed key, real bars/stats/gym/current epoch, ordinary training guidance, checkpoint/new refresh, same-epoch effect/item proof, lower/zero override and refresh reset. Those results are not a live test of new 001K presentation. Synthetic DOM/VM coverage does not establish TornPDA stacking, WebView pointer/focus behavior or extension CORS compatibility.
+
+TornPDA Android, on a normal Torn page with END injection:
+
+1. Install the commit-pinned 0.1.1 artifact; verify managed key, no startup API traffic, HUD/chip/drag/clamp/collapse and no auto-expansion.
+2. Open Plan. Verify Advisor header/Close/tabs/state strip paint above ordinary Torn navbar/sticky/tooltip elements, mobile full screen, safe areas, narrow screen/rotation and Auto/Dark/Light. Close/reopen retains in-memory choice while returning to Plan.
+3. Refresh; confirm actual Energy/Happy/stats/gym, CURRENT/new epoch, source-local provenance and explicit API failures distinct from current-confirmation remedies.
+4. Compare collapsed canonical routes, expand exact recipe/owned/acquisition/economics/marginal details, select a different route. PLAYER SELECTED, NEXT/resources/readiness must agree; no gameplay occurs. Missing prices must never be zero. H1 Ecstasy/H2 Candy gates remain withheld.
+5. Confirm relevant effects and effective-route owned quantities. Verify acknowledgment/Edit, same-epoch replan, lower/zero contradiction and re-scoped proof after route change; unrelated current evidence remains valid.
+6. Stage Options without changing recommendation, Apply & Replan without API/new epoch and with selection/proof reset; theme-only changes preserve recommendation. Advanced is structured/raw-transparent, key-free and does not rerank.
+7. Perform any chosen Torn action manually, then I completed this step: old selected plan becomes stale/readable, NEEDS REFRESH dominates, execution-affecting controls disable; Refresh creates new proof. Wait >60 seconds and hide/show/unrelated navigation must remain neutral. Reload keeps approved preferences only.
+
+Desktop Tampermonkey/Violentmonkey:
+
+1. Install the pinned artifact, configure local fallback key, verify actual API/CORS Refresh, bounded centered overlay and touch/keyboard-visible controls (Close, Escape, focus cycle/return).
+2. Verify HUD grip versus controls, resize/clamp/collapse, Plan/Options/Advanced/Compare selection and confirmed evidence behavior, themes/reduced motion, stale checkpoint flow and unknown economics.
+3. Verify settings/HUD persistence, reload without live authority/selection/confirmation, key exclusion from diagnostics and Forget key account-cache invalidation. No control performs Torn gameplay.
+
+Rollback: disable/uninstall the test artifact for immediate local recovery. Revert the 001K implementation and accompanying continuity commit(s) on this existing branch (no force update/main change) to restore reconciled 001J product bytes/version; the ordinary merge may remain to retain the merged specification. If reverting the reconciliation itself is separately authorized, use its first parent to restore exact previous PR head. No durable state migration is involved; preferences remain backward compatible. Keep PR #135 draft/open/unmerged/unreleased. Stop at repeated owner manual smoke and independent implementation verification; no ready/auto-merge/merge/release action is authorized.
+
+## Historical 001J implementation evidence
+
+The following checkpoint preserves the preceding implementation, defect corrections and results as recorded. Its versions/heads/pending gates describe those earlier checkpoints, not current 001K status.
 
 State: **OWNER TORNPDA STARTUP/KEY/STATS/GYM SMOKE PASS / BARS NORMALIZATION AND INPUT GUIDANCE CORRECTED / AUTOMATED REGRESSIONS PASS / REPEATED OWNER BROWSER GATES PENDING / UNMERGED**
 
