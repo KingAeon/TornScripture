@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **001J CORE OWNER TORNPDA SMOKE PASS; 001K SPEC VERIFIED/MERGED; PR #135 0.1.1 IMPLEMENTED/AUTOMATED PASS; OWNER BROWSER AND INDEPENDENT IMPLEMENTATION GATES PENDING; DRAFT/UNMERGED; H1/H2 OPEN**
+State: **001J CORE OWNER TORNPDA SMOKE PASS; 001K SPEC VERIFIED/MERGED; PR #135 0.1.2 BOUNDED UI CORRECTIONS/AUTOMATED PASS; OWNER BROWSER AND INDEPENDENT IMPLEMENTATION GATES PENDING; DRAFT/UNMERGED; H1/H2 OPEN**
 
 ## Canonical reading order
 
@@ -199,10 +199,14 @@ The owner then completed [D] UI-polish design and froze [DQ-TRAIN-001K](UI-POLIS
 
 Next gate: independent [V] of the 001K documentation/fixture freeze, followed by a separate owner merge decision. No 001K product amendment is authorized until after verified spec merge and a separate [B][WORK] decision.
 
-## Current DQ-TRAIN-001K implementation gate
+## Initial DQ-TRAIN-001K implementation checkpoint
 
 PR #136 passed independent [V] at `0b17df647129634675913b8f7c9ad2844986609c` and merged as `main@b8474253237e63485100fdcc51b2cb82530d2efc`. Separate owner [B][WORK] then authorized this amendment. The existing PR #135 branch was reconciled by ordinary two-parent merge `0e435bd1e4f3262e77c72b370e9bf35e64b55bba`, preserving previous head `4067c82c52439e97bb22856ac5e3e451d6a33591` and all 001J product/history evidence.
 
 Tested 0.1.1 product head `6a6cfdaf4097b4d7a4266e325d5e7e67380ad76d` adds canonical routeOptions (maximum seven exact fingerprints, deduplicated accumulated roles and supported preparation families), canonical marginal-final-booster metadata, ephemeral exact player selection with route-scoped inventory proof clearing, staged same-epoch Apply & Replan, and the frozen Midnight Ledger Plan/Options/Advanced/modal/HUD presentation. Historical objective winners remain unchanged; adapters and frozen 001J/001K specification/fixture bytes remain unchanged. No new endpoint, price source, durable key, gameplay action, authority TTL, polling or observer.
 
 Automated PASS: 162 existing canonical Training tests, 67 runtime/UI/build tests, 54 polish tests including all 46 K cases; 283 focused / 520 full, 21 suites; all 34 J cases; deterministic regeneration, source hashes, deliberate drift rejection, VM parity and four-quote guard. [Implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) contains exact commands, privacy boundaries, manual checks and rollback. Prior owner 001J smoke is live evidence; the new 001K modal/route/UI implementation is synthetic-tested only. Next: repeated owner TornPDA and desktop smoke, independent implementation verification, then a separate owner merge decision. H1/H2 remain OPEN. Same PR #135 remains draft/open/unmerged/unreleased.
+
+## Current bounded verification correction
+
+At starting static-review head `e674345d9e787d0bce80eef87c018a397815d6e1`, owner-authorized correction product `9837276160d897ff08b565a8553ef7bf94a3da38` (0.1.2) guarantees Close 44px by 44px and scopes Beginner preparation/Points evidence to the effective canonical route. Advanced and no-safe-plan recovery remain available; no planner/readiness/mechanic change. Fresh 162 canonical + 67 runtime/UI/build + 60 polish = 289 focused / 526 full, 21 suites PASS; all 34 J / 46 K cases, 288 historical parity scenarios and deterministic/hash/drift/VM/smart-quote guards PASS. Frozen/canonical files unchanged by this correction; no storage/network/listener/timer/observer change. Repeat owner TornPDA/desktop smoke and independent implementation verification; PR #135 remains draft/open/unmerged, H1/H2 OPEN. Exact commands, artifact SHA and history are in the implementation checkpoint.

@@ -1,5 +1,68 @@
 # DQ-TRAIN-001J / 001K - Runtime/UI implementation checkpoint
 
+Current state: **0.1.2 BOUNDED UI CORRECTIONS / AUTOMATED PASS / OWNER BROWSER AND INDEPENDENT IMPLEMENTATION VERIFICATION PENDING / PR #135 DRAFT, OPEN, UNMERGED, UNRELEASED / H1/H2 OPEN**
+
+## Current bounded static-verification correction - 2026-10-01
+
+The owner authorized two bounded fixes after static verification of exact head `e674345d9e787d0bce80eef87c018a397815d6e1`: K-A5 lacked a guaranteed Close width, and Beginner evidence was preference-scoped instead of effective-route-scoped under 001K section 20. This is an executable build/validation pass, not a new independent reviewer or live browser smoke result.
+
+| Reference | Exact value |
+| --- | --- |
+| Main / PR base / merge base | `b8474253237e63485100fdcc51b2cb82530d2efc` |
+| Starting PR head | `e674345d9e787d0bce80eef87c018a397815d6e1` |
+| Tested correction product commit | `9837276160d897ff08b565a8553ef7bf94a3da38` |
+| Tested correction tree | `cd473f56847ac84608d5200c58ce1a19651d03f5` |
+| Existing branch / PR | `agent/training-runtime-ui-001j-build` / #135 |
+| Version | `0.1.2` (AGENTS patch rule; matching markers updated) |
+| Generated artifact SHA-256 | `648fd0ac1f807fc71602a083b74f0ba2cc8ae1258ec8aa2e96ebb6172ff7b2b6` |
+
+The documentation-inclusive amended head is pinned from live PR metadata in the completion report; it cannot be self-recorded inside its own commit. The final documentation tree retains these tested product bytes. Starting preflight confirmed exact repository, branch, base/head and open/draft/unmerged PR, clean complete executable checkout, Git/Node/Python, build/test/diff and publication capability. Existing focused baseline **283/283** and full baseline **520/520 across 21 suites** passed before edits. Strengthened tests reproduced both findings at the starting implementation, including K-A5 width and preference-only preparation/Points prompting.
+
+### Corrections and exact scope
+
+- UI: Close-only `button[data-action=close]{min-width:44px}` combines with existing minimum height 44px, preserving the accessible label and neutral color. No global button width/layout change.
+- UI: a presentation-only dependency helper reads the exact effective canonical route actions. Preparation/effect evidence depends on TAKE_XANAX / TAKE_ECSTASY / USE_BOOSTER; booster-capacity guidance depends on USE_BOOSTER; Points/refill guidance depends on USE_REFILL. Preferences supply recovery context only when no effective plan exists. Advanced retains the full applicable current-epoch ledger. Inventory proof scope, confirmation transformation, canonical readiness/ranking and H1/H2 are unchanged.
+- Tests: strengthen K-A5 to verify both dimensions; use genuine preparation routes in stale/evidence-transformation tests; add six focused regressions for Train Now suppression, non-refill suppression, preparation retention, refill retention, Advanced ledger and no-safe recovery. Frozen fixtures/specifications are not edited.
+- Product/test files: `src/training-advisor-ui.js`, version-only `src/training-advisor-runtime.js` and `scripts/build-training-advisor.js`, regenerated `TornScripture-Training-Advisor.user.js`, `tests/training-advisor-polish.test.js`, version assertions in `tests/training-advisor-build.test.js`.
+- Continuity files: this checkpoint, NOW, chapter/domain indexes, only the Training row in OPEN-NODES and one appended CHANGELOG event. All historical changelog/checkpoint evidence is retained.
+
+### Fresh executable evidence
+
+| Exact command / check | Result |
+| --- | --- |
+| `node --test --test-reporter=tap tests/training-advisor-pure.test.js` | 109/109 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-adapters.test.js` | 53/53 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-runtime.test.js` | 30/30 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-ui.test.js` | 26/26 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-build.test.js` | 11/11 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-polish.test.js` | 60/60 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-*.test.js` | 289/289 PASS |
+| `node --test --test-reporter=tap tests/*.test.js` | 526/526 PASS, 21 suites |
+| `node --check` for each of all four canonical modules, six Training tests, helper, generator and generated artifact | 13/13 PASS |
+| `node scripts/build-training-advisor.js` twice, byte comparison against each other and checked-in artifact | byte-identical PASS |
+| `node scripts/build-training-advisor.js --check` | PASS |
+| Independent embedded source hashes / deliberate core drift rejection / generated-artifact VM parity / test-mode side-effect guard / smart-quote guard | PASS |
+| Independent frozen case-ID to passed TAP mapping | J 34/34 (11/8/15); K 46/46 (11/14/21) PASS |
+| Whole-recommendation comparison against pre-001K planner at `4067c82c52439e97bb22856ac5e3e451d6a33591`, excluding only routeOptions and marginalFinalBooster | 288/288 PASS |
+| `git diff b8474253237e63485100fdcc51b2cb82530d2efc..HEAD --check` and starting-head whitespace check | PASS |
+| JSON/NDJSON parse, unique IDs/history, Markdown heading/fence/local-link, version/provenance/secret/private-data/scope audits | PASS |
+
+Canonical pure planner/adapters are byte-equal to the starting head; all frozen J/K specifications, fixtures and prior Training JSON files are byte-equal to authoritative main. The complete reconciled 16-file PR diff remains Training-only: inherited additive 001K planner projection, existing runtime/UI/build/tests and active continuity. No unrelated IMM/ISH/WIH/hub/DQ-EXT/casino/trade/market/workflow/dependency/backend/storage changes.
+
+Storage keys stay `tornscripture-training-settings-v1` and `tornscripture-training-api-key-v1`; no additions, migration, preference reset or durable route selection/current state. Runtime and generator differ from starting head only by version. UI mount/handlers are byte-identical. Eleven existing official Torn GET selections, Authorization-only keys, request/cache bounds and advisory controls are unchanged. No new network/listener/timer/observer, 60-second authority TTL, polling or blanket page invalidation.
+
+### Remaining owner gates and rollback
+
+Repeat TornPDA Android END injection with managed key/actual requests, bars/stats/gym/current epoch; mobile HUD/grip/clamp/collapse and modal stacking/44x44 Close/sticky tabs; Auto/Dark/Light/narrow safe-area layout. Verify Train Now hides unrelated effects/Points despite enabled preferences; select preparation/refill routes to restore only relevant confirmation; Advanced still exposes applicable evidence; accepted confirmation transforms; exact route selection/resources/NEXT, lower/zero replan and proof re-scoping; Apply/theme-only behavior, checkpoint/stale/new refresh, >60-second/hide-show/navigation neutrality and reload without authority/selection.
+
+Repeat desktop Tampermonkey/Violentmonkey local key/actual API/CORS, HUD/centered modal/focus/Escape/Close, route-scoped Plan versus Advanced evidence, confirmation/Options/Compare/checkpoint, themes/reduced motion, HUD/settings persistence and reload/key invalidation. Synthetic DOM/VM tests do not prove live browser layout or networking. Prior 001J owner smoke results remain historical evidence; this corrected 001K live smoke is pending. H1/H2 remain open/fail-closed. No control consumes drugs/items, trains, refills, buys or performs unattended gameplay.
+
+Immediate rollback: disable/uninstall the test userscript. Repository rollback: revert the bounded correction product commit and its continuity commit on this existing branch to restore exact starting product bytes/version; retain earlier reconciliation/001K work and history. No force update, main change or storage migration. Keep PR #135 draft/open/unmerged/unreleased and stop at owner/manual verification.
+
+## Historical checkpoint at the statically reviewed starting head
+
+The entire earlier checkpoint below is retained verbatim. Its heads, version, counts and pending status describe that earlier record; current correction evidence is above.
+
 Current state: **001K IMPLEMENTED / AUTOMATED PASS / OWNER BROWSER AND INDEPENDENT IMPLEMENTATION VERIFICATION PENDING / PR #135 DRAFT, OPEN, UNMERGED, UNRELEASED / H1/H2 OPEN**
 
 ## Current 001K implementation and reconciliation

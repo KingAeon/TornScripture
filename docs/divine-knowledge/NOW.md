@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-10-01 UTC; verified DQ-TRAIN-001K spec PR #136 merged; existing draft PR #135 reconciled with exact main and amended to Training Advisor 0.1.1; automated verification PASS, repeated owner TornPDA/desktop and independent implementation verification gates pending; H1/H2 OPEN; unmerged
+Snapshot: 2026-10-01 UTC; verified DQ-TRAIN-001K spec PR #136 merged; existing draft PR #135 reconciled with exact main and amended to Training Advisor 0.1.2 with bounded Close/effective-route evidence corrections; automated verification PASS, repeated owner TornPDA/desktop and independent implementation verification gates pending; H1/H2 OPEN; unmerged
 
 CURRENT_TRAINING|DQ-TRAIN-001K|implementation_tested_draft_owner_manual_and_independent_V_pending|main_b8474253237e63485100fdcc51b2cb82530d2efc|agent/training-runtime-ui-001j-build
-CURRENT_TRAINING_DETAIL|tested_product_6a6cfdaf4097b4d7a4266e325d5e7e67380ad76d|0.1.1|canonical_routeOptions_max7_exact_fingerprints_roles|ephemeral_selection_re_scopes_inventory_proof|Midnight_Ledger_Plan_Options_Advanced_HUD|283_focused_520_full_PASS|46_K_and_34_J_cases_PASS|no_ranking_winner_change_no_new_network_or_storage_key
+CURRENT_TRAINING_DETAIL|tested_product_9837276160d897ff08b565a8553ef7bf94a3da38|starting_static_head_e674345d9e787d0bce80eef87c018a397815d6e1|0.1.2|Close_44x44_effective_route_scoped_Beginner_evidence|289_focused_526_full_PASS|46_K_and_34_J_cases_PASS|288_historical_parity_PASS|no_planner_mechanic_network_storage_listener_timer_observer_change
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|b8474253237e63485100fdcc51b2cb82530d2efc
@@ -20,7 +20,7 @@ TRAINING_MODEL|vladar-v2-pre50m-v1|calibrated_observed_domain|Complete_Cardio_10
 TRAINING_B1_B4|complete|zero_confirmed_contradictions_in_observed_domains
 TRAINING_001C|frozen_with_explicit_001E_refill_fixture_supersession|Training Advisor + Happy Jump Navigator v0.1|pure_planner_001E_001F_and_frontier_follow_up_merged
 TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_reference|incremental_best_value|confidence_risk_policy|policy_and_strategy_fixtures
-TRAINING_NEXT|repeat owner TornPDA Android and desktop Tampermonkey/Violentmonkey smoke on pinned 0.1.1 artifact; independent executable implementation [V]; separate owner merge/release decision only after gates
+TRAINING_NEXT|repeat owner TornPDA Android and desktop Tampermonkey/Violentmonkey smoke on pinned 0.1.2 artifact; independent executable implementation [V]; separate owner merge/release decision only after gates
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
 PARALLEL|DQ-CASINO-001|active_research_gathering
