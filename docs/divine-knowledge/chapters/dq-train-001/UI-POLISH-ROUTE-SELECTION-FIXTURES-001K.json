@@ -1,0 +1,643 @@
+{
+  "schemaVersion": "dq-train-001k.ui-polish-route-selection-fixtures.v1",
+  "id": "DQ-TRAIN-001K",
+  "status": "FROZEN_SPECIFICATION_PENDING_INDEPENDENT_V",
+  "baseline": "776d8e8044f317cd8feca58fb5197710b9c69b64",
+  "implementationReference": {
+    "pr": 135,
+    "branch": "agent/training-runtime-ui-001j-build",
+    "head": "4067c82c52439e97bb22856ac5e3e451d6a33591",
+    "productBearingHead": "f309913a223520e720701d5e5c25cb092796b618",
+    "state": "DRAFT_UNMERGED"
+  },
+  "designTokens": {
+    "dark": {
+      "shell": "#111722",
+      "card": "#182131",
+      "control": "#202A3A",
+      "border": "#344156",
+      "text": "#E8EDF5",
+      "secondary": "#AAB5C6",
+      "muted": "#7F8CA1",
+      "action": "#4C8DFF",
+      "ready": "#45C792",
+      "attention": "#E9B44C",
+      "blocked": "#E26464",
+      "confidence": "#9A84F8",
+      "telemetry": "#48C7D9",
+      "expandedOpacity": 0.98,
+      "hudOpacity": 0.94,
+      "scrim": "rgba(5, 8, 14, 0.76)"
+    },
+    "light": {
+      "shell": "#F4F7FB",
+      "card": "#FFFFFF",
+      "control": "#EDF2F8",
+      "border": "#CDD6E2",
+      "text": "#17202D",
+      "secondary": "#536176",
+      "muted": "#647286",
+      "action": "#2563C9",
+      "ready": "#157A55",
+      "attention": "#9A5B00",
+      "blocked": "#B63A3A",
+      "confidence": "#6C4FC0",
+      "telemetry": "#0D7180",
+      "expandedOpacity": 1,
+      "hudOpacity": 1
+    },
+    "layout": {
+      "modalRadiusPx": 12,
+      "cardRadiusPx": 10,
+      "controlRadiusPx": 8,
+      "minTouchTargetPx": 44,
+      "primaryTouchTargetPx": 48
+    },
+    "motion": {
+      "normalMsMin": 120,
+      "normalMsMax": 180,
+      "backdropBlur": false
+    }
+  },
+  "notes": [
+    "Synthetic, nonprivate specification fixtures. They authorize no implementation.",
+    "Canonical planner owns route generation, role curation and any marginal-final-booster values; UI may not independently rerank or simulate.",
+    "Manual route choice is not evidence and cannot bypass readiness, freshness, H1 or H2.",
+    "No new price provider is authorized; unknown economics remain unavailable.",
+    "Current checkpoint/reobserve/replan mechanics remain authoritative."
+  ],
+  "cases": [
+    {
+      "id": "K-A1_MODAL_OWNERSHIP_001",
+      "layer": "shell",
+      "given": [
+        "expanded Advisor open",
+        "Torn document has high-z-index sticky/navigation elements"
+      ],
+      "expected": [
+        "scrim and Advisor are positioned explicit stacking layers",
+        "expanded Advisor paints above ordinary Torn document UI",
+        "Close and body are not crossed by Torn document chrome"
+      ]
+    },
+    {
+      "id": "K-A2_DARK_SURFACE_SCRIM_001",
+      "layer": "shell",
+      "given": [
+        "Dark theme",
+        "expanded Advisor open"
+      ],
+      "expected": [
+        "shell uses frozen dark tokens",
+        "expanded surface opacity is 0.98",
+        "scrim is rgba(5, 8, 14, 0.76)",
+        "no backdrop blur is required"
+      ]
+    },
+    {
+      "id": "K-A3_STICKY_SHELL_001",
+      "layer": "shell",
+      "given": [
+        "mobile expanded Advisor",
+        "body content exceeds viewport"
+      ],
+      "expected": [
+        "identity header remains sticky",
+        "Plan/Options/Advanced tabs remain sticky",
+        "state strip remains sticky",
+        "body scrolls independently beneath shell"
+      ]
+    },
+    {
+      "id": "K-A4_DEFAULT_PLAN_TAB_001",
+      "layer": "shell",
+      "given": [
+        "user opens full Advisor"
+      ],
+      "expected": [
+        "Plan is active regardless of previously viewed full-screen tab",
+        "opening does not alter recommendation"
+      ]
+    },
+    {
+      "id": "K-A5_CLOSE_TOUCH_SAFE_001",
+      "layer": "shell",
+      "given": [
+        "mobile expanded Advisor"
+      ],
+      "expected": [
+        "Close target is at least 44px",
+        "Close is fully visible above Torn document UI",
+        "Close has accessible label"
+      ]
+    },
+    {
+      "id": "K-A6_SEMANTIC_AXES_001",
+      "layer": "shell",
+      "given": [
+        "readiness READY",
+        "confidence SUPPORTED_EXTRAPOLATION"
+      ],
+      "expected": [
+        "READY uses readiness treatment",
+        "SUPPORTED uses separate confidence treatment",
+        "color is not the only semantic signal"
+      ]
+    },
+    {
+      "id": "K-A7_REDUCED_MOTION_001",
+      "layer": "shell",
+      "given": [
+        "prefers-reduced-motion is enabled"
+      ],
+      "expected": [
+        "nonessential polish transitions are disabled",
+        "no information or control depends on animation"
+      ]
+    },
+    {
+      "id": "K-A8_COMPACT_HUD_001",
+      "layer": "hud",
+      "given": [
+        "HUD expanded"
+      ],
+      "expected": [
+        "show readiness, plan/target, one-line NEXT, Refresh & Plan, Open",
+        "omit detailed inventory/economics/raw diagnostics",
+        "no gameplay completion control"
+      ]
+    },
+    {
+      "id": "K-A9_COLLAPSED_HUD_001",
+      "layer": "hud",
+      "given": [
+        "HUD collapsed",
+        "readiness changes"
+      ],
+      "expected": [
+        "chip remains collapsed",
+        "text plus color reflects state",
+        "HUD does not auto-expand"
+      ]
+    },
+    {
+      "id": "K-A10_LIGHT_TRANSLATION_001",
+      "layer": "shell",
+      "given": [
+        "Light theme"
+      ],
+      "expected": [
+        "frozen light tokens apply",
+        "main surfaces are opaque",
+        "semantic roles remain equivalent to Dark"
+      ]
+    },
+    {
+      "id": "K-B1_PLAN_HIERARCHY_001",
+      "layer": "ui",
+      "given": [
+        "valid selected plan"
+      ],
+      "expected": [
+        "order is identity/readiness/confidence, NEXT, metrics, resources, steps, why, Compare Routes",
+        "NEXT/readiness visually dominate projected gain"
+      ]
+    },
+    {
+      "id": "K-B2_READY_NEXT_001",
+      "layer": "ui",
+      "given": [
+        "effective selected plan readiness READY"
+      ],
+      "expected": [
+        "NEXT shows one manual instruction",
+        "no control performs that Torn action",
+        "I completed this step may appear only as Advisor checkpoint reporting"
+      ]
+    },
+    {
+      "id": "K-B3_STALE_PLAN_001",
+      "layer": "ui",
+      "given": [
+        "player reports completed manual step",
+        "Advisor invalidates current authority"
+      ],
+      "expected": [
+        "old plan remains readable but subdued/stale",
+        "execution-changing plan controls disable",
+        "state strip says NEEDS REFRESH",
+        "Refresh & Plan becomes dominant"
+      ]
+    },
+    {
+      "id": "K-B4_CONFIRMATION_TRANSFORMS_001",
+      "layer": "ui",
+      "given": [
+        "effect or selected-plan inventory confirmation succeeds"
+      ],
+      "expected": [
+        "initial-looking blank form is replaced by acknowledged current confirmation state",
+        "scope/epoch is visible appropriately",
+        "Edit/Change may be offered"
+      ]
+    },
+    {
+      "id": "K-B5_H1_RESEARCH_GATE_001",
+      "layer": "ui",
+      "given": [
+        "selected route depends on Ecstasy",
+        "H1 remains open"
+      ],
+      "expected": [
+        "Beginner shows RESEARCH GATE/amber limitation",
+        "Ecstasy execution is withheld",
+        "Advanced shows actual canonical readiness/reason plus H1 state"
+      ]
+    },
+    {
+      "id": "K-B6_H2_NOT_FILLABLE_001",
+      "layer": "ui",
+      "given": [
+        "Candy route materially depends on unresolved personalized event timing",
+        "H2 remains open"
+      ],
+      "expected": [
+        "show research limitation",
+        "do not render worldDiabetesDay as ordinary fill-in input",
+        "unrelated routes remain usable"
+      ]
+    },
+    {
+      "id": "K-B7_OPTIONS_STAGED_001",
+      "layer": "ui",
+      "given": [
+        "user changes multiple planning options"
+      ],
+      "expected": [
+        "edits are staged",
+        "one Apply & Replan applies planning preferences",
+        "no Torn acquisition occurs",
+        "view returns to Plan"
+      ]
+    },
+    {
+      "id": "K-B8_THEME_UI_ONLY_001",
+      "layer": "ui",
+      "given": [
+        "user changes only theme"
+      ],
+      "expected": [
+        "theme may apply without planner rerank",
+        "current observation/recommendation authority is unchanged"
+      ]
+    },
+    {
+      "id": "K-B9_ADVANCED_STRUCTURED_001",
+      "layer": "ui",
+      "given": [
+        "Advanced opened"
+      ],
+      "expected": [
+        "show structured Current State, Sources & Freshness, Selected Plan, Evidence & Confirmations, Economics, Model & Mechanics, Other/Rejected Routes, Diagnostics",
+        "raw objects remain one level deeper",
+        "opening Advanced changes no outcome"
+      ]
+    },
+    {
+      "id": "K-B10_ECONOMIC_LABELS_001",
+      "layer": "ui",
+      "given": [
+        "plan has new cash, owned-value and point-use fields"
+      ],
+      "expected": [
+        "label Cash needed, Owned value used and Points used distinctly",
+        "Available Points is separately labeled if shown",
+        "do not use ambiguous Points: 0"
+      ]
+    },
+    {
+      "id": "K-B11_UNKNOWN_PRICE_NOT_ZERO_001",
+      "layer": "ui",
+      "given": [
+        "economic value unavailable"
+      ],
+      "expected": [
+        "show Price unavailable or Cost comparison unavailable",
+        "do not render unknown as $0"
+      ]
+    },
+    {
+      "id": "K-B12_CHECKPOINT_COPY_001",
+      "layer": "ui",
+      "given": [
+        "manual gameplay step expected"
+      ],
+      "expected": [
+        "Beginner control says I completed this step or frozen equivalent human wording",
+        "control only invalidates Advisor observation",
+        "Advanced may expose checkpoint terminology"
+      ]
+    },
+    {
+      "id": "K-B13_NO_GAMEPLAY_BUTTONS_001",
+      "layer": "ui",
+      "given": [
+        "NEXT is TAKE_XANAX, USE_BOOSTER, TAKE_ECSTASY, TRAIN or USE_REFILL"
+      ],
+      "expected": [
+        "gameplay instruction is text",
+        "no UI control executes the gameplay action"
+      ]
+    },
+    {
+      "id": "K-B14_COMPARE_SUBVIEW_001",
+      "layer": "ui",
+      "given": [
+        "user opens Compare Routes"
+      ],
+      "expected": [
+        "remain within Plan top-level tab",
+        "do not open nested modal",
+        "route cards start collapsed",
+        "back returns to current Plan"
+      ]
+    },
+    {
+      "id": "K-C1_CANONICAL_ROUTE_OPTIONS_001",
+      "layer": "planner",
+      "given": [
+        "planner has supported candidate plans",
+        "active objective selects primaryPlan"
+      ],
+      "expected": [
+        "canonical planner emits bounded selectable route options or equivalent",
+        "UI does not independently rerank candidates",
+        "primaryPlan remains active-objective winner"
+      ]
+    },
+    {
+      "id": "K-C2_ROUTE_ROLE_CURATION_001",
+      "layer": "planner",
+      "given": [
+        "recommended, maximum-gain, best-value and use-inventory winners exist"
+      ],
+      "expected": [
+        "role winners are evaluated canonically under current hard constraints",
+        "exact duplicate fingerprints collapse into one route card",
+        "role badges accumulate",
+        "route set contains at most 7 fingerprints"
+      ]
+    },
+    {
+      "id": "K-C3_ROUTE_ROLE_OMISSION_001",
+      "layer": "planner",
+      "given": [
+        "BEST_VALUE requires economics/reference not available"
+      ],
+      "expected": [
+        "BEST VALUE role is omitted",
+        "no fabricated economic winner",
+        "gain-capable route roles may remain"
+      ]
+    },
+    {
+      "id": "K-C4_DISTINCT_FAMILY_REP_001",
+      "layer": "planner",
+      "given": [
+        "supported eDVD+Ecstasy and Candy+Ecstasy candidates survive hard constraints",
+        "role winners do not already represent both"
+      ],
+      "expected": [
+        "canonical curation may add highest-gain representatives for distinct preparation signatures until cap",
+        "family grouping is deterministic from canonical plan structure",
+        "UI does not hardcode quantities"
+      ]
+    },
+    {
+      "id": "K-C5_EXACT_SELECTION_001",
+      "layer": "runtime",
+      "given": [
+        "user presses Use this plan on route fingerprint X"
+      ],
+      "expected": [
+        "effective selected plan is exact canonical route X",
+        "primaryPlan/objective ranking is unchanged",
+        "Plan shows player-selected treatment"
+      ]
+    },
+    {
+      "id": "K-C6_SELECTION_NOT_EVIDENCE_001",
+      "layer": "runtime",
+      "given": [
+        "player selects route blocked by H1 or H2"
+      ],
+      "expected": [
+        "route may become effective for comparison/planning",
+        "readiness/evidence gate remains unchanged",
+        "no action becomes READY because of selection"
+      ]
+    },
+    {
+      "id": "K-C7_ROUTE_CHANGE_CONFIRMATION_SCOPE_001",
+      "layer": "runtime",
+      "given": [
+        "current inventory confirmation belongs to route A",
+        "player selects route B"
+      ],
+      "expected": [
+        "selected-plan inventory confirmation is cleared",
+        "unrelated valid current effect/stats/Points evidence may remain",
+        "same-epoch replan/rebuild uses route B requirements",
+        "prompt lists only route B owned items"
+      ]
+    },
+    {
+      "id": "K-C8_REFRESH_CLEARS_SELECTION_001",
+      "layer": "runtime",
+      "given": [
+        "manual route selected",
+        "user triggers Refresh & Plan"
+      ],
+      "expected": [
+        "new epoch clears manual route selection",
+        "new canonical objective winner is default",
+        "old selected route has no execution authority"
+      ]
+    },
+    {
+      "id": "K-C9_OPTIONS_CLEAR_SELECTION_001",
+      "layer": "runtime",
+      "given": [
+        "manual route selected",
+        "planning-affecting Options are applied"
+      ],
+      "expected": [
+        "manual route selection clears",
+        "same observation may be replanned",
+        "new objective/preferences canonical recommendation becomes effective"
+      ]
+    },
+    {
+      "id": "K-C10_CLOSE_REOPEN_SAME_EPOCH_001",
+      "layer": "runtime",
+      "given": [
+        "manual route selected",
+        "user closes and reopens full Advisor without reload/refresh/invalidation"
+      ],
+      "expected": [
+        "in-memory selection may remain",
+        "selection is not written as durable preference"
+      ]
+    },
+    {
+      "id": "K-C11_ROUTE_CARD_ECONOMICS_001",
+      "layer": "ui",
+      "given": [
+        "route economics are known"
+      ],
+      "expected": [
+        "route card distinguishes projected gain, Cash needed, Owned value used, wait, readiness, confidence",
+        "expanded detail may show Total resource value",
+        "cost fields come from canonical route"
+      ]
+    },
+    {
+      "id": "K-C12_ROUTE_CARD_UNKNOWN_ECONOMICS_001",
+      "layer": "ui",
+      "given": [
+        "route valid for gain-only comparison",
+        "economics are unknown"
+      ],
+      "expected": [
+        "route may remain if canonical role allows it",
+        "price fields say unavailable",
+        "unknown is never displayed as zero"
+      ]
+    },
+    {
+      "id": "K-C13_MARGINAL_FINAL_BOOSTER_001",
+      "layer": "planner",
+      "given": [
+        "currently modeled supported route contains boosters",
+        "canonical simulation can compare plan with its final included booster removed"
+      ],
+      "expected": [
+        "planner may expose final booster item and marginal gain",
+        "UI consumes canonical value only",
+        "no UI simulation"
+      ]
+    },
+    {
+      "id": "K-C14_FIFTH_EDVD_CURRENTLY_LEGAL_001",
+      "layer": "route",
+      "given": [
+        "five eDVD uses are legal in the currently modeled state",
+        "canonical five-eDVD candidate is supported"
+      ],
+      "expected": [
+        "route may display five eDVDs",
+        "if canonical marginal-final-booster metadata exists, fifth-versus-fourth marginal gain may be shown",
+        "economics remain separately labeled"
+      ]
+    },
+    {
+      "id": "K-C15_FIFTH_EDVD_CONDITIONAL_001",
+      "layer": "route",
+      "given": [
+        "four eDVD uses reach current pre-use threshold",
+        "nextBoosterCheckpoint indicates another eDVD may become legal only after wait and re-observation"
+      ],
+      "expected": [
+        "current route displays four-eDVD current segment",
+        "possible fifth is labeled conditional after checkpoint",
+        "future fifth gain is not projected from stale/current route",
+        "user is told to replan after checkpoint"
+      ]
+    },
+    {
+      "id": "K-C16_NO_MARGINAL_MISLABEL_001",
+      "layer": "route",
+      "given": [
+        "current four-eDVD plan has marginalGainFromFinalBooster for its fourth included booster",
+        "nextBoosterCheckpoint mentions a possible fifth"
+      ],
+      "expected": [
+        "fourth-booster marginal is not labeled fifth-booster gain",
+        "conditional fifth has no gain number unless separately canonically modeled"
+      ]
+    },
+    {
+      "id": "K-C17_CANDY_QUANTITY_NOT_HARDCODED_001",
+      "layer": "route",
+      "given": [
+        "Candy preparation candidate exists"
+      ],
+      "expected": [
+        "display exact canonical item/quantity recipe",
+        "do not hardcode 49 lollipops or another community recipe",
+        "H2 still governs event-dependent execution"
+      ]
+    },
+    {
+      "id": "K-C18_SELECTION_NOT_DURABLE_001",
+      "layer": "runtime",
+      "given": [
+        "manual route selected",
+        "userscript reloads/disposes or API key changes"
+      ],
+      "expected": [
+        "manual route selection clears",
+        "no recommendation history becomes durable authority",
+        "approved preferences remain the only durable planning/UI state"
+      ]
+    },
+    {
+      "id": "K-C19_SELECTED_ROUTE_NEXT_001",
+      "layer": "ui",
+      "given": [
+        "player-selected route differs from recommended route"
+      ],
+      "expected": [
+        "NEXT/resources/readiness/confirmation are derived from effective selected route",
+        "comparison context still identifies canonical recommendation",
+        "no hybrid of primary and selected route is shown"
+      ]
+    },
+    {
+      "id": "K-C20_NO_NEW_PRICE_PROVIDER_001",
+      "layer": "economics",
+      "given": [
+        "001K implementation needs route price tags"
+      ],
+      "expected": [
+        "use only already-approved canonical MarketSnapshot/economics inputs",
+        "do not add external provider/network dependency",
+        "missing prices degrade visibly"
+      ]
+    },
+    {
+      "id": "K-A11_TORNSCRIPTURES_ACCENT_001",
+      "layer": "shell",
+      "given": [
+        "expanded Advisor rendered in Dark or Light"
+      ],
+      "expected": [
+        "top shell carries a subtle 2px action-blue to telemetry-cyan accent",
+        "accent has no glow",
+        "accent does not encode readiness"
+      ]
+    },
+    {
+      "id": "K-C21_USE_INVENTORY_BADGE_TRUTHFUL_001",
+      "layer": "planner",
+      "given": [
+        "USE_MY_INVENTORY role winner still requires bought items or nonzero new cash"
+      ],
+      "expected": [
+        "route may still represent the canonical USE_MY_INVENTORY objective winner",
+        "human badge does not falsely say USE WHAT I OWN",
+        "use LOWEST NEW CASH or equivalent truthful wording"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **001A–001J-P PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B1–B4 COMPLETE; 001J RUNTIME/UI SPECIFICATION FROZEN FOR INDEPENDENT [V]; H1/H2 OPEN**
+State: **001A–001J-P PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B1–B4 COMPLETE; 001J SPEC VERIFIED/MERGED; PR #135 DRAFT IMPLEMENTATION ACTIVE; 001K UI POLISH + ROUTE-SELECTION SPEC FROZEN FOR INDEPENDENT [V]; H1/H2 OPEN**
 
 ## Canonical reading order
 
@@ -41,8 +41,11 @@ State: **001A–001J-P PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B
 35. [DQ-TRAIN-001I implementation checkpoint — 2026-09-28](STACK-CAP-BUILD-CHECKPOINT-2026-09-28.md) — isolated pure-adapter implementation, exact post-spec baseline, frozen fixture execution, regression results, limitations, and independent [V] gate.
 36. [DQ-TRAIN-001J-P selected-plan inventory correction](SELECTED-INVENTORY-CONFIRMATION-CORRECTION-001J-P.md) — independently verified selected-plan owned-item proof, valid confirmation timestamp requirement, bought-resource separation, and PR #133 merge at `8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`.
 
-37. [DQ-TRAIN-001J Runtime / Browser / UI Integration Specification](RUNTIME-UI-INTEGRATION-SPEC-001J.md) — owner-frozen acquisition/refresh, deterministic standalone packaging/runtime, beginner/advanced UI, safety, storage, H1/H2, and implementation-gate contract.
-38. [`RUNTIME-UI-INTEGRATION-FIXTURES-001J.json`](RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) — 34 synthetic acceptance cases: 11 acquisition, 8 packaging/runtime, and 15 UI/interaction cases.
+37. [DQ-TRAIN-001J Runtime / Browser / UI Integration Specification](RUNTIME-UI-INTEGRATION-SPEC-001J.md) - independently verified in PR #134 and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`; acquisition/refresh, deterministic standalone packaging/runtime, beginner/advanced UI, safety, storage and H1/H2 contract.
+38. [`RUNTIME-UI-INTEGRATION-FIXTURES-001J.json`](RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) - 34 synthetic acceptance cases: 11 acquisition, 8 packaging/runtime and 15 UI/interaction cases.
+39. [DQ-TRAIN-001K historical UI polish discussion](RUNTIME-UI-POLISH-DISCUSSION-001J.md) - owner/assistant [D] record from live PR #135 TornPDA smoke and visual/route-comparison design.
+40. [DQ-TRAIN-001K UI Polish and Route Comparison/Selection Specification](UI-POLISH-ROUTE-SELECTION-SPEC-001K.md) - owner-frozen follow-on visual shell/information architecture plus canonical route-option and ephemeral player-selection contract.
+41. [`UI-POLISH-ROUTE-SELECTION-FIXTURES-001K.json`](UI-POLISH-ROUTE-SELECTION-FIXTURES-001K.json) - synthetic shell/UI/route-selection acceptance cases including safe final-booster and conditional-fifth handling.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -161,7 +164,7 @@ The owner-authorized DQ-TRAIN-001F correction on `agent/training-booster-thresho
 
 The 001D adapter source, mechanic, fixture, and freshness contract from PR #126 passed final V1–V3 checks against merged PR #128. The [v0.1 documentation contract is specification-frozen](ADAPTER-FINAL-FREEZE-2026-09-26.md) and PR #126 merged at `f4777409632ee69f901ed0dbe41a882a95743f2d`. The owner separately authorized the [pure adapter implementation](ADAPTER-BUILD-CHECKPOINT-2026-09-27.md); PR #129 merged into `443cb542e8b3f3d2b70404993d5dd322fe6f013d`. The [Xanax Happy correction](XANAX-HAPPY-CORRECTION-2026-09-27.md) passed independent [V] and PR #130 merged at `cfdf9000d9a8e37d52ad3d5fbf0861abe5c4b1c2`. PR #132 independently passed [V] at implementation head `a5066c848ebd14c5045817947978646ef9af9578` and merged at `7352573be851f4cae590848af830975e905f6890`: DQ-TRAIN-001I's versioned absolute 1,000E stack cap and supported Xanax adapter are complete. Natural Energy maximum remains distinct.
 
-## DQ-TRAIN-001J runtime/UI freeze and next gate
+## DQ-TRAIN-001J runtime/UI freeze and DQ-TRAIN-001K follow-on
 
 The selected-plan inventory prerequisite is complete. PR #133 passed independent executable [V] at `7b1b31c60efcd8cbd0c13d32ee1d44fa84b7bcf0` and merged at `8665d1e02d6b96e8daf9b9a3dcc091dfb17a21d1`.
 
@@ -169,4 +172,8 @@ The owner then froze [DQ-TRAIN-001J](RUNTIME-UI-INTEGRATION-SPEC-001J.md) with [
 
 H1 Happy-reset timing and H2 personalized Candy-event interval remain open live-evidence gates. They fail closed only the dependent execution mechanics and are not silently resolved by this specification.
 
-Next gate: independent `[V]` of the documentation/fixture freeze and a separate owner merge decision. Runtime/browser/UI/userscript implementation remains unauthorized until a later explicit owner `[B][WORK]` decision from the verified post-spec baseline.
+PR #134 subsequently passed independent [V] at `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`. The owner separately authorized runtime/UI implementation in draft PR #135. At the 001K freeze, PR #135 remains draft/open/unmerged at `4067c82c52439e97bb22856ac5e3e451d6a33591`, with current product bytes from `f309913a223520e720701d5e5c25cb092796b618`; owner TornPDA smoke has exercised the core current-state/confirmation workflow while H1/H2 remain open.
+
+The owner then completed [D] UI-polish design and froze [DQ-TRAIN-001K](UI-POLISH-ROUTE-SELECTION-SPEC-001K.md) with [synthetic acceptance fixtures](UI-POLISH-ROUTE-SELECTION-FIXTURES-001K.json). 001K adds the Midnight Ledger/Dark Terminal shell and information architecture plus a bounded canonical route-comparison projection and ephemeral exact-route selection. The UI cannot rerank or synthesize routes, route choice is not evidence, selected-route inventory confirmation is re-scoped, and a conditional fifth booster after a pre-use threshold remains checkpoint/reobserve/replan rather than a guessed future gain.
+
+Next gate: independent [V] of the 001K documentation/fixture freeze, followed by a separate owner merge decision. No 001K product amendment is authorized until after verified spec merge and a separate [B][WORK] decision.
