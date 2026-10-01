@@ -1,9 +1,9 @@
 # NOW
 
-Snapshot: 2026-09-30 owner build session; PR #134 verified/merged at 776d8e8; DQ-TRAIN-001J v0.1.0 implemented/tested on isolated branch; independent [V][WORK] and browser gates pending
+Snapshot: 2026-10-01 owner-authorized PR #135 correction; PR #134 verified/merged at 776d8e8; DQ-TRAIN-001J v0.1.0 implemented/tested on isolated branch; independent [V][WORK] and browser gates pending
 
 CURRENT_TRAINING|DQ-TRAIN-001J|runtime_ui_implemented_tested_independent_V_pending|base_main_776d8e8044f317cd8feca58fb5197710b9c69b64|agent/training-runtime-ui-001j-build
-CURRENT_TRAINING_DETAIL|001J-A acquisition/epochs + 001J-B deterministic standalone 0.1.0 + 001J-C mobile beginner/advanced UI implemented; 162 existing + 50 new = 212 Training / 449 repo tests pass; H1/H2 open; no merge/release authorized
+CURRENT_TRAINING_DETAIL|001J-A acquisition/epochs + 001J-B deterministic standalone 0.1.0 + 001J-C mobile beginner/advanced UI implemented; 162 existing + 57 new = 219 Training / 456 repo tests pass; explicit epoch invalidation restored; no authority TTL or blanket page invalidation; H1/H2 open; no merge/release authorized
 
 PROJECT|TornScriptures
 MAIN_AT_SNAPSHOT|776d8e8044f317cd8feca58fb5197710b9c69b64
@@ -84,4 +84,4 @@ TRAINING_001J_P|chapters/dq-train-001/SELECTED-INVENTORY-CONFIRMATION-CORRECTION
 TRAINING_H1|open_live_evidence_gate|happy.tick_time_quarter_reset_unproven
 TRAINING_H2|open_live_evidence_gate|personalized_calendar_event_interval_unproven
 
-TRAINING_001J_BUILD|chapters/dq-train-001/RUNTIME-UI-BUILD-CHECKPOINT-001J.md|agent/training-runtime-ui-001j-build|tested_product_head_4a6670d919223e92dc468ee31f576069947edd45|212_focused_449_repo_tests_pass|final_PR_head_pinned_in_owner_completion|draft_unmerged
+TRAINING_001J_BUILD|chapters/dq-train-001/RUNTIME-UI-BUILD-CHECKPOINT-001J.md|agent/training-runtime-ui-001j-build|tested_product_head_a151435e18de2a15eebbcd818cdc8ea1b296cebe|219_focused_456_repo_tests_pass|final_PR_head_pinned_in_owner_completion|draft_unmerged

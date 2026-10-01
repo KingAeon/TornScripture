@@ -6,8 +6,8 @@ Owner authorization: `[B][WORK]`, 2026-09-30. Repository: `KingAeon/TornScriptur
 
 Authoritative base: `776d8e8044f317cd8feca58fb5197710b9c69b64`.
 Branch: `agent/training-runtime-ui-001j-build`.
-Tested product implementation head: `4a6670d919223e92dc468ee31f576069947edd45`.
-Product tree: `da177cb76dd3af0d255dd4475df02a01cc440531`.
+Tested amended product head: `a151435e18de2a15eebbcd818cdc8ea1b296cebe`.
+Product tree: `006ba49d6cb83bc4a45169c62d38c81645ba5165`.
 
 This checkpoint is a subsequent documentation commit. The final branch head, including this checkpoint, must be pinned from draft PR metadata in the independent verification request; a commit cannot contain its own resulting SHA. Product bytes are identical to the tested implementation head above.
 
@@ -64,9 +64,23 @@ The generator uses only Node `fs`, `path`, and `crypto`. It embeds SHA-256 hashe
 
 Two consecutive CLI builds were byte-identical; the checked-in artifact equals regeneration. Final artifact SHA-256:
 
-`fc1aa3248881f2b9ba1d1680161b6135cb0980817bf8f2254cca8a179e42eced`
+`e3a3de9aa432de7709e3e4173b89a97e678a04284a6c097c194881ae62008306`
 
 VM tests exercise all 14 frozen math cases, 17 source-adapter cases, five stack-cap cases, valid/malformed inventory confirmation, planner parity, runtime acquisition, confirmation, and presentation against the generated artifact. Deliberately changing embedded `happyGain: 75` to `74` fails drift verification. Test mode returns the bounded test surface before DOM, networking, storage, or timer startup.
+
+## Bounded author-side correction — 2026-10-01
+
+Owner authorized amendment of existing draft PR #135 on the same branch, from `cc6d330a66f54faf2e0bb62ec40269632a574c26`. Original product head `4a6670d919223e92dc468ee31f576069947edd45` and its 162 existing / 50 new / 212 focused / 449 repository passes remain historical evidence. The pinned previous draft head was clean and reproduced those counts before correction.
+
+At that previous head, synthetic execution reproduced the 60,000 ms authority timer, synchronous expiry after 60,001 ms clearing selected-plan confirmation, expiry-callback invalidation, hiding the document, and unrelated outside-Advisor link/button/input clicks and form submissions causing `NEEDS_REFRESH`. Those policies exceeded the frozen contract.
+
+The amendment removes the authority TTL, expiry timer, synchronous elapsed-time check, 60-second UI claim, and page-wide visibility/click/submit invalidation. It introduces no replacement TTL, gameplay selectors, polling interval, or observer. Current epoch/confirmation survive elapsed time and ordinary browsing. Explicit invalidation, a new refresh, key change, and disposal/reload retain their proof-clearing behavior. Disposal also drops derived/raw in-memory evidence and prevents late request completion from repopulating it. The 15-second request abort deadline and one-hour planning caches are unchanged.
+
+Product/test amendment files: `src/training-advisor-runtime.js`, `src/training-advisor-ui.js`, `tests/training-advisor-runtime.test.js`, `tests/training-advisor-ui.test.js`, and regenerated `TornScripture-Training-Advisor.user.js`. Documentation amendment: this checkpoint, NOW, chapter/domain indexes, the active Training open-node row, and one appended changelog event. No canonical, frozen, dependency, workflow, or unrelated files changed.
+
+Amended product commit: `a151435e18de2a15eebbcd818cdc8ea1b296cebe`, parent `cc6d330a66f54faf2e0bb62ec40269632a574c26`; fetched and checked against the tested local tree. Final documentation-inclusive head is pinned in PR #135 metadata and the owner completion/independent-verification prompt.
+
+Seven additional regressions plus corrected existing assertions prove persistent current epochs/confirmation beyond 60 seconds, nonauthoritative countdown zero, hide/show and unrelated navigation neutrality, explicit checkpoint/new-refresh/key invalidation, and memory-only disposal/reload. Full results below were executed after correction. Real TornPDA/desktop smoke tests remain pending.
 
 ## Acquisition and session control
 
@@ -82,11 +96,11 @@ Responses unwrap only approved selection envelopes before canonical normalizatio
 
 Inventory/catalog caches are in memory for up to one hour. Cached inventory retains its original observation/source timestamp and remains planning-grade. Rejected/incomplete cached sources can be reacquired on the next manual refresh. Cache revision guards prevent an old key's in-flight response from becoming another key's inventory cache.
 
-Execution-sensitive evidence expires conservatively at 60 seconds from epoch start. A one-shot expiry invalidates it; synchronous clock checks also prevent a suspended timer from preserving authority. Leaving the foreground, interacting with Torn controls outside the Advisor, or pressing the checkpoint control invalidates it. After a player action, the user must refresh and replan. Countdown-zero wording never modifies canonical freshness or cooldown state. Disposal aborts active requests and removes timers/listeners; no polling/observer architecture is added.
+A completed successful refresh remains the current observation epoch until an explicit approved transition. Elapsed wall time, hiding/showing the document, and unrelated page interactions do not invalidate it. The user marks a material player action or VERIFY_STATE checkpoint with State changed / checkpoint reached, then Refresh & Plan to observe reality and replan. Countdown-zero wording requires refresh for the dependent checkpoint and never modifies canonical freshness/cooldown state or globally expires the epoch. Disposal discards current evidence, aborts active requests, and removes listeners/request timers; no polling/observer architecture is added.
 
 ## Confirmation and fail-closed boundaries
 
-The required-item form contains only the selected plan's positive owned consumption. Actual confirmation receives the runtime's event timestamp, is filtered to those requested keys, and is then normalized by unchanged J-P logic. Lower quantities and zero override category-cache quantities. Contradiction reruns `recommend`; the old plan is not advanced. Partial proof leaves aggregate execution inventory false. Bought resources remain separate and acquisition-gated. No confirmation survives a new epoch, expiry, material change, reload, or key change.
+The required-item form contains only the selected plan's positive owned consumption. Actual confirmation receives the runtime's event timestamp, is filtered to those requested keys, and is then normalized by unchanged J-P logic. Lower quantities and zero override category-cache quantities. Contradiction reruns `recommend`; the old plan is not advanced. Partial proof leaves aggregate execution inventory false. Bought resources remain separate and acquisition-gated. No confirmation survives a new epoch, explicit material-state/checkpoint invalidation, disposal/reload, or key change. Confirmation does not disappear merely because 60 seconds elapsed.
 
 Automatic battle-stat failure offers the existing explicit complete manual-stat path; automatic capability remains unavailable. `/user/money.money.points` establishes separate current Points proof through the existing current-proof adapter input. Failure never infers Points from refills; explicit current Points entry is available. Refill availability, configured 30-Point cost, sufficient current Points, natural-max fill, and sequential 1,150E semantics remain canonical.
 
@@ -113,7 +127,7 @@ Only two new local-storage keys:
 
 No live bars, stats, Happy, cooldowns, Points, inventory responses, confirmation, recommendation, or history is persisted. No storage migration or `PDA_storage` dependency exists. Keys travel only in the official API Authorization header; request URLs, diagnostics, state snapshots, UI dumps, generated provenance, and repository documentation exclude credentials. Free-text API errors are discarded and snapshots redact the active key.
 
-Listeners: Advisor click/submit/pointerdown/pointermove/pointerup/pointercancel; window resize; document visibilitychange and capture click/submit; optional device color-scheme change. DOM ownership: `tornscripture-training-advisor`, `tornscripture-training-style`. One refresh-expiry timer and bounded request abort timers; no interval or MutationObserver. Repeated initialization is guarded and disposal removes the owned lifecycle surface.
+Listeners: Advisor click/submit/pointerdown/pointermove/pointerup/pointercancel; window resize; optional device color-scheme change. Document visibilitychange and capture click/submit listeners were removed. DOM ownership: `tornscripture-training-advisor`, `tornscripture-training-style`. Only bounded 15-second in-flight request abort timers remain; no authority timer, interval, or MutationObserver. Repeated initialization is guarded and disposal removes the owned lifecycle surface. No storage keys, endpoints, or gameplay controls were added by the amendment.
 
 ## Executed automated acceptance
 
@@ -122,9 +136,9 @@ Final product results:
 | Validation | Result |
 | --- | --- |
 | Existing Training suites | 162/162 |
-| New runtime/UI/build suites | 50/50 |
-| All Training suites | 212/212 |
-| Full repository | 449/449, 21 suites |
+| New runtime/UI/build suites | 57/57 |
+| All Training suites | 219/219 |
+| Full repository | 456/456, 21 suites |
 | Frozen 001J fixtures | All 34 executable: 11 acquisition / 8 packaging / 15 UI |
 | New/changed JavaScript syntax | 8/8 |
 | CLI double-build and checked-in regeneration | PASS |
@@ -158,8 +172,8 @@ TornPDA Android:
 2. Drag to screen edges, collapse/expand, Open/Close, rotate/use a narrow display, and check Auto/Dark/Light. Touch controls must work with no essential horizontal overflow.
 3. Refresh & Plan; verify independent state/source observations, readiness, target, objective, recommendation, resources, and the manual NEXT instruction. Switch objectives and beginner/Advanced; opening Advanced must preserve recommendation identity.
 4. For supported owned-item planning, explicitly confirm current effect state, then only required owned quantities. Confirm a lower quantity/zero and verify a replan plus item-local proof, with purchases separate.
-5. Perform a routine manual Torn action or press the checkpoint control; observe invalidation, then Refresh & Plan and verify the new epoch/recommendation. No control may consume, train, refill, buy, or chain actions.
-6. Reload: preferences/HUD state persist; live state and confirmation do not. Verify expiry/foreground behavior does not preserve authority.
+5. After a material manual Torn action or VERIFY_STATE checkpoint, press State changed / checkpoint reached; observe invalidation, then Refresh & Plan and verify the new epoch/recommendation. No control may consume, train, refill, buy, or chain actions.
+6. Wait beyond 60 seconds and hide/show Torn; ordinary links/buttons/inputs and unrelated form submissions must preserve the same epoch/confirmation. Explicit checkpoint/key change/new refresh must clear confirmation. Reload: preferences/HUD state persist; live state and confirmation do not.
 
 Desktop Tampermonkey and Violentmonkey:
 
@@ -171,8 +185,8 @@ Fixture/mock fail-closed checks: missing permission, planning-only/missing owned
 
 ## Limitations, rollback, independent handoff
 
-H1/H2 are unresolved; Ecstasy timing and affected Candy support cannot be enabled by this build. No market/provider integration, calibrated-all-domain claim, future random cooldown, current cash-reserve input, active-duration estimate, or post-50m forecast is added. Explicit target-stat allocation is the available beginner allocation path. Permission/schema availability is established per source, never promised from a broad key-level label. The conservative 60-second confirmation/session window and foreground invalidation need usability smoke testing.
+H1/H2 are unresolved; Ecstasy timing and affected Candy support cannot be enabled by this build. No market/provider integration, calibrated-all-domain claim, future random cooldown, current cash-reserve input, active-duration estimate, or post-50m forecast is added. Explicit target-stat allocation is the available beginner allocation path. Permission/schema availability is established per source, never promised from a broad key-level label. Material gameplay changes require the explicit checkpoint/refresh workflow; generic navigation is not a gameplay detector. This correction has synthetic event coverage, not a real WebView smoke-test result.
 
-Before merge: leave the draft PR unmerged and disable/uninstall the test script. If separately authorized/merged later, revert both commits in this branch's baseline-to-head range and remove/disable the new Advisor artifact. Optionally remove only its two named local keys; other TornScriptures data is untouched. No data migration or irreversible state exists.
+Before merge: leave the draft PR unmerged and disable/uninstall the test script. If separately authorized/merged later, revert the implementation commits in this branch's baseline-to-head range and remove/disable the new Advisor artifact. Optionally remove only its two named local keys; other TornScriptures data is untouched. No data migration or irreversible state exists.
 
 Independent `[V][WORK]` must pin the **final draft PR head**, prove the full executable workspace from the exact base, inspect the complete baseline-to-head diff, reproduce all commands/counts, preserve frozen documents/canonical bytes, check generated parity/drift, key/privacy and lifecycle boundaries, and evaluate this manual-gate distinction. Keep the PR draft/unmerged; no ready, auto-merge, release, or merge action is authorized. The owner completion report supplies the exact final-head prompt.

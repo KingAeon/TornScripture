@@ -43,7 +43,7 @@ State: **001A–001J-P PURE STACK AND 001J SPEC COMPLETE/VERIFIED/MERGED; 001J R
 
 37. [DQ-TRAIN-001J Runtime / Browser / UI Integration Specification](RUNTIME-UI-INTEGRATION-SPEC-001J.md) — owner-frozen acquisition/refresh, deterministic standalone packaging/runtime, beginner/advanced UI, safety, storage, H1/H2, and implementation-gate contract.
 38. [`RUNTIME-UI-INTEGRATION-FIXTURES-001J.json`](RUNTIME-UI-INTEGRATION-FIXTURES-001J.json) — 34 synthetic acceptance cases: 11 acquisition, 8 packaging/runtime, and 15 UI/interaction cases.
-39. [DQ-TRAIN-001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) — owner-authorized standalone 0.1.0 runtime/UI, deterministic build, 212 Training / 449 repository tests, unchanged canonical/frozen inputs, exact product head, pending independent [V][WORK] and owner browser gates.
+39. [DQ-TRAIN-001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) — owner-authorized standalone 0.1.0 runtime/UI, deterministic build, 219 Training / 456 repository tests, unchanged canonical/frozen inputs, exact product head, pending independent [V][WORK] and owner browser gates.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -172,6 +172,8 @@ H1 Happy-reset timing and H2 personalized Candy-event interval remain open live-
 
 PR #134 passed independent `[V]` at `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`. The owner separately authorized `[B][WORK]` from that exact baseline.
 
-The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested product head `4a6670d919223e92dc468ee31f576069947edd45`, 0.1.0 generated artifact, 212 focused / 449 repository passes, and preserved H1/H2 gates.
+The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested amended product head `a151435e18de2a15eebbcd818cdc8ea1b296cebe`, 0.1.0 generated artifact, 219 focused / 456 repository passes, and preserved H1/H2 gates.
 
 Next gate: independent `[V][WORK]` pinned to the final draft PR head, followed by owner TornPDA/desktop manual verification and a separate merge decision. The implementation remains unmerged and unreleased.
+
+Owner-authorized PR #135 amendment (2026-10-01) removes the unsupported 60-second authority expiry and blanket foreground/page-interaction invalidation. Current epochs/confirmation persist until an explicit approved transition; checkpoint → Refresh & Plan → observe → replan remains required after material actions. Tested amended product head `a151435e18de2a15eebbcd818cdc8ea1b296cebe`; 219 focused / 456 repository passes; final draft PR head is the independent-verification pin.
