@@ -764,6 +764,16 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
     boosterCooldownSeconds, discardedEnergy:energy.discardedEnergy || 0};
   economics.economicValueConsumed = Number.isFinite(newCashRequired) && Number.isFinite(ownedValue) &&
     economics.pricedPointValueConsumed != null ? newCashRequired+ownedValue+economics.pricedPointValueConsumed : null;
+  const lastBooster=boosters.at(-1);
+  const marginalFinalBooster=lastBooster && marginalGainFromFinalBooster!=null ? {
+    item:lastBooster.id,
+    includedOrdinal:boosters.reduce((sum,item)=>sum+item.quantity,0),
+    itemOrdinal:lastBooster.quantity,
+    gain:marginalGainFromFinalBooster,
+    // Composition consumes owned units first; the last included unit may be bought.
+    economicDelta:lastBooster.quantity>lastBooster.owned ? lastBooster.newCashEach :
+      lastBooster.replacementValueEach ?? null
+  } : null;
   const plan = {id:fingerprintValue,fingerprint:fingerprintValue,objective:preferences.objective || 'BALANCED',
     target:{stat:state.targetStat,allocationMode:preferences.statAllocationMode || 'TARGET_STAT'},
     actions,phase:totalWaitSeconds ? 'WAITING_COOLDOWN' : recipe.useEcstasy ? 'HAPPY_PREP' : 'TRAINING_READY',
@@ -779,11 +789,58 @@ function composePlan({ state, preferences = {}, energy, recipe = { items:[], use
       reasons:state.calibratedDomain === true ? ['DOCUMENTED_OBSERVED_DOMAIN'] : ['OUTSIDE_DOCUMENTED_CALIBRATION']},
     prerequisites:['VERIFY_STATE',...(recipe.useEcstasy?['SAFE_QUARTER_WINDOW']:[])],
     simulation,preEcstasyHappy,postEcstasyHappy:currentHappy,marginalGainFromFinalBooster,
+    marginalFinalBooster,
     explanation:{modelId:MODEL_ID,arithmetic:'central path; zero gain noise and Happy-loss roll 5',
       economicValueKnown:economics.economicValueConsumed != null},
     warnings: simulation?.reason ? [simulation.reason] : [],stopReason:simulation?.reason || null };
   plan.readiness = planReadiness(plan,state,timing);
   return plan;
+}
+
+// Presentation projection only: reuse exact candidates and existing ranking policies.
+function preparationSignature(plan) {
+  const actions=new Set(plan.actions.map(action=>action.action));
+  const boosters=[...new Set((plan.boosterUseSequence || []).map(use=>use.item))].sort(compareStrings);
+  if (!boosters.length && !['TAKE_ECSTASY','TAKE_XANAX','USE_REFILL'].some(action=>actions.has(action)))
+    return 'TRAIN_ONLY';
+  return JSON.stringify({boosters,ecstasy:actions.has('TAKE_ECSTASY'),
+    xanax:actions.has('TAKE_XANAX'),refill:actions.has('USE_REFILL')});
+}
+function projectRouteOptions(candidates,ranking,constraints) {
+  const out=[],byFingerprint=new Map();
+  const add=(candidate,role)=>{
+    if (!candidate) return;
+    const fp=candidate.plan.fingerprint;
+    let option=byFingerprint.get(fp);
+    if (!option) {
+      if (out.length===7) return;
+      option={fingerprint:fp,preparationSignature:preparationSignature(candidate.plan),roles:[],plan:candidate.plan};
+      byFingerprint.set(fp,option);out.push(option);
+    }
+    if (role && !option.roles.includes(role)) option.roles.push(role);
+  };
+  add(ranking.selected,'RECOMMENDED');
+  for (const [objective,role] of [['MAXIMUM_GAIN','HIGHEST GAIN'],['BEST_VALUE','BEST VALUE'],
+    ['USE_MY_INVENTORY','USE WHAT I OWN']]) {
+    const winner=rankCandidates({...constraints,candidates,objective}).selected;
+    const truthful=objective==='USE_MY_INVENTORY' && winner &&
+      (winner.boughtItemsCount>0 || winner.newCashRequired!==0) ? 'LOWEST NEW CASH' : role;
+    add(winner,truthful);
+  }
+  const represented=new Set(out.map(option=>option.preparationSignature));
+  const gainRanking=rankCandidates({...constraints,candidates,objective:'MAXIMUM_GAIN'});
+  const excluded=new Set((gainRanking.excluded || []).map(candidate=>candidate.id));
+  const families=new Map();
+  for (const candidate of candidates) if (!excluded.has(candidate.id)) {
+    const signature=preparationSignature(candidate.plan);
+    if (!represented.has(signature)) {
+      if (!families.has(signature)) families.set(signature,[]);
+      families.get(signature).push(candidate);
+    }
+  }
+  for (const signature of [...families.keys()].sort(compareStrings))
+    add(rankCandidates({...constraints,candidates:families.get(signature),objective:'MAXIMUM_GAIN'}).selected);
+  return out;
 }
 
 function recommend({observedState,preferences = {},marketSnapshot = {},itemMechanics = {},timing = {}} = {}) {
@@ -843,11 +900,13 @@ function recommend({observedState,preferences = {},marketSnapshot = {},itemMecha
     simulatePlanTraining({modelId:MODEL_ID,stat:{kind:state.targetStat,value:state.stats[state.targetStat]},
       happy:state.ordinaryHappy,gym:state.gym,gainPerks:state.gainPerks || [],energy:state.naturalEnergyMax}) : null;
   const referenceSessionGain = reference?.status === 'ok' ? reference.modeledGain : undefined;
-  const ranking = rankCandidates({candidates,objective:preferences.objective || 'BALANCED',
+  const constraints={
     riskPolicy:preferences.riskPolicy || 'ALLOW_SUPPORTED',referenceSessionGain,
     budgetNewCash,maxWaitHours:preferences.maxWaitHours,
     pointLimit:preferences.pointLimit,prohibitedItems:preferences.prohibitedItems,
-    ownedItemsOnly:preferences.ownedItemsOnly});
+    ownedItemsOnly:preferences.ownedItemsOnly};
+  const ranking = rankCandidates({...constraints,candidates,objective:preferences.objective || 'BALANCED'});
+  const routeOptions=projectRouteOptions(candidates,ranking,constraints);
   const primaryPlan = ranking.selected?.plan || null;
   const trainNow = candidates.find(c=>c.plan.actions.every(a=>!['WAIT','TAKE_XANAX','USE_BOOSTER','TAKE_ECSTASY','USE_REFILL'].includes(a.action)));
   const cheapest = [...candidates].filter(c=>c.economicValueConsumed != null)
@@ -861,6 +920,7 @@ function recommend({observedState,preferences = {},marketSnapshot = {},itemMecha
     .map(p=>({id:p.id,reason:p.simulation.reason === 'OUT_OF_MODEL_DOMAIN' ?
       'MODEL_OUT_OF_DOMAIN' : p.simulation.reason}));
   return {status:ranking.status,objective:preferences.objective || 'BALANCED',primaryPlan,
+    routeOptions,
     alternatives:ranking.alternatives?.map(c=>c.plan) || [],readiness:primaryPlan?.readiness || null,
     outcome:primaryPlan?.simulation || null,economics:primaryPlan?.economics || null,
     confidence:primaryPlan?.confidence || null,explanation:primaryPlan ?
@@ -882,4 +942,5 @@ function recommend({observedState,preferences = {},marketSnapshot = {},itemMecha
 module.exports = { MODEL_ID, happyMultiplier, happyLoss, simulateTraining, simulatePlanTraining,
   rankCandidates, paretoPrune, generateHappyFrontier, generateEnergyCandidates, naturalEnergyLost,
   resolveObserved, replanOnEvent, compareRecommendationIdentity, simulateResolvedBoundary,
-  capabilities, structuralFingerprint, planReadiness, generateHappyRecipes, composePlan, recommend };
+  capabilities, structuralFingerprint, planReadiness, generateHappyRecipes, composePlan,
+  preparationSignature, projectRouteOptions, recommend };

@@ -3,7 +3,7 @@
 // Acquisition and session control only. Calculation and normalization stay canonical.
 const planner = require('./training-advisor-pure.js');
 const adapters = require('./training-advisor-adapters.js');
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const PREFS_KEY = 'tornscripture-training-settings-v1';
 const API_KEY = 'tornscripture-training-api-key-v1';
 const SOURCES = Object.freeze({bars:'/user/bars', cooldowns:'/user/cooldowns',
@@ -26,6 +26,7 @@ function preferences(input = {}) {
   if (!input || typeof input !== 'object') return out;
   if (Object.values(OBJECTIVES).includes(input.objective)) out.objective=input.objective;
   if (['strength','speed','defense','dexterity'].includes(input.targetStat)) out.targetStat=input.targetStat;
+  if (['TARGET_STAT','WEAKEST_STAT'].includes(input.statAllocationMode)) out.statAllocationMode=input.statAllocationMode;
   for (const key of ['allowItems','allowRefill','ownedItemsOnly','collapsed'])
     if (typeof input[key] === 'boolean') out[key]=input[key];
   for (const key of ['budgetNewCash','pointValue','pointLimit','maxWaitSeconds'])
@@ -85,13 +86,17 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
   let prefs=loadPreferences(storage), epoch=0, inFlight=null, invalidation=0, keyRevision=0, disposed=false;
   let raw={}, meta={}, normalized=null, recommendation=null, phase='NEEDS_REFRESH', startedAt=null, completedAt=null;
   let inventoryConfirmation, manualInput, effectState, pointsConfirmation;
+  let selectedRouteFingerprint=null, stalePlan=null;
   const cache=new Map(), subscribers=new Set(), pendingRequests=new Map();
   const iso=()=>new Date(now()).toISOString();
   // Current proof belongs to the observation epoch, until an explicit state transition.
   const current=()=>!disposed && phase==='CURRENT' && completedAt!=null;
+  const effectivePlan=()=>recommendation?.routeOptions?.find(option=>
+    option.fingerprint===selectedRouteFingerprint)?.plan || recommendation?.primaryPlan || null;
   function snapshot() {
     const value={version:VERSION, epoch, phase, startedAt, completedAt, atomic:false,
       preferences:prefs, normalized, recommendation, acquisition:meta,
+      selectedRouteFingerprint,effectivePlan:effectivePlan(),stalePlan,
       connection:resolveKey(managedKey,storage) ? validKey(managedKey) ? 'TornPDA managed key' : 'Local browser key' : 'Not connected'};
     const key=resolveKey(managedKey,storage);
     const serialized=JSON.stringify(value);
@@ -102,15 +107,25 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
     normalized=adapters.normalizeTrainingSources({sources:raw,sourceMeta:meta,
       targetStat:prefs.targetStat, manualInput, dynamicState:effectState,
       confirmedInventory:inventoryConfirmation,currentPoints:pointsConfirmation});
+    // The approved weakest-stat allocation needs the same target-specific gym/perk join.
+    const stats=normalized.observedState.stats;
+    if (prefs.statAllocationMode==='WEAKEST_STAT' && stats) {
+      const targetStat=Object.keys(stats).sort((a,b)=>stats[a]-stats[b] || (a<b ? -1 : a>b ? 1 : 0))[0];
+      normalized=adapters.normalizeTrainingSources({sources:raw,sourceMeta:meta,targetStat,
+        manualInput,dynamicState:effectState,confirmedInventory:inventoryConfirmation,currentPoints:pointsConfirmation});
+    }
     // A rejected/incomplete cache is a meaningful reason to reacquire on the next manual refresh.
     if (normalized.fields.gym.reason==='SCHEMA_MISMATCH') cache.delete('tornGyms');
     for (const [name,category] of [['drugInventory','Drug'],['boosterInventory','Booster'],['candyInventory','Candy']])
       if (!normalized.inventory[category].complete) cache.delete(name);
     // H1/H2 are intentionally absent. A local clock or a calendar candidate is not proof.
     recommendation=planner.recommend({...normalized,preferences:{...prefs,maxWaitHours:prefs.maxWaitSeconds/3600}});
+    if (current() && selectedRouteFingerprint && !recommendation.routeOptions?.some(option=>
+      option.fingerprint===selectedRouteFingerprint)) selectedRouteFingerprint=null;
     notify(); return snapshot();
   }
-  function invalidate() {
+  function invalidate({retainContext=true}={}) {
+    stalePlan=retainContext ? effectivePlan() || stalePlan : null;
     invalidation++; inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
     for (const [key,value] of Object.entries(meta)) if (!key.endsWith('Inventory') && key!=='tornGyms')
       value.freshness=value.requestSucceeded ? 'STALE' : 'UNKNOWN';
@@ -181,6 +196,7 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
     if (disposed) return Promise.reject(new Error('Advisor disposed'));
     if (inFlight) return inFlight;
     epoch++; invalidation++;
+    selectedRouteFingerprint=null;stalePlan=null;
     inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
     raw={}; meta={}; normalized=recommendation=null;
     phase='REFRESHING'; startedAt=iso(); completedAt=null;
@@ -206,26 +222,40 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
     }).finally(()=>{inFlight=null;notify();});
     notify(); return inFlight;
   }
-  return Object.freeze({refresh, invalidate, snapshot,
-    subscribe(listener) {if (!disposed) subscribers.add(listener);return ()=>subscribers.delete(listener);},
-    setPreferences(input) {
-      const before=JSON.stringify(Object.fromEntries(Object.entries(prefs).filter(([key])=>
-        !['mode','theme','position','collapsed'].includes(key))));
-      prefs=preferences({...prefs,...input});
-      try {storage.setItem(PREFS_KEY,JSON.stringify(prefs));} catch { /* memory-only still works */ }
-      const after=JSON.stringify(Object.fromEntries(Object.entries(prefs).filter(([key])=>
-        !['mode','theme','position','collapsed'].includes(key))));
-      if (normalized && before!==after) {if (!current() && phase!=='REFRESHING') invalidate();else replan();} else notify();
+  function setPreferences(input,applyPlanning=false) {
+    const before=JSON.stringify(Object.fromEntries(Object.entries(prefs).filter(([key])=>
+      !['mode','theme','position','collapsed'].includes(key))));
+    prefs=preferences({...prefs,...input});
+    try {storage.setItem(PREFS_KEY,JSON.stringify(prefs));} catch { /* memory-only still works */ }
+    const after=JSON.stringify(Object.fromEntries(Object.entries(prefs).filter(([key])=>
+      !['mode','theme','position','collapsed'].includes(key))));
+    if (before!==after || applyPlanning) {
+      selectedRouteFingerprint=null;inventoryConfirmation=undefined;
+      if (normalized) {if (!current() && phase!=='REFRESHING') invalidate();else replan();} else notify();
+    } else notify();
+    return snapshot();
+  }
+  return Object.freeze({refresh, invalidate, snapshot,setPreferences,
+    applyPreferences(input) {return setPreferences(input,true);},
+    selectRoute(fingerprint) {
+      requireCurrent();
+      if (typeof fingerprint!=='string' || !recommendation?.routeOptions?.some(option=>
+        option.fingerprint===fingerprint)) throw new Error('Select an exact current canonical route');
+      if (fingerprint!==selectedRouteFingerprint) {
+        inventoryConfirmation=undefined;selectedRouteFingerprint=fingerprint;
+        return replan();
+      }
       return snapshot();
     },
+    subscribe(listener) {if (!disposed) subscribers.add(listener);return ()=>subscribers.delete(listener);},
     setKey(value) {
       if (value && !validKey(value)) throw new Error('Enter a valid local key');
       if (value) storage.setItem(API_KEY,value.trim());else storage.removeItem(API_KEY);
-      keyRevision++;cache.clear(); return invalidate();
+      keyRevision++;cache.clear();selectedRouteFingerprint=null; return invalidate({retainContext:false});
     },
     confirmInventory(quantities) {
       requireCurrent();
-      const required=recommendation?.primaryPlan?.resources?.ownedItemsConsumed || {};
+      const required=effectivePlan()?.resources?.ownedItemsConsumed || {};
       const accepted={};
       for (const [key,value] of Object.entries(quantities || {})) if (required[key]>0 &&
         Number.isSafeInteger(value) && value>=0) accepted[key]=value;
@@ -250,6 +280,7 @@ function createAdvisor({fetch:fetcher, storage, managedKey='', now=()=>Date.now(
     },
     dispose() {
       disposed=true;invalidation++;phase='NEEDS_REFRESH';
+      selectedRouteFingerprint=null;stalePlan=null;
       inventoryConfirmation=manualInput=effectState=pointsConfirmation=undefined;
       raw={};meta={};normalized=recommendation=null;cache.clear();
       for (const [controller,timeout] of pendingRequests) {clearTimer(timeout);controller.abort();}

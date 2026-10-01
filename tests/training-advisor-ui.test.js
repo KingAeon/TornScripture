@@ -76,8 +76,8 @@ test('optional missing preparation evidence does not replace a genuine model-dom
 });
 test(id('J-C1'),()=>{
   const s=snapshot(),v=ui.buildView(s);assert.equal(v.readiness,'READY');assert.equal(v.confidence,'SUPPORTED_EXTRAPOLATION');
-  assert.match(html(s),/Ready now/);assert.match(html(s),/Confidence: SUPPORTED_EXTRAPOLATION/);
-  assert.match(v.next,/Train speed manually/);assert.match(v.next,/Mark State changed \/ checkpoint reached, then Refresh & Plan/);
+  assert.match(html(s),/ta-ready">READY/);assert.match(html(s),/Confidence: SUPPORTED/);
+  assert.match(v.next,/Train speed manually/);assert.match(v.next,/I completed this step, then Refresh & Plan/);
   assert.equal(v.reason,null);assert.doesNotMatch(html(s),/Provide the missing current input/);
 });
 test(id('J-C2'),()=>{
@@ -94,8 +94,8 @@ test(id('J-C3'),()=>{
 test(id('J-C4'),()=>{
   const s=snapshot({status:'NEEDS_ITEMS',reason:'RESOURCE_MISSING',nextAction:'obtain and verify required items'});
   s.recommendation.primaryPlan.resources={ownedItemsConsumed:{xanax:1},boughtItems:{eroticDvd:2}};
-  const text=html(s);assert.match(text,/Needs items/);assert.match(text,/Owned use: Xanax ×1/);
-  assert.match(text,/To acquire: eDVD ×2/);assert.doesNotMatch(text,/name="ecstasy"/);
+  const text=html(s);assert.match(text,/NEEDS ITEMS/);assert.match(text,/Uses \(owned\): Xanax ×1/);
+  assert.match(text,/Need to acquire: eDVD ×2/);assert.doesNotMatch(text,/name="ecstasy"/);
 });
 test(id('J-C5'),()=>{
   for (const reason of ['BOOSTER_LIMIT_REACHED','TIMING_UNSAFE','CAPABILITY_UNAVAILABLE']) {
@@ -118,7 +118,7 @@ test(id('J-C7'),()=>{
     assert.match(form,new RegExp(`name="${key}"`));assert.match(form,new RegExp(`plan needs ${quantity}`));
   }
   assert.equal((form.match(/<input /g) || []).length,3);assert.doesNotMatch(form,/name="candy37"/);
-  assert.match(text,/To acquire: eDVD ×3 · candy37 ×10/);assert.match(form,/Only these item keys gain current proof/);
+  assert.match(text,/Need to acquire: eDVD ×3 · candy37 ×10/);assert.match(form,/Only these item keys gain current proof/);
 });
 test(id('J-C8'),async()=>{
   const h=harness();await h.advisor.refresh();h.advisor.setPreferences({objective:'MAXIMUM_GAIN',prohibitedItems:['eroticDvd','ecstasy']});
@@ -131,7 +131,7 @@ test(id('J-C8'),async()=>{
 test(id('J-C9'),()=>{
   const s=snapshot();assert.equal(ui.buildView(s).status,'ok');
   assert.match(html(s),/Cost comparison unavailable; no market prices supplied/);
-  assert.match(html(s),/Approximate expected gain: 1,230/);assert.doesNotMatch(html(s),/New cash: \$?0/);
+  assert.match(html(s),/Approximate expected gain<\/dt><dd>1,230/);assert.doesNotMatch(html(s),/New cash: \$?0/);
 });
 test(id('J-C10'),()=>{
   const s=snapshot();s.recommendation={status:'NO_SAFE_RECOMMENDATION',reason:'UNSUPPORTED_EFFECT',primaryPlan:null};
@@ -152,9 +152,10 @@ test(id('J-C12'),async()=>{
   const h=harness();const before=await h.advisor.refresh();h.advisor.setPreferences({mode:'advanced'});
   const after=h.advisor.snapshot();assert.deepEqual(after.recommendation,before.recommendation);
   assert.equal(after.epoch,before.epoch);assert.equal(h.requests.length,11);
-  for (const section of ['Plan','State','Sources','Economics','Alternatives','Model','Rejected / Diagnostics'])
-    assert.match(html(after),new RegExp(`<summary>${section}</summary>`));
-  assert.match(html(after),/observedAt/);assert.match(html(after),/cacheClass/);assert.match(html(after),/vladar-v2-pre50m-v1/);
+  const advanced=ui.fullHtml(after,ui.buildView(after),{tab:'Advanced'});
+  for (const section of ['Current State','Sources & Freshness','Selected Plan','Evidence & Confirmations','Economics','Model & Mechanics','Other / Rejected Routes','Diagnostics'])
+    assert.match(advanced,new RegExp(`<h3>${section}</h3>`));
+  assert.match(advanced,/observedAt/);assert.match(advanced,/cacheClass/);assert.match(advanced,/vladar-v2-pre50m-v1/);
 });
 test(id('J-C13'),()=>{
   for (const action of [{action:'TAKE_XANAX'},{action:'USE_BOOSTER',item:'eroticDvd',quantity:1},
@@ -163,7 +164,7 @@ test(id('J-C13'),()=>{
     assert.match(ui.buildView(s).next,/manually in Torn/);
     const labels=[...text.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map(m=>m[1]);
     assert.ok(labels.every(label=>!/^Take |^Use |^Train |^Buy |^Spend /i.test(label)));
-    assert.ok([...text.matchAll(/data-action="([^"]+)"/g)].every(m=>['close','refresh','mode','checkpoint','forget-key'].includes(m[1])));
+    assert.ok([...text.matchAll(/data-action="([^"]+)"/g)].every(m=>['close','refresh','tab-Plan','tab-Options','tab-Advanced','checkpoint','compare','edit-effects','edit-inventory','forget-key'].includes(m[1])));
   }
 });
 test(id('J-C14'),async()=>{
@@ -220,8 +221,8 @@ test('mounted HUD navigation, pointer drag, checkpoint, visibility and cleanup a
   const root=d.document.getElementById(ui.ROOT_ID),target=action=>({inside:true,closest:()=>({dataset:{action}})});
   root.fire('click',{target:target('open')});assert.match(root.innerHTML,/role="dialog"/);
   const before=h.advisor.snapshot().recommendation;root.fire('click',{target:target('mode')});
-  assert.deepEqual(h.advisor.snapshot().recommendation,before);assert.match(root.innerHTML,/<summary>Sources<\/summary>/);
-  root.fire('pointerdown',{target:{closest:()=>true},pointerId:1,clientX:10,clientY:10,preventDefault(){}});
+  assert.deepEqual(h.advisor.snapshot().recommendation,before);assert.match(root.innerHTML,/<h3>Sources & Freshness<\/h3>/);
+  root.fire('pointerdown',{target:{closest:selector=>selector==='[data-drag]'},pointerId:1,clientX:10,clientY:10,preventDefault(){}});
   root.fire('pointermove',{pointerId:1,clientX:900,clientY:900});root.fire('pointerup',{pointerId:1});
   assert.deepEqual(h.advisor.snapshot().preferences.position,{x:60,y:440});
   root.fire('click',{target:target('collapse')});assert.equal(h.advisor.snapshot().preferences.collapsed,true);
@@ -253,7 +254,7 @@ test('unrelated Torn links, buttons, inputs and form submissions preserve curren
   assert.equal(changed.normalized.fields.inventory.confirmation,undefined);
   assert.equal(changed.normalized.fields.energy.freshness,'STALE');
   root.fire('click',{target:{inside:true,closest:()=>({dataset:{action:'open'}})}});
-  assert.match(root.innerHTML,/After each manual player action: checkpoint → Refresh & Plan → observe → replan\./);
+  assert.match(root.innerHTML,/State changed. Refresh &amp; Plan to continue\./);
   assert.doesNotMatch(root.innerHTML,/expires after state changes or 60 seconds/);
   mounted.dispose();
 });
@@ -264,7 +265,7 @@ test('mounted preference and confirmation forms route explicit input into the ca
   submit('preferences',{objective:'MAXIMUM_GAIN',targetStat:'speed',allowItems:'on',prohibited_ecstasy:'on',
     prohibited_eroticDvd:'on',maxWaitMinutes:'0',theme:'Dark',riskPolicy:'ALLOW_SUPPORTED'});
   assert.equal(h.advisor.snapshot().preferences.objective,'MAXIMUM_GAIN');
-  assert.deepEqual(h.advisor.snapshot().preferences.prohibitedItems,['eroticDvd','ecstasy']);
+  assert.deepEqual([...h.advisor.snapshot().preferences.prohibitedItems].sort(),['ecstasy','eroticDvd']);
   submit('effects',{none:'on'});assert.equal(h.advisor.snapshot().normalized.capabilities.xanaxPreparation,true);
   submit('inventory',{xanax:'0'});assert.equal(h.advisor.snapshot().normalized.observedState.inventory.xanax,0);
   submit('points',{points:'30'});assert.equal(h.advisor.snapshot().normalized.observedState.pointsAvailable,30);
