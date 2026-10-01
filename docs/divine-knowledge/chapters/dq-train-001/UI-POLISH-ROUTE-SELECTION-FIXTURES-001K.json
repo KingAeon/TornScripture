@@ -614,6 +614,30 @@
         "do not add external provider/network dependency",
         "missing prices degrade visibly"
       ]
+    },
+    {
+      "id": "K-A11_TORNSCRIPTURES_ACCENT_001",
+      "layer": "shell",
+      "given": [
+        "expanded Advisor rendered in Dark or Light"
+      ],
+      "expected": [
+        "top shell carries a subtle 2px action-blue to telemetry-cyan accent",
+        "accent has no glow",
+        "accent does not encode readiness"
+      ]
+    },
+    {
+      "id": "K-C21_USE_INVENTORY_BADGE_TRUTHFUL_001",
+      "layer": "planner",
+      "given": [
+        "USE_MY_INVENTORY role winner still requires bought items or nonzero new cash"
+      ],
+      "expected": [
+        "route may still represent the canonical USE_MY_INVENTORY objective winner",
+        "human badge does not falsely say USE WHAT I OWN",
+        "use LOWEST NEW CASH or equivalent truthful wording"
+      ]
     }
   ]
 }

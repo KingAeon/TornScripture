@@ -273,6 +273,7 @@ Beginner presentation may use:
 | Canonical condition | Beginner label |
 |---|---|
 | `READY` | **READY** |
+| `NEEDS_ITEMS` | **NEEDS ITEMS** |
 | `NEEDS_REFRESH` because explicit current confirmation is the smallest supported remedy | **NEEDS CONFIRMATION** |
 | `NEEDS_REFRESH` after state change / stale authority | **NEEDS REFRESH** |
 | `WAITING` | **WAITING** |
