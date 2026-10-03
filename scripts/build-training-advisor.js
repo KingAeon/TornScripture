@@ -5,7 +5,7 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const ROOT=path.resolve(__dirname,'..');
 const OUTPUT='TornScripture-Training-Advisor.user.js';
-const VERSION='0.1.2';
+const VERSION='0.1.3';
 const INPUTS=['src/training-advisor-pure.js','src/training-advisor-adapters.js',
   'src/training-advisor-runtime.js','src/training-advisor-ui.js'];
 const hash=text=>crypto.createHash('sha256').update(text).digest('hex');

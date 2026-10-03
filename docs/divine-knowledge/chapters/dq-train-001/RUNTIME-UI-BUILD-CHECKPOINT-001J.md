@@ -1,6 +1,51 @@
 # DQ-TRAIN-001J / 001K - Runtime/UI implementation checkpoint
 
-Current state: **0.1.2 BOUNDED UI CORRECTIONS / AUTOMATED PASS / OWNER BROWSER AND INDEPENDENT IMPLEMENTATION VERIFICATION PENDING / PR #135 DRAFT, OPEN, UNMERGED, UNRELEASED / H1/H2 OPEN**
+Current state: **0.1.3 BOUNDED HUD GEOMETRY CORRECTION / AUTOMATED PASS / REPEATED OWNER BROWSER AND AMENDED-HEAD INDEPENDENT VERIFICATION PENDING / PR #135 DRAFT, OPEN, UNMERGED, UNRELEASED / H1/H2 OPEN**
+
+## Current bounded TornPDA HUD drag/clamp correction - 2026-10-03
+
+Owner [B][WORK] authorized one correction on the existing PR #135 branch after independent executable verification PASS at `f6cbb7ca6b2485bfa4b90d17b869781376ee745a`. Owner TornPDA Android smoke reported both the expanded compact HUD and collapsed chip dragging only within an upper-left region. Actual device geometry was not captured; a deterministic page-scaling reproduction establishes the coordinate mismatch, and corrected live smoke remains required.
+
+Base/main/merge base: `b8474253237e63485100fdcc51b2cb82530d2efc`. Starting verified head: `f6cbb7ca6b2485bfa4b90d17b869781376ee745a`. Branch: `agent/training-runtime-ui-001j-build`. Version: **0.1.3**. The resulting documentation-inclusive head is pinned in PR metadata and the completion report rather than self-recorded here.
+
+### Reproduction and bounded change
+
+The earlier mount mixed rendered pointer coordinates with unscaled `offsetWidth`/`offsetHeight`, clamped to `window.innerWidth`/`innerHeight`, and wrote the result directly as CSS offsets. At synthetic 50% page scaling, both HUD forms stop with their right edge at 180 in a 360-wide viewport. All six added geometry regressions failed against the starting product; no frozen fixture expectations were altered.
+
+The existing UI owner now measures the HUD rectangle and visible viewport, clamps entirely in rendered coordinates (including visual-viewport offsets), and converts the result to CSS left/top using measured scale. Visual viewport dimensions fall back to document client dimensions, then window dimensions. Initial rendering, dragging, the existing resize callback, collapse/rerender and reload use the same positioning path. Oversized panels retain their grip at the visible origin.
+
+Persisted `position` remains the same CSS `{x,y}` preference: no new key, coordinate-space marker, migration, reset or durable player evidence. Controls remain excluded from drag initiation; pointer capture, matching IDs, release/cancel persistence and listener cleanup remain under the original owner. No new listener, timer, observer or network endpoint is added. No visual redesign, modal change, evidence/route/readiness/freshness/ranking/mechanic change or gameplay action.
+
+Product/test files: `src/training-advisor-ui.js`; version-only `src/training-advisor-runtime.js` and `scripts/build-training-advisor.js`; regenerated `TornScripture-Training-Advisor.user.js`; `tests/training-advisor-ui.test.js` (seven new regressions and geometry-aware mock); `tests/training-advisor-polish.test.js` (mock measurement only); `tests/training-advisor-build.test.js` (version assertions only). Continuity updates are confined to this checkpoint, NOW, chapter/domain indexes, the Training OPEN-NODES row and one appended CHANGELOG event.
+
+### Executed checks
+
+Baseline at the exact verified starting head: **289 focused / 526 full across 21 suites PASS**, clean nonshallow checkout, exact live open/draft/unmerged PR, Git/Node/Python and publication/diff capability confirmed.
+
+| Exact command | Observed result |
+| --- | --- |
+| `node --test --test-reporter=tap tests/training-advisor-pure.test.js` | 109/109 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-adapters.test.js` | 53/53 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-runtime.test.js` | 30/30 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-ui.test.js` | 33/33 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-build.test.js` | 11/11 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-polish.test.js` | 60/60 PASS |
+| `node --test --test-reporter=tap tests/training-advisor-*.test.js` | 296/296 PASS |
+| `node --test --test-reporter=tap tests/*.test.js` | 533/533 PASS, 21 suites |
+
+All 13 Training source/test/helper/generator/generated files pass `node --check`. Two CLI generations are byte-identical to each other and the checked-in artifact; `node scripts/build-training-advisor.js --check` passes. Five embedded source/provenance hashes match; intentional embedded drift is rejected; four smart-quote guard and normal generated-HUD startup/drag VM parity pass without network/timers. All 34 frozen J and 46 frozen K IDs map to passing TAP tests. Whole-recommendation parity against pre-001K planner `4067c82c52439e97bb22856ac5e3e451d6a33591` passes 288/288, removing only approved routeOptions/marginalFinalBooster metadata; generated VM recommendation parity also passes 288/288.
+
+Pure planner/adapters and frozen specs/fixtures are byte-equal to the starting head. Runtime is byte-equal after replacing only the VERSION literal. Full diff/whitespace, document/structured-data/link, credential/private-data and lifecycle boundary checks pass. Artifact SHA-256 independently recomputed: `8be1159a2076cad8d3d9fdc062637e1a820d659cf8931274a4ffadfc78068953`.
+
+### Remaining manual gate and rollback
+
+On a normal Torn page in TornPDA Android with END injection, install the pinned 0.1.3 artifact. Drag the compact HUD by its grip to all four visible edges, then repeat collapsed. The whole panel must remain in view when it fits; the grip remains visible for an oversized panel. Repeat with the existing page zoom, portrait/landscape, collapse/expand, close/reopen and reload. Position must persist without resetting preferences; controls must remain clickable rather than dragging. Verify the existing Plan/Options/Advanced/Compare/evidence/checkpoint workflows and that dragging alone causes no acquisition, replan or authority change.
+
+Repeat the supported desktop userscript-manager path, including unscaled drag, viewport resizing, focus/modal behavior and actual API/CORS. Synthetic geometry and VM results are not a live TornPDA or desktop test. H1/H2 remain OPEN/fail-closed. Amended-head independent [V] and separate owner release authorization remain required.
+
+Immediate rollback: disable/uninstall the test script. Repository rollback: revert this bounded amendment to restore the independently verified 0.1.2 product at `f6cbb7ca6b2485bfa4b90d17b869781376ee745a`; no force update or storage migration. PR #135 remains open/draft/unmerged/unreleased, without ready or auto-merge.
+
+## Historical 0.1.2 checkpoint
 
 ## Current bounded static-verification correction - 2026-10-01
 

@@ -3,7 +3,7 @@
 // Acquisition and session control only. Calculation and normalization stay canonical.
 const planner = require('./training-advisor-pure.js');
 const adapters = require('./training-advisor-adapters.js');
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const PREFS_KEY = 'tornscripture-training-settings-v1';
 const API_KEY = 'tornscripture-training-api-key-v1';
 const SOURCES = Object.freeze({bars:'/user/bars', cooldowns:'/user/cooldowns',

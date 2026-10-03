@@ -119,7 +119,7 @@ test('generated-artifact acquisition and presentation match canonical runtime',a
   assert.deepEqual(plain(e.ui.buildView(a.snapshot())),require('../src/training-advisor-ui.js').buildView(b.snapshot()));
 });
 test('metadata, application and provenance versions agree',()=>{
-  assert.equal(build.VERSION,'0.1.2');assert.equal(embedded().provenance.version,build.VERSION);
+  assert.equal(build.VERSION,'0.1.3');assert.equal(embedded().provenance.version,build.VERSION);
   assert.equal(require('../src/training-advisor-runtime.js').VERSION,build.VERSION);
-  assert.match(artifact(),/\/\/ @version\s+0\.1\.2/);
+  assert.match(artifact(),/\/\/ @version\s+0\.1\.3/);
 });

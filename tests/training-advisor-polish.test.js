@@ -46,6 +46,8 @@ function dom() {
     querySelector(selector){return selector==='.ta-hud' ? hud : null;}
     querySelectorAll(){return [];}
     setPointerCapture(){}
+    getBoundingClientRect(){const left=parseFloat(this.style.left)||0,top=parseFloat(this.style.top)||0;
+      return {left,top,width:this.offsetWidth,height:this.offsetHeight,right:left+this.offsetWidth,bottom:top+this.offsetHeight};}
     focus(){document.activeElement=this;}
     remove(){elements.splice(elements.indexOf(this),1);}
   }

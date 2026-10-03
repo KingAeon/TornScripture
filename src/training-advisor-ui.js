@@ -310,8 +310,9 @@ function fullHtml(snapshot,view,session={}) {
       session.subview==='compare' ? compareHtml(snapshot) : planHtml(snapshot,view,session)}</div>`;
 }
 function clamp(position,width,height,viewport) {
-  return {x:Math.max(0,Math.min(Number.isFinite(position.x)?position.x:0,Math.max(0,viewport.width-width))),
-    y:Math.max(0,Math.min(Number.isFinite(position.y)?position.y:0,Math.max(0,viewport.height-height)))};
+  const left=Number.isFinite(viewport.left)?viewport.left:0,top=Number.isFinite(viewport.top)?viewport.top:0;
+  return {x:Math.max(left,Math.min(Number.isFinite(position.x)?position.x:left,Math.max(left,left+viewport.width-width))),
+    y:Math.max(top,Math.min(Number.isFinite(position.y)?position.y:top,Math.max(top,top+viewport.height-height)))};
 }
 function resolveTheme(preference,{markers='',background='',prefersDark=false}={}) {
   if (preference!=='Auto') return preference;
@@ -363,10 +364,27 @@ function mount({document,window,advisor}) {
   const session={tab:'Plan',subview:'plan',draft:null,editEffects:false,editInventory:false};
   const listeners=[];
   const on=(target,type,handler,options)=>{target.addEventListener(type,handler,options);listeners.push(()=>target.removeEventListener(type,handler,options));};
+  function geometry(hud) {
+    const rect=hud.getBoundingClientRect(),visual=window.visualViewport;
+    const positive=(...values)=>values.find(value=>Number.isFinite(value) && value>0) || 0;
+    const scale=(rendered,layout)=>Number.isFinite(rendered/layout) && rendered/layout>0 ? rendered/layout : 1;
+    return {rect,scale:{x:scale(rect.width,hud.offsetWidth),y:scale(rect.height,hud.offsetHeight)},
+      css:{x:parseFloat(hud.style.left)||0,y:parseFloat(hud.style.top)||0},
+      viewport:{left:Number.isFinite(visual?.offsetLeft)?visual.offsetLeft:0,
+        top:Number.isFinite(visual?.offsetTop)?visual.offsetTop:0,
+        width:positive(visual?.width,document.documentElement?.clientWidth,window.innerWidth),
+        height:positive(visual?.height,document.documentElement?.clientHeight,window.innerHeight)}};
+  }
+  function place(hud,requested,g=geometry(hud)) {
+    // Pointer/viewport coordinates are rendered; persisted positions remain CSS offsets.
+    const p=clamp(requested,g.rect.width,g.rect.height,g.viewport);
+    const css={x:g.css.x+(p.x-g.rect.left)/g.scale.x,y:g.css.y+(p.y-g.rect.top)/g.scale.y};
+    hud.style.left=css.x+'px';hud.style.top=css.y+'px';return css;
+  }
   function position() {
     const hud=root.querySelector('.ta-hud');if (!hud) return snapshot.preferences.position;
-    const p=clamp(snapshot.preferences.position,hud.offsetWidth,hud.offsetHeight,{width:window.innerWidth,height:window.innerHeight});
-    hud.style.left=p.x+'px';hud.style.top=p.y+'px';return p;
+    const g=geometry(hud),p=snapshot.preferences.position;
+    return place(hud,{x:g.rect.left+(p.x-g.css.x)*g.scale.x,y:g.rect.top+(p.y-g.css.y)*g.scale.y},g);
   }
   function render(value=snapshot) {
     const active=document.activeElement;
@@ -454,12 +472,12 @@ function mount({document,window,advisor}) {
   });
   on(root,'pointerdown',event=>{
     if (!event.target.closest('[data-drag]') || event.target.closest('button,input,select')) return;
-    const p=position();drag={id:event.pointerId,x:event.clientX,y:event.clientY,start:p};root.setPointerCapture(event.pointerId);event.preventDefault();
+    position();const rect=root.querySelector('.ta-hud').getBoundingClientRect();
+    drag={id:event.pointerId,x:event.clientX,y:event.clientY,start:{x:rect.left,y:rect.top}};root.setPointerCapture(event.pointerId);event.preventDefault();
   });
   on(root,'pointermove',event=>{
     if (!drag || event.pointerId!==drag.id) return;
-    const hud=root.querySelector('.ta-hud'),p=clamp({x:drag.start.x+event.clientX-drag.x,y:drag.start.y+event.clientY-drag.y},hud.offsetWidth,hud.offsetHeight,{width:window.innerWidth,height:window.innerHeight});
-    hud.style.left=p.x+'px';hud.style.top=p.y+'px';
+    place(root.querySelector('.ta-hud'),{x:drag.start.x+event.clientX-drag.x,y:drag.start.y+event.clientY-drag.y});
   });
   const finishDrag=event=>{if (!drag || event.pointerId!==drag.id) return;const hud=root.querySelector('.ta-hud');drag=null;advisor.setPreferences({position:{x:parseFloat(hud.style.left),y:parseFloat(hud.style.top)}});};
   on(root,'pointerup',finishDrag);on(root,'pointercancel',finishDrag);on(window,'resize',position);

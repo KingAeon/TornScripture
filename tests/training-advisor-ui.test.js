@@ -1,6 +1,8 @@
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
+const vm=require('node:vm');
+const build=require('../scripts/build-training-advisor.js');
 const ui=require('../src/training-advisor-ui.js');
 const runtime=require('../src/training-advisor-runtime.js');
 const frozen=require('../docs/divine-knowledge/chapters/dq-train-001/RUNTIME-UI-INTEGRATION-FIXTURES-001J.json');
@@ -196,7 +198,7 @@ test('objective mapping, viewport clamping, touch layout and hostile text escapi
   assert.doesNotMatch(html(s),/<img src=x/);assert.match(html(s),/&lt;img/);
 });
 // Minimal event surface exercises ownership/lifecycle without pretending it is a real WebView.
-function dom() {
+function dom({scaleX=1,scaleY=scaleX,origin={x:0,y:0}}={}) {
   class Element {
     constructor(){this.handlers=new Map();this.style={};this.dataset={};this.offsetWidth=300;this.offsetHeight=200;this.innerHTML='';}
     addEventListener(type,handler){if (!this.handlers.has(type)) this.handlers.set(type,new Set());this.handlers.get(type).add(handler);}
@@ -207,6 +209,9 @@ function dom() {
     querySelectorAll(){return [];}
     contains(target){return target.inside===true;}
     setPointerCapture(){}
+    getBoundingClientRect(){const left=origin.x+(parseFloat(this.style.left)||0)*scaleX,
+      top=origin.y+(parseFloat(this.style.top)||0)*scaleY,width=this.offsetWidth*scaleX,height=this.offsetHeight*scaleY;
+      return {left,top,width,height,right:left+width,bottom:top+height};}
     remove(){elements.splice(elements.indexOf(this),1);}
   }
   const elements=[],hud=new Element(),document=new Element(),window=new Element();
@@ -215,6 +220,74 @@ function dom() {
   window.FormData=class extends Map {constructor(form){super(Object.entries(form.values));}};
   return {document,window,elements,hud};
 }
+function dragHud(d,ending={x:10000,y:10000},type='pointerup') {
+  const root=d.document.getElementById(ui.ROOT_ID),rect=d.hud.getBoundingClientRect();
+  root.fire('pointerdown',{target:{closest:selector=>selector==='[data-drag]'},pointerId:7,
+    clientX:rect.left+10,clientY:rect.top+10,preventDefault(){}});
+  root.fire('pointermove',{pointerId:7,clientX:ending.x,clientY:ending.y});
+  root.fire(type,{pointerId:7});
+}
+for (const collapsed of [false,true]) test(`scaled ${collapsed?'collapsed chip':'compact HUD'} reaches every rendered viewport edge`,async()=>{
+  const d=dom({scaleX:.5}),h=harness();await h.advisor.refresh();h.advisor.setPreferences({collapsed});
+  if (collapsed) {d.hud.offsetWidth=220;d.hud.offsetHeight=64;}
+  d.window.visualViewport={offsetLeft:0,offsetTop:0,width:360,height:640};
+  const before=h.advisor.snapshot(),mounted=ui.mount({...d,advisor:h.advisor});
+  dragHud(d);let rect=d.hud.getBoundingClientRect();assert.equal(rect.right,360);assert.equal(rect.bottom,640);
+  const saved=h.advisor.snapshot();assert.deepEqual(saved.normalized,before.normalized);
+  assert.deepEqual(saved.recommendation,before.recommendation);assert.equal(saved.epoch,before.epoch);assert.equal(h.requests.length,11);
+  assert.deepEqual(Object.keys(JSON.parse(h.store.getItem(runtime.PREFS_KEY)).position).sort(),['x','y']);
+  dragHud(d,{x:-10000,y:-10000});rect=d.hud.getBoundingClientRect();assert.equal(rect.left,0);assert.equal(rect.top,0);
+  mounted.dispose();
+});
+test('HUD drag uses visual viewport offsets and rendered geometry under nonuniform scaling',async()=>{
+  const d=dom({scaleX:.5,scaleY:.75,origin:{x:15,y:25}}),h=harness();
+  d.window.visualViewport={offsetLeft:40,offsetTop:60,width:320,height:500};
+  const mounted=ui.mount({...d,advisor:h.advisor});dragHud(d);let rect=d.hud.getBoundingClientRect();
+  assert.equal(rect.right,360);assert.equal(rect.bottom,560);
+  dragHud(d,{x:-10000,y:-10000},'pointercancel');rect=d.hud.getBoundingClientRect();
+  assert.equal(rect.left,40);assert.ok(Math.abs(rect.top-60)<1e-9);
+  const saved=h.advisor.snapshot().preferences.position;assert.equal(saved.x,50);
+  assert.ok(Math.abs(saved.y-140/3)<1e-9);mounted.dispose();
+});
+test('HUD clamp falls back to document viewport dimensions when visual viewport is unavailable',()=>{
+  const d=dom(),h=harness();d.document.documentElement={clientWidth:800,clientHeight:900};
+  const mounted=ui.mount({...d,advisor:h.advisor});dragHud(d);const rect=d.hud.getBoundingClientRect();
+  assert.equal(rect.right,800);assert.equal(rect.bottom,900);mounted.dispose();
+});
+test('HUD resize and reload preserve CSS position preferences while keeping the rendered panel visible',()=>{
+  const d=dom({scaleX:.5}),h=harness();d.window.visualViewport={offsetLeft:0,offsetTop:0,width:360,height:640};
+  const mounted=ui.mount({...d,advisor:h.advisor});dragHud(d);const saved=h.advisor.snapshot().preferences.position;
+  assert.deepEqual(saved,{x:420,y:1080});
+  d.window.visualViewport.width=280;d.window.visualViewport.height=400;d.window.fire('resize',{});
+  let rect=d.hud.getBoundingClientRect();assert.equal(rect.right,280);assert.equal(rect.bottom,400);
+  assert.deepEqual(h.advisor.snapshot().preferences.position,saved);
+  d.hud.offsetWidth=220;d.hud.offsetHeight=64;
+  d.document.getElementById(ui.ROOT_ID).fire('click',{target:{closest:()=>({dataset:{action:'collapse'}})}});
+  dragHud(d);rect=d.hud.getBoundingClientRect();assert.equal(rect.right,280);assert.equal(rect.bottom,400);
+  const restarted=harness({storage:h.store}),next=dom({scaleX:.5});next.hud.offsetWidth=220;next.hud.offsetHeight=64;
+  next.window.visualViewport={offsetLeft:0,offsetTop:0,width:280,height:400};
+  const second=ui.mount({...next,advisor:restarted.advisor});rect=next.hud.getBoundingClientRect();
+  assert.equal(rect.right,280);assert.equal(rect.bottom,400);assert.equal(restarted.advisor.snapshot().normalized,null);
+  mounted.dispose();second.dispose();for (const handlers of d.window.handlers.values()) assert.equal(handlers.size,0);
+});
+test('oversized scaled HUD anchors its grip at the visible viewport origin',()=>{
+  const d=dom({scaleX:2}),h=harness();d.window.visualViewport={offsetLeft:40,offsetTop:60,width:320,height:300};
+  const mounted=ui.mount({...d,advisor:h.advisor});dragHud(d);const rect=d.hud.getBoundingClientRect();
+  assert.equal(rect.left,40);assert.equal(rect.top,60);mounted.dispose();
+});
+test('generated HUD startup and scaled drag match canonical mounting without network or timers',()=>{
+  const canonical=dom({scaleX:.5}),embedded=dom({scaleX:.5}),h=harness();
+  const mounted=ui.mount({...canonical,advisor:h.advisor});
+  const forbidden=()=>{throw Error('unexpected startup network or timer');};embedded.window.fetch=forbidden;
+  const context=vm.createContext({document:embedded.document,window:embedded.window,localStorage:h.store,
+    URL,Intl,AbortController,setTimeout:forbidden,clearTimeout:forbidden,setInterval:forbidden});
+  vm.runInContext(build.generate(),context,{timeout:2000});
+  dragHud(canonical);dragHud(embedded);
+  assert.deepEqual(embedded.hud.getBoundingClientRect(),canonical.hud.getBoundingClientRect());
+  assert.equal(embedded.hud.getBoundingClientRect().right,360);assert.equal(embedded.hud.getBoundingClientRect().bottom,640);
+  assert.deepEqual(JSON.parse(h.store.getItem(runtime.PREFS_KEY)).position,h.advisor.snapshot().preferences.position);
+  mounted.dispose();
+});
 test('mounted HUD navigation, pointer drag, checkpoint, visibility and cleanup are bounded',async()=>{
   const d=dom(),h=harness();await h.advisor.refresh();const mounted=ui.mount({...d,advisor:h.advisor});
   assert.equal(ui.mount({...d,advisor:h.advisor}),null);assert.equal(d.elements.length,2);

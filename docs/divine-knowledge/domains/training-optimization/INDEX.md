@@ -1,6 +1,6 @@
 # Training Optimization Domain
 
-Status: **001J CORE OWNER TORNPDA SMOKE PASS; 001K SPEC VERIFIED/MERGED; PR #135 0.1.2 BOUNDED UI CORRECTIONS/AUTOMATED PASS; OWNER BROWSER AND INDEPENDENT IMPLEMENTATION GATES PENDING; DRAFT/UNMERGED; H1/H2 OPEN**
+Status: **001J CORE OWNER TORNPDA SMOKE PASS; 001K SPEC VERIFIED/MERGED; PR #135 0.1.3 BOUNDED HUD GEOMETRY CORRECTION/AUTOMATED PASS; OWNER BROWSER AND INDEPENDENT IMPLEMENTATION GATES PENDING; DRAFT/UNMERGED; H1/H2 OPEN**
 
 ## Purpose
 
@@ -100,3 +100,7 @@ Automated PASS: 162 existing canonical Training tests, 67 runtime/UI/build tests
 ## Current bounded verification correction
 
 At starting static-review head `e674345d9e787d0bce80eef87c018a397815d6e1`, owner-authorized correction product `9837276160d897ff08b565a8553ef7bf94a3da38` (0.1.2) guarantees Close 44px by 44px and scopes Beginner preparation/Points evidence to the effective canonical route. Advanced and no-safe-plan recovery remain available; no planner/readiness/mechanic change. Fresh 162 canonical + 67 runtime/UI/build + 60 polish = 289 focused / 526 full, 21 suites PASS; all 34 J / 46 K cases, 288 historical parity scenarios and deterministic/hash/drift/VM/smart-quote guards PASS. Frozen/canonical files unchanged by this correction; no storage/network/listener/timer/observer change. Repeat owner TornPDA/desktop smoke and independent implementation verification; PR #135 remains draft/open/unmerged, H1/H2 OPEN. Exact commands, artifact SHA and history are in the implementation checkpoint.
+
+## Current TornPDA HUD geometry correction
+
+Owner [B][WORK] authorized one HUD drag/clamp correction after independent verification PASS at `f6cbb7ca6b2485bfa4b90d17b869781376ee745a`. Synthetic scaled geometry reproduces the owner-reported upper-left restriction for both compact and collapsed HUD forms. Version 0.1.3 measures rendered bounds/viewport and converts to the existing CSS position preferences; no storage, listener, timer, observer, network, planner, evidence, route or mechanic change. Seven added UI/generated-HUD regressions: 296 focused / 533 full (21 suites), all 34 J / 46 K and 288 historical parity checks PASS. See the runtime/UI build checkpoint for exact commands, hashes, manual retest and rollback. Same PR #135 remains draft/unmerged; repeat owner TornPDA/desktop and amended-head independent verification are pending; H1/H2 OPEN.
