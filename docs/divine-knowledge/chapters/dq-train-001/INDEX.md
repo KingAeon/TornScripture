@@ -1,6 +1,6 @@
 # DQ-TRAIN-001 — Battle-Stat Training and Happy Jump Optimization
 
-State: **001A–001J-P PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B1–B4 COMPLETE; 001J SPEC VERIFIED/MERGED; PR #135 DRAFT IMPLEMENTATION ACTIVE; 001K UI POLISH + ROUTE-SELECTION SPEC FROZEN FOR INDEPENDENT [V]; H1/H2 OPEN**
+State: **001J CORE OWNER TORNPDA SMOKE PASS; 001K SPEC VERIFIED/MERGED; PR #135 0.1.3 BOUNDED HUD GEOMETRY CORRECTION/AUTOMATED PASS; OWNER BROWSER AND INDEPENDENT IMPLEMENTATION GATES PENDING; DRAFT/UNMERGED; H1/H2 OPEN**
 
 ## Canonical reading order
 
@@ -46,6 +46,7 @@ State: **001A–001J-P PURE STACK COMPLETE/MERGED WITH EXISTING SUPERSESSIONS; B
 39. [DQ-TRAIN-001K historical UI polish discussion](RUNTIME-UI-POLISH-DISCUSSION-001J.md) - owner/assistant [D] record from live PR #135 TornPDA smoke and visual/route-comparison design.
 40. [DQ-TRAIN-001K UI Polish and Route Comparison/Selection Specification](UI-POLISH-ROUTE-SELECTION-SPEC-001K.md) - owner-frozen follow-on visual shell/information architecture plus canonical route-option and ephemeral player-selection contract.
 41. [`UI-POLISH-ROUTE-SELECTION-FIXTURES-001K.json`](UI-POLISH-ROUTE-SELECTION-FIXTURES-001K.json) - synthetic shell/UI/route-selection acceptance cases including safe final-booster and conditional-fifth handling.
+42. [001J runtime/UI build checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) - preserved implementation and verification history.
 
 The source audit supersedes the preliminary research snapshot from PR #118 wherever they conflict. No public formula is promoted to Torn server truth, no universal diminishing-return claim is retained, and no above-50m extrapolation is silently accepted.
 
@@ -172,8 +173,44 @@ The owner then froze [DQ-TRAIN-001J](RUNTIME-UI-INTEGRATION-SPEC-001J.md) with [
 
 H1 Happy-reset timing and H2 personalized Candy-event interval remain open live-evidence gates. They fail closed only the dependent execution mechanics and are not silently resolved by this specification.
 
+PR #134 passed independent `[V]` at `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`. The owner separately authorized `[B][WORK]` from that exact baseline.
+
+The [runtime/UI implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records the isolated `agent/training-runtime-ui-001j-build` branch, tested bars/input-guidance product head `0ba12a007f0b1fe241b63b563586bb543990e679`, 0.1.0 generated artifact, 229 focused / 466 repository passes, and preserved H1/H2 gates.
+
+Prior independent `[V][WORK]` passed at `f9c37b181c22a23f093830e33d987abdfeb7d380`. Next gate: repeat owner TornPDA bars/confirmation smoke on the amended pinned artifact, complete desktop manual verification, then a separate merge decision. The implementation remains unmerged and unreleased.
+
+Owner-authorized PR #135 amendment (2026-10-01) removes the unsupported 60-second authority expiry and blanket foreground/page-interaction invalidation. Current epochs/confirmation persist until an explicit approved transition; checkpoint → Refresh & Plan → observe → replan remains required after material actions. Tested amended product head `a151435e18de2a15eebbcd818cdc8ea1b296cebe`; 219 focused / 456 repository passes; final draft PR head is the independent-verification pin.
+
+First owner TornPDA Android smoke failed before HUD startup despite successful install and END injection, both without and with an API key. The [known source-normalization hazard](../../../discovery/evidence/TORN-PDA-USERSCRIPT-SOURCE-NORMALIZATION.md) reproduced a SyntaxError from the literal U+2019 in `plan\u2019s`. Owner-authorized compatibility amendment removes the two literal smart apostrophes through ASCII-safe UI copy, regenerates the artifact, and adds a build guard against all four known normalized quote characters in every source input/generator/artifact. Product head `29a4b6bc80a59889cc336d43cbf166c601092309`; 220 focused / 457 repository tests and 34 frozen J cases pass. The [checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records hashes and exact evidence. Live HUD/API/mobile workflow must be retested; automated coverage does not establish live TornPDA compatibility. Frozen/canonical bytes, H1/H2 and same draft/unmerged PR remain unchanged.
+
+The next owner live smoke at `efbe6b34a36dc72896c54f0c29f388cbebd02765` established successful END execution, HUD/expanded rendering, managed-key injection, real CURRENT acquisition, battle stats and active Complete Cardio gym. Missing bars fields were a source-envelope normalization defect, not authentication: official OpenAPI 6.13.6 wraps UserBars in bars, while the canonical adapter accepts direct bars. Nine-endpoint audit found only that missing unwrap. Product head `0ba12a007f0b1fe241b63b563586bb543990e679` adds the one-line runtime boundary correction, preserves direct/frozen adapter inputs, and separates API refresh tasks from immediate current confirmation and unavailable H1/H2 gates in beginner guidance. Advanced retains complete raw missing/reason evidence. Nine added regressions bring results to 67 runtime/UI/build / 229 focused / 466 full, with 162 canonical and 34 J cases unchanged. The [checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) records exact schema/build hashes, failed-before/passed-after reproduction and the repeated owner bars/UX smoke gate. No merge/release; no H1/H2 closure.
+
+## DQ-TRAIN-001J UI polish discussion
+
+Owner live TornPDA use progressed beyond the bars/input correction and exercised the core current-evidence workflow: explicit checkpoint/new epoch, same-epoch effect confirmation, selected-plan item-local confirmation, lower/zero override with recommendation change, refresh clearing prior manual proof, and H1 fail-closed behavior. These live outcomes contain no private values in Divine Knowledge.
+
+The owner then opened `[D]` UI-polish work. [RUNTIME-UI-POLISH-DISCUSSION-001J.md](RUNTIME-UI-POLISH-DISCUSSION-001J.md) records the active design direction. A live screenshot exposed Torn document chrome painting above the expanded Advisor, including near the Close control and state line; the checkpoint treats this as a modal-stacking/ownership defect rather than opacity bleed-through. Working direction includes a true modal stack, dark scrim with highly opaque Advisor surface, sticky touch-safe header/Close, compact state strip, semantic readiness/confidence colors, stronger recommendation hierarchy, acknowledged confirmation states, concise H1/H2 limitation presentation, and mobile safe-area treatment.
+
+This is discussion-only. Exact palette/opacity/typography/copy choices remain open, no polish product edits are authorized, and a separate owner `[S]` step is required before implementation.
+
 PR #134 subsequently passed independent [V] at `49fe20463c2e1568cc953e729129a8aa92ee5f38` and merged at `776d8e8044f317cd8feca58fb5197710b9c69b64`. The owner separately authorized runtime/UI implementation in draft PR #135. At the 001K freeze, PR #135 remains draft/open/unmerged at `4067c82c52439e97bb22856ac5e3e451d6a33591`, with current product bytes from `f309913a223520e720701d5e5c25cb092796b618`; owner TornPDA smoke has exercised the core current-state/confirmation workflow while H1/H2 remain open.
 
 The owner then completed [D] UI-polish design and froze [DQ-TRAIN-001K](UI-POLISH-ROUTE-SELECTION-SPEC-001K.md) with [synthetic acceptance fixtures](UI-POLISH-ROUTE-SELECTION-FIXTURES-001K.json). 001K adds the Midnight Ledger/Dark Terminal shell and information architecture plus a bounded canonical route-comparison projection and ephemeral exact-route selection. The UI cannot rerank or synthesize routes, route choice is not evidence, selected-route inventory confirmation is re-scoped, and a conditional fifth booster after a pre-use threshold remains checkpoint/reobserve/replan rather than a guessed future gain.
 
 Next gate: independent [V] of the 001K documentation/fixture freeze, followed by a separate owner merge decision. No 001K product amendment is authorized until after verified spec merge and a separate [B][WORK] decision.
+
+## Initial DQ-TRAIN-001K implementation checkpoint
+
+PR #136 passed independent [V] at `0b17df647129634675913b8f7c9ad2844986609c` and merged as `main@b8474253237e63485100fdcc51b2cb82530d2efc`. Separate owner [B][WORK] then authorized this amendment. The existing PR #135 branch was reconciled by ordinary two-parent merge `0e435bd1e4f3262e77c72b370e9bf35e64b55bba`, preserving previous head `4067c82c52439e97bb22856ac5e3e451d6a33591` and all 001J product/history evidence.
+
+Tested 0.1.1 product head `6a6cfdaf4097b4d7a4266e325d5e7e67380ad76d` adds canonical routeOptions (maximum seven exact fingerprints, deduplicated accumulated roles and supported preparation families), canonical marginal-final-booster metadata, ephemeral exact player selection with route-scoped inventory proof clearing, staged same-epoch Apply & Replan, and the frozen Midnight Ledger Plan/Options/Advanced/modal/HUD presentation. Historical objective winners remain unchanged; adapters and frozen 001J/001K specification/fixture bytes remain unchanged. No new endpoint, price source, durable key, gameplay action, authority TTL, polling or observer.
+
+Automated PASS: 162 existing canonical Training tests, 67 runtime/UI/build tests, 54 polish tests including all 46 K cases; 283 focused / 520 full, 21 suites; all 34 J cases; deterministic regeneration, source hashes, deliberate drift rejection, VM parity and four-quote guard. [Implementation checkpoint](RUNTIME-UI-BUILD-CHECKPOINT-001J.md) contains exact commands, privacy boundaries, manual checks and rollback. Prior owner 001J smoke is live evidence; the new 001K modal/route/UI implementation is synthetic-tested only. Next: repeated owner TornPDA and desktop smoke, independent implementation verification, then a separate owner merge decision. H1/H2 remain OPEN. Same PR #135 remains draft/open/unmerged/unreleased.
+
+## Current bounded verification correction
+
+At starting static-review head `e674345d9e787d0bce80eef87c018a397815d6e1`, owner-authorized correction product `9837276160d897ff08b565a8553ef7bf94a3da38` (0.1.2) guarantees Close 44px by 44px and scopes Beginner preparation/Points evidence to the effective canonical route. Advanced and no-safe-plan recovery remain available; no planner/readiness/mechanic change. Fresh 162 canonical + 67 runtime/UI/build + 60 polish = 289 focused / 526 full, 21 suites PASS; all 34 J / 46 K cases, 288 historical parity scenarios and deterministic/hash/drift/VM/smart-quote guards PASS. Frozen/canonical files unchanged by this correction; no storage/network/listener/timer/observer change. Repeat owner TornPDA/desktop smoke and independent implementation verification; PR #135 remains draft/open/unmerged, H1/H2 OPEN. Exact commands, artifact SHA and history are in the implementation checkpoint.
+
+## Current TornPDA HUD geometry correction
+
+Owner [B][WORK] authorized one HUD drag/clamp correction after independent verification PASS at `f6cbb7ca6b2485bfa4b90d17b869781376ee745a`. Synthetic scaled geometry reproduces the owner-reported upper-left restriction for both compact and collapsed HUD forms. Version 0.1.3 measures rendered bounds/viewport and converts to the existing CSS position preferences; no storage, listener, timer, observer, network, planner, evidence, route or mechanic change. Seven added UI/generated-HUD regressions: 296 focused / 533 full (21 suites), all 34 J / 46 K and 288 historical parity checks PASS. See the runtime/UI build checkpoint for exact commands, hashes, manual retest and rollback. Same PR #135 remains draft/unmerged; repeat owner TornPDA/desktop and amended-head independent verification are pending; H1/H2 OPEN.
