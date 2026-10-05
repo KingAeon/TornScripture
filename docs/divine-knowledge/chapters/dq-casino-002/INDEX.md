@@ -1,6 +1,6 @@
 # DQ-CASINO-002 — CA-01 Blackjack Specification and Live Rule Freeze
 
-State: **V1 RECONCILED / V2 INDEPENDENT VERIFICATION PENDING**
+State: **V2 PASS / OWNER MERGE DECISION PENDING**
 
 Parent research:
 - `../dq-casino-001/INDEX.md`
