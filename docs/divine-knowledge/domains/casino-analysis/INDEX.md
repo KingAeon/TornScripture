@@ -1,6 +1,6 @@
 # Casino Analysis Domain
 
-Status: **CA-01 RECONCILED / INDEPENDENT V2 VERIFICATION PENDING**
+Status: **CA-01 V2 VERIFIED / OWNER MERGE DECISION PENDING**
 
 ## Purpose
 
