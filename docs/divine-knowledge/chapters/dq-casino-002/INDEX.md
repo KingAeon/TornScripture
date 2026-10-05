@@ -33,7 +33,7 @@ This chapter does **not** authorize product code. It freezes the intended mathem
 contract as far as current evidence permits and isolates the remaining Torn-specific
 live-rule gates.
 
-## Current evidence baseline — rechecked 2026-09-22
+## Current evidence baseline — rechecked 2026-10-05
 
 ### Torn staff rule set
 
@@ -113,16 +113,18 @@ split_equal_value = true
 six_card_charlie = true
 insurance = offered_vs_ace
 insurance_payout = 2_to_1
-dealer_blackjack_resolution = UNFROZEN
+dealer_blackjack_exposure = UNFROZEN  # OBO | ENHC_FULL
 split_dealer_resolution = fresh_dealer_per_split_hand
+split_shoe_policy = UNFROZEN          # SHARED_DEPLETION | FRESH_BRANCH_SHOE | HYBRID
 six_card_charlie_precedence = loses_to_blackjack; vs_6CC_high_total_wins
+insurance_stake_ratio = UNFROZEN
 settlement_rounding = UNFROZEN
 ```
 
 The remaining `UNFROZEN` fields are hard gates for the final Torn rule profile.
-`split_dealer_resolution` is now staff-confirmed at the behavioral level, while exact
-finite-shoe depletion/reuse across the second split settlement still needs one live
-fixture before the split EV implementation is considered exact.
+`split_dealer_resolution` is staff-confirmed at the behavioral level. `dealer_blackjack_exposure`,
+`split_shoe_policy`, insurance stake sizing/rounding, and settlement rounding remain
+explicit parameters rather than guessed Torn constants.
 
 ## Card model
 
@@ -243,15 +245,17 @@ than from dealer upcard alone.
 
 ### Insurance
 
-If insurance stake is one-half base wager and pays 2:1, and `p` is the probability
-the dealer has Blackjack under the verified Torn dealer-card model:
+Let `i` be the insurance stake in base-wager units and `p` the probability the
+dealer has Blackjack under the selected dealer-card model. With the verified 2:1
+insurance payout:
 
-`EV_insurance = 0.5 * (2p - (1-p)) = 0.5 * (3p - 1)`
+`EV_insurance = i * (2p - (1-p)) = i * (3p - 1)`
 
-Break-even is therefore `p = 1/3`.
+Break-even is therefore `p = 1/3` for any positive stake size under a 2:1 payout.
 
-This formula must not be enabled until the exact Torn insurance/dealer-blackjack
-sequence is live-verified.
+The engine must read or parameterize `i`; it must not hard-code 0.5 while
+`BJ-V04B` remains unresolved. Insurance settlement is a separate side-bet branch
+and does not resolve `BJ-V01` Double/Split exposure policy.
 
 ### Split
 
@@ -260,7 +264,7 @@ Split is the most rule-sensitive branch.
 The solver must support:
 
 - exactly one split;
-- shared finite-shoe depletion across both resulting hands;
+- configurable cross-branch finite-shoe accounting; do not assume shared depletion until `BJ-V02B` is resolved;
 - hit after split aces;
 - double after split;
 - no re-split;
@@ -397,12 +401,11 @@ On a dealer Ace hand, record:
 
 The 2:1 settlement itself is no longer open.
 
-### BJ-V05 — ten-value split eligibility
+### BJ-V05 — mixed ten-value split eligibility — RESOLVED / OBSERVED
 
-If a mixed ten-value opening hand such as 10/J or Q/K naturally appears, observe
-whether Torn offers Split.
-
-This confirms whether the official "equal value" wording is literal in the current UI.
+Owner live evidence on 2026-09-23 captured K/Q with Split available and successfully
+used. This confirms the current UI applies the documented equal-value rule across
+mixed ten-value ranks.
 
 ## Validation fixtures
 
@@ -416,10 +419,12 @@ Before any HUD recommendation is considered trustworthy, the pure solver should 
    - reproduce the Beating Bonuses action table for the exact matching candidate
      profile wherever the state assumptions align.
 
-3. **Global edge fixture**
-   - simulate/enumerate the initial-hand distribution and reproduce the external
-     approximately +0.38% player edge and staff-attributed +0.37% target closely
-     enough to explain any residual difference.
+3. **Global edge fixtures**
+   - reproduce the external approximately +0.38% result only for the matching
+     full-loss/no-peek candidate profile;
+   - separately evaluate the OBO candidate rather than forcing it to the same target;
+   - treat Chedburn's approximately +0.37% statement as a broad current-system
+     benchmark, not an identifying fixture for an unresolved settlement rule.
 
 4. **Invariant fixtures**
    - surrender EV exactly -0.5 when available;
@@ -466,14 +471,17 @@ No automation control belongs in the module.
 We may continue refining the pure specification and gathering deterministic external
 fixtures now.
 
-We should **not freeze the final Torn rule profile or authorize implementation** until
-BJ-V01 and BJ-V02B are resolved. BJ-V02A and BJ-V04A are now resolved by admin
-evidence. BJ-V03, BJ-V04B, and BJ-V05 may be captured opportunistically but should be
-resolved before claiming full Torn-rule fidelity.
+The final **single** Torn rule profile remains unfrozen while BJ-V01 and BJ-V02B are
+open. That does not require the parameterized specification to guess either rule.
 
-Next after live-rule freeze:
-- owner review of the CA-01 specification;
-- then, if authorized, pure Blackjack Math Engine implementation before HUD/adapters.
+BJ-V02A, BJ-V04A, and BJ-V05 are resolved. BJ-V03 and BJ-V04B remain secondary
+fidelity checks.
+
+After independent V2 verification:
+- owner decides whether to merge the reconciled CA-01 specification;
+- no implementation begins from this branch;
+- only after that merge may a separate owner-authorized [B][WORK] task start the pure,
+  parameterized Blackjack Math Engine from the exact post-spec main SHA.
 
 ## CA-01 evidence deepening — post-PR#120 merge
 
@@ -856,3 +864,34 @@ single Torn rule profile is not fully frozen.
 Implementation remains unauthorized until owner review/approval. If authorized, the
 first implementation unit should be the pure, parameterized Blackjack Math Engine
 with deterministic tests; active-page adapter and HUD come afterward.
+
+## 2026-10-05 external freshness check
+
+Independent recheck found no announced Blackjack rule change after the September
+research pass:
+
+- the official Torn Blackjack Wiki still documents eight decks, S17, double on any
+  initial deal, equal-value splitting including aces, double after split, no re-split,
+  insurance against dealer Ace, 6CC precedence, and shuffle-after-every-game history;
+- Chedburn's 2026 staff statement still lists early surrender, hit after split aces,
+  DAS, DOA, 3:2 Blackjack, Six-Card Charlie, and one split only, with an approximately
+  +0.37% perfect-play player-edge benchmark;
+- Patch list #451 (changes from 2026-09-22 through 2026-09-29) contains no Blackjack
+  or casino-rule change, and the current Announcements index shows #451 as the latest
+  patch list at this verification point;
+- the 2024 admin split ruling and insurance ruling remain available and consistent
+  with the reconciled spec;
+- current public TornTools code still observes the active page's existing
+  `sid=blackjackData` response and reads dealer/player hands plus
+  `availableActions`.
+
+Sources:
+- https://wiki.torn.com/wiki/Black_Jack
+- https://www.torn.com/forums.php?p=threads&t=16486332
+- https://www.torn.com/forums.php?a=0&b=0&f=1&p=threads&t=16606699
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16387030
+- https://www.torn.com/forums.php?a=0&b=0&f=19&p=threads&t=16416107
+- https://github.com/Mephiles/torntools_extension/blob/main/src/common/features/blackjack-strategy/blackjack-strategy.ts
+
+This freshness check does **not** resolve BJ-V01 or BJ-V02B. Their uncertainty remains
+correctly explicit.
