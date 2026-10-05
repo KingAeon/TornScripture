@@ -1,6 +1,6 @@
 # Casino Analysis Domain
 
-Status: **ACTIVE RESEARCH / PRODUCT SPECIFICATION NOT FROZEN**
+Status: **CA-01 V2 VERIFIED / OWNER MERGE DECISION PENDING**
 
 ## Purpose
 
@@ -31,10 +31,14 @@ viewed, or present community theory as verified mechanics.
 - **TESTING** — plausible hypothesis awaiting controlled evidence.
 - **REJECTED** — claim contradicted by stronger evidence.
 
+## Reconciliation checkpoint
+
+CA-01 was reconciled onto `main@b8474253237e63485100fdcc51b2cb82530d2efc` on 2026-10-05 after later TornScriptures work caused PR#121 to diverge. No casino product code was created during reconciliation.
+
 ## Active chapter
 
-- `../../chapters/dq-casino-001/INDEX.md` — CA-00 research ledger, shallow survey
-  of all Torn casino games, unknown-mechanics registry, and shared-engine discovery.
+- `../../chapters/dq-casino-001/INDEX.md` — CA-00 research ledger, mechanics survey, shared-engine map, and module readiness.
+- `../../chapters/dq-casino-002/INDEX.md` — active CA-01 Blackjack math/advisor specification and live rule gates.
 
 ## Knowledge rule
 

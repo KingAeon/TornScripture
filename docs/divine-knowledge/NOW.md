@@ -1,12 +1,12 @@
 # NOW
 
-Snapshot: 2026-10-01 UTC; draft PR #135 core TornPDA workflow owner-smoke passed through bars/effects/selected-plan confirmation/zero-override/refresh reset; DQ-TRAIN-001K UI polish + canonical route-selection follow-on frozen for independent [V]; PR #135 remains draft/unmerged
+Snapshot: 2026-10-05 UTC; CA-01 Blackjack specification reconciled onto current main and independently V2-verified; owner merge decision pending; no casino product code authorized
 
 CURRENT_TRAINING|DQ-TRAIN-001K|ui_polish_route_selection_specification_frozen_independent_V_pending|base_main_776d8e8044f317cd8feca58fb5197710b9c69b64|docs/training-ui-polish-route-selection-001k-freeze
 CURRENT_TRAINING_DETAIL|follow-on to frozen/merged 001J and active draft PR#135; Midnight Ledger/Dark Terminal shell, modal stacking, Plan-Options-Advanced, transformed confirmations, structured Advanced, compact HUD, canonical bounded routeOptions, ephemeral exact-route selection, selected-route confirmation scope, and safe marginal-booster labeling frozen in docs/fixtures; no implementation authorized
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|776d8e8044f317cd8feca58fb5197710b9c69b64
+MAIN_AT_SNAPSHOT|b8474253237e63485100fdcc51b2cb82530d2efc
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -23,16 +23,17 @@ TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_
 TRAINING_NEXT|independent [V] of DQ-TRAIN-001K docs/fixtures; separate owner merge decision; only after verified spec merge may PR#135 receive separate [B][WORK] polish/route-selection amendment authorization
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
-PARALLEL|DQ-CASINO-001|active_research_gathering
+PARALLEL|DQ-CASINO-002|v2_verified_owner_merge_decision_pending
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
-CASINO_PHASE|CA-00A complete; CA-00B/CA-00C deepened; CA-00D adapter/shared-engine maps open; CA-00E provisional readiness map recorded
-CASINO_FINDING|BJ favorable rules staff-confirmed; Keno exact RTP/cap math derived; RR consecutive-shot behavior evidenced and 1x weakly optimal under candidate model; High-Low shuffle threshold remains contradictory
-CASINO_NEXT|public-source research is near diminishing returns; capture low-stake live verification matrix, then freeze CA-01 Blackjack specification
+CASINO_PHASE|CA-00 landed via PR#120; CA-01 V1 reconciled + V2 verified on PR#137; documentation remains draft/unmerged
+CASINO_FINDING|BJ-V01 dealer-natural extra-exposure remains OBO vs ENHC_FULL; BJ-V02B split-shoe accounting remains SHARED_DEPLETION vs FRESH_BRANCH_SHOE vs HYBRID; uncertainty envelope prevents guessed certainty
+CASINO_NEXT|owner merge decision on verified PR#137; only after merge may separate [B][WORK] authorization begin pure parameterized Blackjack Math Engine from exact post-spec main SHA
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
 LANDED|DIVINE-KNOWLEDGE-BOOTSTRAP|PR#113
 LANDED|UNRESOLVED-TRADE-JOURNAL|PR#116
+LANDED|CASINO-RESEARCH-CA00|PR#120
 
 TRADE_RECOVERY|API journal Load details > review > consume is supported TornPDA path
 TRADE_LIVE_DOM|best-effort only; absent complete matching snapshot must fail closed
