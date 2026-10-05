@@ -88,9 +88,11 @@ Screenshot/video: yes/no
 Notes:
 ```
 
-Once BJ-V01 and BJ-V02B are resolved, the mathematical rule profile can be frozen for
-implementation planning. BJ-V03, BJ-V04B, and BJ-V05 improve fidelity but are no
-longer the main blockers.
+Once BJ-V01 and BJ-V02B are resolved, a single verified Torn rule profile can be
+frozen. Until then, the pure engine may only proceed under the separately approved
+parameterized uncertainty-envelope contract; affected recommendations must fail closed
+when candidate profiles disagree. BJ-V03 and BJ-V04B remain secondary fidelity checks;
+BJ-V05 is resolved by owner live evidence.
 
 
 ## Captured 2026-09-23
