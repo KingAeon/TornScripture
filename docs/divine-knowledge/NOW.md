@@ -1,12 +1,12 @@
 # NOW
 
-Snapshot: 2026-10-05 UTC; CA-01 Blackjack specification reconciled onto current main and independently V2-verified; owner merge decision pending; no casino product code authorized
+Snapshot: 2026-10-05 UTC; PR#137 merged; CA-01 Blackjack pure-engine [B][WORK] authorized from exact post-spec main; isolated build branch created; product edits blocked at toolchain preflight until a full executable workspace can run exact-baseline tests
 
 CURRENT_TRAINING|DQ-TRAIN-001K|ui_polish_route_selection_specification_frozen_independent_V_pending|base_main_776d8e8044f317cd8feca58fb5197710b9c69b64|docs/training-ui-polish-route-selection-001k-freeze
 CURRENT_TRAINING_DETAIL|follow-on to frozen/merged 001J and active draft PR#135; Midnight Ledger/Dark Terminal shell, modal stacking, Plan-Options-Advanced, transformed confirmations, structured Advanced, compact HUD, canonical bounded routeOptions, ephemeral exact-route selection, selected-route confirmation scope, and safe marginal-booster labeling frozen in docs/fixtures; no implementation authorized
 
 PROJECT|TornScriptures
-MAIN_AT_SNAPSHOT|b8474253237e63485100fdcc51b2cb82530d2efc
+MAIN_AT_SNAPSHOT|c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475
 IMM|0.19.37|stable
 ACTIVE|DQ-EXT-001|D
 DQ_EXT|001A native provider contract audit completed
@@ -23,11 +23,11 @@ TRAINING_001C_POLICY|frozen|geometric_balanced_knee|natural_full_bar_usefulness_
 TRAINING_NEXT|independent [V] of DQ-TRAIN-001K docs/fixtures; separate owner merge decision; only after verified spec merge may PR#135 receive separate [B][WORK] polish/route-selection amendment authorization
 TRAINING_PR|#122|merged|05d8ba9c53d20cc9df0a4ada842df369a6a4f71a
 
-PARALLEL|DQ-CASINO-002|v2_verified_owner_merge_decision_pending
+PARALLEL|DQ-CASINO-002|build_authorized_toolchain_preflight_blocked
 CASINO_ADVISOR|single modular userscript; evidence-first; advisory-only; active-page/API data
-CASINO_PHASE|CA-00 landed via PR#120; CA-01 V1 reconciled + V2 verified on PR#137; documentation remains draft/unmerged
+CASINO_PHASE|PR#137 merged; pure parameterized Blackjack Math Engine build authorized; isolated branch agent/casino-blackjack-math-001-build created from exact post-spec main; no product edits yet
 CASINO_FINDING|BJ-V01 dealer-natural extra-exposure remains OBO vs ENHC_FULL; BJ-V02B split-shoe accounting remains SHARED_DEPLETION vs FRESH_BRANCH_SHOE vs HYBRID; uncertainty envelope prevents guessed certainty
-CASINO_NEXT|owner merge decision on verified PR#137; only after merge may separate [B][WORK] authorization begin pure parameterized Blackjack Math Engine from exact post-spec main SHA
+CASINO_NEXT|obtain full executable repository workspace, reproduce exact-baseline Node suite, then implement pure engine/tests per WORK-TRANSFER-HANDOFF-BLACKJACK-MATH-2026-10-05.md
 
 LANDED|DQ-KEY-001|PR#111
 LANDED|DQ-MARKET-001|PR#112
