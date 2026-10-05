@@ -1,6 +1,6 @@
 # DQ-CASINO-002 — CA-01 Blackjack Specification and Live Rule Freeze
 
-State: **SPECIFICATION PREP / LIVE RULE GATES**
+State: **V1 RECONCILED / V2 INDEPENDENT VERIFICATION PENDING**
 
 Parent research:
 - `../dq-casino-001/INDEX.md`
@@ -8,6 +8,19 @@ Parent research:
 Working product:
 - **TornScriptures Casino Advisor**
 - First game module: **Blackjack**
+
+## 2026-10-05 reconciliation checkpoint
+
+The original CA-01 specification lived only on stale draft PR #121 after substantial unrelated TornScriptures work advanced `main`. Under owner-authorized [V1], this chapter was reconstructed on a fresh documentation branch from exact `main@b8474253237e63485100fdcc51b2cb82530d2efc`.
+
+Reconciliation rules:
+- preserve every newer Training Advisor / project-governance change from current `main`;
+- carry forward only CA-01-specific decisions, observations, lessons, graph edges, and research state from PR #121;
+- touch no product code, tests, workflows, userscripts, storage, or release metadata;
+- require a separate independent [V2] before any owner merge decision;
+- require a separate post-merge [B][WORK] authorization before implementation.
+
+Prior CA-01 source head: `baa7b90581cda4670258332c061444f550f104b9`.
 
 ## Why CA-01 starts here
 
