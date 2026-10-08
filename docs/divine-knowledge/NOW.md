@@ -1,5 +1,16 @@
 # NOW
 
+## Current owner direction and confirmed repository checkpoint (2026-10-08)
+
+OWNER_DIRECTION|BLACK_LEDGER|comprehensive_market_intelligence_platform|vision_approved_not_blanket_implementation
+HANDOFF|domains/market-intelligence/OWNER-VISION-AND-RESUME-2026-10-08.md
+RESUME_ORDER|Black_Ledger_IMM_readonly_audit>Casino_readonly_audit>Training_Advisor_parked
+NEXT_SESSION|discuss_and_inspect_first; keep_bounded_specs_implementation_verification_owner_merges_separate
+REPO_CHECK_2026-10-08|main=c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475|CA01_PR137=merged|Training_PR135=open_draft_head_a7e38c939f11a660a9a620d681d7ac4db997bac8
+NOTE|recheck_mutable_repository_and_Torn_market_facts_before_action; no_spending_or_gameplay_automation_approved
+
+## Older snapshot retained for historical context (2026-10-05; stale states do not override checkpoint above)
+
 Snapshot: 2026-10-05 UTC; CA-01 Blackjack specification reconciled onto current main and independently V2-verified; owner merge decision pending; no casino product code authorized
 
 CURRENT_TRAINING|DQ-TRAIN-001K|ui_polish_route_selection_specification_frozen_independent_V_pending|base_main_776d8e8044f317cd8feca58fb5197710b9c69b64|docs/training-ui-polish-route-selection-001k-freeze

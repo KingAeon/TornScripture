@@ -35,6 +35,7 @@ See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate,
 - `domains/black-ledger/`
 - `domains/trader-sources/`
 - `domains/market-intelligence/`
+  - `domains/market-intelligence/OWNER-VISION-AND-RESUME-2026-10-08.md` — owner-approved full Black Ledger horizon, session priorities, safety boundaries, and Black Ledger/Casino restart prompt.
 - `domains/war-intelligence/`
 - `domains/bazaar/`
 - `domains/torn-api/`
