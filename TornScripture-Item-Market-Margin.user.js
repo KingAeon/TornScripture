@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.37
+// @version      0.19.38
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.37' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.37' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.38' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.38' });
   }
 
 
@@ -34,7 +34,212 @@
     sharedCatalogKey: 'tornscripture-ish-torn-catalog-v1',
     bridgePrefix: 'TSIMM_PRICE_BRIDGE:',
     noticeKey: 'tornscripture-imm-core-capture-notice-v1',
+    queueKey: 'tornscripture-imm-favorite-recapture-carousel-v1',
   });
+
+  // BL-R01B: the same decision runs before document-start and ordinary writes.
+  // Provider evidence is correlated observation, not authentication of a quote.
+  function captureSource(value) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
+      const host = url.hostname.toLowerCase().replace(/^www\./, '');
+      const provider = host === 'weav3r.dev' ? 'weav3r' : host === 'tornexchange.com' ? 'tornexchange' : '';
+      const match = provider === 'weav3r' ? url.pathname.match(/^\/pricelist\/(\d+)\/?$/)
+        : provider === 'tornexchange' ? url.pathname.match(/^\/prices\/([^/]+)\/?$/) : null;
+      return match ? { provider, url: `https://${host}${url.pathname.replace(/\/$/, '')}`, tornId: provider === 'weav3r' ? Number(match[1]) : null } : null;
+    } catch { return null; }
+  }
+
+  function safeCaptureReturn(value) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || !/^(www\.)?torn\.com$/i.test(url.hostname)
+        || url.username || url.password || url.port) return '';
+      url.searchParams.delete('tsimmPriceImport');
+      return url.href;
+    } catch { return ''; }
+  }
+
+  function captureEnvelope(candidate) {
+    if (!candidate || !['carousel', 'manual'].includes(candidate.intent)) return null;
+    const result = {};
+    for (const field of ['intent', 'runId', 'entryId', 'attemptId', 'traderRecordId', 'sourceUrl', 'provider']) {
+      result[field] = earlyClean(candidate[field]).slice(0, field === 'sourceUrl' ? 2048 : 160);
+      if (!result[field]) return null;
+    }
+    result.expectedTornId = Number(candidate.expectedTornId) > 0 ? Number(candidate.expectedTornId) : null;
+    for (const field of ['issuedAt', 'deadline', 'expiresAt']) {
+      result[field] = Number(candidate[field]);
+      if (!Number.isFinite(result[field]) || result[field] <= 0) return null;
+    }
+    if (result.deadline <= result.issuedAt || result.deadline - result.issuedAt > 60000
+      || result.expiresAt <= result.issuedAt || result.expiresAt - result.issuedAt > 900000) return null;
+    return result;
+  }
+
+  function captureReceiptMatches(receipt, envelope) {
+    return Boolean(receipt && envelope && ['runId', 'entryId', 'attemptId'].every((key) => receipt[key] === envelope[key]));
+  }
+
+  function captureAuthorityDecision(result, { queue = null, traders = [], manualConfirmed = false, ownerAction = false, pending = null, now = Date.now() } = {}) {
+    const reject = (reason) => ({ ok: false, reason });
+    const e = captureEnvelope(result?.envelope);
+    if (!e || e.issuedAt > now || e.expiresAt <= now) return reject('Missing or expired capture authority; explicitly recapture or use Retry/Skip.');
+    const expectedSource = captureSource(e.sourceUrl);
+    const actualSource = captureSource(result.sourceUrl);
+    if (!expectedSource || !actualSource || e.provider !== expectedSource.provider
+      || actualSource.provider !== e.provider) return reject('Unsupported provider or capture route.');
+    const outcome = result.outcome;
+    const outcomes = ['user_skipped', 'canceled', 'expired', 'captured', 'retry_needed', 'explicitly_empty', 'explicitly_unavailable', 'parser_failure', 'identity_mismatch', 'timeout'];
+    if (!outcomes.includes(outcome)) return reject('Unverified capture outcome.');
+    const producedAt = Number(result.producedAt);
+    if (!Number.isFinite(producedAt) || producedAt < e.issuedAt || producedAt > now) return reject('Capture timing cannot be established.');
+    const localAction = ['user_skipped', 'canceled', 'expired'].includes(outcome);
+    if (localAction && (!ownerAction || e.intent !== 'carousel')) return reject('Only an explicit Torn queue control can record this outcome.');
+    const timeout = outcome === 'retry_needed' || outcome === 'timeout';
+    if (!localAction && (timeout ? producedAt < e.deadline : producedAt > e.deadline)) return reject('Capture was produced outside its issued attempt window.');
+    const items = Array.isArray(result.items) ? result.items : [];
+    if (outcome === 'captured' ? !items.length : items.length > 0) return reject('Price evidence conflicts with the result type.');
+    if (items.some((item) => !item || typeof item !== 'object' || !Number.isFinite(Number(item.unitPrice)) || Number(item.unitPrice) <= 0
+      || !(Number(item.itemId) > 0 || earlyClean(item.itemName)))) return reject('Invalid parsed price evidence.');
+    const proof = result.evidence || {};
+    const observedId = Number(proof.tornId) > 0 ? Number(proof.tornId) : null;
+    const independent = e.provider === 'weav3r'
+      ? proof.kind === 'weav3r-route' && observedId === actualSource.tornId
+      : proof.kind === 'tornexchange-profile' && observedId > 0;
+    let trader = null;
+    let entry = null;
+    if (e.intent === 'carousel') {
+      entry = queue?.entries?.[queue.cursor];
+      if (!queue || Number(queue.schemaVersion) !== 4 || queue.status !== 'launched'
+        || Number(queue.expiresAt) <= now || queue.id !== e.runId || !entry
+        || entry.entryId !== e.entryId || entry.attemptId !== e.attemptId || entry.traderId !== e.traderRecordId
+        || ![1, 2].includes(entry.attemptsUsed) || entry.outcome
+        || ['issuedAt', 'deadline', 'expiresAt', 'provider', 'sourceUrl', 'expectedTornId'].some((key) => entry.envelope?.[key] !== e[key])) {
+        return reject('Result does not match the current Torn-issued attempt. Retry/Skip remains available.');
+      }
+      const exact = traders.filter((item) => String(item.id ?? item.recordId) === e.traderRecordId);
+      trader = exact[0];
+      if (exact.length !== 1 || !trader || (Number(trader.userId) > 0 && Number(trader.userId) !== e.expectedTornId)) return reject('Saved trader identity changed, is ambiguous or is missing.');
+      if (outcome === 'retry_needed' && entry.attemptsUsed !== 1) return reject('The two-attempt allowance is exhausted.');
+    } else {
+      if (queue && Number(queue.expiresAt) > now) return reject('Finish or cancel the carousel before a separate manual capture.');
+      if (!manualConfirmed || outcome !== 'captured') return reject('Confirm the actual manual target on Torn before saving.');
+      if (pending && Number(pending.expiresAt) > now && (Number(pending.userId) !== e.expectedTornId
+        || (pending.traderId && pending.traderId !== e.traderRecordId && e.traderRecordId !== `torn:${pending.userId}`))) return reject('Manual capture differs from the armed trader; clear/re-arm the target.');
+      const exact = traders.filter((item) => String(item.id ?? item.recordId) === e.traderRecordId);
+      const sameId = traders.filter((item) => Number(item.userId) === e.expectedTornId);
+      if (exact.length > 1 || (!exact.length && sameId.length > 1)) return reject('Ambiguous saved trader identity; arm the exact record in Trader Book.');
+      trader = exact[0] || (e.traderRecordId === `torn:${e.expectedTornId}` ? sameId[0] : null);
+      if (exact[0] && Number(exact[0].userId) !== e.expectedTornId) return reject('The armed manual target does not match the page Torn ID.');
+      if (!trader && e.traderRecordId !== `torn:${e.expectedTornId}`) return reject('The armed manual record no longer exists.');
+    }
+    const mismatch = independent && e.expectedTornId && observedId !== e.expectedTornId;
+    if (localAction) {
+      // No source-price evidence or price mutation is permitted for owner controls.
+    } else if (outcome === 'identity_mismatch') {
+      if (!mismatch && independent) return reject('Identity failure is not corroborated.');
+    } else {
+      if (actualSource.url !== expectedSource.url) return reject('Capture source differs from the issued source.');
+      if (!independent || !e.expectedTornId || observedId !== e.expectedTornId) return reject('Independent page Torn identity is unknown or mismatched.');
+    }
+    if (['explicitly_empty', 'explicitly_unavailable'].includes(outcome)
+      && !captureFinalStatement(outcome, proof.statement)) return reject('No affirmative final provider evidence.');
+    if (outcome === 'parser_failure' && proof.recognizable !== true) return reject('No recognizable incompatible price page.');
+    const receipts = Array.isArray(trader?.pricePageCaptureReceipts) ? trader.pricePageCaptureReceipts : [];
+    if (receipts.some((receipt) => captureReceiptMatches(receipt, e))) return reject('Capture result already consumed.');
+    if (receipts.filter((receipt) => Number(receipt.expiresAt) > now).length >= 64) return reject('Capture receipt limit reached; wait for request expiry.');
+    return { ok: true, envelope: e, trader, entry, source: actualSource, outcome };
+  }
+
+  function captureFinalStatement(outcome, text) {
+    // Only an explicit provider statement is evidence; zero rows never qualify.
+    return outcome === 'explicitly_empty'
+      ? /^this (?:price ?list|trader(?:'s)? price ?list) is empty[.!]?$/i.test(earlyClean(text))
+      : /^this trader is (?:not buying|unavailable|closed)[.!]?$/i.test(earlyClean(text));
+  }
+
+  function traderCaptureHistorical(trader) {
+    const captured = Date.parse(trader?.pricePageCapturedAt || trader?.pricesCapturedAt || '');
+    if (!Number.isFinite(captured) || captured > Date.now()) return true;
+    const outcome = earlyClean(trader.pricePageLastOutcome);
+    return outcome ? outcome !== 'captured' : /no-prices|fail|timeout|unavailable|inconclusive|mismatch/i.test(trader.pricePageLastResult || '');
+  }
+
+  function traderCaptureSummary(trader) {
+    const captured = trader?.pricePageCapturedAt || trader?.pricesCapturedAt;
+    const checked = trader?.pricePageLastCheckedAt;
+    const historical = traderCaptureHistorical(trader);
+    return `${historical ? 'Historical; not reverified' : 'Captured indicative quote; buying terms unverified'} · last captured ${captured || 'unknown'} · last attempted ${checked || 'never'}${trader?.pricePageLastReason ? ` · ${earlyClean(trader.pricePageLastReason).slice(0, 240)}` : ''}`;
+  }
+
+  function captureStoreContext() {
+    try {
+      const encoded = {};
+      const read = (key, fallback) => {
+        const stored = localStorage.getItem(key);
+        encoded[key] = stored;
+        return stored === null ? fallback : JSON.parse(stored);
+      };
+      const raw = read(EARLY_CAPTURE.tradersKey, []);
+      const traders = Array.isArray(raw) ? raw : raw?.traders;
+      const queue = read(EARLY_CAPTURE.queueKey, null);
+      const pending = read(EARLY_CAPTURE.pendingKey, null);
+      if (!Array.isArray(traders) || traders.some((trader) => !trader || typeof trader !== 'object'
+        || (trader.pricePageCaptureReceipts != null && (!Array.isArray(trader.pricePageCaptureReceipts) || trader.pricePageCaptureReceipts.some((r) => !r || typeof r !== 'object'))))
+        || (queue !== null && (typeof queue !== 'object' || Array.isArray(queue)))
+        || (pending !== null && (typeof pending !== 'object' || Array.isArray(pending)))) throw new Error('Invalid capture storage');
+      return { ok: true, raw, traders, queue, pending, encoded };
+    } catch { return { ok: false, traders: [], queue: null, pending: null }; }
+  }
+
+  function persistCaptureImport(result, manualConfirmed = false, ownerAction = false) {
+    const context = captureStoreContext();
+    if (!context.ok) return { ok: false, rejected: true, error: 'Capture storage is unreadable; preserve the backup and resolve storage before recapturing.' };
+    const decision = captureAuthorityDecision(result, { ...context, manualConfirmed, ownerAction });
+    if (!decision.ok) return { ok: false, rejected: true, error: decision.reason };
+    const e = decision.envelope;
+    if (decision.outcome === 'retry_needed') return { ok: true, outcome: 'retry_needed', envelope: e, result };
+    const now = new Date().toISOString();
+    const previous = decision.trader || { id: e.traderRecordId, name: earlyClean(result.trader?.name) || `Trader ${e.expectedTornId}`, userId: e.expectedTornId, createdAt: now, pricePageItems: [] };
+    const captured = decision.outcome === 'captured';
+    const changes = captured ? earlyChangedCount(previous.pricePageItems || [], result.items) : 0;
+    const receipt = { runId: e.runId, entryId: e.entryId, attemptId: e.attemptId, expiresAt: e.expiresAt };
+    const next = { ...previous, pricePageLastCheckedAt: new Date(result.producedAt).toISOString(),
+      pricePageLastOutcome: decision.outcome, pricePageLastReason: earlyClean(result.reason).slice(0, 240),
+      pricePageAttemptCount: Math.max(0, Number(previous.pricePageAttemptCount) || 0) + 1,
+      pricePageCaptureReceipts: [...(previous.pricePageCaptureReceipts || []).filter((r) => Number(r.expiresAt) > Date.now()), receipt],
+      pricePageLastCaptureReceipt: { ...receipt, envelope: e, outcome: decision.outcome }, updatedAt: now };
+    if (captured) Object.assign(next, {
+      pricePageItems: result.items, pricePageCapturedAt: new Date(result.producedAt).toISOString(),
+      previousPricePageUrl: previous.pricePageUrl && previous.pricePageUrl !== decision.source.url ? previous.pricePageUrl : previous.previousPricePageUrl || '',
+      pricePageUrl: decision.source.url, pricePageProvider: e.provider, pricePageTitle: earlyClean(result.title).slice(0, 160),
+      pricePageCaptureCount: Math.max(0, Number(previous.pricePageCaptureCount) || 0) + 1,
+      pricePageLastChangedCount: changes, pricePageLastResult: `${e.provider}-pricelist:${e.intent}`,
+    });
+    const traders = context.traders.slice();
+    const index = decision.trader ? traders.indexOf(decision.trader) : -1;
+    if (index < 0) traders.push(next); else traders[index] = next;
+    const stored = JSON.stringify(Array.isArray(context.raw) ? traders : { ...context.raw, traders });
+    const before = context.encoded[EARLY_CAPTURE.tradersKey];
+    try {
+      // Recheck the exact authority and book snapshot immediately before the write.
+      // A changed Torn tab/storage snapshot must be revalidated, never overwritten.
+      if (Object.entries(context.encoded).some(([key, encoded]) => localStorage.getItem(key) !== encoded)) {
+        return { ok: false, rejected: true, error: 'Capture authority or storage changed; return for Retry/Skip or explicitly recapture.' };
+      }
+    } catch { return { ok: false, rejected: true, error: 'Capture storage recheck failed; no prices saved.' }; }
+    try {
+      localStorage.setItem(EARLY_CAPTURE.tradersKey, stored);
+      if (localStorage.getItem(EARLY_CAPTURE.tradersKey) !== stored) throw new Error('Trader capture readback failed');
+    } catch (error) {
+      try { if (before === null) localStorage.removeItem(EARLY_CAPTURE.tradersKey); else localStorage.setItem(EARLY_CAPTURE.tradersKey, before); } catch {}
+      return { ok: false, rejected: true, error: 'Capture persistence failed; no queue continuation is authorized.' };
+    }
+    return { ok: true, outcome: decision.outcome, envelope: e, trader: next.name, traderId: next.id,
+      count: captured ? result.items.length : 0, changes, result };
+  }
 
   function earlyClone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -183,116 +388,37 @@
 
   function runEarlyCapturePreflight() {
     let url;
-    try {
-      url = new URL(location.href);
-    } catch {
-      return false;
-    }
+    try { url = new URL(location.href); } catch { return false; }
+    if (!safeCaptureReturn(url.href)) return false;
     const encoded = url.searchParams.get(EARLY_CAPTURE.importQueryKey);
     if (!encoded) return false;
-
     const compact = earlyDecodeBase64Url(encoded);
-    const items = earlyCaptureItems(compact);
-    if (!compact || !items.length) return false;
-    const provider = earlyClean(compact.p).toLowerCase() === 'tornexchange' ? 'tornexchange' : 'weav3r';
-
-    const pending = earlyLoadJson(EARLY_CAPTURE.pendingKey, null);
-    const identity = compact.t && typeof compact.t === 'object' ? compact.t : {};
-    const rawStore = earlyLoadJson(EARLY_CAPTURE.tradersKey, []);
-    const objectStore = !Array.isArray(rawStore) && Array.isArray(rawStore?.traders);
-    const traders = Array.isArray(rawStore) ? rawStore : objectStore ? rawStore.traders : [];
-    let index = earlyFindTraderIndex(traders, pending, identity);
-
-    if (index < 0) {
-      const name = earlyClean(pending?.name || identity.name)
-        || (Number(pending?.userId || identity.userId) > 0
-          ? `Trader ${Number(pending?.userId || identity.userId)}`
-          : 'Captured trader');
-      traders.push({
-        id: earlyClean(pending?.traderId || identity.traderId) || `trader-${Date.now()}`,
-        name,
-        normalizedName: earlyNameKey(name),
-        userId: Number(pending?.userId || identity.userId) > 0 ? Number(pending?.userId || identity.userId) : null,
-        rating: 0,
-        targetPercent: 99,
-        profileUrl: earlyClean(identity.profileUrl),
-        tradeUrl: earlyClean(identity.tradeUrl),
-        bannerUrl: earlyClean(identity.bannerUrl),
-        captureSource: `${provider}-pricelist`,
-        pricePageItems: [],
-        disposition: 'normal',
-        hiddenFromDisposition: 'normal',
-        avoidReasons: [],
-        createdAt: new Date().toISOString(),
-      });
-      index = traders.length - 1;
-    }
-
-    const trader = traders[index];
-    const now = new Date().toISOString();
-    const sourceUrl = earlyClean(compact.u);
-    const identityError = earlyCaptureIdentityMismatch(trader, identity);
-    if (identityError) {
-      earlyClearBridgeName();
-      url.searchParams.delete(EARLY_CAPTURE.importQueryKey);
-      try {
-        sessionStorage.setItem(EARLY_CAPTURE.noticeKey, JSON.stringify({
-          ok: false,
-          trader: earlyClean(identity.name) || 'another trader',
-          traderId: earlyClean(identity.traderId),
-          expectedTrader: earlyClean(trader.name),
-          expectedTraderId: earlyClean(trader.id),
-          sourceUrl,
-          error: identityError,
-        }));
-      } catch {}
-      location.replace(url.href);
-      return true;
-    }
-    const previousItems = Array.isArray(trader.pricePageItems) ? trader.pricePageItems : [];
-    const changes = earlyChangedCount(previousItems, items);
-    traders[index] = {
-      ...trader,
-      normalizedName: earlyNameKey(trader.name),
-      previousPricePageUrl: sourceUrl && trader.pricePageUrl && sourceUrl !== trader.pricePageUrl
-        ? trader.pricePageUrl
-        : earlyClean(trader.previousPricePageUrl),
-      pricePageUrl: sourceUrl || earlyClean(trader.pricePageUrl),
-      pricePageTitle: earlyClean(compact.l || trader.pricePageTitle).slice(0, 160),
-      pricePageProvider: provider,
-      pricePageItems: items,
-      pricePageCapturedAt: compact.c || now,
-      pricePageLastCheckedAt: now,
-      pricePageCaptureCount: Math.max(0, Math.floor(Number(trader.pricePageCaptureCount) || 0)) + 1,
-      pricePageLastChangedCount: changes,
-      pricePageLastResult: `${provider}-pricelist:core-preflight`,
-      updatedAt: now,
-    };
-
-    try {
-      localStorage.setItem(
-        EARLY_CAPTURE.tradersKey,
-        JSON.stringify(objectStore ? { ...rawStore, traders } : traders),
-      );
-      localStorage.removeItem(EARLY_CAPTURE.pendingKey);
-    } catch (error) {
-      console.error('[TornScripture IMM] Early capture storage failed:', error);
-      return false;
-    }
-
-    earlyClearBridgeName();
+    // Manual imports require a visible Torn-side target confirmation, after UI startup.
+    if (compact?.e?.intent === 'manual') return false;
+    const result = captureResultFromCompactEarly(compact);
+    const notice = persistCaptureImport(result);
+    try { sessionStorage.setItem(EARLY_CAPTURE.noticeKey, JSON.stringify(notice)); } catch {}
+    clearOffendingCaptureBridge(compact);
     url.searchParams.delete(EARLY_CAPTURE.importQueryKey);
-    try {
-      sessionStorage.setItem(EARLY_CAPTURE.noticeKey, JSON.stringify({
-        ok: true,
-        trader: traders[index].name,
-        traderId: traders[index].id,
-        count: items.length,
-        changes,
-      }));
-    } catch {}
     location.replace(url.href);
     return true;
+  }
+
+  function captureResultFromCompactEarly(compact) {
+    return { trader: compact?.t || {}, provider: compact?.p, sourceUrl: compact?.u, title: compact?.l,
+      envelope: compact?.e, outcome: compact?.o, producedAt: compact?.d, evidence: compact?.f,
+      reason: earlyClean(compact?.r).slice(0, 240), items: earlyCaptureItems(compact) };
+  }
+
+  function clearOffendingCaptureBridge(compact) {
+    try {
+      const raw = String(window.name || '');
+      if (!raw.startsWith(EARLY_CAPTURE.bridgePrefix)) return;
+      const payload = JSON.parse(raw.slice(EARLY_CAPTURE.bridgePrefix.length));
+      // A late URL must not erase an unrelated active request/result.
+      if ((payload.compact && compact && JSON.stringify(payload.compact) === JSON.stringify(compact))
+        || captureReceiptMatches(payload.compact?.e || payload.envelope, compact?.e)) earlyClearBridgeName();
+    } catch {}
   }
 
   function consumeEarlyCaptureNotice() {
@@ -310,19 +436,18 @@
     if (!raw.startsWith(EARLY_CAPTURE.bridgePrefix)) return null;
     try {
       const payload = JSON.parse(raw.slice(EARLY_CAPTURE.bridgePrefix.length));
-      if (payload?.type !== 'failure' || !payload.notice) return null;
-      window.name = earlyClean(payload.previousWindowName);
-      return payload.notice;
-    } catch {
-      return null;
-    }
+      if (payload?.type !== 'failure') return null;
+      const notice = persistCaptureImport(captureResultFromCompactEarly(payload.compact));
+      if (payload.compact) clearOffendingCaptureBridge(payload.compact); else earlyClearBridgeName();
+      return notice;
+    } catch { return null; }
   }
 
   if (runEarlyCapturePreflight()) return;
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.37
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.38
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -343,7 +468,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.37',
+    version: '0.19.38',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -981,6 +1106,11 @@
       pricePageItems,
       pricePageCapturedAt: candidate.pricePageCapturedAt ?? candidate.pricesCapturedAt ?? null,
       pricePageLastCheckedAt: candidate.pricePageLastCheckedAt ?? candidate.pricePageCapturedAt ?? null,
+      pricePageLastOutcome: earlyClean(candidate.pricePageLastOutcome).slice(0, 40),
+      pricePageLastReason: earlyClean(candidate.pricePageLastReason).slice(0, 240),
+      pricePageAttemptCount: Math.max(0, Math.floor(Number(candidate.pricePageAttemptCount) || 0)),
+      pricePageCaptureReceipts: Array.isArray(candidate.pricePageCaptureReceipts) ? candidate.pricePageCaptureReceipts.filter((r) => r && typeof r === 'object').map((r) => ({ runId: earlyClean(r.runId), entryId: earlyClean(r.entryId), attemptId: earlyClean(r.attemptId), expiresAt: Number(r.expiresAt) })) : [],
+      pricePageLastCaptureReceipt: candidate.pricePageLastCaptureReceipt || null,
       pricePageCaptureCount: Math.max(0, Math.floor(Number(candidate.pricePageCaptureCount) || 0)),
       pricePageLastChangedCount: Math.max(0, Math.floor(Number(candidate.pricePageLastChangedCount) || 0)),
       pricePageLastResult: normalizeWhitespace(candidate.pricePageLastResult) || (pricePageItems.length ? 'captured' : ''),
@@ -1247,55 +1377,39 @@
     };
   }
 
-  function priceCaptureRequestForTrader(trader, sourceUrl = '') {
-    return {
-      version: 1,
-      type: 'request',
-      trader: compactTraderCaptureIdentity(trader),
-      sourceUrl: cleanSupportedPricePageUrl(sourceUrl),
-      returnUrl: normalizeHttpUrl(location.href) || 'https://www.torn.com/index.php',
-      requestedAt: Date.now(),
-      expiresAt: Date.now() + (15 * 60 * 1000),
-      autoReturn: true,
-    };
+  function priceCaptureRequestForTrader(trader, sourceUrl = '', envelope = null) {
+    const source = captureSource(sourceUrl || trader?.pricePageUrl);
+    const now = Date.now();
+    const authority = envelope || (source ? {
+      intent: 'manual', runId: createId('manual-capture'), entryId: createId(`manual-${trader.id}`),
+      attemptId: createId('capture-attempt'), traderRecordId: trader.id, expectedTornId: trader.userId,
+      provider: source.provider, sourceUrl: source.url, issuedAt: now, deadline: now + 60000, expiresAt: now + 900000,
+    } : null);
+    return { version: 2, type: 'request', trader: compactTraderCaptureIdentity(trader), envelope: authority,
+      sourceUrl: source?.url || '', returnUrl: safeCaptureReturn(location.href) || 'https://www.torn.com/index.php',
+      requestedAt: now, expiresAt: authority?.expiresAt || now + 900000, autoReturn: authority?.intent === 'carousel' };
   }
 
   function weav3rUrlWithCaptureRequest(urlValue, request) {
-    const normalized = normalizeHttpUrl(urlValue);
-    if (!normalized) return '';
-    try {
-      const url = new URL(normalized);
-      const encoded = base64UrlEncode({
-        v: 1,
-        t: request.trader,
-        r: request.returnUrl,
-        a: request.autoReturn !== false,
-        x: request.expiresAt,
-      });
-      if (encoded) url.hash = `tsimm-capture=${encoded}`;
-      return url.href;
-    } catch {
-      return normalized;
-    }
+    if (!isWeav3rPriceListUrl(urlValue)) return '';
+    const url = new URL(urlValue);
+    url.hash = `tsimm-capture=${base64UrlEncode({ v: 2, t: request.trader, r: request.returnUrl,
+      a: request.autoReturn, x: request.expiresAt, e: request.envelope, n: request.attemptsUsed })}`;
+    return url.href;
   }
 
   function captureRequestFromWeav3rPage() {
     const hash = String(location.hash || '').slice(1);
     if (/^tsimm-capture=/i.test(hash)) {
       const decoded = base64UrlDecode(hash.replace(/^tsimm-capture=/i, ''));
-      if (decoded && (!decoded.x || Number(decoded.x) > Date.now())) {
-        return {
-          version: 1,
-          type: 'request',
-          trader: decoded.t || {},
-          returnUrl: normalizeHttpUrl(decoded.r) || '',
-          autoReturn: decoded.a !== false,
-          expiresAt: Number(decoded.x) || Date.now() + (15 * 60 * 1000),
-        };
+      if (decoded?.v === 2 && captureEnvelope(decoded.e) && Number(decoded.x) > Date.now()) {
+        return { version: 2, type: 'request', trader: decoded.t || {}, envelope: decoded.e,
+          attemptsUsed: decoded.n, sourceUrl: decoded.e.sourceUrl, returnUrl: safeCaptureReturn(decoded.r), autoReturn: decoded.a === true, expiresAt: decoded.x };
       }
+      return null; // A contradictory or stripped carrier cannot fall back to an old request.
     }
-    const bridged = readPriceBridgeWindowName();
-    return bridged?.type === 'request' ? bridged : null;
+    const bridge = readPriceBridgeWindowName();
+    return bridge?.version === 2 && bridge.type === 'request' && captureEnvelope(bridge.envelope) ? bridge : null;
   }
 
   function weav3rTraderIdentity() {
@@ -1311,7 +1425,7 @@
     const profileUserId = userIdFromUrl(profileAnchor?.href);
     // The pricelist route owns page identity. Document-wide profile links can
     // belong to announcements or site attribution and must not override it.
-    const userId = pathUserId || profileUserId || Math.max(0, Math.floor(Number(request?.trader?.userId) || 0)) || null;
+    const userId = pathUserId || profileUserId || null;
     const headings = [...document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')]
       .map((element) => normalizeWhitespace(element.innerText || element.textContent))
       .filter(Boolean);
@@ -1327,7 +1441,7 @@
     const requested = request?.trader || {};
     return {
       traderId: normalizeWhitespace(requested.traderId),
-      userId: userId || Math.max(0, Math.floor(Number(requested.userId) || 0)) || null,
+      userId,
       name: name || normalizeWhitespace(requested.name) || (userId ? `Trader ${userId}` : 'Weav3r trader'),
       profileUrl: normalizeHttpUrl(profileAnchor?.href)
         || (!pathUserId ? normalizeHttpUrl(requested.profileUrl) : '')
@@ -1422,7 +1536,8 @@
 
   function compactPriceCaptureResult(payload) {
     return {
-      v: 1,
+      v: 2,
+      e: payload.envelope, o: payload.outcome, d: payload.producedAt, f: payload.evidence, r: payload.reason,
       p: normalizeWhitespace(payload.provider || payload.sourceType || 'weav3r').toLowerCase(),
       t: compactTraderCaptureIdentity(payload.trader),
       u: cleanSupportedPricePageUrl(payload.sourceUrl),
@@ -1451,6 +1566,7 @@
       });
     }).filter(Boolean);
     return {
+      envelope: compact.e, outcome: compact.o, producedAt: compact.d, evidence: compact.f, reason: compact.r,
       trader: compact.t || {},
       provider: normalizeWhitespace(compact.p || 'weav3r').toLowerCase(),
       sourceUrl: normalizeHttpUrl(compact.u),
@@ -1461,7 +1577,7 @@
   }
 
   function returnUrlWithPriceCapture(result, returnUrl = '') {
-    const target = normalizeHttpUrl(returnUrl)
+    const target = safeCaptureReturn(returnUrl)
       || (result.trader?.userId ? `https://www.torn.com/profiles.php?XID=${result.trader.userId}` : 'https://www.torn.com/index.php');
     try {
       const url = new URL(target);
@@ -1474,26 +1590,9 @@
   }
 
   function returnToTornWithPriceCaptureFailure(request, mismatch, sourceUrl = location.href) {
-    const expected = request?.trader || {};
-    const notice = {
-      ok: false,
-      trader: normalizeWhitespace(mismatch?.actualName) || 'another trader',
-      traderId: normalizeWhitespace(expected.traderId),
-      expectedTrader: normalizeWhitespace(mismatch?.expectedName || expected.name),
-      expectedTraderId: normalizeWhitespace(expected.traderId),
-      sourceUrl: cleanSupportedPricePageUrl(sourceUrl),
-      error: normalizeWhitespace(mismatch?.reason) || 'The price page did not match the armed trader.',
-    };
-    writePriceBridgeWindowName({
-      version: 1,
-      type: 'failure',
-      notice,
-      returnUrl: normalizeHttpUrl(request?.returnUrl) || 'https://www.torn.com/index.php',
-      expiresAt: Date.now() + (20 * 60 * 1000),
-    });
-    const returnUrl = normalizeHttpUrl(request?.returnUrl) || 'https://www.torn.com/index.php';
-    window.location.assign(returnUrl);
-    return notice;
+    return emitProviderCapture(request, { provider: request?.envelope?.provider,
+      trader: request?.trader, sourceUrl, items: [], outcome: 'identity_mismatch',
+      evidence: providerIdentityEvidence(request?.envelope?.provider), reason: mismatch?.reason || 'Independent page identity is unknown.' });
   }
 
   function priceCaptureResultFromCurrentUrl() {
@@ -1520,89 +1619,162 @@
 
   function consumeImportedPriceCapture() {
     const bridged = readPriceBridgeWindowName();
-    const fromWindow = bridged?.type === 'result' ? expandPriceCaptureResult(bridged.compact) : null;
+    const fromWindow = ['result', 'failure'].includes(bridged?.type) ? expandPriceCaptureResult(bridged.compact) : null;
     const imported = priceCaptureResultFromCurrentUrl() || fromWindow;
-    if (!imported?.items?.length) return null;
-    const identity = imported.trader || {};
-    const provider = imported.provider === 'tornexchange' ? 'tornexchange' : 'weav3r';
-    let trader = state.traders.find((entry) =>
-      (identity.traderId && entry.id === identity.traderId)
-      || (identity.userId && entry.userId === Number(identity.userId))
-      || (identity.name && entry.normalizedName === normalizeName(identity.name))
-    ) || null;
-    if (!trader) {
-      trader = upsertTrader(normalizeTrader({
-        recordId: identity.traderId,
-        name: identity.name || (identity.userId ? `Trader ${identity.userId}` : 'Imported trader'),
-        userId: identity.userId,
-        profileUrl: identity.profileUrl,
-        tradeUrl: identity.tradeUrl,
-        bannerUrl: identity.bannerUrl,
-        captureSource: `${provider}-pricelist`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }));
+    if (!imported) return null;
+    let confirmed = false;
+    if (imported.envelope?.intent === 'manual') {
+      const context = captureStoreContext();
+      const preview = captureAuthorityDecision(imported, { ...context, manualConfirmed: true });
+      if (preview.ok) confirmed = confirm(`Capture indicative prices for ${preview.trader?.name || imported.trader?.name || 'Trader'} [${imported.envelope.expectedTornId}]?\n\nSource: ${imported.sourceUrl}\nThis is a separate manual capture, not carousel completion.`);
     }
-    const result = saveTraderPriceCapture(trader, {
-      url: imported.sourceUrl,
-      title: imported.title || `${trader.name}'s ${provider === 'tornexchange' ? 'TornExchange' : 'TornW3B'} pricelist`,
-      items: imported.items,
-      sourceType: `${provider}-pricelist`,
-      automatic: true,
-    });
-    const pending = activePendingTraderCapture();
-    if (pending && traderForPendingCapture(pending)?.id === trader.id) {
-      state.pendingTraderCapture = null;
-      savePendingTraderCapture();
-    }
-    clearPriceBridgeWindowName();
+    const result = saveTraderPriceCapture(null, { captureResult: imported, manualConfirmed: confirmed });
+    clearOffendingCaptureBridge(compactPriceCaptureResult(imported));
     clearPriceCaptureImportFromUrl();
+    if (!result?.ok) toast(result?.error || 'Capture rejected. Explicitly recapture; use Retry/Skip for the queue.');
+    else if (result.envelope?.intent === 'carousel') window.__TSIMM_WATCHLIST_API__?.continueFavoriteCaptureCarousel(result);
     return result;
+  }
+
+  let providerCaptureStopped = false;
+  let providerCaptureInitialized = false;
+  let providerAttemptTimer = null;
+  let providerAttemptToken = '';
+
+  function providerIdentityEvidence(provider) {
+    const identity = provider === 'weav3r' ? weav3rTraderIdentity() : tornExchangeTraderIdentity();
+    return { kind: provider === 'weav3r' ? 'weav3r-route' : 'tornexchange-profile', tornId: identity.userId || null };
+  }
+
+  function stopProviderCapture() {
+    providerCaptureStopped = true;
+    clearTimeout(providerAttemptTimer);
+    providerAttemptTimer = null;
+    for (const key of ['weav3rCaptureTimer', 'weav3rAutoReturnTimer', 'tornExchangeCaptureTimer', 'tornExchangeAutoReturnTimer']) {
+      clearTimeout(state[key]); state[key] = null;
+    }
+    state.weav3rObserver?.disconnect();
+    state.tornExchangeObserver?.disconnect();
+  }
+
+  function providerRequestValid(request, allowMismatch = false) {
+    const e = captureEnvelope(request?.envelope);
+    const actual = captureSource(location.href);
+    const source = captureSource(e?.sourceUrl);
+    return Boolean(e && source && actual && safeCaptureReturn(request.returnUrl)
+      && e.issuedAt <= Date.now() && e.expiresAt > Date.now() && source.provider === actual.provider
+      && source.provider === e.provider && (allowMismatch || source.url === actual.url));
+  }
+
+  function emitProviderCapture(request, result) {
+    if (!providerRequestValid(request, result.outcome === 'identity_mismatch')) return null;
+    const producedAt = Date.now();
+    const e = captureEnvelope(request.envelope);
+    const timeout = ['retry_needed', 'timeout'].includes(result.outcome);
+    if (timeout ? producedAt < e.deadline : producedAt > e.deadline) return null;
+    const complete = { ...result, envelope: e, producedAt, capturedAt: new Date(producedAt).toISOString() };
+    const compact = compactPriceCaptureResult(complete);
+    if (!writePriceBridgeWindowName({ version: 2, type: result.outcome === 'captured' ? 'result' : 'failure',
+      compact, returnUrl: safeCaptureReturn(request.returnUrl), expiresAt: e.expiresAt })) return null;
+    stopProviderCapture();
+    window.location.assign(returnUrlWithPriceCapture(complete, request.returnUrl));
+    return complete;
+  }
+
+  function providerPageOutcome(provider, items, evidence) {
+    // Exclude IMM controls and announcements: only an explicit native heading is final evidence.
+    const statements = [...document.querySelectorAll('main h1,main h2,main [role="status"],main [role="alert"]')]
+      .filter((node) => !node.closest?.('[data-tsimm-generated],#tsimm-panel'))
+      .map((node) => normalizeWhitespace(node.textContent));
+    for (const outcome of ['explicitly_unavailable', 'explicitly_empty']) {
+      const statement = statements.find((text) => captureFinalStatement(outcome, text));
+      if (statement) return { outcome, evidence: { ...evidence, statement }, reason: statement, items: [] };
+    }
+    const incompatible = provider === 'tornexchange'
+      ? [...document.querySelectorAll('table')].some((table) => /item name/i.test(table.textContent || '')
+        && !/buy price/i.test(table.textContent || '')) : false;
+    if (incompatible) return { outcome: 'parser_failure', evidence: { ...evidence, recognizable: true }, reason: 'Loaded item table has no supported buy-price column.', items: [] };
+    return items.length ? { outcome: 'captured', evidence, items, reason: '' }
+      : { outcome: 'loading_or_inconclusive', evidence, reason: 'Zero prices without affirmative final evidence.', items: [] };
+  }
+
+  function beginProviderAttempt(request, provider) {
+    if (!providerRequestValid(request) || providerCaptureStopped || document.hidden) return false;
+    const e = captureEnvelope(request.envelope);
+    if (providerAttemptToken === e.attemptId && providerAttemptTimer !== null) return true;
+    clearTimeout(providerAttemptTimer);
+    providerAttemptToken = e.attemptId;
+    providerAttemptTimer = setTimeout(() => {
+      providerAttemptTimer = null;
+      if (providerCaptureStopped || document.hidden || !providerRequestValid(request)) { stopProviderCapture(); return; }
+      // The provider references A only. Torn decides whether B may exist.
+      emitProviderCapture(request, { trader: request.trader, provider, sourceUrl: location.href, items: [],
+        evidence: providerIdentityEvidence(provider), outcome: request.attemptsUsed === 1 ? 'retry_needed' : 'timeout',
+        reason: 'Loading remained inconclusive at the Torn-issued deadline.' });
+    }, Math.max(0, e.deadline - Date.now()));
+    return true;
+  }
+
+  function captureProviderAndReturn(provider, automatic = false) {
+    const supportedSource = captureSource(location.href);
+    if (!supportedSource || supportedSource.provider !== provider) { stopProviderCapture(); toast('Unsupported price route. Open a supported trader page or return to Torn for Skip/Cancel.'); return null; }
+    const preview = provider === 'weav3r' ? createWeav3rCaptureResult() : createTornExchangeCaptureResult();
+    let request = preview.request;
+    const result = preview.result;
+    const evidence = providerIdentityEvidence(provider);
+    if (!automatic) {
+      if (request?.envelope?.intent === 'carousel') { toast('Carousel capture is automatic. Return to Torn for Retry/Skip or cancel it before manual capture.'); return null; }
+      if (!evidence.tornId) { toast('Page Torn identity is unverified. Open a supported identity-confirmed page before capturing.'); return null; }
+      if (request?.trader?.userId && Number(request.trader.userId) !== evidence.tornId) {
+        toast('The armed trader differs from this page Torn ID. Re-arm the actual trader on Torn.'); return null;
+      }
+      if (!confirm(`Capture indicative prices for ${result.trader.name} [${evidence.tornId}] and return to Torn?`)) {
+        clearPriceBridgeWindowName(); return null;
+      }
+      const now = Date.now();
+      const source = captureSource(location.href);
+      request = { version: 2, type: 'request', trader: result.trader,
+        returnUrl: safeCaptureReturn(request?.returnUrl) || 'https://www.torn.com/index.php',
+        envelope: { intent: 'manual', runId: createId('manual-capture'), entryId: createId('manual-entry'),
+          attemptId: createId('manual-attempt'), traderRecordId: request?.trader?.traderId || `torn:${evidence.tornId}`,
+          expectedTornId: evidence.tornId, sourceUrl: source.url, provider, issuedAt: now, deadline: now + 60000, expiresAt: now + 900000 } };
+      providerCaptureStopped = false;
+      // A deliberate button press starts a new manual window. An old armed
+      // request's deadline cannot authorize automatic parsing or suppress this action.
+      result.items = provider === 'weav3r' ? captureWeav3rPriceItems() : captureTornExchangePriceItems();
+    }
+    if (providerCaptureStopped || !providerRequestValid(request, true) || document.hidden) return null;
+    const e = captureEnvelope(request.envelope);
+    const actualId = Number(evidence.tornId) || null;
+    if (!actualId || !e.expectedTornId || actualId !== e.expectedTornId) {
+      return emitProviderCapture(request, { ...result, items: [], evidence, outcome: 'identity_mismatch',
+        reason: actualId ? `Expected Torn ID ${e.expectedTornId}; page identifies ${actualId}.` : 'Independent page Torn identity is unverified; manual recovery required.' });
+    }
+    if (!providerRequestValid(request)) { toast('Capture route differs from its request; return to Torn for Retry/Skip.'); stopProviderCapture(); return null; }
+    if (Date.now() >= e.deadline) {
+      beginProviderAttempt(request, provider); // No parsing result may be emitted after deadline.
+      return null;
+    }
+    const classification = providerPageOutcome(provider, result.items, evidence);
+    if (classification.outcome !== 'loading_or_inconclusive') return emitProviderCapture(request, { ...result, ...classification });
+    if (automatic) beginProviderAttempt(request, provider);
+    else toast('No supported prices yet. Explicitly recapture after the page loads.');
+    return null;
   }
 
   function createWeav3rCaptureResult() {
     const request = captureRequestFromWeav3rPage();
     const identity = weav3rTraderIdentity();
-    const items = captureWeav3rPriceItems();
     const mismatch = weav3rCaptureIdentityMismatch(request, identity, location.href);
-    const result = {
-      trader: { ...identity, traderId: identity.traderId || request?.trader?.traderId || '' },
-      provider: 'weav3r',
-      sourceUrl: cleanWeav3rPriceListUrl(location.href),
-      title: document.title,
-      items,
-      capturedAt: new Date().toISOString(),
-    };
+    const result = { trader: identity, provider: 'weav3r', sourceUrl: cleanWeav3rPriceListUrl(location.href),
+      title: document.title, items: request?.envelope && Date.now() >= request.envelope.deadline ? [] : captureWeav3rPriceItems(), capturedAt: new Date().toISOString() };
     state.weav3rCapturePreview = { ...result, mismatch };
-    if (!mismatch) {
-      writePriceBridgeWindowName({
-        version: 1,
-        type: 'result',
-        compact: compactPriceCaptureResult(result),
-        returnUrl: request?.returnUrl || '',
-        expiresAt: Date.now() + (20 * 60 * 1000),
-      });
-    }
+    // Previewing never emits a consumable result.
     return { result, request, mismatch };
   }
 
   function goBackToTornWithWeav3rCapture({ automatic = false } = {}) {
-    const { result, request, mismatch } = createWeav3rCaptureResult();
-    renderWeav3rCapturePanel();
-    if (mismatch) {
-      toast(`Capture stopped: expected ${mismatch.expectedName}, but this page belongs to ${mismatch.actualName}.`);
-      returnToTornWithPriceCaptureFailure(request, mismatch, location.href);
-      return null;
-    }
-    if (!result.items.length) {
-      toast('No TornW3B prices were parsed yet. Wait for the page to finish loading and retry.');
-      return null;
-    }
-    const returnUrl = returnUrlWithPriceCapture(result, request?.returnUrl);
-    toast(`${formatInteger(result.items.length)} prices captured${automatic ? ' · returning to Torn' : ''}.`);
-    clearTimeout(state.weav3rAutoReturnTimer);
-    state.weav3rAutoReturnTimer = setTimeout(() => window.location.assign(returnUrl), automatic ? 900 : 350);
-    return result;
+    return captureProviderAndReturn('weav3r', automatic);
   }
 
   function renderWeav3rCapturePanel() {
@@ -1616,7 +1788,7 @@
     panel.classList.toggle('tsimm-collapsed', Boolean(state.settings.collapsed));
     const request = captureRequestFromWeav3rPage();
     const identity = weav3rTraderIdentity();
-    const preview = state.weav3rCapturePreview || { items: captureWeav3rPriceItems() };
+    const preview = state.weav3rCapturePreview || { items: request?.envelope && Date.now() >= request.envelope.deadline ? [] : captureWeav3rPriceItems() };
     state.weav3rCapturePreview = { ...preview, trader: identity };
     const count = preview.items?.length || 0;
     const mismatch = preview.mismatch || weav3rCaptureIdentityMismatch(request, identity, location.href);
@@ -1633,7 +1805,8 @@
           <div class="tsimm-stat"><strong>${escapeHtml(identity.userId || '?')}</strong><span>Torn ID</span></div>
         </div>
         <div class="tsimm-note">IMM can read this public TornW3B pricelist, save its address to the trader, and bring the captured prices back to Torn.</div>
-        ${request ? `<div class="tsimm-note">Recapture requested for ${escapeHtml(request.trader?.name || identity.name)}. It will return to Torn automatically after a successful scan.</div>` : ''}
+        ${!request ? '<div class="tsimm-note">Manual-only: no correlated request survived. Capture &amp; return requires target confirmation on Torn; an active queue must be ended first.</div>' : ''}
+        ${request ? `<div class="tsimm-note">Recapture requested for ${escapeHtml(request.trader?.name || identity.name)}. ${request.autoReturn ? 'Returns to Torn after a validated result.' : 'Press Capture &amp; return to confirm this manual capture.'}</div>` : ''}
         ${mismatch ? `<div class="tsimm-note tsimm-loss-text">CAPTURE STOPPED · ${escapeHtml(mismatch.reason)} No prices were saved to ${escapeHtml(mismatch.expectedName)}.</div>` : ''}
         <div class="tsimm-actions">
           <button class="tsimm-btn tsimm-btn-blue" type="button" data-tsimm-weav3r-action="capture-return" ${mismatch ? 'disabled' : ''}>Capture & return to Torn</button>
@@ -1643,34 +1816,20 @@
   }
 
   function scheduleWeav3rCaptureScan(delay = 450) {
+    if (providerCaptureStopped) return;
     clearTimeout(state.weav3rCaptureTimer);
     state.weav3rCaptureTimer = setTimeout(() => {
       state.weav3rCaptureTimer = null;
-      const items = captureWeav3rPriceItems();
-      state.weav3rCapturePreview = {
-        trader: weav3rTraderIdentity(),
-        sourceUrl: cleanWeav3rPriceListUrl(location.href),
-        title: document.title,
-        items,
-      };
-      state.weav3rCapturePreview.mismatch = weav3rCaptureIdentityMismatch(
-        captureRequestFromWeav3rPage(),
-        state.weav3rCapturePreview.trader,
-        location.href,
-      );
       renderWeav3rCapturePanel();
-      const request = captureRequestFromWeav3rPage();
-      const bridged = readPriceBridgeWindowName();
-      if (request?.autoReturn
-        && (state.weav3rCapturePreview.mismatch || items.length)
-        && bridged?.type !== 'result'
-        && bridged?.type !== 'failure') {
-        goBackToTornWithWeav3rCapture({ automatic: true });
-      }
+      if (captureRequestFromWeav3rPage()?.autoReturn) captureProviderAndReturn('weav3r', true);
     }, Math.max(0, Number(delay) || 0));
   }
 
   function initializeWeav3rPriceCapture() {
+    if (providerCaptureInitialized) return;
+    providerCaptureInitialized = true;
+    window.addEventListener('pagehide', stopProviderCapture, { once: true });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopProviderCapture(); });
     injectStyles();
     document.addEventListener('click', (event) => {
       const button = event.target.closest('[data-tsimm-weav3r-action]');
@@ -1694,13 +1853,13 @@
     state.weav3rObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
     renderWeav3rCapturePanel();
     scheduleWeav3rCaptureScan(700);
-    setTimeout(() => scheduleWeav3rCaptureScan(1800), 1800);
   }
 
 
   function tornExchangeCaptureRequest() {
-    const bridged = readPriceBridgeWindowName();
-    return bridged?.type === 'request' ? bridged : null;
+    const bridge = readPriceBridgeWindowName();
+    // No URL carrier is enabled: actual TornPDA/provider qualification is outstanding.
+    return bridge?.version === 2 && bridge.type === 'request' && captureEnvelope(bridge.envelope) ? bridge : null;
   }
 
   function tornExchangePageName() {
@@ -1783,56 +1942,33 @@
 
   function tornExchangeTraderIdentity() {
     const request = tornExchangeCaptureRequest();
-    const requested = request?.trader || {};
-    const pageName = tornExchangePageName();
-    return {
-      traderId: normalizeWhitespace(requested.traderId),
-      userId: Math.max(0, Math.floor(Number(requested.userId) || 0)) || null,
-      name: pageName || normalizeWhitespace(requested.name) || 'TornExchange trader',
-      profileUrl: normalizeHttpUrl(requested.profileUrl),
-      tradeUrl: normalizeHttpUrl(requested.tradeUrl),
-      bannerUrl: normalizeHttpUrl(requested.bannerUrl),
-    };
+    const controls = [...document.querySelectorAll('a[href]')].filter((anchor) =>
+      /^(?:view )?profile$|^(?:start|set) trade$/i.test(normalizeWhitespace(anchor.innerText || anchor.textContent || anchor.getAttribute?.('aria-label'))));
+    const ids = [...new Set(controls.map((anchor) => {
+      try {
+        const url = new URL(anchor.href);
+        if (url.protocol !== 'https:' || !/^(?:www\.)?torn\.com$/i.test(url.hostname) || url.port || url.username || url.password
+          || !['/profiles.php', '/trade.php'].includes(url.pathname)) return null;
+        return userIdFromUrl(url.href);
+      } catch { return null; }
+    }).filter(Boolean))];
+    const userId = ids.length === 1 ? ids[0] : null;
+    return { traderId: request?.trader?.traderId || '', userId, name: tornExchangePageName(),
+      profileUrl: userId ? `https://www.torn.com/profiles.php?XID=${userId}` : '',
+      tradeUrl: userId ? `https://www.torn.com/trade.php#step=start&userID=${userId}` : '', bannerUrl: '' };
   }
 
   function createTornExchangeCaptureResult() {
     const request = tornExchangeCaptureRequest();
-    const identity = tornExchangeTraderIdentity();
-    const items = captureTornExchangePriceItems();
-    const result = {
-      trader: { ...identity, traderId: identity.traderId || request?.trader?.traderId || '' },
-      provider: 'tornexchange',
-      sourceUrl: cleanSupportedPricePageUrl(location.origin + location.pathname),
-      title: `${tornExchangePageName()} TornExchange prices`,
-      items,
-      capturedAt: new Date().toISOString(),
-    };
+    const result = { trader: tornExchangeTraderIdentity(), provider: 'tornexchange',
+      sourceUrl: cleanSupportedPricePageUrl(location.href), title: `${tornExchangePageName()} TornExchange prices`,
+      items: request?.envelope && Date.now() >= request.envelope.deadline ? [] : captureTornExchangePriceItems(), capturedAt: new Date().toISOString() };
     state.tornExchangeCapturePreview = result;
-    writePriceBridgeWindowName({
-      version: 1,
-      type: 'result',
-      compact: compactPriceCaptureResult(result),
-      returnUrl: request?.returnUrl || 'https://www.torn.com/page.php?sid=ItemMarket',
-      expiresAt: Date.now() + (20 * 60 * 1000),
-    });
     return { result, request };
   }
 
   function goBackToTornWithTornExchangeCapture({ automatic = false } = {}) {
-    const { result, request } = createTornExchangeCaptureResult();
-    renderTornExchangeCapturePanel();
-    if (!result.items.length) return null;
-    const armedName = normalizeWhitespace(request?.trader?.name);
-    if (armedName && normalizeName(armedName) !== normalizeName(result.trader.name)
-      && !confirm(`IMM is armed for ${armedName}, but this page belongs to ${result.trader.name}.\n\nSave these prices to ${armedName}?`)) return null;
-    if (armedName) result.trader.name = armedName;
-    const returnUrl = returnUrlWithPriceCapture(
-      result,
-      request?.returnUrl || 'https://www.torn.com/page.php?sid=ItemMarket',
-    );
-    clearTimeout(state.tornExchangeAutoReturnTimer);
-    state.tornExchangeAutoReturnTimer = setTimeout(() => window.location.assign(returnUrl), automatic ? 900 : 300);
-    return result;
+    return captureProviderAndReturn('tornexchange', automatic);
   }
 
   function injectTornExchangeStyles() {
@@ -1854,36 +1990,30 @@
       panel.id = APP.tornExchangePanelId;
       document.body.appendChild(panel);
     }
-    const items = state.tornExchangeCapturePreview?.items || captureTornExchangePriceItems();
+    const request = tornExchangeCaptureRequest();
+    const items = request?.envelope && Date.now() >= request.envelope.deadline ? [] : state.tornExchangeCapturePreview?.items || captureTornExchangePriceItems();
     const name = tornExchangePageName();
     const updated = tornExchangePageUpdated();
-    const request = tornExchangeCaptureRequest();
     const armed = normalizeWhitespace(request?.trader?.name);
     const mismatch = armed && normalizeName(armed) !== normalizeName(name);
-    panel.innerHTML = `<div class="txh"><strong>&gt; TORNEXCHANGE_CAPTURE</strong><span>core v${escapeHtml(APP.version)}</span></div><div class="txb"><div class="txg"><span>PAGE</span><b>${escapeHtml(name)}</b><span>PRICES</span><b>${formatInteger(items.length)}</b><span>UPDATED</span><b>${escapeHtml(updated || 'Unknown')}</b><span>TARGET</span><b>${escapeHtml(armed || name)}</b></div>${mismatch ? `<div class="txw">ARMED FOR ${escapeHtml(armed)} · PAGE IS ${escapeHtml(name)}</div>` : ''}<div class="txa"><button data-tsimm-tx-action="scan">RESCAN</button><button data-tsimm-tx-action="save" ${items.length ? '' : 'disabled'}>CAPTURE & RETURN</button></div></div>`;
+    panel.innerHTML = `<div class="txh"><strong>&gt; TORNEXCHANGE_CAPTURE</strong><span>core v${escapeHtml(APP.version)}</span></div><div class="txb"><div class="txg"><span>PAGE</span><b>${escapeHtml(name)}</b><span>PRICES</span><b>${formatInteger(items.length)}</b><span>PROVIDER UPDATED</span><b>${escapeHtml(updated || 'Unknown')}</b><span>TARGET</span><b>${escapeHtml(armed || name)}</b></div>${!request ? '<div class="txw">Manual-only: request transport is unverified or missing. Confirm page identity and target; return to Torn for Retry/Skip.</div>' : ''}${mismatch ? `<div class="txw">ARMED FOR ${escapeHtml(armed)} · PAGE IS ${escapeHtml(name)}</div>` : ''}<div class="txa"><button data-tsimm-tx-action="scan">RESCAN</button><button data-tsimm-tx-action="save" ${request?.envelope?.intent === 'carousel' && !items.length ? 'disabled' : ''}>CAPTURE & RETURN</button></div></div>`;
   }
 
   function scheduleTornExchangeCaptureScan(delay = 350) {
+    if (providerCaptureStopped) return;
     clearTimeout(state.tornExchangeCaptureTimer);
     state.tornExchangeCaptureTimer = setTimeout(() => {
       state.tornExchangeCaptureTimer = null;
-      state.tornExchangeCapturePreview = {
-        trader: tornExchangeTraderIdentity(),
-        provider: 'tornexchange',
-        sourceUrl: cleanSupportedPricePageUrl(location.origin + location.pathname),
-        title: `${tornExchangePageName()} TornExchange prices`,
-        items: captureTornExchangePriceItems(),
-      };
       renderTornExchangeCapturePanel();
-      const request = tornExchangeCaptureRequest();
-      if (request?.autoReturn && state.tornExchangeCapturePreview.items.length
-        && readPriceBridgeWindowName()?.type !== 'result') {
-        goBackToTornWithTornExchangeCapture({ automatic: true });
-      }
+      if (tornExchangeCaptureRequest()?.autoReturn) captureProviderAndReturn('tornexchange', true);
     }, Math.max(0, Number(delay) || 0));
   }
 
   function initializeTornExchangePriceCapture() {
+    if (providerCaptureInitialized) return;
+    providerCaptureInitialized = true;
+    window.addEventListener('pagehide', stopProviderCapture, { once: true });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopProviderCapture(); });
     injectTornExchangeStyles();
     document.addEventListener('click', (event) => {
       const button = event.target.closest('[data-tsimm-tx-action]');
@@ -1900,7 +2030,6 @@
     state.tornExchangeObserver.observe(document.body, { childList: true, subtree: true });
     renderTornExchangeCapturePanel();
     scheduleTornExchangeCaptureScan(650);
-    setTimeout(() => scheduleTornExchangeCaptureScan(20), 1600);
   }
 
   function normalizePriceRecaptureRequest(candidate) {
@@ -2061,7 +2190,22 @@
     return changed;
   }
 
-  function saveTraderPriceCapture(trader, { url = '', title = '', items = [], sourceType = 'page', automatic = false } = {}) {
+  function saveTraderPriceCapture(trader, { url = '', title = '', items = [], sourceType = 'page', automatic = false, captureResult = null, manualConfirmed = false } = {}) {
+    if (captureResult) {
+      const result = persistCaptureImport(captureResult, manualConfirmed);
+      if (result.ok && result.outcome !== 'retry_needed') {
+        state.traders = normalizeTraders(earlyLoadJson(EARLY_CAPTURE.tradersKey, []));
+        const pending = activePendingTraderCapture();
+        if (result.envelope?.intent === 'manual' && pending && traderForPendingCapture(pending)?.id === result.traderId) {
+          state.pendingTraderCapture = null;
+          savePendingTraderCapture();
+        }
+      }
+      return result;
+    }
+    const context = captureStoreContext();
+    if (!context.ok) { toast('Capture storage is unreadable; no capture was saved.'); return null; }
+    if (context.queue) { toast('Finish or cancel the carousel before a separate manual capture.'); return null; }
     if (!trader) return null;
     const cleanUrl = normalizeHttpUrl(url || location.href);
     const cleanItems = items.map(normalizeTraderPriceItem).filter(Boolean);
@@ -2075,14 +2219,16 @@
     const next = normalizeTrader({
       ...trader,
       recordId: trader.id,
-      previousPricePageUrl: previousUrl,
-      pricePageUrl: cleanUrl || trader.pricePageUrl,
-      pricePageTitle: normalizeWhitespace(title || document.title || trader.pricePageTitle).slice(0, 160),
+      previousPricePageUrl: cleanItems.length ? previousUrl : trader.previousPricePageUrl,
+      pricePageUrl: cleanItems.length ? cleanUrl || trader.pricePageUrl : trader.pricePageUrl,
+      pricePageTitle: cleanItems.length ? normalizeWhitespace(title || document.title || trader.pricePageTitle).slice(0, 160) : trader.pricePageTitle,
       pricePageItems: preservePrevious ? previousItems : cleanItems,
       pricePageCapturedAt: cleanItems.length ? now : trader.pricePageCapturedAt,
       pricePageLastCheckedAt: now,
       pricePageCaptureCount: Number(trader.pricePageCaptureCount || 0) + 1,
-      pricePageLastChangedCount: changedCount,
+      pricePageLastChangedCount: cleanItems.length ? changedCount : trader.pricePageLastChangedCount,
+      pricePageLastOutcome: cleanItems.length ? 'captured' : 'loading_or_inconclusive',
+      pricePageLastReason: cleanItems.length ? '' : 'No supported prices parsed; previous snapshot not reverified.',
       pricePageLastResult: cleanItems.length ? `${sourceType}:${automatic ? 'auto' : 'manual'}` : 'no-prices-found',
       updatedAt: now,
     });
@@ -2122,24 +2268,32 @@
     return result;
   }
 
-  function requestTraderPriceRecapture(traderId, preferredUrl = '') {
+  function requestTraderPriceRecapture(traderId, preferredUrl = '', envelope = null) {
     const trader = state.traders.find((entry) => entry.id === traderId);
     const targetUrl = cleanSupportedPricePageUrl(preferredUrl || trader?.pricePageUrl);
     if (!trader || !targetUrl) {
       toast('This trader does not have a saved price page yet.');
       return;
     }
+    const context = captureStoreContext();
+    if (!context.ok) { toast('Capture storage is unreadable; navigation blocked.'); return false; }
+    const queue = context.queue;
+    if (envelope) {
+      const entry = queue?.entries?.[queue.cursor];
+      if (queue?.status !== 'launched' || queue.id !== envelope.runId || !captureReceiptMatches(entry?.envelope, envelope)
+        || JSON.stringify(captureEnvelope(entry.envelope)) !== JSON.stringify(captureEnvelope(envelope))) { toast('Attempt authority changed; navigation blocked.'); return false; }
+    } else if (queue) { toast('Finish or cancel the carousel before a separate recapture.'); return false; }
     if (isWeav3rPriceListUrl(targetUrl)) {
-      const request = priceCaptureRequestForTrader(trader, targetUrl);
-      writePriceBridgeWindowName(request);
+      const request = { ...priceCaptureRequestForTrader(trader, targetUrl, envelope), attemptsUsed: envelope ? queue.entries[queue.cursor].attemptsUsed : 1 };
+      if (!writePriceBridgeWindowName(request)) { toast('Request transport failed; no navigation.'); return false; }
       window.location.assign(weav3rUrlWithCaptureRequest(targetUrl, request));
-      return;
+      return true;
     }
     if (isTornExchangePriceListUrl(targetUrl)) {
-      const request = priceCaptureRequestForTrader(trader, targetUrl);
-      writePriceBridgeWindowName(request);
+      const request = { ...priceCaptureRequestForTrader(trader, targetUrl, envelope), attemptsUsed: envelope ? queue.entries[queue.cursor].attemptsUsed : 1 };
+      if (!writePriceBridgeWindowName(request)) { toast('Request transport failed; no navigation.'); return false; }
       window.location.assign(targetUrl);
-      return;
+      return true;
     }
     if (!isTornPageUrl(targetUrl)) {
       toast('This saved page can be opened, but automatic recapture is not supported for its domain yet.');
@@ -6053,14 +6207,15 @@
       || normalizeName(candidate.itemName) === itemName
     );
     if (!capturedItem || Number(capturedItem.unitPrice) <= 0) return null;
-    const capturedAt = trader.pricePageLastCheckedAt || trader.pricePageCapturedAt || null;
+    const capturedAt = trader.pricePageCapturedAt || null;
     return {
       traderId: trader.id,
       traderName: trader.name,
       unitPrice: Number(capturedItem.unitPrice),
       capturedAt,
       freshness: tradeExitFreshness(capturedAt),
-      source: 'captured price list',
+      historical: traderCaptureHistorical(trader),
+      source: traderCaptureHistorical(trader) ? 'historical price; not reverified' : 'captured indicative price list',
     };
   }
 
@@ -6079,7 +6234,7 @@
       .filter(traderRecommendationsEligible)
       .map((trader) => {
         const quote = tradeExitQuoteForTrader(trader, { itemId, itemName, name: itemName });
-        if (!quote) return null;
+        if (!quote || quote.historical) return null;
         const profitEach = currentPrice === null ? null : Number(quote.unitPrice) - currentPrice;
         const roiPercent = currentPrice && profitEach !== null ? profitEach / currentPrice * 100 : null;
         return {
@@ -6130,9 +6285,9 @@
     const subtitle = currentPrice === null
       ? `${escapeHtml(itemName)} · current listing unresolved`
       : `${escapeHtml(itemName)} · lowest visible ${escapeHtml(formatMoney(currentPrice))}`;
-    const empty = '<div class="tsimm-item-trader-empty">No active trader has a captured price for this item yet.</div>';
+    const empty = '<div class="tsimm-item-trader-empty">No verified capture is eligible. <button type="button" data-tsimm-action="traders-open">Trader Book: historical prices / recapture</button></div>';
     return `<section class="tsimm-item-trader-card">
-      <div class="tsimm-item-trader-head"><div><strong>🤝 Best trader exits</strong><span>${subtitle}</span></div>${toggle}</div>
+      <div class="tsimm-item-trader-head"><div><strong>🤝 Best trader exits · indicative only</strong><span>${subtitle}</span></div>${toggle}</div>
       <div class="tsimm-item-trader-list">${rows || empty}</div>
     </section>`;
   }
@@ -7089,7 +7244,7 @@
     panel.className = `${verification.status}${inventorySurface ? ' inline' : ''}${expanded ? ' expanded' : ''}`;
     const trader = verification.trader;
     const count = trader?.pricePageItems?.length || 0;
-    const capturedAt = trader?.pricePageLastCheckedAt || trader?.pricePageCapturedAt || null;
+    const capturedAt = trader?.pricePageCapturedAt || null;
     const freshness = tradeExitFreshness(capturedAt);
     const title = verification.status === 'verified'
       ? `🤝 ${trader.name} · ${formatInteger(priced)}/${formatInteger(decorated)} priced`
@@ -7114,7 +7269,7 @@
         : verification.status === 'mismatch'
           ? `Armed for ${trader?.name || verification.session?.traderName}; this trade is with ${verification.currentTrader?.name || 'someone else'}. No prices were applied.`
           : 'The armed trader is no longer present in Trader Book. No prices were applied.';
-    panel.innerHTML = `<button type="button" class="tsimm-priced-trade-summary" data-tsimm-action="priced-trade-toggle" aria-expanded="${expanded ? 'true' : 'false'}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(compactDetail)}</span><small>${escapeHtml(detail)}</small></button><button type="button" class="tsimm-priced-trade-clear" data-tsimm-action="priced-trade-clear">CLEAR</button>`;
+    panel.innerHTML = `<button type="button" class="tsimm-priced-trade-summary" data-tsimm-action="priced-trade-toggle" aria-expanded="${expanded ? 'true' : 'false'}"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(compactDetail)}</span><small>${escapeHtml(detail)} · ${escapeHtml(traderCaptureSummary(trader))}</small></button><button type="button" class="tsimm-priced-trade-clear" data-tsimm-action="priced-trade-clear">CLEAR</button>`;
   }
 
 
@@ -7196,7 +7351,7 @@
       if (!trader?.id || seen.has(trader.id)) continue;
       seen.add(trader.id);
       const quote = tradeExitQuoteForTrader(trader, { itemId: item.id, name: item.name });
-      if (!quote) continue;
+      if (!quote || quote.historical) continue;
       const freshness = quote.freshness || tradeExitFreshness(quote.capturedAt);
       if (freshness.status === 'missing') continue;
       quotes.push({ trader, quote: { ...quote, freshness } });
@@ -7216,7 +7371,7 @@
   }
 
   function pricedTradeBestMatchHtml(bestMatch, currentTrader, currentQuote, projection) {
-    if (!bestMatch?.trader || !bestMatch?.quote || !currentTrader || !currentQuote) return '';
+    if (!bestMatch?.trader || !bestMatch?.quote || !currentTrader || !currentQuote || currentQuote.historical || bestMatch.quote.historical) return '';
     const stale = bestMatch.comparisonFreshness !== 'fresh';
     const isCurrent = bestMatch.trader.id === currentTrader.id;
     if (isCurrent) {
@@ -7241,6 +7396,7 @@
   }
 
   function pricedTradeCompactBadgeHtml(projection, bestMatch, currentTrader, currentQuote) {
+    if (currentQuote?.historical) return `<span class="tsimm-priced-trade-compact"><strong>HISTORICAL / UNVERIFIED · ${escapeHtml(formatMoney(currentQuote.unitPrice))} ea</strong><span>last captured ${escapeHtml(currentQuote.capturedAt || 'unknown')} · not reverified</span></span>`;
     const trackedQuantity = Math.max(0, Math.floor(Number(projection?.trackedQuantity) || 0));
     const requestedQuantity = Math.max(1, Math.floor(Number(projection?.requestedQuantity) || 1));
     const knownCost = trackedQuantity > 0 && Number.isFinite(Number(projection?.profitEach));
@@ -7359,7 +7515,11 @@
     const expanded = pricedTradeExpandedBadgeTokens.has(token);
     let badgeClasses = [PRICED_TRADE_BADGE_CLASS];
     let badgeHtml = '';
-    if (quote) {
+    if (quote?.historical) {
+      row.classList.add('missing');
+      badgeClasses = [PRICED_TRADE_BADGE_CLASS, 'missing', 'quantity-full-stack'];
+      badgeHtml = pricedTradeCompactBadgeHtml(null, null, trader, quote);
+    } else if (quote) {
       const freshness = quote.freshness || tradeExitFreshness(quote.capturedAt);
       const status = freshness.status === 'fresh' ? 'fresh' : freshness.status;
       row.classList.add(status);
@@ -7381,7 +7541,7 @@
       const quantityLabel = `FULL STACK · ${formatInteger(availableQuantity)} AVAILABLE`;
       const detailHtml = pricedTradeLedgerHtml(ledger, quote.unitPrice)
         + pricedTradeBestMatchHtml(bestMatch, trader, quote, ledger)
-        + `<span class="tsimm-priced-trade-meta">${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`;
+        + `<span class="tsimm-priced-trade-meta">Indicative quote; buying terms unverified · ${escapeHtml(quantityLabel)} · ${escapeHtml(trader.name)} · ${escapeHtml(freshness.ageLabel)}</span>`;
       badgeHtml = pricedTradeCompactBadgeHtml(ledger, bestMatch, trader, quote)
         + `<span class="tsimm-priced-trade-details">${detailHtml}</span>`;
     } else {
@@ -7601,7 +7761,7 @@
             source: 'live trade cash',
           }
         : null;
-      const currentQuote = liveCurrent || capturedCurrent;
+      const currentQuote = liveCurrent || (capturedCurrent?.historical ? null : capturedCurrent);
       if (currentQuote) {
         currentCoverage += 1;
         currentCapturedTotal += currentQuote.unitPrice * quantity;
@@ -7610,7 +7770,7 @@
 
       const favoriteQuotes = otherFavorites
         .map((trader) => tradeExitQuoteForTrader(trader, item))
-        .filter(Boolean)
+        .filter((quote) => quote && !quote.historical)
         .sort((left, right) =>
           Number(right.unitPrice) - Number(left.unitPrice)
           || Number(left.freshness.ageMs ?? Number.MAX_SAFE_INTEGER) - Number(right.freshness.ageMs ?? Number.MAX_SAFE_INTEGER)
@@ -7721,6 +7881,7 @@
         targetEach,
         npcEach,
         currentQuote,
+        archivedQuote: capturedCurrent?.historical ? capturedCurrent : null,
         bestFreshFavorite,
         bestStaleFavorite,
         status,
@@ -7759,7 +7920,7 @@
     const overallLabel = {
       review: `${betterElsewhereCount + npcBetterCount} route${betterElsewhereCount + npcBetterCount === 1 ? '' : 's'} to review`,
       stale: 'Refresh captured prices',
-      unknown: 'Incomplete exit coverage',
+      unknown: 'Incomplete exit coverage; historical quotes are not reverified',
       'sell-here': closeEnoughCount
         ? `${closeEnoughCount} small switch gain${closeEnoughCount === 1 ? '' : 's'} ignored`
         : 'Current route wins',
@@ -13228,7 +13389,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const reasonText = traderReasonLabels(trader).join(' · ');
     const stars = trader.rating ? `${'★'.repeat(trader.rating)}${'☆'.repeat(5 - trader.rating)}` : 'Not rated';
     const favorite = traderFavoriteState(trader);
-    const priceFreshness = tradeExitFreshness(trader.pricePageLastCheckedAt || trader.pricePageCapturedAt);
+    const priceFreshness = tradeExitFreshness(trader.pricePageCapturedAt);
     const recentSales = stats.sales.slice(0, 6);
     const topItems = stats.topItems.slice(0, 8);
     const journal = [...normalizeTraderRelationshipJournal(trader.relationshipJournal, trader.updatedAt)].reverse();
@@ -13298,8 +13459,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
                 <span>Captured items</span><strong>${formatInteger(trader.pricePageItems?.length || 0)}</strong>
                 <span>Captured at</span><strong>${trader.pricePageCapturedAt ? escapeHtml(new Date(trader.pricePageCapturedAt).toLocaleString()) : 'Never'}</strong>
                 <span>Last checked</span><strong>${trader.pricePageLastCheckedAt ? escapeHtml(new Date(trader.pricePageLastCheckedAt).toLocaleString()) : 'Never'}</strong>
-                <span>Freshness</span><strong class="tsimm-dossier-freshness-${escapeHtml(priceFreshness.status)}">${escapeHtml(priceFreshness.ageLabel)} · ${escapeHtml(priceFreshness.status)}</strong>
-                <span>Last result</span><strong>${escapeHtml(trader.pricePageLastResult || 'No result recorded')}</strong>
+                <span>Capture age (not quote freshness)</span><strong class="tsimm-dossier-freshness-${escapeHtml(priceFreshness.status)}">${escapeHtml(priceFreshness.ageLabel)} · ${escapeHtml(priceFreshness.status)}</strong>
+                <span>Capture status</span><strong>${escapeHtml(traderCaptureSummary(trader))}</strong><span>Last result</span><strong>${escapeHtml(trader.pricePageLastResult || 'No result recorded')}</strong>
                 <span>Checks / changes</span><strong>${formatInteger(trader.pricePageCaptureCount)} / ${formatInteger(trader.pricePageLastChangedCount)}</strong>
                 <span>Page title</span><strong>${escapeHtml(trader.pricePageTitle || 'Untitled')}</strong>
               </div>
@@ -13327,7 +13488,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const roleLabel = traderRelationshipRoleLabel(roles);
     const favorite = traderFavoriteState(trader);
     const priceItemCount = trader.pricePageItems?.length || 0;
-    const priceCheckedAt = trader.pricePageLastCheckedAt || trader.pricePageCapturedAt || null;
+    const priceCheckedAt = trader.pricePageCapturedAt || null;
     const priceFreshness = priceCheckedAt ? tradeExitFreshness(priceCheckedAt) : null;
     const priceFreshnessText = !trader.pricePageUrl || !priceFreshness
       ? 'Unavailable'
@@ -13364,7 +13525,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         <div class="tsimm-trader-compact-footer">
           <div class="tsimm-trader-compact-freshness">
             <span><b>Activity</b> ${escapeHtml(recentActivity)}</span>
-            <span class="tsimm-dossier-freshness-${escapeHtml(priceFreshness?.status || 'missing')}"><b>Prices</b> ${escapeHtml(priceFreshnessText)}</span>
+            <span class="tsimm-dossier-freshness-${escapeHtml(priceFreshness?.status || 'missing')}"><b>Prices</b> ${escapeHtml(priceFreshnessText)} · ${escapeHtml(traderCaptureSummary(trader))}</span>
           </div>
           <button type="button" class="tsimm-btn-gold" data-tsimm-action="trader-dossier-open" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open dossier</button>
           <details class="tsimm-trader-row-more">
@@ -13418,7 +13579,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <span>Tracked profit</span><strong class="${stats.profit >= 0 ? 'tsimm-ledger-profit' : 'tsimm-ledger-loss'}">${stats.profit >= 0 ? '+' : ''}${formatMoney(stats.profit)}</strong>
           <span>Observed payout</span><strong>${stats.effectivePercent === null ? 'No history' : formatPercent(stats.effectivePercent)}</strong>
           <span>Last recorded trade</span><strong>${escapeHtml(lastTrade)}</strong>
-          ${trader.pricePageUrl ? `<span>Saved price page</span><strong>${formatInteger(priceItemCount)} prices</strong><span>Last price check</span><strong>${escapeHtml(lastPriceCapture)}</strong><span>Last changes</span><strong>${formatInteger(trader.pricePageLastChangedCount || 0)}</strong>` : ''}
+          ${trader.pricePageUrl ? `<span>Saved price page</span><strong>${formatInteger(priceItemCount)} prices</strong><span>Last price check</span><strong>${escapeHtml(lastPriceCapture)}</strong><span>Capture status</span><strong>${escapeHtml(traderCaptureSummary(trader))}</strong><span>Last changes</span><strong>${formatInteger(trader.pricePageLastChangedCount || 0)}</strong>` : ''}
         </div>
         ${trader.notes ? `<div class="tsimm-trader-notes">${escapeHtml(trader.notes)}</div>` : ''}
         <div class="tsimm-trader-actions">
@@ -14766,7 +14927,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const importedPriceCapture = consumeImportedPriceCapture();
     if (EARLY_CAPTURE_NOTICE) {
       setTimeout(() => toast(
-        `${EARLY_CAPTURE_NOTICE.trader}: ${formatInteger(EARLY_CAPTURE_NOTICE.count)} prices saved${EARLY_CAPTURE_NOTICE.changes ? ` · ${formatInteger(EARLY_CAPTURE_NOTICE.changes)} changed` : ''}. IMM controls restored.`,
+        EARLY_CAPTURE_NOTICE.rejected ? EARLY_CAPTURE_NOTICE.error : `${EARLY_CAPTURE_NOTICE.trader || 'Refresh'}: ${EARLY_CAPTURE_NOTICE.outcome} · ${formatInteger(EARLY_CAPTURE_NOTICE.count || 0)} prices.`,
       ), 150);
     }
     runPurchasePrivacyMigration();
@@ -14775,8 +14936,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     bindPanelEvents();
     installNetworkObservers();
     bindObserver();
-    if (importedPriceCapture) {
-      setTimeout(() => toast(`${importedPriceCapture.trader.name}: ${formatInteger(importedPriceCapture.parsedCount)} TornW3B prices saved${importedPriceCapture.changedCount ? ` · ${formatInteger(importedPriceCapture.changedCount)} changed` : ''}.`), 150);
+    if (importedPriceCapture?.ok) {
+      setTimeout(() => toast(`${importedPriceCapture.trader || 'Capture'}: ${importedPriceCapture.outcome}.`), 150);
     }
     window.addEventListener('hashchange', () => scheduleScan(20));
     window.addEventListener('popstate', () => scheduleScan(20));
@@ -14791,6 +14952,17 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   if (globalThis.__TS_IMM_TEST_MODE__) {
     globalThis.__TS_IMM_TEST_EXPORTS__ = {
       state,
+      normalizeTrader, normalizeTraders, weav3rTraderIdentity, weav3rCaptureIdentityMismatch, captureWeav3rPriceItems, captureTornExchangePriceItems,
+      traderCardHtml, traderCompactRowHtml, traderDossierHtml, buildTradeExitAudit,
+      captureSource, captureEnvelope, captureAuthorityDecision, persistCaptureImport, captureStoreContext,
+      captureResultFromCompactEarly, runEarlyCapturePreflight, consumeImportedPriceCapture, saveTraderPriceCapture,
+      compactPriceCaptureResult, expandPriceCaptureResult,
+      priceCaptureRequestForTrader, requestTraderPriceRecapture, weav3rUrlWithCaptureRequest, captureRequestFromWeav3rPage,
+      providerIdentityEvidence, providerPageOutcome, providerRequestValid, emitProviderCapture, beginProviderAttempt, stopProviderCapture,
+      captureProviderAndReturn, createWeav3rCaptureResult, createTornExchangeCaptureResult, tornExchangeTraderIdentity, tornExchangeCaptureRequest,
+      initializeWeav3rPriceCapture, initializeTornExchangePriceCapture,
+      traderCaptureHistorical, traderCaptureSummary, tradeExitQuoteForTrader, singleItemTraderQuotes, singleItemTraderQuotesHtml,
+      pricedTradeBestTraderQuote, pricedTradeBestMatchHtml, pricedTradeCompactBadgeHtml, pricedTradeRenderRowBadge, renderPricedTradePanel,
       normalizeLedger,
       normalizeTradeJournal,
       normalizeTradeJournalEntry,
@@ -14860,12 +15032,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       openApiTradeRecovery,
       importLedgerJson,
     };
-    return;
   }
 
-  if (document.readyState === 'loading') {
+  if (!globalThis.__TS_IMM_TEST_MODE__ && document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initialize, { once: true });
-  } else {
+  } else if (!globalThis.__TS_IMM_TEST_MODE__) {
     initialize();
   }
 
@@ -15252,7 +15423,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         uid,
         disposition,
         avoidReasons: Array.isArray(candidate.avoidReasons) ? candidate.avoidReasons.map(clean).filter(Boolean) : [],
-        captured: candidate.pricePageLastCheckedAt || candidate.pricePageCapturedAt || candidate.pricesCapturedAt || null,
+        captured: candidate.pricePageCapturedAt || candidate.pricesCapturedAt || null,
+        historical: traderCaptureHistorical(candidate),
         url: clean(candidate.pricePageUrl ?? candidate.pricingPageUrl),
         items: (Array.isArray(candidate.pricePageItems ?? candidate.pricingItems)
           ? candidate.pricePageItems ?? candidate.pricingItems
@@ -15779,59 +15951,62 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function normalizeFavoriteCaptureCarousel(candidate) {
     if (!candidate || typeof candidate !== 'object') return null;
-    const entries = Array.isArray(candidate.entries)
-      ? candidate.entries.map((entry) => ({
-          traderId: clean(entry?.traderId),
-          traderName: clean(entry?.traderName),
-          userId: Number(entry?.userId) > 0 ? Number(entry.userId) : null,
-          pricePageUrl: clean(entry?.pricePageUrl),
-        })).filter((entry) => entry.traderId && entry.traderName && entry.pricePageUrl)
-      : [];
-    const expiresAt = Number(candidate.expiresAt) || 0;
-    if (!entries.length || (expiresAt && expiresAt <= Date.now())) return null;
-    return {
-      schemaVersion: 3,
-      mode: ['favorite', 'stale', 'all', 'retry'].includes(clean(candidate.mode)) ? clean(candidate.mode) : 'favorite',
-      id: clean(candidate.id) || createId('trader-recapture'),
-      entries,
-      cursor: Math.max(0, Math.min(entries.length, Math.floor(Number(candidate.cursor) || 0))),
-      completed: Array.isArray(candidate.completed) ? candidate.completed.map(clean).filter(Boolean) : [],
-      failed: Array.isArray(candidate.failed) ? candidate.failed.map(clean).filter(Boolean) : [],
-      skipped: Math.max(0, Math.floor(Number(candidate.skipped) || 0)),
-      status: clean(candidate.status) || 'ready',
-      currentTraderId: clean(candidate.currentTraderId),
-      currentTraderName: clean(candidate.currentTraderName),
-      returnUrl: clean(candidate.returnUrl),
-      startedAt: Number(candidate.startedAt) || Date.now(),
-      launchedAt: Number(candidate.launchedAt) || 0,
-      expiresAt: expiresAt || Date.now() + (12 * 60 * 60 * 1000),
-      lastError: clean(candidate.lastError),
-    };
+    const id = clean(candidate.id) || createId('trader-recapture');
+    const legacy = Number(candidate.schemaVersion) !== 4;
+    const entries = (Array.isArray(candidate.entries) ? candidate.entries : []).map((entry, index) => ({
+      traderId: clean(entry?.traderId), traderName: clean(entry?.traderName), userId: Number(entry?.userId) > 0 ? Number(entry.userId) : null,
+      pricePageUrl: clean(entry?.pricePageUrl), entryId: clean(entry?.entryId) || `${id}/${clean(entry?.traderId)}`,
+      attemptId: legacy ? '' : clean(entry?.attemptId), attemptsUsed: legacy ? (index > Number(candidate.cursor || 0) ? 0 : null) : Number.isInteger(entry?.attemptsUsed) && entry.attemptsUsed >= 0 && entry.attemptsUsed <= 2 ? entry.attemptsUsed : null,
+      envelope: legacy ? null : captureEnvelope(entry?.envelope), outcome: clean(entry?.outcome).slice(0, 40), reason: clean(entry?.reason).slice(0, 240),
+    })).filter((entry) => entry.traderId && entry.traderName && entry.pricePageUrl);
+    if (!entries.length) return null;
+    const cursor = Math.max(0, Math.min(entries.length, Math.floor(Number(candidate.cursor) || 0)));
+    let status = clean(candidate.status) || 'ready';
+    const current = entries[cursor];
+    if (status === 'launched' && (legacy || !current?.envelope || ![1, 2].includes(current.attemptsUsed))) status = 'unverified';
+    if (legacy && status === 'ready' && current) current.attemptsUsed = 0;
+    return { schemaVersion: 4, id, mode: ['favorite', 'stale', 'all', 'retry'].includes(clean(candidate.mode)) ? clean(candidate.mode) : 'favorite',
+      entries, cursor, completed: Array.isArray(candidate.completed) ? candidate.completed.map(clean) : [],
+      failed: Array.isArray(candidate.failed) ? candidate.failed.map(clean) : [], skipped: Math.max(0, Number(candidate.skipped) || 0),
+      status, currentTraderId: clean(candidate.currentTraderId), currentTraderName: clean(candidate.currentTraderName),
+      returnUrl: safeCaptureReturn(candidate.returnUrl), startedAt: Number(candidate.startedAt) || 0, launchedAt: Number(candidate.launchedAt) || 0,
+      expiresAt: Number(candidate.expiresAt) || 0,
+      lastError: status === 'unverified' ? 'Legacy or malformed launched attempt: allowance unknown. Skip/Cancel, or deliberately start a new run after ending this one.' : clean(candidate.lastError).slice(0, 240) };
   }
 
   function activeFavoriteCaptureCarousel() {
-    const persisted = read(A.carouselSession, null);
+    const context = captureStoreContext();
+    if (!context.ok) { showFavoriteToast('Capture storage is unreadable; export/resolve it before a new run.'); return null; }
+    const persisted = context.queue;
     const legacy = loadSessionJson(A.carouselSession, null);
     const queue = normalizeFavoriteCaptureCarousel(persisted || legacy);
-    if (legacy && !persisted && queue) {
-      write(A.carouselSession, queue);
-      saveSessionJson(A.carouselSession, null);
+    if (queue && ['complete', 'canceled', 'expired'].includes(queue.status)) {
+      return finishFavoriteCaptureCarousel(queue, queue.lastError, queue.status === 'complete' ? '' : queue.status) ? null : queue;
     }
-    if (!queue) {
-      try { localStorage.removeItem(A.carouselSession); } catch {}
-      saveSessionJson(A.carouselSession, null);
+    if (queue && queue.expiresAt <= Date.now()) {
+      return finishFavoriteCaptureCarousel(queue, 'Refresh expired; untouched entries remain unattempted.', 'expired') ? null : queue;
+    }
+    if (queue && (!persisted || Number(persisted.schemaVersion) !== 4)) {
+      if (!saveFavoriteCaptureCarousel(queue)) return { ...queue, status: 'unverified', lastError: 'Migration persistence failed; Retry is blocked. Use Skip/Cancel after resolving storage.' };
     }
     return queue;
   }
 
   function saveFavoriteCaptureCarousel(queue) {
     const normalized = queue ? normalizeFavoriteCaptureCarousel(queue) : null;
+    const before = localStorage.getItem(A.carouselSession);
+    const encoded = normalized ? JSON.stringify(normalized) : null;
     try {
-      if (normalized) write(A.carouselSession, normalized);
-      else localStorage.removeItem(A.carouselSession);
-    } catch {}
+      if (encoded) localStorage.setItem(A.carouselSession, encoded); else localStorage.removeItem(A.carouselSession);
+      if (localStorage.getItem(A.carouselSession) !== encoded) throw new Error('Queue readback failed');
+    } catch {
+      try { if (before === null) localStorage.removeItem(A.carouselSession); else localStorage.setItem(A.carouselSession, before); } catch {}
+      showFavoriteToast('Queue persistence/readback failed; navigation stopped. Return for Skip/Cancel.');
+      return false;
+    }
     saveSessionJson(A.carouselSession, null);
     scheduleTorn();
+    return true;
   }
 
 
@@ -15840,7 +16015,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const seen = new Set();
     let skipped = 0;
     for (const favorite of favorites.entries) {
-      const trader = traders.find((candidate) => favoriteMatches(favorite, candidate));
+      const matches = traders.filter((candidate) => favoriteMatches(favorite, candidate));
+      const trader = matches.length === 1 ? matches[0] : null;
       if (!trader || seen.has(trader.id)) continue;
       seen.add(trader.id);
       if (!traderRecommendationEligible(trader)
@@ -15922,6 +16098,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return null;
     }
     return {
+      totalQueued: result.totalQueued, schemaVersion: result.schemaVersion, runId: clean(result.runId),
+      outcomes: Array.isArray(result.outcomes) ? result.outcomes.map((entry) => ({ runId: clean(entry.runId), entryId: clean(entry.entryId), traderRecordId: clean(entry.traderRecordId), attemptId: clean(entry.attemptId), outcome: clean(entry.outcome), attempted: entry.attempted === true, reason: clean(entry.reason).slice(0, 240) })) : [],
       mode: clean(result.mode) || 'all',
       completed: Array.isArray(result.completed) ? result.completed.map(clean).filter(Boolean) : [],
       failed: Array.isArray(result.failed) ? result.failed.map(clean).filter(Boolean) : [],
@@ -15931,12 +16109,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function saveCaptureRefreshResult(result) {
+    const encoded = result ? JSON.stringify(result) : null;
     try {
-      if (result) write(A.carouselResult, result);
-      else localStorage.removeItem(A.carouselResult);
-    } catch {}
+      if (encoded) localStorage.setItem(A.carouselResult, encoded); else localStorage.removeItem(A.carouselResult);
+      if (localStorage.getItem(A.carouselResult) !== encoded) throw new Error('Summary readback failed');
+    } catch { showFavoriteToast('Result summary persistence failed; queue retained for recovery.'); return false; }
     scheduleTorn();
+    return true;
   }
+
 
   function closeTraderRefreshDialog() {
     traderRefreshDialogOpen = false;
@@ -15962,12 +16143,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       dialog.dataset.tsimmGenerated = 'true';
       document.body.appendChild(dialog);
     }
-    dialog.innerHTML = `<div class="refresh-shell"><div class="refresh-head"><strong>🧌 GOBLIN GOD PRICE CENSUS</strong><button type="button" data-watch-bulk-cancel aria-label="Close">×</button></div><div class="refresh-grid"><span>Saved traders</span><strong>${selection.total}</strong><span>Supported price pages</span><strong>${selection.eligible.length}</strong><span>Stale or missing</span><strong>${selection.stale.length}</strong><span>Fresh within 72h</span><strong>${selection.fresh.length}</strong><span>Unsupported / manual</span><strong>${selection.unsupported.length}</strong><span>Avoided / hidden</span><strong>${selection.excluded.length}</strong></div><div class="refresh-note">Old captures are preserved until a replacement succeeds. Avoided and hidden traders are skipped. The queue returns to Torn after each supported price page and can resume after an app restart.</div><div class="refresh-options"><div class="refresh-option"><strong>Stale or missing only</strong><span>Recommended default. Skips traders whose captured prices are already fresh.</span><button type="button" data-watch-bulk-start="stale" ${selection.stale.length ? '' : 'disabled'}>START ${selection.stale.length}</button></div><div class="refresh-option all"><strong>Every eligible trader</strong><span>Refreshes fresh, stale, and missing active traders in one complete sweep.</span><button type="button" data-watch-bulk-start="all" ${selection.eligible.length ? '' : 'disabled'}>START ${selection.eligible.length}</button></div></div></div>`;
+    dialog.innerHTML = `<div class="refresh-shell"><div class="refresh-head"><strong>🧌 GOBLIN GOD PRICE CENSUS</strong><button type="button" data-watch-bulk-cancel aria-label="Close">×</button></div><div class="refresh-grid"><span>Saved traders</span><strong>${selection.total}</strong><span>Supported price pages</span><strong>${selection.eligible.length}</strong><span>Stale or missing</span><strong>${selection.stale.length}</strong><span>Fresh within 72h</span><strong>${selection.fresh.length}</strong><span>Unsupported / manual</span><strong>${selection.unsupported.length}</strong><span>Avoided / hidden</span><strong>${selection.excluded.length}</strong></div><div class="refresh-note">Old captures are preserved until a replacement succeeds. Avoided and hidden traders are skipped. The queue returns to Torn after each supported price page and needs explicit Retry/Skip after interrupted navigation. Two attempts maximum per trader in each run.</div><div class="refresh-options"><div class="refresh-option"><strong>Stale or missing only</strong><span>Recommended default. Skips traders whose captured prices are already fresh.</span><button type="button" data-watch-bulk-start="stale" ${selection.stale.length ? '' : 'disabled'}>START ${selection.stale.length}</button></div><div class="refresh-option all"><strong>Every eligible trader</strong><span>Refreshes fresh, stale, and missing active traders in one complete sweep.</span><button type="button" data-watch-bulk-start="all" ${selection.eligible.length ? '' : 'disabled'}>START ${selection.eligible.length}</button></div></div></div>`;
   }
 
   function startSavedTraderCaptureCarousel(mode = 'stale', explicitTraders = null) {
+    const context = captureStoreContext();
+    if (!context.ok || (context.queue && !normalizeFavoriteCaptureCarousel(context.queue))) { showFavoriteToast('Capture storage is unreadable; no new run was written.'); return false; }
     const existing = activeFavoriteCaptureCarousel();
-    if (existing && existing.cursor < existing.entries.length) {
+    if (existing) {
       showFavoriteToast(`${captureQueueLabel(existing)} already active: ${existing.cursor + 1}/${existing.entries.length}`);
       return false;
     }
@@ -15984,6 +16167,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return false;
     }
     const queue = normalizeFavoriteCaptureCarousel({
+      schemaVersion: 4,
       id: createId(`${mode}-trader-recapture`),
       mode,
       entries: unique.map((trader) => ({
@@ -15991,6 +16175,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         traderName: trader.name,
         userId: trader.uid,
         pricePageUrl: trader.url,
+        attemptsUsed: 0,
       })),
       cursor: 0,
       completed: [],
@@ -16001,107 +16186,113 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       startedAt: Date.now(),
       expiresAt: Date.now() + (12 * 60 * 60 * 1000),
     });
-    saveCaptureRefreshResult(null);
-    saveFavoriteCaptureCarousel(queue);
+    if (!saveFavoriteCaptureCarousel(queue) || !saveCaptureRefreshResult(null)) return false;
     closeTraderRefreshDialog();
     showFavoriteToast(`${captureQueueLabel(queue)} armed: ${queue.entries.length} trader${queue.entries.length === 1 ? '' : 's'}`);
-    setTimeout(launchFavoriteCaptureCarousel, 450);
+    setTimeout(() => { const active = activeFavoriteCaptureCarousel(); if (active?.id === queue.id && active.status === 'ready') launchFavoriteCaptureCarousel(); }, 450);
     return true;
   }
 
   function retryFailedTraderCaptureCarousel() {
     const result = lastCaptureRefreshResult();
-    if (!result?.failed?.length) {
-      showFavoriteToast('No failed trader captures are waiting');
-      return false;
+    if (!result?.failed?.length) { showFavoriteToast('No failed trader captures are waiting'); return false; }
+    const all = normTraders();
+    let traders;
+    if (result.outcomes?.length) {
+      const ids = new Set(result.outcomes.filter((entry) => entry.outcome !== 'captured' && entry.attempted).map((entry) => entry.traderRecordId));
+      traders = all.filter((trader) => ids.has(trader.id));
+    } else {
+      traders = [];
+      for (const name of result.failed) {
+        const matches = all.filter((trader) => key(trader.name) === key(name));
+        if (matches.length !== 1) { showFavoriteToast('Legacy failed names are ambiguous. Select the trader IDs and start a new run manually.'); return false; }
+        traders.push(matches[0]);
+      }
     }
-    const failed = new Set(result.failed.map(key));
-    const traders = normTraders().filter((trader) => failed.has(key(trader.name))
-      && trader.url
-      && (isWeav3rPriceListUrl(trader.url) || isTornExchangePriceListUrl(trader.url)));
-    return startSavedTraderCaptureCarousel('retry', traders);
+    return startSavedTraderCaptureCarousel('retry', traders.filter(traderRecommendationEligible));
   }
 
   function skipCurrentCaptureCarousel() {
     const queue = activeFavoriteCaptureCarousel();
-    if (!queue || queue.cursor >= queue.entries.length) {
-      showFavoriteToast('No active trader capture is available to skip');
-      return false;
-    }
+    if (!queue || queue.cursor >= queue.entries.length) return false;
     const current = queue.entries[queue.cursor];
+    if (current.envelope && queue.status === 'launched' && current.envelope.expiresAt > Date.now()) {
+      const notice = persistCaptureImport({ envelope: current.envelope, sourceUrl: current.envelope.sourceUrl, outcome: 'user_skipped', producedAt: Date.now(), items: [], reason: 'User skipped; historical prices not reverified.' }, false, true);
+      if (!notice.ok) { showFavoriteToast(notice.error); return false; }
+    }
+    current.outcome = 'user_skipped'; current.reason = 'User skipped; historical prices not reverified.';
     if (!queue.failed.includes(current.traderName)) queue.failed.push(current.traderName);
-    queue.cursor += 1;
-    queue.status = queue.cursor >= queue.entries.length ? 'complete' : 'ready';
-    queue.currentTraderId = '';
-    queue.currentTraderName = '';
-    queue.lastError = `${current.traderName} skipped; previous captured prices were preserved.`;
-    saveFavoriteCaptureCarousel(queue);
+    queue.cursor += 1; queue.status = 'ready'; queue.currentTraderId = ''; queue.currentTraderName = '';
+    if (!saveFavoriteCaptureCarousel(queue)) return false;
     if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue);
-    else setTimeout(launchFavoriteCaptureCarousel, 350);
+    else scheduleFavoriteCaptureCarouselContinuation();
     return true;
   }
 
-  function finishFavoriteCaptureCarousel(queue, message = '') {
-    const completed = queue?.completed?.length || 0;
-    const failed = queue?.failed?.length || 0;
-    const skipped = queue?.skipped || 0;
-    const label = captureQueueLabel(queue);
-    saveCaptureRefreshResult({
-      mode: queue?.mode || 'favorite',
-      completed: [...(queue?.completed || [])],
-      failed: [...(queue?.failed || [])],
-      skipped,
-      finishedAt: Date.now(),
-    });
-    saveFavoriteCaptureCarousel(null);
-    showFavoriteToast(message || `${label} finished: ${completed} captured${failed ? ` · ${failed} failed` : ''}${skipped ? ` · ${skipped} unsupported` : ''}`);
+  function finishFavoriteCaptureCarousel(queue, message = '', remainingOutcome = '') {
+    if (!queue) return false;
+    const current = queue.entries[queue.cursor];
+    if (remainingOutcome && current?.envelope && queue.status === 'launched' && current.envelope.expiresAt > Date.now()) persistCaptureImport({ envelope: current.envelope, sourceUrl: current.envelope.sourceUrl, outcome: remainingOutcome, producedAt: Date.now(), items: [], reason: message }, false, true);
+    const outcomes = queue.entries.map((entry, index) => ({ runId: queue.id, entryId: entry.entryId,
+      traderRecordId: entry.traderId, attemptId: entry.attemptId, traderName: clean(entry.traderName).slice(0, 100),
+      outcome: entry.outcome || (index < queue.cursor ? 'legacy_unverified' : remainingOutcome || 'unattempted'),
+      attempted: entry.attemptsUsed === 1 || entry.attemptsUsed === 2,
+      reason: clean(entry.reason || (index >= queue.cursor ? message : '')).slice(0, 240) }));
+    const result = { schemaVersion: 4, runId: queue.id, mode: queue.mode, completed: [...queue.completed], failed: [...queue.failed],
+      skipped: queue.skipped, outcomes, totalQueued: queue.entries.length, finishedAt: Date.now() };
+    // Invalidate authority in the same queue record, retain outcomes if summary persistence fails.
+    queue.status = remainingOutcome || 'complete';
+    if (!saveFavoriteCaptureCarousel(queue) || !saveCaptureRefreshResult(result)) return false;
+    if (!saveFavoriteCaptureCarousel(null)) return false;
+    showFavoriteToast(message || `${captureQueueLabel(queue)} finished: ${outcomes.filter((e) => e.outcome === 'captured').length} captured · ${outcomes.filter((e) => e.outcome !== 'captured').length} other outcomes`);
+    return true;
   }
 
   function cancelFavoriteCaptureCarousel() {
     const queue = activeFavoriteCaptureCarousel();
-    saveFavoriteCaptureCarousel(null);
-    showFavoriteToast(queue ? `${captureQueueLabel(queue)} cancelled` : 'No trader capture queue is active');
+    if (queue) finishFavoriteCaptureCarousel(queue, 'User canceled; untouched entries remain unattempted.', 'canceled');
+    else showFavoriteToast('No trader capture queue is active');
   }
 
   function launchFavoriteCaptureCarousel() {
     const queue = activeFavoriteCaptureCarousel();
-    if (!queue) {
-      showFavoriteToast('No trader capture queue is ready');
-      return false;
-    }
-    if (queue.cursor >= queue.entries.length) {
-      finishFavoriteCaptureCarousel(queue);
-      return true;
-    }
+    if (!queue || !['ready', 'launched', 'unverified'].includes(queue.status)) return false;
+    if (queue.cursor >= queue.entries.length) return finishFavoriteCaptureCarousel(queue);
     const current = queue.entries[queue.cursor];
+    if (queue.status === 'unverified' || current.attemptsUsed === null) {
+      showFavoriteToast('Attempt allowance unknown. Skip/Cancel, then explicitly start a fresh run.'); return false;
+    }
+    if (current.attemptsUsed >= 2) { showFavoriteToast('Two attempts issued; same-run Retry is exhausted. Use Skip/Cancel.'); return false; }
     const trader = state.traders.find((entry) => entry.id === current.traderId);
     const targetUrl = carouselLaunchTarget(current, trader);
-    if (!trader || !targetUrl) {
-      queue.failed.push(current.traderName);
-      queue.cursor += 1;
-      queue.status = 'ready';
-      queue.lastError = `${current.traderName} has no supported price page that matches their saved Torn identity.`;
-      saveFavoriteCaptureCarousel(queue);
-      if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue);
-      else setTimeout(launchFavoriteCaptureCarousel, 250);
+    const source = captureSource(targetUrl);
+    if (!trader || !source || !trader.userId) {
+      current.outcome = 'unsupported_page'; current.reason = 'No supported route and saved Torn identity; manual recovery required.';
+      queue.failed.push(current.traderName); queue.cursor++; queue.status = 'ready';
+      if (!saveFavoriteCaptureCarousel(queue)) return false;
+      if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue); else scheduleFavoriteCaptureCarouselContinuation();
       return false;
     }
-    current.pricePageUrl = targetUrl;
-    if (!current.userId && Number(trader.userId) > 0) current.userId = Number(trader.userId);
-    queue.status = 'launched';
-    queue.currentTraderId = current.traderId;
-    queue.currentTraderName = current.traderName;
-    queue.launchedAt = Date.now();
-    queue.lastError = '';
-    saveFavoriteCaptureCarousel(queue);
-    showFavoriteToast(`${captureQueueLabel(queue)} ${queue.cursor + 1}/${queue.entries.length}: ${current.traderName}`);
-    setTimeout(() => requestTraderPriceRecapture(current.traderId, targetUrl), 180);
-    return true;
+    const now = Date.now();
+    const envelope = { intent: 'carousel', runId: queue.id, entryId: current.entryId, attemptId: createId('capture-attempt'),
+      traderRecordId: current.traderId, expectedTornId: trader.userId, provider: source.provider, sourceUrl: source.url,
+      issuedAt: now, deadline: now + 60000, expiresAt: now + 900000 };
+    current.attemptsUsed += 1; current.attemptId = envelope.attemptId; current.envelope = envelope;
+    current.pricePageUrl = source.url; current.userId = trader.userId;
+    queue.status = 'launched'; queue.currentTraderId = current.traderId; queue.currentTraderName = current.traderName;
+    queue.launchedAt = now; queue.lastError = '';
+    if (!saveFavoriteCaptureCarousel(queue)) return false;
+    const persisted = read(A.carouselSession, null);
+    if (JSON.stringify(persisted) !== JSON.stringify(normalizeFavoriteCaptureCarousel(queue))) { showFavoriteToast('Attempt readback changed; no navigation.'); return false; }
+    showFavoriteToast(`${captureQueueLabel(queue)} ${queue.cursor + 1}/${queue.entries.length}: ${current.traderName} · attempt ${current.attemptsUsed}/2`);
+    return requestTraderPriceRecapture(current.traderId, source.url, envelope) === true;
   }
 
   function startFavoriteCaptureCarousel() {
+    const context = captureStoreContext();
+    if (!context.ok || (context.queue && !normalizeFavoriteCaptureCarousel(context.queue))) { showFavoriteToast('Capture storage is unreadable; no new run was written.'); return false; }
     const existing = activeFavoriteCaptureCarousel();
-    if (existing && existing.cursor < existing.entries.length) {
+    if (existing) {
       showFavoriteToast(`${captureQueueLabel(existing)} already active: ${existing.cursor + 1}/${existing.entries.length}`);
       return false;
     }
@@ -16115,6 +16306,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return false;
     }
     const queue = normalizeFavoriteCaptureCarousel({
+      schemaVersion: 4,
       id: createId('favorite-recapture'),
       mode: 'favorite',
       entries: selection.ready.map((trader) => ({
@@ -16122,6 +16314,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         traderName: trader.name,
         userId: trader.uid,
         pricePageUrl: trader.url,
+        attemptsUsed: 0,
       })),
       cursor: 0,
       completed: [],
@@ -16132,71 +16325,48 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       startedAt: Date.now(),
       expiresAt: Date.now() + (12 * 60 * 60 * 1000),
     });
-    saveCaptureRefreshResult(null);
-    saveFavoriteCaptureCarousel(queue);
+    if (!saveFavoriteCaptureCarousel(queue) || !saveCaptureRefreshResult(null)) return false;
     showFavoriteToast(`Favorite carousel armed: ${queue.entries.length} trader${queue.entries.length === 1 ? '' : 's'}`);
-    setTimeout(launchFavoriteCaptureCarousel, 450);
+    setTimeout(() => { const active = activeFavoriteCaptureCarousel(); if (active?.id === queue.id && active.status === 'ready') launchFavoriteCaptureCarousel(); }, 450);
     return true;
   }
 
   function scheduleFavoriteCaptureCarouselContinuation() {
-    setTimeout(launchFavoriteCaptureCarousel, 850);
+    const expected = activeFavoriteCaptureCarousel();
+    if (!expected) return;
+    setTimeout(() => {
+      const queue = activeFavoriteCaptureCarousel();
+      if (queue?.id === expected.id && queue.cursor === expected.cursor && queue.status === 'ready') launchFavoriteCaptureCarousel();
+    }, 850);
   }
 
   function continueFavoriteCaptureCarousel(notice) {
     const queue = activeFavoriteCaptureCarousel();
-    if (!queue || !notice) return false;
-    if (queue.cursor >= queue.entries.length) {
-      finishFavoriteCaptureCarousel(queue);
-      return true;
-    }
+    if (!queue) return false;
     const current = queue.entries[queue.cursor];
-    const noticeId = clean(notice.traderId);
-    const noticeName = key(notice.trader);
-    const expectedNoticeId = clean(notice.expectedTraderId);
-    const failedCurrent = notice.ok === false && (
-      (expectedNoticeId && expectedNoticeId === current.traderId)
-      || (clean(notice.expectedTrader) && key(notice.expectedTrader) === key(current.traderName))
-    );
-    if (failedCurrent) {
-      if (!queue.failed.includes(current.traderName)) queue.failed.push(current.traderName);
-      queue.cursor += 1;
-      queue.status = queue.cursor >= queue.entries.length ? 'complete' : 'ready';
-      queue.currentTraderId = '';
-      queue.currentTraderName = '';
-      queue.lastError = clean(notice.error) || `${current.traderName} returned the wrong price page.`;
-      saveFavoriteCaptureCarousel(queue);
-      if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue);
-      else {
-        showFavoriteToast(`${current.traderName} failed identity check · continuing`);
-        scheduleFavoriteCaptureCarouselContinuation();
-      }
-      return false;
+    if (!current) return false;
+    const storedTrader = captureStoreContext().traders.find((entry) => entry.id === current.traderId);
+    // A committed receipt recovers a lost UI notice, without importing or writing prices twice.
+    const receipt = storedTrader?.pricePageLastCaptureReceipt;
+    if (!notice && receipt && captureReceiptMatches(receipt, current.envelope)) notice = { ok: true, envelope: receipt.envelope, outcome: receipt.outcome };
+    if (!notice || !notice.ok || notice.rejected || notice.envelope?.intent !== 'carousel') return false;
+    const e = captureEnvelope(notice.envelope);
+    if (!e || queue.status !== 'launched' || e.runId !== queue.id || e.entryId !== current.entryId
+      || e.attemptId !== current.attemptId || e.traderRecordId !== current.traderId || e.expiresAt <= Date.now()) return false;
+    if (notice.outcome === 'retry_needed') {
+      const decision = captureAuthorityDecision(notice.result, captureStoreContext());
+      if (!decision.ok || current.attemptsUsed !== 1) return false;
+      return launchFavoriteCaptureCarousel(); // Torn persists/readbacks B; provider never owns this transition.
     }
-    const matches = (noticeId && noticeId === current.traderId)
-      || (noticeName && noticeName === key(current.traderName));
-    if (!matches) {
-      queue.status = 'ready';
-      queue.lastError = `Ignored ${clean(notice.trader) || 'another trader'} while waiting for ${current.traderName}.`;
-      saveFavoriteCaptureCarousel(queue);
-      showFavoriteToast(`Unrelated capture ignored · ${current.traderName} still ready`);
-      return false;
-    }
-    if (!queue.completed.includes(current.traderName)) queue.completed.push(current.traderName);
-    queue.cursor += 1;
-    queue.status = queue.cursor >= queue.entries.length ? 'complete' : 'ready';
-    queue.currentTraderId = '';
-    queue.currentTraderName = '';
-    queue.lastError = '';
-    saveFavoriteCaptureCarousel(queue);
-    if (queue.cursor >= queue.entries.length) {
-      finishFavoriteCaptureCarousel(queue);
-      return true;
-    }
-    const next = queue.entries[queue.cursor];
-    showFavoriteToast(`${clean(notice.trader)} captured · next ${next.traderName}`);
-    scheduleFavoriteCaptureCarouselContinuation();
-    return true;
+    if (!captureReceiptMatches(receipt, e) || receipt.outcome !== notice.outcome || current.outcome) return false;
+    current.outcome = notice.outcome; current.reason = clean(storedTrader.pricePageLastReason).slice(0, 240);
+    const names = notice.outcome === 'captured' ? queue.completed : queue.failed;
+    names.push(current.traderName);
+    queue.cursor++; queue.status = 'ready'; queue.currentTraderId = ''; queue.currentTraderName = ''; queue.lastError = current.reason;
+    if (!saveFavoriteCaptureCarousel(queue)) return false;
+    if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue);
+    else scheduleFavoriteCaptureCarouselContinuation();
+    return notice.outcome === 'captured';
   }
 
   function renderTurnoverPresetPanel(host) {
@@ -16247,7 +16417,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       const done = Math.min(queue.cursor, queue.entries.length);
       const label = captureQueueLabel(queue);
       bar.className = 'active';
-      bar.innerHTML = `<div class="carousel-copy"><strong>↻ ${esc(label)} · ${done}/${queue.entries.length} captured</strong><span>${current ? `${queue.status === 'launched' ? 'Waiting on' : 'Next'}: ${esc(current.traderName)}` : 'Finishing queue'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume>${queue.status === 'launched' ? 'RETRY' : 'CONTINUE'}</button>${current ? '<button type="button" data-watch-carousel-skip>SKIP</button>' : ''}<button type="button" class="cancel" data-watch-carousel-cancel>CANCEL</button></div>`;
+      bar.innerHTML = `<div class="carousel-copy"><strong>↻ ${esc(label)} · ${done}/${queue.entries.length} processed · ${queue.entries.filter((entry) => entry.outcome === 'captured').length} captured</strong><span>${current ? `${queue.status === 'launched' ? 'Waiting on' : 'Next'}: ${esc(current.traderName)}` : 'Finishing queue'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume ${current?.attemptsUsed === 2 || queue.status === 'unverified' ? 'disabled' : ''}>${current?.attemptsUsed === 2 || queue.status === 'unverified' ? 'RETRY EXHAUSTED / UNKNOWN' : queue.status === 'launched' ? 'RETRY (FINAL ATTEMPT)' : 'CONTINUE'}</button>${current ? '<button type="button" data-watch-carousel-skip>SKIP</button>' : ''}<button type="button" class="cancel" data-watch-carousel-cancel>CANCEL</button></div>`;
       return;
     }
     bar.className = '';
@@ -16427,10 +16597,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         itemName: priceItem.name || item.name,
         price: priceItem.price,
         captured: trader.captured,
-        status: statusForCapture(trader.captured, settings),
+        historical: trader.historical,
+        status: trader.historical ? 'historical' : statusForCapture(trader.captured, settings),
       });
     }
-    const rank = { fresh: 0, stale: 1, outdated: 2, missing: 3 };
+    const rank = { fresh: 0, stale: 1, outdated: 2, missing: 3, historical: 4 };
     exits.sort((left, right) => {
       const statusDifference = rank[left.status] - rank[right.status];
       if (statusDifference) return statusDifference;
@@ -16442,6 +16613,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function bestExit(exits) {
+    const references = exits.filter((entry) => !entry.historical);
+    if (!references.length) return exits[0] || null;
+    exits = references;
     return exits.find((entry) => entry.status === 'fresh')
       || exits.find((entry) => entry.status === 'stale')
       || exits.find((entry) => entry.status === 'outdated')
@@ -16489,12 +16663,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return panel;
     }
     panel.className = best.status;
-    if (best.status === 'fresh') {
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ BEST EXIT · ${esc(best.traderName)} pays ${esc(cash(best.price))} · ${esc(ageText(best.captured))} old</strong><span>${exits.length.toLocaleString()} captured favorite${exits.length === 1 ? '' : 's'} · buy below ${esc(cash(best.price))}</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+    if (best.historical) {
+      panel.innerHTML = `<div class="watch-copy"><strong>HISTORICAL / NOT REVERIFIED · ${esc(best.traderName)} ${esc(cash(best.price))}</strong><span>Last captured ${esc(best.captured || 'unknown')} · no buy signal.</span></div><button type="button" data-tsimm-action="traders-open">TRADER BOOK / RECAPTURE</button><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+    } else if (best.status === 'fresh') {
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}★ INDICATIVE BEST EXIT · ${esc(best.traderName)} observed ${esc(cash(best.price))} · ${esc(ageText(best.captured))} old</strong><span>${exits.length.toLocaleString()} captured favorite${exits.length === 1 ? '' : 's'} · indicative buy threshold ${esc(cash(best.price))}; confirm buying terms</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     } else if (best.status === 'stale') {
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⌛ WATCHED REFERENCE · ${esc(best.traderName)} paid ${esc(cash(best.price))}</strong><span>${esc(ageText(best.captured))} old · recapture before buying · no signal</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⌛ WATCHED REFERENCE · ${esc(best.traderName)} observed ${esc(cash(best.price))}</strong><span>${esc(ageText(best.captured))} old · recapture before buying · no signal</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     } else {
-      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⚠ WATCHED PRICE OUTDATED · ${esc(best.traderName)}</strong><span>Last paid ${esc(cash(best.price))} · recapture before buying.</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
+      panel.innerHTML = `<div class="watch-copy"><strong>${turnoverBadge}⚠ WATCHED PRICE OUTDATED · ${esc(best.traderName)}</strong><span>Last observed ${esc(cash(best.price))} · recapture before buying.</span>${velocity}</div><button type="button" data-market-watch-toggle>UNWATCH</button>`;
     }
     return panel;
   }
@@ -16728,7 +16904,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const exits = watched ? exitsForItem(item) : [];
     const best = bestExit(exits);
     const rows = [...document.querySelectorAll('.tsimm-listing-mark')].filter(validWatchListingRow);
-    const health = marketHealthForItem(item, best, rows);
+    const health = marketHealthForItem(item, best?.historical ? null : best, rows);
     renderWatchPanel(item, exits);
     applyMarketHealthPanel(health);
     if (watched && best && best.status === 'fresh') {
@@ -16955,11 +17131,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       }).observe(document.body, { childList: true, subtree: true });
       window.addEventListener('tsimm:watchlists-updated', scheduleTorn);
       setInterval(scheduleTorn, 1500);
+      if (EARLY_CAPTURE_NOTICE?.rejected) showFavoriteToast(EARLY_CAPTURE_NOTICE.error);
       continueFavoriteCaptureCarousel(EARLY_CAPTURE_NOTICE);
       scheduleTorn();
     };
     start();
   }
+
+  if (globalThis.__TS_IMM_TEST_MODE__ && globalThis.__TS_IMM_TEST_EXPORTS__) Object.assign(globalThis.__TS_IMM_TEST_EXPORTS__, { normalizeFavoriteCaptureCarousel, activeFavoriteCaptureCarousel, saveFavoriteCaptureCarousel, startSavedTraderCaptureCarousel, startFavoriteCaptureCarousel, favoriteCaptureSelection, launchFavoriteCaptureCarousel, continueFavoriteCaptureCarousel, skipCurrentCaptureCarousel, cancelFavoriteCaptureCarousel, lastCaptureRefreshResult, retryFailedTraderCaptureCarousel, normTraders, traderCaptureFresh, savedTraderCaptureSelection, exitsForItem, bestExit, renderWatchPanel, decorateMarket });
 
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     window.__TSIMM_WATCHLIST_API__ = {
@@ -16967,6 +17146,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       decorateBook,
       startFavoriteCaptureCarousel,
       launchFavoriteCaptureCarousel,
+      continueFavoriteCaptureCarousel,
       cancelFavoriteCaptureCarousel,
       openTraderRefreshDialog,
       startSavedTraderCaptureCarousel,
@@ -16995,7 +17175,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       },
     };
     try {
-      boot();
+      if (!globalThis.__TS_IMM_TEST_MODE__) boot();
     } catch (error) {
       console.error('[TornScripture IMM] Favorite watchlist boot failed:', error);
       setTimeout(() => {
