@@ -1,8 +1,87 @@
 # BL-R01B v2.2 implementation evidence and acceptance gates
 
-Status: N1–N3 corrected in the separately owner-authorized bounded pass after [independent V1 BLOCKED](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6106507705). Author-side executable validation passes; fresh independent exact-head [V1] is required. Owner TornPDA/desktop [V2] and Ledger Integrity remain on hold until V1 PASS. This branch is not a release. The exact published SHA/tree are recorded in the PR conversation/description, avoiding a self-referential commit hash here.
+Status: N4–N5 corrected in the separately owner-authorized bounded raw-state consistency pass after [independent V1 BLOCKED at e11fcfc](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6112233636). Author-side executable validation passes; fresh independent exact-head [V1] is required. Owner TornPDA/desktop [V2] and Ledger Integrity remain on hold until V1 PASS. This branch is not a release. Exact published SHA/tree are recorded in the PR conversation, avoiding a self-referential commit hash here.
 
-## Current bounded N1–N3 correction (2026-10-11)
+## Current bounded N4–N5 correction and raw-state audit (2026-10-11)
+
+Owner authority: the submitted `[B][WORK] Fresh Thread, Divine Knowledge Refresh and Bounded N4–N5 Correction` instruction authorizes the underlying raw-state/normalization repair on the same existing draft PR/branch, within frozen BL-R01B v2.2. It does not authorize release or a storage redesign. Approved main/base is `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`; exact amendment parent is `e11fcfc298a1faa20c174a6fe02c714e264fcee6`, tree `ac79f7f9cf39e355e04cd6b902794e0b47194376`, sole parent `d740a3bd7979d2904ee6f0131bf334752b9e50cf`.
+
+Full AGENTS/Divine Knowledge/governance refresh and canonical reports/complete fixtures preceded the raw-state audit. NOW's October 5 main `b8474253…` and IMM/Black Ledger stable 0.19.36 are stale; actual approved main remains stable 0.19.37. No unrelated knowledge cleanup, Casino or Training status inference/edit. A fresh complete non-shallow clean executable checkout on the required branch matched all 212 published blobs and pinned history; native refs and connected PR/tree/parent readbacks agreed. A same-head expected-SHA non-force update proved the existing-branch publication route before product edits. Git 2.51.1, Node v24.19.0, Python 3.12.14; `TSIMM_TEST_SCRIPT` unset.
+
+Pre-edit independent results matched the current report: **643 full / 400 protected / 246 focused PASS**, prior unchanged **38/38 and 3/3**, new unchanged **85 = 67 pass / 18 fail** and **minimal 0/3**, **23/23 syntax**, **22 protected bodies identical**. Full TAP streams/exits were captured; no author logs were reused as proof. The current independent fixture's assertions were not weakened.
+
+### Raw-state lifecycle and supported combinations
+
+Audit covered loading/v3 migration, status, issued envelope/count, cursor/entry binding, receipt identity, A/B issuance/navigation, all four import routes, completion/lost notice/Skip/Cancel, saving/summary and Web Lock revalidation. Two root causes explained the evidence: normalization defaulted/cleaned ready status and synthesized authority, while launch guarded receipts only in launched state; normalization filtered array positions while completion validated a different raw current entry. Saving repeated that normalization.
+
+| Raw persisted combination | Supported behavior |
+|---|---|
+| Exact v4 ready; unique stable IDs and integer cursor; current count 0, empty attempt/outcome, null envelope, cleared current identity/launch timestamp, coherent source/identity | A may issue after raw validation and no matching consumed same-run/entry receipt, then persist/readback and navigate under exclusion. |
+| Exact coherent launched A, count 1, no consumed receipt | Explicit lost-A Retry or validated retry_needed(A) may issue B once. |
+| Coherent launched A with full committed terminal receipt | No B. Notice/lost notice/Skip reconciles the same entry once within existing TTL. |
+| Partial consumed receipt or malformed issued authority | No retry/replay or invented terminal success; safe explicit queue-only Skip/Cancel. |
+| Coherent launched B, count 2 | Valid terminal B can complete; Retry cannot issue C. |
+| Ready/missing/null/blank/padded status carrying issued authority or nonzero/unknown count | No attempt/import/automatic completion; passive raw bytes unchanged. Position-bound explicit Skip/Cancel only. |
+| Earlier malformed display/source field with intact stable IDs/positions | Retain every entry; Beta's receipt still completes Beta, Gamma remains queued with its own A allowance. |
+| Null/nonobject entry, missing/duplicate stable ID, malformed cursor | Preserve positions and raw authority, block execution and ambiguous Skip; explicit Cancel archives the original array cardinality. Unreadable/non-array storage needs export/restore. |
+| Malformed following entry | It cannot inherit authority; current validation is required at its own turn. |
+| Supported v3 launched | Preserve positions/stable identities; current usage unknown, no B. Explicit Skip may reach a genuinely unissued later entry. |
+| V3 ready with issued/coercible fields, malformed status, or unknown/coerced schema | No normalization into a new allowance; malformed status stays byte-preserved until explicit recovery. |
+
+**Invariant A:** v4 normalization preserves raw authority values, status is never defaulted/trimmed into ready, cursor/count/clock are not coerced, and envelopes/IDs are not reconstructed. Start explicitly constructs fresh IDs and an unissued ready state. Ready and launched predicates inspect raw storage under the existing grant before issuance/import/navigation; consumed same-entry receipts also block an apparent count-zero reset. Queue serialization does not re-normalize authority. Supported v3 migration remains conservative and cannot give malformed/coercible future counts a fresh A.
+
+**Invariant B:** normalization never filters or drops array positions. Completion/Skip bind the exact raw cursor/current stable entry; malformed structural identity blocks execution. Explicit advancement clears current identity/launch timestamp without resetting another entry's count. Summary cardinality/IDs retain the original positions; malformed IDs are omitted rather than trimmed into another record, and `captured` needs a coherent matching committed receipt. Display name arrays derive from the validated summary outcomes. Safe malformed Skip changes only its intended queue entry; prices/receipts stay unchanged.
+
+No new queue owner, key, schema version, storage architecture, browser listener/timer/observer, endpoint or gameplay action. The existing lock and synchronous critical sections, 60s issued deadline, 15m request TTL, 12h queue TTL and seven-day summary remain. All five previously repaired V1 findings and N1–N3 retain their production behavior. All 22 protected financial/recovery function bodies and the safety boundary remain byte-identical to approved base.
+
+### Maintained production-path tests and final results
+
+Only three files change in this amendment: IMM, this directly relevant evidence, and new `tests/imm-capture-n45.test.js`. Cumulative PR inventory is nine files (previous eight plus N4/N5 tests). Existing tests/harness remain unchanged. Five version markers remain 0.19.39 for this draft amendment; exact SHA/tree distinguish candidates. Release-ready versioning remains a separate gated decision.
+
+The new file has **554 cases**: unchanged independent 85-case assertions (only harness import relocated), **378** cross-product cases (ready/launched/unverified × 0/1/2 counts × absent/coherent/contradictory envelope × committed/uncommitted × seven entry-position conditions), and **91** recovery/identity/migration/summary/waiting controls. Full userscript, actual production paths and genuine native Node Web Locks execute; no replacement authority/queue mock. Exact Trader Book/queue/protected-store bytes are asserted on rejection. All original N4/N5 failures and prior 38/3 external expectations remain intact.
+
+Development calibration: three new matrix assertions initially treated an exhausted Retry as rejection of a valid B result. They were corrected to require valid B completion without C. Static review also added missing-ready-field cases and removed a possible null-source normalization exception. Original independent assertions were unchanged.
+
+| Final check | Result | Exit |
+|---|---:|---:|
+| Full supported Node suite | **1197/1197**, 21 suites | 0 |
+| Protected regressions | **400/400**, 21 suites | 0 |
+| Focused production paths | **800/800** | 0 |
+| Maintained N4/N5 file, included above | **554/554** | 0 |
+| Unchanged prior external adversarial / minimal | **38/38**, **3/3** | 0 / 0 |
+| Unchanged current external adversarial / minimal | **85/85**, **3/3** | 0 / 0 |
+| Every tracked JS/CJS, individually | **24/24** | all 0 |
+| Complete staged/base/amendment diff checks | PASS | all 0 |
+| Protected financial/recovery regions vs approved base | **22/22 byte-identical** | 0 |
+
+All final groups have zero failures/cancellations/skips/todos; counts overlap. Commands, from the candidate checkout:
+
+```bash
+node --test --test-reporter=tap tests/imm-api-trade-recovery.test.js tests/imm-capture-coordination.test.js tests/imm-capture-lifecycle.test.js tests/imm-capture-n123.test.js tests/imm-capture-n45.test.js tests/imm-carousel-identity-precedence.test.js tests/imm-carousel-zero-price-mismatch.test.js tests/imm-startup-persisted-permission.test.js tests/inventory-sales-core.test.js tests/training-advisor-adapters.test.js tests/training-advisor-pure.test.js
+node --test --test-reporter=tap tests/imm-api-trade-recovery.test.js tests/imm-carousel-identity-precedence.test.js tests/imm-carousel-zero-price-mismatch.test.js tests/imm-startup-persisted-permission.test.js tests/inventory-sales-core.test.js tests/training-advisor-adapters.test.js tests/training-advisor-pure.test.js
+node --test --test-reporter=tap tests/imm-capture-coordination.test.js tests/imm-capture-lifecycle.test.js tests/imm-capture-n123.test.js tests/imm-capture-n45.test.js tests/imm-carousel-identity-precedence.test.js tests/imm-carousel-zero-price-mismatch.test.js
+node --test --test-reporter=tap tests/imm-capture-n45.test.js
+node --test --test-reporter=tap ../n45-evidence/fixture-6106507705-1.cjs
+node --test --test-reporter=tap ../n45-evidence/fixture-6106507705-0.cjs
+node --test --test-reporter=tap ../n45-evidence/fixture-6112233636-1.cjs
+node --test --test-reporter=tap ../n45-evidence/fixture-6112233636-0.cjs
+git ls-files '*.js' '*.cjs'
+node --check <each-returned-path>
+git diff --check
+git diff --cached --check
+git diff --check c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475
+git diff --check e11fcfc298a1faa20c174a6fe02c714e264fcee6
+```
+
+### Fresh independent gate, browser limits and rollback
+
+Request fresh independent exact-head executable/adversarial **[V1]**, with live refs/tree/parent/all bytes, full frozen contract, both original 38/3 and current 85/3 fixtures, maintained matrix review, new negatives, original V1-01–05/N1–N3 controls, all supported/protected/focused/syntax/diff/storage checks and 22 protected-body comparisons. Author PASS is not independent V1. Owner [V2]/Ledger Integrity stays on hold until V1 PASS; no merge/ready/auto-merge/release/main authority.
+
+Everything above is Node VM/DOM simulation, with native Node lock contention. Owner TornPDA Web Locks capability qualification is not product acceptance. Real provider markup/identity, carrier retention, document-start readiness, desktop managers, touch/layout, BFCache/Android kill/close, older noncooperating writers and multi-key interrupted persistence/rollback remain live risks. Preserved async receipt/local-recapture caller feedback/cleanup timing was reviewed and not rewritten. After request TTL, lost-notice completion still rejects; explicit Skip may record user_skipped while preserving committed Trader Book data. No TTL policy expansion. Pre-correction ready queues retaining old issued/current timestamp fields deliberately become unverified; use explicit safe recovery, never automatic budget repair.
+
+After fresh V1 PASS, separate owner V2 must add ready/issued contradiction no-write/recovery and Alpha→Beta→Gamma notice/lost-notice/Skip/Cancel/reload controls to the existing checklist below, using backed-up Trader Book/Ledger and exact unchanged accounting bytes plus Ledger Integrity. Rollback: preserve exports, explicitly Cancel/export unresolved review queue/summary, disable review IMM and reinstall approved-base stable 0.19.37. Never resume v4 in-flight state under v3 or bulk-reset accounting. This work remains unmerged.
+
+## Prior bounded N1–N3 correction at e11fcfc (historical)
 
 Owner authority: the submitted `[B][WORK] Fresh Thread, Divine Knowledge Refresh and Bounded N1–N3 Correction` instruction authorizes these three corrections on existing draft #139/branch only, superseding the prior blocked disposition for implementation scope, not certifying this new product candidate. Approved main/base remains `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`. Exact correction parent is `d740a3bd7979d2904ee6f0131bf334752b9e50cf`, tree `2266423893229a03e16b4898979893f137ee51fa`. Its sole parent is `0d2da7a6e4c295c277c0e40b502b2c56dca7311c`.
 
@@ -24,7 +103,7 @@ The new maintained file executes **122 cases**: the prior independent 38-case fi
 
 Development fixture calibration: one newly authored waiting-Cancel assertion initially compared every session key, incorrectly rejecting the established diagnostic notice. It now verifies unchanged original session queue/keys plus exactly the expected rejection diagnostic. All original independent assertions remain untouched; no product behavior was changed for that fixture assumption.
 
-### Current executable commands and outcomes
+### Prior e11fcfc executable commands and outcomes (historical)
 
 Python `subprocess.run` captured complete TAP streams and final exits. Git 2.51.1 / Node v24.19.0; `TSIMM_TEST_SCRIPT` unset. Groups overlap and are not additive unique counts.
 

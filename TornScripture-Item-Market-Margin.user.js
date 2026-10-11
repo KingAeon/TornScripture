@@ -173,16 +173,48 @@
     return Boolean(receipt && envelope && ['runId', 'entryId', 'attemptId'].every((key) => receipt[key] === envelope[key]));
   }
 
+  function captureQueueIdentifier(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 160 && earlyClean(value) === value ? value : '';
+  }
+
+  function captureQueuePositionsValid(queue) {
+    if (!queue || queue.schemaVersion !== 4 || !captureQueueIdentifier(queue.id) || !Array.isArray(queue.entries) || !queue.entries.length
+      || !Number.isInteger(queue.cursor) || queue.cursor < 0 || queue.cursor > queue.entries.length) return false;
+    const ids = new Set(), traders = new Set();
+    return queue.entries.every((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !captureQueueIdentifier(entry.entryId) || !captureQueueIdentifier(entry.traderId)
+        || ids.has(entry.entryId) || traders.has(entry.traderId)
+        || (index < queue.cursor && !['captured', 'explicitly_empty', 'explicitly_unavailable', 'parser_failure', 'identity_mismatch',
+          'timeout', 'user_skipped', 'canceled', 'expired', 'unsupported_page', 'legacy_unverified'].includes(entry.outcome))) return false;
+      ids.add(entry.entryId); traders.add(entry.traderId);
+      return true;
+    });
+  }
+
+  function captureReadyQueueValid(queue, now = Date.now()) {
+    // Ready is an unissued state, never a repaired/defaulted launched state.
+    if (!captureQueuePositionsValid(queue) || !captureQueueTimeValid(queue, now, false) || queue.status !== 'ready'
+      || queue.currentTraderId !== '' || queue.currentTraderName !== '' || queue.launchedAt !== 0
+      || queue.entries.slice(0, queue.cursor).some((entry) => !entry.outcome)) return false;
+    const entry = queue.entries[queue.cursor];
+    const source = captureSource(entry?.pricePageUrl);
+    return !entry || (entry.attemptsUsed === 0 && entry.attemptId === '' && entry.envelope === null && entry.outcome === ''
+      && typeof entry.traderName === 'string' && Boolean(entry.traderName) && earlyClean(entry.traderName) === entry.traderName
+      && (entry.userId === null || (Number.isInteger(entry.userId) && entry.userId > 0))
+      && Boolean(source) && source.url === entry.pricePageUrl && (!source.tornId || source.tornId === entry.userId));
+  }
+
   function captureCurrentAttemptEnvelope(queue, now = Date.now()) {
     const entry = queue?.entries?.[queue.cursor];
     const raw = entry?.envelope;
     const e = captureEnvelope(raw);
     // Inspect raw persisted authority before normalization can repair/coerce it.
-    if (!e || queue.schemaVersion !== 4 || queue.status !== 'launched' || !Array.isArray(queue.entries)
-      || !captureQueueTimeValid(queue, now, false) || !Number.isInteger(queue.cursor) || queue.cursor < 0
+    if (!e || !captureQueuePositionsValid(queue) || queue.status !== 'launched'
+      || !captureQueueTimeValid(queue, now, false)
       || e.intent !== 'carousel' || e.runId !== queue.id || e.entryId !== entry.entryId
       || e.attemptId !== entry.attemptId || e.traderRecordId !== entry.traderId
-      || queue.currentTraderId !== entry.traderId || queue.launchedAt !== e.issuedAt
+      || queue.currentTraderId !== entry.traderId || queue.currentTraderName !== entry.traderName || queue.launchedAt !== e.issuedAt
+      || typeof entry.traderName !== 'string' || !earlyClean(entry.traderName)
       || ![1, 2].includes(entry.attemptsUsed) || entry.outcome
       || e.expectedTornId !== entry.userId || !Number.isInteger(e.expectedTornId) || e.expectedTornId <= 0
       || e.sourceUrl !== entry.pricePageUrl || e.issuedAt < queue.startedAt || e.issuedAt > now
@@ -193,7 +225,10 @@
   }
 
   function captureCommittedReceipt(context, queue) {
-    const e = captureCurrentAttemptEnvelope(queue);
+    return captureTerminalReceipt(context, captureCurrentAttemptEnvelope(queue));
+  }
+
+  function captureTerminalReceipt(context, e) {
     if (!context.ok || !e) return null;
     const matches = context.traders.filter((trader) => captureStableTraderId(trader) === e.traderRecordId);
     const trader = matches.length === 1 ? matches[0] : null;
@@ -212,6 +247,21 @@
     return Boolean(e && context.traders.some((trader) => captureStableTraderId(trader) === e.traderRecordId
       && (captureReceiptMatches(trader.pricePageLastCaptureReceipt, e)
         || trader.pricePageCaptureReceipts?.some((r) => captureReceiptMatches(r, e)))));
+  }
+
+  function captureEntryConsumed(context, queue, entry) {
+    // Even absent attempt fields cannot reset a committed same-entry allowance.
+    const matches = (receipt) => receipt?.runId === queue.id && receipt?.entryId === entry.entryId;
+    return context.traders.some((trader) => captureStableTraderId(trader) === entry.traderId
+      && (matches(trader.pricePageLastCaptureReceipt) || trader.pricePageCaptureReceipts?.some(matches)));
+  }
+
+  function captureEntryCaptured(context, queue, entry) {
+    const e = captureEnvelope(entry?.envelope);
+    return entry?.outcome === 'captured' && [1, 2].includes(entry.attemptsUsed) && e?.intent === 'carousel'
+      && e.runId === queue.id && e.entryId === entry.entryId && e.attemptId === entry.attemptId && e.traderRecordId === entry.traderId
+      && Object.keys(e).every((key) => entry.envelope[key] === e[key])
+      && captureTerminalReceipt(context, e)?.receipt.outcome === 'captured';
   }
 
   function captureAuthorityDecision(result, { queue = null, traders = [], manualConfirmed = false, ownerAction = false, pending = null, now = Date.now() } = {}) {
@@ -16119,28 +16169,41 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function normalizeFavoriteCaptureCarousel(candidate) {
-    if (!candidate || typeof candidate !== 'object') return null;
-    const id = clean(candidate.id) || createId('trader-recapture');
-    const legacy = Number(candidate.schemaVersion) !== 4;
-    const entries = (Array.isArray(candidate.entries) ? candidate.entries : []).map((entry, index) => ({
-      traderId: clean(entry?.traderId), traderName: clean(entry?.traderName), userId: Number(entry?.userId) > 0 ? Number(entry.userId) : null,
-      pricePageUrl: clean(entry?.pricePageUrl), entryId: clean(entry?.entryId) || `${id}/${clean(entry?.traderId)}`,
-      attemptId: legacy ? '' : clean(entry?.attemptId), attemptsUsed: legacy ? (index > Number(candidate.cursor || 0) ? 0 : null) : Number.isInteger(entry?.attemptsUsed) && entry.attemptsUsed >= 0 && entry.attemptsUsed <= 2 ? entry.attemptsUsed : null,
-      envelope: legacy ? null : captureEnvelope(entry?.envelope), outcome: clean(entry?.outcome).slice(0, 40), reason: clean(entry?.reason).slice(0, 240),
-    })).filter((entry) => entry.traderId && entry.traderName && entry.pricePageUrl);
-    if (!entries.length) return null;
-    const cursor = Math.max(0, Math.min(entries.length, Math.floor(Number(candidate.cursor) || 0)));
-    let status = clean(candidate.status) || 'ready';
-    const current = entries[cursor];
-    if (status === 'launched' && (legacy || !captureCurrentAttemptEnvelope(candidate))) status = 'unverified';
-    if (legacy && status === 'ready' && current) current.attemptsUsed = 0;
-    return { schemaVersion: 4, id, mode: ['favorite', 'stale', 'all', 'retry'].includes(clean(candidate.mode)) ? clean(candidate.mode) : 'favorite',
-      entries, cursor, completed: Array.isArray(candidate.completed) ? candidate.completed.map(clean) : [],
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
+      || !Array.isArray(candidate.entries) || !candidate.entries.length) return null;
+    const legacy = candidate.schemaVersion === 3;
+    // Never filter positions, synthesize v4 IDs, coerce a cursor/count/clock or
+    // normalize an envelope into authority. Invalid entries remain recoverable.
+    const entries = candidate.entries.map((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+      if (!legacy) return { ...entry };
+      const unissuedFields = (entry.envelope === undefined || entry.envelope === null)
+        && (entry.attemptId === undefined || entry.attemptId === '')
+        && (entry.attemptsUsed === undefined || entry.attemptsUsed === 0);
+      const unissued = index > candidate.cursor || (index === candidate.cursor && candidate.status === 'ready'
+        && (candidate.currentTraderId === undefined || candidate.currentTraderId === '')
+        && (candidate.launchedAt === undefined || candidate.launchedAt === 0));
+      return { ...entry, entryId: entry.entryId === undefined ? `${candidate.id}/${entry.traderId}` : entry.entryId,
+        attemptId: '', envelope: null, attemptsUsed: unissued && unissuedFields ? 0 : null,
+        outcome: clean(entry.outcome).slice(0, 40) || (index < candidate.cursor ? 'legacy_unverified' : ''), reason: clean(entry.reason).slice(0, 240) };
+    });
+    const queue = { ...candidate, schemaVersion: legacy ? 4 : candidate.schemaVersion, entries,
+      completed: Array.isArray(candidate.completed) ? candidate.completed.map(clean) : [],
       failed: Array.isArray(candidate.failed) ? candidate.failed.map(clean) : [], skipped: Math.max(0, Number(candidate.skipped) || 0),
-      status, currentTraderId: clean(candidate.currentTraderId), currentTraderName: clean(candidate.currentTraderName),
-      returnUrl: safeCaptureReturn(candidate.returnUrl), startedAt: Number(candidate.startedAt) || 0, launchedAt: Number(candidate.launchedAt) || 0,
-      expiresAt: Number(candidate.expiresAt) || 0,
-      lastError: status === 'unverified' ? 'Legacy or malformed launched attempt: allowance unknown. Skip/Cancel, or deliberately start a new run after ending this one.' : clean(candidate.lastError).slice(0, 240) };
+      returnUrl: safeCaptureReturn(candidate.returnUrl), lastError: clean(candidate.lastError).slice(0, 240) };
+    if (legacy) {
+      queue.currentTraderId = candidate.currentTraderId || ''; queue.currentTraderName = candidate.currentTraderName || '';
+      queue.launchedAt = candidate.launchedAt || 0;
+    }
+    const closed = ['complete', 'canceled', 'expired'].includes(candidate.status);
+    const valid = captureQueuePositionsValid(queue) && (closed
+      || (!legacy && candidate.status === 'launched' && captureCurrentAttemptEnvelope(candidate))
+      || (candidate.status === 'ready' && captureReadyQueueValid(queue)));
+    if (!valid) {
+      queue.status = 'unverified';
+      queue.lastError = 'Persisted queue is inconsistent or allowance unknown. No execution; explicitly Skip/Cancel, or restore the backup.';
+    }
+    return queue;
   }
 
   function activeFavoriteCaptureCarousel() {
@@ -16154,10 +16217,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (queue && ['complete', 'canceled', 'expired'].includes(queue.status)) {
       return finishFavoriteCaptureCarousel(queue, queue.lastError, queue.status === 'complete' ? '' : queue.status) ? null : queue;
     }
-    if (queue && queue.expiresAt <= Date.now()) {
+    if (queue && queue.status !== 'unverified' && queue.expiresAt <= Date.now()) {
       return finishFavoriteCaptureCarousel(queue, 'Refresh expired; untouched entries remain unattempted.', 'expired') ? null : queue;
     }
-    if (queue && (!persisted || Number(persisted.schemaVersion) !== 4)) {
+    if (queue && (persisted || legacy)?.schemaVersion === 3 && captureQueuePositionsValid(queue)
+      && ((persisted || legacy).status === 'launched' || queue.status === 'ready')) {
       if (!saveFavoriteCaptureCarousel(queue)) return { ...queue, status: 'unverified', lastError: 'Migration persistence failed; Retry is blocked. Use Skip/Cancel after resolving storage.' };
     }
     return queue;
@@ -16172,9 +16236,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function saveFavoriteCaptureCarousel(queue) {
     if (!captureTransitionUsable()) return false;
-    const normalized = queue ? normalizeFavoriteCaptureCarousel(queue) : null;
+    if (queue && (!Array.isArray(queue.entries) || !queue.entries.length)) return false;
     const before = localStorage.getItem(A.carouselSession);
-    const encoded = normalized ? JSON.stringify(normalized) : null;
+    // Only the explicit transition may change authority; saving cannot repair it.
+    const encoded = queue ? JSON.stringify(queue) : null;
     try {
       if (encoded) localStorage.setItem(A.carouselSession, encoded); else localStorage.removeItem(A.carouselSession);
       if (localStorage.getItem(A.carouselSession) !== encoded) throw new Error('Queue readback failed');
@@ -16277,8 +16342,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       return null;
     }
     return {
-      totalQueued: result.totalQueued, schemaVersion: result.schemaVersion, runId: clean(result.runId),
-      outcomes: Array.isArray(result.outcomes) ? result.outcomes.map((entry) => ({ runId: clean(entry.runId), entryId: clean(entry.entryId), traderRecordId: clean(entry.traderRecordId), attemptId: clean(entry.attemptId), outcome: clean(entry.outcome), attempted: entry.attempted === true, reason: clean(entry.reason).slice(0, 240) })) : [],
+      totalQueued: result.totalQueued, schemaVersion: result.schemaVersion, runId: captureQueueIdentifier(result.runId),
+      outcomes: Array.isArray(result.outcomes) ? result.outcomes.map((entry) => ({ runId: captureQueueIdentifier(entry?.runId), entryId: captureQueueIdentifier(entry?.entryId), traderRecordId: captureQueueIdentifier(entry?.traderRecordId), attemptId: captureQueueIdentifier(entry?.attemptId), outcome: clean(entry?.outcome), attempted: entry?.attempted === true, reason: clean(entry?.reason).slice(0, 240) })) : [],
       mode: clean(result.mode) || 'all',
       completed: Array.isArray(result.completed) ? result.completed.map(clean).filter(Boolean) : [],
       failed: Array.isArray(result.failed) ? result.failed.map(clean).filter(Boolean) : [],
@@ -16347,22 +16412,24 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       showFavoriteToast(mode === 'stale' ? 'All supported trader prices are already fresh' : 'No eligible trader price pages are available');
       return false;
     }
+    const runId = createId(`${mode}-trader-recapture`);
     const queue = normalizeFavoriteCaptureCarousel({
       schemaVersion: 4,
-      id: createId(`${mode}-trader-recapture`),
+      id: runId,
       mode,
       entries: unique.map((trader) => ({
         traderId: trader.id,
         traderName: trader.name,
         userId: trader.uid,
-        pricePageUrl: trader.url,
-        attemptsUsed: 0,
+        pricePageUrl: captureSource(trader.url)?.url || trader.url,
+        entryId: `${runId}/${trader.id}`, attemptId: '', envelope: null, attemptsUsed: 0, outcome: '', reason: '',
       })),
       cursor: 0,
       completed: [],
       failed: [],
       skipped: mode === 'retry' ? 0 : selection.unsupported.length,
       status: 'ready',
+      currentTraderId: '', currentTraderName: '', launchedAt: 0,
       returnUrl: normalizeHttpUrl(location.href),
       startedAt: Date.now(),
       expiresAt: Date.now() + (12 * 60 * 60 * 1000),
@@ -16398,9 +16465,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!captureTransitionHeld) return captureTransition(() => skipCurrentCaptureCarousel(), false, true);
     const queue = activeFavoriteCaptureCarousel();
     if (!queue || queue.cursor >= queue.entries.length) return false;
+    const context = captureStoreContext();
+    if (!context.ok || !captureQueuePositionsValid(context.queue)
+      || queue.cursor !== context.queue.cursor || queue.entries[queue.cursor]?.entryId !== context.queue.entries[context.queue.cursor]?.entryId) {
+      showFavoriteToast('Current entry position or identity is unverified. Cancel/export recovery; no trader was skipped.'); return false;
+    }
     const current = queue.entries[queue.cursor];
     if (current.envelope && queue.status === 'launched' && current.envelope.expiresAt > Date.now()) {
-      const context = captureStoreContext();
       if (captureCommittedReceipt(context, context.queue)) {
         // A successful store followed by a lost completion notice is completed
         // once, rather than being overwritten by a Skip receipt.
@@ -16416,7 +16487,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }
     current.outcome = 'user_skipped'; current.reason = 'User skipped; historical prices not reverified.';
     if (!queue.failed.includes(current.traderName)) queue.failed.push(current.traderName);
-    queue.cursor += 1; queue.status = 'ready'; queue.currentTraderId = ''; queue.currentTraderName = '';
+    queue.cursor += 1; queue.status = 'ready'; queue.currentTraderId = ''; queue.currentTraderName = ''; queue.launchedAt = 0;
     if (!saveFavoriteCaptureCarousel(queue)) return false;
     if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue);
     else scheduleFavoriteCaptureCarouselContinuation();
@@ -16428,12 +16499,18 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!queue) return false;
     const current = queue.entries[queue.cursor];
     if (remainingOutcome && current?.envelope && queue.status === 'launched' && current.envelope.expiresAt > Date.now()) persistCaptureImport({ envelope: current.envelope, sourceUrl: current.envelope.sourceUrl, outcome: remainingOutcome, producedAt: Date.now(), items: [], reason: message }, false, true);
-    const outcomes = queue.entries.map((entry, index) => ({ runId: queue.id, entryId: entry.entryId,
-      traderRecordId: entry.traderId, attemptId: entry.attemptId, traderName: clean(entry.traderName).slice(0, 100),
-      outcome: entry.outcome || (index < queue.cursor ? 'legacy_unverified' : remainingOutcome || 'unattempted'),
-      attempted: entry.attemptsUsed === 1 || entry.attemptsUsed === 2,
-      reason: clean(entry.reason || (index >= queue.cursor ? message : '')).slice(0, 240) }));
-    const result = { schemaVersion: 4, runId: queue.id, mode: queue.mode, completed: [...queue.completed], failed: [...queue.failed],
+    const context = captureStoreContext();
+    const outcomes = queue.entries.map((entry, index) => {
+      const attempted = entry?.attemptsUsed === 1 || entry?.attemptsUsed === 2;
+      return { runId: captureQueueIdentifier(queue.id), entryId: captureQueueIdentifier(entry?.entryId), traderRecordId: captureQueueIdentifier(entry?.traderId),
+        attemptId: captureQueueIdentifier(entry?.attemptId), traderName: clean(entry?.traderName).slice(0, 100),
+        outcome: entry?.outcome === 'captured' && !captureEntryCaptured(context, queue, entry) ? 'legacy_unverified'
+          : clean(entry?.outcome) || (index < queue.cursor ? 'legacy_unverified' : remainingOutcome || 'unattempted'),
+        attempted, reason: clean(entry?.reason || (index >= queue.cursor ? message : '')).slice(0, 240) };
+    });
+    const result = { schemaVersion: 4, runId: captureQueueIdentifier(queue.id), mode: queue.mode,
+      completed: outcomes.filter((entry) => entry.outcome === 'captured').map((entry) => entry.traderName),
+      failed: outcomes.filter((entry) => entry.outcome !== 'captured' && (entry.attempted || entry.outcome === 'user_skipped')).map((entry) => entry.traderName),
       skipped: queue.skipped, outcomes, totalQueued: queue.entries.length, finishedAt: Date.now() };
     // Invalidate authority in the same queue record, retain outcomes if summary persistence fails.
     queue.status = remainingOutcome || 'complete';
@@ -16454,13 +16531,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!captureTransitionHeld) return captureTransition(() => launchFavoriteCaptureCarousel(), false, true);
     const queue = activeFavoriteCaptureCarousel();
     if (!queue || !['ready', 'launched', 'unverified'].includes(queue.status)) return false;
-    if (queue.cursor >= queue.entries.length) return finishFavoriteCaptureCarousel(queue);
     const current = queue.entries[queue.cursor];
-    if (queue.status === 'unverified' || current.attemptsUsed === null) {
+    if (queue.status === 'unverified' || current?.attemptsUsed === null) {
       showFavoriteToast('Attempt allowance unknown. Skip/Cancel, then explicitly start a fresh run.'); return false;
     }
     const context = captureStoreContext();
     if (!context.ok) return false;
+    if (queue.status === 'ready' && !captureReadyQueueValid(context.queue)) {
+      showFavoriteToast('Persisted ready state contains issued or malformed authority. No attempt; explicitly Skip/Cancel.'); return false;
+    }
+    if (queue.cursor >= queue.entries.length) return finishFavoriteCaptureCarousel(queue);
+    if (queue.status === 'ready' && captureEntryConsumed(context, context.queue, current)) {
+      showFavoriteToast('This run/entry already has a consumed receipt. No allowance reset; explicitly Skip/Cancel.'); return false;
+    }
     if (queue.status === 'launched') {
       const issued = captureCurrentAttemptEnvelope(context.queue);
       if (!issued) { showFavoriteToast('Persisted attempt is inconsistent. No Retry; explicitly Skip/Cancel.'); return false; }
@@ -16476,12 +16559,17 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }
     if (current.attemptsUsed >= 2) { showFavoriteToast('Two attempts issued; same-run Retry is exhausted. Use Skip/Cancel.'); return false; }
     state.traders = normalizeTraders(context.raw);
+    const matches = context.traders.filter((entry) => captureStableTraderId(entry) === current.traderId);
+    if (matches.length > 1 || (matches.length === 1 && captureTraderTornId(matches[0]) !== current.userId)) {
+      showFavoriteToast('Saved trader identity is ambiguous or differs from the queued identity. No attempt; explicitly Skip/Cancel.'); return false;
+    }
     const trader = state.traders.find((entry) => entry.id === current.traderId);
     const targetUrl = carouselLaunchTarget(current, trader);
     const source = captureSource(targetUrl);
     if (!trader || !source || !trader.userId) {
       current.outcome = 'unsupported_page'; current.reason = 'No supported route and saved Torn identity; manual recovery required.';
       queue.failed.push(current.traderName); queue.cursor++; queue.status = 'ready';
+      queue.currentTraderId = ''; queue.currentTraderName = ''; queue.launchedAt = 0;
       if (!saveFavoriteCaptureCarousel(queue)) return false;
       if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue); else scheduleFavoriteCaptureCarouselContinuation();
       return false;
@@ -16496,7 +16584,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     queue.launchedAt = now; queue.lastError = '';
     if (!saveFavoriteCaptureCarousel(queue)) return false;
     const persisted = read(A.carouselSession, null);
-    if (JSON.stringify(persisted) !== JSON.stringify(normalizeFavoriteCaptureCarousel(queue))) { showFavoriteToast('Attempt readback changed; no navigation.'); return false; }
+    if (JSON.stringify(persisted) !== JSON.stringify(queue)) { showFavoriteToast('Attempt readback changed; no navigation.'); return false; }
     showFavoriteToast(`${captureQueueLabel(queue)} ${queue.cursor + 1}/${queue.entries.length}: ${current.traderName} · attempt ${current.attemptsUsed}/2`);
     return requestTraderPriceRecapture(current.traderId, source.url, envelope) === true;
   }
@@ -16519,22 +16607,24 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       showFavoriteToast('No favorite traders have supported TornExchange or TornW3B price pages');
       return false;
     }
+    const runId = createId('favorite-recapture');
     const queue = normalizeFavoriteCaptureCarousel({
       schemaVersion: 4,
-      id: createId('favorite-recapture'),
+      id: runId,
       mode: 'favorite',
       entries: selection.ready.map((trader) => ({
         traderId: trader.id,
         traderName: trader.name,
         userId: trader.uid,
-        pricePageUrl: trader.url,
-        attemptsUsed: 0,
+        pricePageUrl: captureSource(trader.url)?.url || trader.url,
+        entryId: `${runId}/${trader.id}`, attemptId: '', envelope: null, attemptsUsed: 0, outcome: '', reason: '',
       })),
       cursor: 0,
       completed: [],
       failed: [],
       skipped: selection.skipped,
       status: 'ready',
+      currentTraderId: '', currentTraderName: '', launchedAt: 0,
       returnUrl: normalizeHttpUrl(location.href),
       startedAt: Date.now(),
       expiresAt: Date.now() + (12 * 60 * 60 * 1000),
@@ -16562,7 +16652,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!current) return false;
     const context = captureStoreContext();
     const issued = captureCurrentAttemptEnvelope(context.queue);
-    if (!issued) return false;
+    if (!issued || queue.cursor !== context.queue.cursor || current.entryId !== issued.entryId
+      || current.traderId !== issued.traderRecordId || current.attemptId !== issued.attemptId) return false;
     const committed = captureCommittedReceipt(context, context.queue);
     const storedTrader = committed?.trader;
     // A committed receipt recovers a lost UI notice, without importing or writing prices twice.
@@ -16581,7 +16672,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     current.outcome = notice.outcome; current.reason = clean(storedTrader.pricePageLastReason).slice(0, 240);
     const names = notice.outcome === 'captured' ? queue.completed : queue.failed;
     names.push(current.traderName);
-    queue.cursor++; queue.status = 'ready'; queue.currentTraderId = ''; queue.currentTraderName = ''; queue.lastError = current.reason;
+    queue.cursor++; queue.status = 'ready'; queue.currentTraderId = ''; queue.currentTraderName = ''; queue.launchedAt = 0; queue.lastError = current.reason;
     if (!saveFavoriteCaptureCarousel(queue)) return false;
     if (queue.cursor >= queue.entries.length) finishFavoriteCaptureCarousel(queue);
     else scheduleFavoriteCaptureCarouselContinuation();
@@ -16636,7 +16727,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       const done = Math.min(queue.cursor, queue.entries.length);
       const label = captureQueueLabel(queue);
       bar.className = 'active';
-      bar.innerHTML = `<div class="carousel-copy"><strong>↻ ${esc(label)} · ${done}/${queue.entries.length} processed · ${queue.entries.filter((entry) => entry.outcome === 'captured').length} captured</strong><span>${current ? `${queue.status === 'launched' ? 'Waiting on' : 'Next'}: ${esc(current.traderName)}` : 'Finishing queue'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume ${current?.attemptsUsed === 2 || queue.status === 'unverified' ? 'disabled' : ''}>${current?.attemptsUsed === 2 || queue.status === 'unverified' ? 'RETRY EXHAUSTED / UNKNOWN' : queue.status === 'launched' ? 'RETRY (FINAL ATTEMPT)' : 'CONTINUE'}</button>${current ? '<button type="button" data-watch-carousel-skip>SKIP</button>' : ''}<button type="button" class="cancel" data-watch-carousel-cancel>CANCEL</button></div>`;
+      bar.innerHTML = `<div class="carousel-copy"><strong>↻ ${esc(label)} · ${done}/${queue.entries.length} processed · ${queue.entries.filter((entry) => captureEntryCaptured(captureStoreContext(), queue, entry)).length} captured</strong><span>${current ? `${queue.status === 'launched' ? 'Waiting on' : 'Next'}: ${esc(current.traderName)}` : 'Unverified current position'}${queue.lastError ? ` · ${esc(queue.lastError)}` : ''}</span></div><div class="carousel-actions"><button type="button" data-watch-carousel-resume ${current?.attemptsUsed === 2 || queue.status === 'unverified' ? 'disabled' : ''}>${current?.attemptsUsed === 2 || queue.status === 'unverified' ? 'RETRY EXHAUSTED / UNKNOWN' : queue.status === 'launched' ? 'RETRY (FINAL ATTEMPT)' : 'CONTINUE'}</button>${current ? '<button type="button" data-watch-carousel-skip>SKIP</button>' : ''}<button type="button" class="cancel" data-watch-carousel-cancel>CANCEL</button></div>`;
       return;
     }
     bar.className = '';
