@@ -18,6 +18,11 @@ Do not reload the entire subtree by default.
 
 See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate, supersede, archive, rename, or delete content inside `docs/divine-knowledge/**` when useful for project continuity. Product code, releases, branch deletion, spending, gameplay behavior, credentials, and merges remain outside that standing authority.
 
+## Current operational gate
+
+- [Assistant-First Gate](domains/tooling/ASSISTANT-FIRST-GATE.md) — mandatory pre-escalation source review, capability proof and paid-cycle stop.
+- [PR #139 dated Black Ledger checkpoint](domains/black-ledger/PR-139-STATUS-2026-10-11.md) — verified refs, author/independent evidence distinction and next gates. Recheck live GitHub first.
+
 ## Fast files
 
 - `NOW.md` — tiny rolling project state / bootloader.
