@@ -1,6 +1,64 @@
 # BL-R01B v2.2 implementation evidence and acceptance gates
 
-Status: V1-01 through V1-05 corrected in the owner-authorized resume pass, syntax checked and Node regression tested; awaiting fresh independent exact-head [V1] and owner TornPDA/desktop [V2]. This branch is not a release. The final published SHA and draft PR are recorded in the PR description, avoiding a self-referential commit hash here.
+Status: N1–N3 corrected in the separately owner-authorized bounded pass after [independent V1 BLOCKED](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6106507705). Author-side executable validation passes; fresh independent exact-head [V1] is required. Owner TornPDA/desktop [V2] and Ledger Integrity remain on hold until V1 PASS. This branch is not a release. The exact published SHA/tree are recorded in the PR conversation/description, avoiding a self-referential commit hash here.
+
+## Current bounded N1–N3 correction (2026-10-11)
+
+Owner authority: the submitted `[B][WORK] Fresh Thread, Divine Knowledge Refresh and Bounded N1–N3 Correction` instruction authorizes these three corrections on existing draft #139/branch only, superseding the prior blocked disposition for implementation scope, not certifying this new product candidate. Approved main/base remains `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`. Exact correction parent is `d740a3bd7979d2904ee6f0131bf334752b9e50cf`, tree `2266423893229a03e16b4898979893f137ee51fa`. Its sole parent is `0d2da7a6e4c295c277c0e40b502b2c56dca7311c`.
+
+The full Divine Knowledge bootstrap, relevant domain indexes/DQ-EXT-001 and governing documents were refreshed against live GitHub. NOW still records October 5 `b8474253…`; IMM/Black Ledger indexes still say stable 0.19.36, while approved main is 0.19.37 and this draft is 0.19.39. Current frozen issue #78 and PR #139 evidence govern. No unrelated memory cleanup, Casino or Training status inference/edit was performed.
+
+Executable preflight: complete non-shallow clean worktree on the required branch, 790 reachable commits and connectivity check PASS; all 211 remote blob paths/SHAs and worktree bytes match the starting tree. Complete approved-base and prior-correction binary diffs were materialized/inspected. Live native main/branch/PR-head refs and connected PR base/head/draft state matched every handoff pin. A connected same-head, expected-SHA, non-force branch update proved the publication route. Native authenticated Git push failed for missing credentials and was not used; local Git/Node plus connected Git objects/ref publication remains the verified route.
+
+Pre-edit fresh results: full **521/521**, protected **400/400**, focused **124/124**, exits 0. The full independent report and both JavaScript fixtures were fetched from comment `6106507705`; their assertions were not altered. Extracted outside-repository fixtures reproduced exactly **28 pass / 10 fail** and **0 pass / 3 fail**, exits 1: five N1 terminal outcomes, four N2 nested identity variants and one N3 session-only Cancel.
+
+| Finding | Bounded production correction and recovery |
+|---|---|
+| N1 committed terminal A bypassed by Retry | Under the existing grant, Retry requires a self-consistent current persisted attempt, exact unique trader/Torn identity, matching last terminal receipt with complete envelope/expiry, and its matching consumed-receipt record. It **fails closed without B**, with explicit Skip recovery guidance; existing completion/Skip consumes the committed result once. No loose last-outcome flag proves commitment. Partial matching receipts block Retry/replay but cannot prove terminal success; explicit Skip may close that entry without changing its trader bytes. Genuinely uncommitted/lost A, including after request TTL, and valid `retry_needed(A)` still issue B once; never C. |
+| N2 inconsistent persisted envelope authority | Shared pure `captureCurrentAttemptEnvelope` checks raw schema/cursor, queue/run/current-entry/attempt/trader IDs, intent, provider/canonical source, expected Torn ID, issuance/deadline/transport/lifetime clocks, launched timestamp, budget and unconsumed entry state. Raw values must equal their validated representation; numeric-string/trim normalization cannot confer authority. All four import routes, completion and relevant navigation use this check. Malformed launched queues present as unverified; passive rejection preserves raw storage. Explicit Skip/Cancel may close/advance the queue with no price or terminal capture-receipt write based on contradictory authority. |
+| N3 session-only v3 first Cancel | Snapshot the actual local run or supported schema-v3 session fallback before waiting, then revalidate that run ID under exclusion. A different local replacement rejects; migration of the same intended legacy run can be canceled. No inferred legacy budget, implicit retry or bulk reset. |
+
+This correction changes only **three files**: the IMM userscript, new `tests/imm-capture-n123.test.js`, and this evidence document. The cumulative PR has **eight files**, adding the new test to the previous seven-file inventory below. Existing maintained tests/harness are unchanged. All five IMM version markers remain **0.19.39** for this draft amendment; distinguish candidates by exact SHA/tree. This is not a release-ready version decision; release still requires the project's patch-version rule and separate owner authorization.
+
+The new maintained file executes **122 cases**: the prior independent 38-case fixture with the same assertions (only the harness import adapted to its maintained location), plus **84** bounded controls. Controls include all five terminal outcomes, partial/malformed receipts, a store acquiring before a waiting Retry, all envelope fields missing/contradictory/coerced, enclosing queue/entry contradictions, all four write routes, 20 combined committed-terminal/corrupt-ID cases, safe malformed-B Skip to the next trader without C, real exclusion over legacy first Cancel, same-run migration versus different-run replacement, and denied-lock/persistence recovery. Ledger/purchase/sale/API sentinels and the actual unresolved-trade-journal key are preserved. Receipt audits remain within the protected Ledger bytes.
+
+Development fixture calibration: one newly authored waiting-Cancel assertion initially compared every session key, incorrectly rejecting the established diagnostic notice. It now verifies unchanged original session queue/keys plus exactly the expected rejection diagnostic. All original independent assertions remain untouched; no product behavior was changed for that fixture assumption.
+
+### Current executable commands and outcomes
+
+Python `subprocess.run` captured complete TAP streams and final exits. Git 2.51.1 / Node v24.19.0; `TSIMM_TEST_SCRIPT` unset. Groups overlap and are not additive unique counts.
+
+```bash
+# Complete supported suite: 643/643, 21 suites, exit 0
+node --test --test-reporter=tap tests/imm-api-trade-recovery.test.js tests/imm-capture-coordination.test.js tests/imm-capture-lifecycle.test.js tests/imm-capture-n123.test.js tests/imm-carousel-identity-precedence.test.js tests/imm-carousel-zero-price-mismatch.test.js tests/imm-startup-persisted-permission.test.js tests/inventory-sales-core.test.js tests/training-advisor-adapters.test.js tests/training-advisor-pure.test.js
+
+# Protected regressions: 400/400, 21 suites, exit 0
+node --test --test-reporter=tap tests/imm-api-trade-recovery.test.js tests/imm-carousel-identity-precedence.test.js tests/imm-carousel-zero-price-mismatch.test.js tests/imm-startup-persisted-permission.test.js tests/inventory-sales-core.test.js tests/training-advisor-adapters.test.js tests/training-advisor-pure.test.js
+
+# Focused: 246/246, exit 0
+node --test --test-reporter=tap tests/imm-capture-coordination.test.js tests/imm-capture-lifecycle.test.js tests/imm-capture-n123.test.js tests/imm-carousel-identity-precedence.test.js tests/imm-carousel-zero-price-mismatch.test.js
+
+# Exact unmodified fixtures extracted from the independent report, outside checkout:
+node --test --test-reporter=tap ../n123-evidence/v1-independent.test.cjs
+node --test --test-reporter=tap ../n123-evidence/v1-minimal-blockers.test.cjs
+# 38/38 and 3/3 respectively, exits 0
+
+git ls-files '*.js' '*.cjs'
+node --check <each-returned-path>
+# 23/23 individual syntax exits 0
+git diff --check
+git diff --cached --check
+git diff --check c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475
+git diff --check d740a3bd7979d2904ee6f0131bf334752b9e50cf
+```
+
+All final test groups have zero failures/cancellations/skips/todos. The 22 complete protected financial/recovery function regions were freshly compared byte-for-byte to the approved base: all identical. Safety-boundary text and storage-key literals are unchanged. No storage key/schema/migration, listener, timer, observer, network endpoint, gameplay action, UI ownership or financial arithmetic was added or removed by N1–N3. The existing schema 4 and migration/summary ownership remain.
+
+The asynchronous receipt/local-recapture callers noted by V1 were inspected: they do not participate in these carousel authority corrections. Their preexisting feedback/cleanup timing remains a later live acceptance risk; no unrelated handler rewrite or financial PASS is inferred from preserved function bodies.
+
+Next gate: request one **fresh independent exact-head [V1]**, using the original external fixtures plus the maintained combined controls, full/protected/focused suites, syntax/diff checks and protected byte comparison. No author test substitutes for independent V1. V2 remains on hold. After V1 PASS, owner acceptance must cover the existing checklist below, committed-terminal Retry/Skip recovery, malformed-envelope no-write and explicit recovery, session-only first Cancel and delayed replacement isolation, actual document-start/browser lifecycle, real provider identity/markup/carrier and unchanged Ledger export plus Ledger Integrity. Native Web Locks browser qualification is not product acceptance. No live browser/gameplay, infrastructure or spending was performed.
+
+Rollback remains stable IMM 0.19.37 from the approved base after disabling review IMM and preserving Trader Book/Ledger backups. Cancel/export unresolved review queue/summary deliberately before downgrading; do not resume schema-v4 state in a v3 runtime or reset accounting. The remaining historical evidence below describes the prior implementation and first correction, not independent acceptance of this amendment.
 
 ## Authority and executable preflight
 
@@ -103,7 +161,7 @@ Successful capture time alone establishes capture age and the unchanged 72h/168h
 
 Pricing formulas, precedence, strategy, lot/sale recording, actual transaction arithmetic, FIFO, receipts, journal/recovery, API credentials, Casino and Training are unchanged. Twenty-two protected function sections were compared byte-for-byte with the base: ledger normalization/integrity, trade sale/lot accounting, journal/evidence/receipt normalization, completed-trade staging/recovery, imports, native MAX and purchase/network observers, receipt-link and sale-link handlers; all identical. Production fixtures also preserve protected-store byte sentinels and reject unauthorized store writes. This is synthetic evidence; owner Ledger export and Integrity checks remain required.
 
-## Executable verification
+## Prior executable verification at d740a3b (historical)
 
 All final commands below ran from the executable worktree, with zero exits and complete TAP summaries. Python `subprocess.run` captured/drained stdout before writing evidence; some shell-redirected preflight attempts exited zero with incomplete output and were not treated as passing evidence.
 
@@ -124,7 +182,7 @@ Every tracked JavaScript/CJS path from `git ls-files` (including the new maintai
 
 ## Owner [V2] smoke checklist and rollback
 
-1. Export Trader Book and Black Ledger JSON; preserve original bytes, installed stable version and Ledger Integrity result. Keep backups outside Git. Close/reload every old IMM tab; enable only one IMM script/version in all Torn tabs. Use the exact reviewed branch/head and version 0.19.39 after owner authorization to test.
+1. After fresh independent V1 PASS and owner V2 authorization, export Trader Book and Black Ledger JSON; preserve original bytes, installed stable version and Ledger Integrity result. Keep backups outside Git. Close/reload every old IMM tab; enable only one IMM script/version in all Torn tabs. Use the exact reviewed branch/head and its documented version after owner authorization to test.
 2. In two same-origin Torn tabs, complete Cancel before Retry and reverse their order. Completed Cancel must never be resurrected; a Cancel waiting behind a granted B must cancel that same run after the B decision. Try duplicate Retry, cancel then start a replacement run, hide/close the waiting tab and close the holder. Denied/unavailable locks in an isolated diagnostic profile must give visible no-write/no-navigation recovery, including document-start returns.
 3. On TornPDA Android and relevant desktop, open Trader Book on Torn. Run favorites, stale, all and failed retry. Verify exact IDs, avoid/hidden exclusion, and valid → failed/empty/timeout/wrong-ID → valid progression. Use fixtures for adversarial provider cases that cannot safely be reproduced live. Never infer unavailable from zero rows alone.
 4. Observe actual A issuance → provider deadline → Torn checkpoint/readback → B. Reload before expiry; the deadline must not restart. Lose A return: explicit Retry once. Lose B return: exhausted, Skip/Cancel only. No same-run C. Interrupt before userscript execution and switch apps; return manually to Torn without unattended rescue.

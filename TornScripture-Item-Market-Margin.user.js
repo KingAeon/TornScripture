@@ -67,8 +67,16 @@
     } catch { return Promise.resolve(blocked()); }
     // This is an intent snapshot, never authority. A waiting user control must
     // not be retargeted to a replacement run/entry when exclusion is granted.
+    const intendedRun = () => {
+      const local = localStorage.getItem(EARLY_CAPTURE.queueKey);
+      const raw = local === null ? sessionStorage.getItem(EARLY_CAPTURE.queueKey) : local;
+      const queue = raw === null ? null : JSON.parse(raw);
+      // Only the supported v3 session fallback can supply a legacy intent.
+      return queue && (local !== null || queue.schemaVersion === 3)
+        && typeof queue.id === 'string' && queue.id ? queue.id : null;
+    };
     let expected;
-    try { if (bindQueue) expected = localStorage.getItem(EARLY_CAPTURE.queueKey); } catch { return Promise.resolve(blocked()); }
+    try { if (bindQueue) expected = bindQueue === 'run' ? intendedRun() : localStorage.getItem(EARLY_CAPTURE.queueKey); } catch { return Promise.resolve(blocked()); }
     const controller = new AbortController();
     captureWaiters.add(controller);
     const timer = setTimeout(() => controller.abort(), 5000);
@@ -77,9 +85,9 @@
         clearTimeout(timer);
         if (!lock || controller.signal.aborted || capturePageStopped || document.hidden) return blocked();
         if (bindQueue) {
-          const current = localStorage.getItem(EARLY_CAPTURE.queueKey);
+          const current = bindQueue === 'run' ? intendedRun() : localStorage.getItem(EARLY_CAPTURE.queueKey);
           const matches = bindQueue === 'run'
-            ? current !== null && expected !== null && JSON.parse(current)?.id === JSON.parse(expected)?.id
+            ? current !== null && expected !== null && current === expected
             : current === expected;
           if (!matches) return blocked();
         }
@@ -165,6 +173,47 @@
     return Boolean(receipt && envelope && ['runId', 'entryId', 'attemptId'].every((key) => receipt[key] === envelope[key]));
   }
 
+  function captureCurrentAttemptEnvelope(queue, now = Date.now()) {
+    const entry = queue?.entries?.[queue.cursor];
+    const raw = entry?.envelope;
+    const e = captureEnvelope(raw);
+    // Inspect raw persisted authority before normalization can repair/coerce it.
+    if (!e || queue.schemaVersion !== 4 || queue.status !== 'launched' || !Array.isArray(queue.entries)
+      || !captureQueueTimeValid(queue, now, false) || !Number.isInteger(queue.cursor) || queue.cursor < 0
+      || e.intent !== 'carousel' || e.runId !== queue.id || e.entryId !== entry.entryId
+      || e.attemptId !== entry.attemptId || e.traderRecordId !== entry.traderId
+      || queue.currentTraderId !== entry.traderId || queue.launchedAt !== e.issuedAt
+      || ![1, 2].includes(entry.attemptsUsed) || entry.outcome
+      || e.expectedTornId !== entry.userId || !Number.isInteger(e.expectedTornId) || e.expectedTornId <= 0
+      || e.sourceUrl !== entry.pricePageUrl || e.issuedAt < queue.startedAt || e.issuedAt > now
+      || e.deadline > e.expiresAt || Object.keys(e).some((key) => raw[key] !== e[key])) return null;
+    const source = captureSource(e.sourceUrl);
+    return source && source.url === e.sourceUrl && source.provider === e.provider
+      && (!source.tornId || source.tornId === e.expectedTornId) ? e : null;
+  }
+
+  function captureCommittedReceipt(context, queue) {
+    const e = captureCurrentAttemptEnvelope(queue);
+    if (!context.ok || !e) return null;
+    const matches = context.traders.filter((trader) => captureStableTraderId(trader) === e.traderRecordId);
+    const trader = matches.length === 1 ? matches[0] : null;
+    const receipt = trader?.pricePageLastCaptureReceipt;
+    const terminal = ['captured', 'explicitly_empty', 'explicitly_unavailable', 'parser_failure', 'identity_mismatch', 'timeout', 'user_skipped', 'canceled', 'expired'];
+    if (!trader || captureTraderTornId(trader) !== e.expectedTornId
+      || !captureReceiptMatches(receipt, e) || receipt.expiresAt !== e.expiresAt
+      || !terminal.includes(receipt.outcome)
+      || Object.keys(e).some((key) => receipt.envelope?.[key] !== e[key])
+      || !trader.pricePageCaptureReceipts?.some((r) => captureReceiptMatches(r, e) && r.expiresAt === e.expiresAt)) return null;
+    return { trader, receipt };
+  }
+
+  function captureAttemptConsumed(context, e) {
+    // Partial receipts can block retries, but cannot prove a terminal outcome.
+    return Boolean(e && context.traders.some((trader) => captureStableTraderId(trader) === e.traderRecordId
+      && (captureReceiptMatches(trader.pricePageLastCaptureReceipt, e)
+        || trader.pricePageCaptureReceipts?.some((r) => captureReceiptMatches(r, e)))));
+  }
+
   function captureAuthorityDecision(result, { queue = null, traders = [], manualConfirmed = false, ownerAction = false, pending = null, now = Date.now() } = {}) {
     const reject = (reason) => ({ ok: false, reason });
     const e = captureEnvelope(result?.envelope);
@@ -195,12 +244,9 @@
     let entry = null;
     if (e.intent === 'carousel') {
       entry = queue?.entries?.[queue.cursor];
-      if (!queue || Number(queue.schemaVersion) !== 4 || queue.status !== 'launched'
-        || !captureQueueTimeValid(queue, now) || !Number.isInteger(queue.cursor) || queue.cursor < 0
-        || e.issuedAt < queue.startedAt || queue.id !== e.runId || !entry
-        || entry.entryId !== e.entryId || entry.attemptId !== e.attemptId || entry.traderId !== e.traderRecordId
-        || ![1, 2].includes(entry.attemptsUsed) || entry.outcome
-        || ['issuedAt', 'deadline', 'expiresAt', 'provider', 'sourceUrl', 'expectedTornId'].some((key) => entry.envelope?.[key] !== e[key])) {
+      const current = captureCurrentAttemptEnvelope(queue, now);
+      if (!current || !captureQueueTimeValid(queue, now)
+        || Object.keys(current).some((key) => current[key] !== e[key])) {
         return reject('Result does not match the current Torn-issued attempt. Retry/Skip remains available.');
       }
       const exact = traders.filter((item) => captureStableTraderId(item) === e.traderRecordId);
@@ -232,7 +278,8 @@
       && !captureFinalStatement(outcome, proof.statement)) return reject('No affirmative final provider evidence.');
     if (outcome === 'parser_failure' && proof.recognizable !== true) return reject('No recognizable incompatible price page.');
     const receipts = Array.isArray(trader?.pricePageCaptureReceipts) ? trader.pricePageCaptureReceipts : [];
-    if (receipts.some((receipt) => captureReceiptMatches(receipt, e))) return reject('Capture result already consumed.');
+    if (captureReceiptMatches(trader?.pricePageLastCaptureReceipt, e)
+      || receipts.some((receipt) => captureReceiptMatches(receipt, e))) return reject('Capture result already consumed.');
     if (receipts.filter((receipt) => Number(receipt.expiresAt) > now).length >= 64) return reject('Capture receipt limit reached; wait for request expiry.');
     return { ok: true, envelope: e, trader, entry, source: actualSource, outcome };
   }
@@ -2400,9 +2447,9 @@
     if (!context.ok) { toast('Capture storage is unreadable; navigation blocked.'); return false; }
     const queue = context.queue;
     if (envelope) {
-      const entry = queue?.entries?.[queue.cursor];
-      if (!captureQueueTimeValid(queue) || queue?.status !== 'launched' || queue.id !== envelope.runId || !captureReceiptMatches(entry?.envelope, envelope)
-        || JSON.stringify(captureEnvelope(entry.envelope)) !== JSON.stringify(captureEnvelope(envelope))) { toast('Attempt authority changed; navigation blocked.'); return false; }
+      const current = captureCurrentAttemptEnvelope(queue);
+      if (!current || !captureQueueTimeValid(queue) || current.expiresAt <= Date.now()
+        || Object.keys(current).some((key) => envelope[key] !== current[key])) { toast('Attempt authority changed; navigation blocked.'); return false; }
     } else if (queue) { toast('Finish or cancel the carousel before a separate recapture.'); return false; }
     if (isWeav3rPriceListUrl(targetUrl)) {
       const request = { ...priceCaptureRequestForTrader(trader, targetUrl, envelope), attemptsUsed: envelope ? queue.entries[queue.cursor].attemptsUsed : 1 };
@@ -16085,7 +16132,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const cursor = Math.max(0, Math.min(entries.length, Math.floor(Number(candidate.cursor) || 0)));
     let status = clean(candidate.status) || 'ready';
     const current = entries[cursor];
-    if (status === 'launched' && (legacy || !current?.envelope || ![1, 2].includes(current.attemptsUsed))) status = 'unverified';
+    if (status === 'launched' && (legacy || !captureCurrentAttemptEnvelope(candidate))) status = 'unverified';
     if (legacy && status === 'ready' && current) current.attemptsUsed = 0;
     return { schemaVersion: 4, id, mode: ['favorite', 'stale', 'all', 'retry'].includes(clean(candidate.mode)) ? clean(candidate.mode) : 'favorite',
       entries, cursor, completed: Array.isArray(candidate.completed) ? candidate.completed.map(clean) : [],
@@ -16354,8 +16401,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const current = queue.entries[queue.cursor];
     if (current.envelope && queue.status === 'launched' && current.envelope.expiresAt > Date.now()) {
       const context = captureStoreContext();
-      const receipts = context.traders.filter(entry => captureStableTraderId(entry) === current.traderId);
-      if (receipts.length === 1 && captureReceiptMatches(receipts[0].pricePageLastCaptureReceipt, current.envelope)) {
+      if (captureCommittedReceipt(context, context.queue)) {
         // A successful store followed by a lost completion notice is completed
         // once, rather than being overwritten by a Skip receipt.
         const before = queue.cursor;
@@ -16363,8 +16409,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         const remaining = peekFavoriteCaptureCarousel();
         return !remaining || remaining.cursor > before;
       }
-      const notice = persistCaptureImport({ envelope: current.envelope, sourceUrl: current.envelope.sourceUrl, outcome: 'user_skipped', producedAt: Date.now(), items: [], reason: 'User skipped; historical prices not reverified.' }, false, true);
-      if (!notice.ok) { showFavoriteToast(notice.error); return false; }
+      if (!captureAttemptConsumed(context, current.envelope)) {
+        const notice = persistCaptureImport({ envelope: current.envelope, sourceUrl: current.envelope.sourceUrl, outcome: 'user_skipped', producedAt: Date.now(), items: [], reason: 'User skipped; historical prices not reverified.' }, false, true);
+        if (!notice.ok) { showFavoriteToast(notice.error); return false; }
+      }
     }
     current.outcome = 'user_skipped'; current.reason = 'User skipped; historical prices not reverified.';
     if (!queue.failed.includes(current.traderName)) queue.failed.push(current.traderName);
@@ -16411,9 +16459,22 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (queue.status === 'unverified' || current.attemptsUsed === null) {
       showFavoriteToast('Attempt allowance unknown. Skip/Cancel, then explicitly start a fresh run.'); return false;
     }
-    if (current.attemptsUsed >= 2) { showFavoriteToast('Two attempts issued; same-run Retry is exhausted. Use Skip/Cancel.'); return false; }
     const context = captureStoreContext();
     if (!context.ok) return false;
+    if (queue.status === 'launched') {
+      const issued = captureCurrentAttemptEnvelope(context.queue);
+      if (!issued) { showFavoriteToast('Persisted attempt is inconsistent. No Retry; explicitly Skip/Cancel.'); return false; }
+      if (captureCommittedReceipt(context, context.queue)) {
+        // Fail closed without minting B. Existing completion/Skip recovers the
+        // exact committed receipt once, including a lost or delayed notice.
+        showFavoriteToast('Terminal capture already saved. Use Skip to recover its result; no further attempt issued.');
+        return false;
+      }
+      if (captureAttemptConsumed(context, issued)) {
+        showFavoriteToast('Consumed attempt receipt is inconsistent. No Retry; explicitly Skip/Cancel.'); return false;
+      }
+    }
+    if (current.attemptsUsed >= 2) { showFavoriteToast('Two attempts issued; same-run Retry is exhausted. Use Skip/Cancel.'); return false; }
     state.traders = normalizeTraders(context.raw);
     const trader = state.traders.find((entry) => entry.id === current.traderId);
     const targetUrl = carouselLaunchTarget(current, trader);
@@ -16499,15 +16560,18 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!queue) return false;
     const current = queue.entries[queue.cursor];
     if (!current) return false;
-    const storedTraders = captureStoreContext().traders.filter((entry) => captureStableTraderId(entry) === current.traderId);
-    const storedTrader = storedTraders.length === 1 ? storedTraders[0] : null;
+    const context = captureStoreContext();
+    const issued = captureCurrentAttemptEnvelope(context.queue);
+    if (!issued) return false;
+    const committed = captureCommittedReceipt(context, context.queue);
+    const storedTrader = committed?.trader;
     // A committed receipt recovers a lost UI notice, without importing or writing prices twice.
-    const receipt = storedTrader?.pricePageLastCaptureReceipt;
-    if (!notice && receipt && captureReceiptMatches(receipt, current.envelope)) notice = { ok: true, envelope: receipt.envelope, outcome: receipt.outcome };
+    const receipt = committed?.receipt;
+    if (!notice && receipt) notice = { ok: true, envelope: receipt.envelope, outcome: receipt.outcome };
     if (!notice || !notice.ok || notice.rejected || notice.envelope?.intent !== 'carousel') return false;
     const e = captureEnvelope(notice.envelope);
-    if (!e || !captureQueueTimeValid(queue) || queue.status !== 'launched' || e.runId !== queue.id || e.entryId !== current.entryId
-      || e.attemptId !== current.attemptId || e.traderRecordId !== current.traderId || e.expiresAt <= Date.now()) return false;
+    if (!e || !captureQueueTimeValid(context.queue) || e.expiresAt <= Date.now()
+      || Object.keys(issued).some((key) => e[key] !== issued[key])) return false;
     if (notice.outcome === 'retry_needed') {
       const decision = captureAuthorityDecision(notice.result, captureStoreContext());
       if (!decision.ok || current.attemptsUsed !== 1) return false;
