@@ -1,5 +1,15 @@
 # NOW
 
+## Latest verified Black Ledger overlay (2026-10-11; not a live feed)
+
+BL_PR139|draft_open_unmerged|author_B_PASS_N4_N5|independent_V1_PENDING|owner_V2_and_Ledger_Integrity_ON_HOLD|head_2463e0cbcc42cebb9117daacd3c0d8791c388921|tree_e2c945ec8d8ceee361e2b4dae88d374d18e1476f
+BL_PR139_BASE_AT_CHECKPOINT|main_c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475|stable_IMM_0.19.37|draft_IMM_0.19.39
+GOVERNANCE_GATE|assistant_source_review_and_capability_preflight_before_premium_Work|domains/tooling/ASSISTANT-FIRST-GATE.md
+BL_CONTINUITY|domains/black-ledger/PR-139-STATUS-2026-10-11.md
+NOTE|Legacy snapshot below is retained as 2026-10-05 history, not fresh Training/Casino/main status. Recheck refs before any action.
+
+## Historical October 5 snapshot (not a live source)
+
 Snapshot: 2026-10-05 UTC; CA-01 Blackjack specification reconciled onto current main and independently V2-verified; owner merge decision pending; no casino product code authorized
 
 CURRENT_TRAINING|DQ-TRAIN-001K|ui_polish_route_selection_specification_frozen_independent_V_pending|base_main_776d8e8044f317cd8feca58fb5197710b9c69b64|docs/training-ui-polish-route-selection-001k-freeze

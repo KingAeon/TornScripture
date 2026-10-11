@@ -2,6 +2,10 @@
 
 Status: **LIGHTWEIGHT OPTIONAL LANE**
 
+## Mandatory assistant-first gate
+
+Read [ASSISTANT-FIRST-GATE.md](ASSISTANT-FIRST-GATE.md) before suggesting Work/Codex or presenting a PR as reviewed. The assistant performs available GitHub/source/test review first, proves capability gaps, and enforces the existing correction-cycle stop. Project file uploads are optional static signposts, not canonical live state.
+
 ## Current doctrine
 
 - Prefer the connected GitHub tools for repository inspection, documentation,
