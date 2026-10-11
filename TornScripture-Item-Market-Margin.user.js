@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.38
+// @version      0.19.39
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -17,12 +17,12 @@
 // @updateURL    https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-Item-Market-Margin.user.js
 // ==/UserScript==
 
-(() => {
+(async () => {
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.38' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.38' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.39' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.39' });
   }
 
 
@@ -36,6 +36,89 @@
     noticeKey: 'tornscripture-imm-core-capture-notice-v1',
     queueKey: 'tornscripture-imm-favorite-recapture-carousel-v1',
   });
+
+  // All cooperating Torn capture writers use this same origin-scoped lock.
+  // A readback detects persistence failure; only exclusion provides coordination.
+  const CAPTURE_TRANSITION_LOCK = 'tornscripture-imm-capture-transition-v1';
+  let captureTransitionHeld = false;
+  let captureTransitionController = null;
+  let capturePageStopped = false;
+  const captureWaiters = new Set();
+  window.addEventListener('pagehide', () => {
+    capturePageStopped = true;
+    for (const controller of captureWaiters) controller.abort();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) for (const controller of captureWaiters) controller.abort();
+  });
+
+  function captureTransition(operation, failure = false, bindQueue = false) {
+    const blocked = () => {
+      const message = 'Capture coordination unavailable or interrupted. No capture transition; return to Torn and explicitly Retry/Skip after resolving Web Locks.';
+      try { sessionStorage.setItem(EARLY_CAPTURE.noticeKey, JSON.stringify({ ok: false, rejected: true, error: message })); } catch {}
+      window.__TSIMM_WATCHLIST_API__?.captureBlocked?.(message);
+      return typeof failure === 'function' ? failure(message) : failure;
+    };
+    let locks;
+    try {
+      locks = navigator.locks;
+      if (!safeCaptureReturn(location.href) || capturePageStopped || document.hidden
+        || typeof locks?.request !== 'function' || typeof AbortController !== 'function') return Promise.resolve(blocked());
+    } catch { return Promise.resolve(blocked()); }
+    // This is an intent snapshot, never authority. A waiting user control must
+    // not be retargeted to a replacement run/entry when exclusion is granted.
+    let expected;
+    try { if (bindQueue) expected = localStorage.getItem(EARLY_CAPTURE.queueKey); } catch { return Promise.resolve(blocked()); }
+    const controller = new AbortController();
+    captureWaiters.add(controller);
+    const timer = setTimeout(() => controller.abort(), 5000);
+    return Promise.resolve().then(() => locks.request(CAPTURE_TRANSITION_LOCK,
+      { mode: 'exclusive', signal: controller.signal }, (lock) => {
+        clearTimeout(timer);
+        if (!lock || controller.signal.aborted || capturePageStopped || document.hidden) return blocked();
+        if (bindQueue) {
+          const current = localStorage.getItem(EARLY_CAPTURE.queueKey);
+          const matches = bindQueue === 'run'
+            ? current !== null && expected !== null && JSON.parse(current)?.id === JSON.parse(expected)?.id
+            : current === expected;
+          if (!matches) return blocked();
+        }
+        captureTransitionHeld = true;
+        captureTransitionController = controller;
+        try {
+          // Critical bodies are synchronous: no unlocked continuation may
+          // mutate state or make the navigation decision after this grant.
+          const value = operation();
+          if (value?.then) throw new Error('Asynchronous capture critical section');
+          return value;
+        } finally { captureTransitionHeld = false; captureTransitionController = null; }
+      })).catch(blocked).finally(() => {
+      clearTimeout(timer);
+      captureWaiters.delete(controller);
+    });
+  }
+
+  function captureTransitionUsable() {
+    return captureTransitionHeld && !captureTransitionController?.signal.aborted && !capturePageStopped && !document.hidden;
+  }
+
+  function captureStableTraderId(candidate) {
+    return earlyClean(candidate?.recordId) || earlyClean(candidate?.uuid)
+      || (typeof candidate?.id === 'string' ? earlyClean(candidate.id) : '');
+  }
+
+  function captureTraderTornId(candidate) {
+    const value = Number(candidate?.userId ?? candidate?.tornId ?? (typeof candidate?.id === 'number' ? candidate.id : null));
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+  }
+
+  function captureQueueTimeValid(queue, now = Date.now(), requireActive = true) {
+    return Boolean(queue && typeof queue.startedAt === 'number' && Number.isFinite(queue.startedAt)
+      && queue.startedAt > 0 && queue.startedAt <= now
+      && typeof queue.expiresAt === 'number' && Number.isFinite(queue.expiresAt)
+      && queue.expiresAt > queue.startedAt && queue.expiresAt - queue.startedAt <= 43200000
+      && (!requireActive || queue.expiresAt > now));
+  }
 
   // BL-R01B: the same decision runs before document-start and ordinary writes.
   // Provider evidence is correlated observation, not authentication of a quote.
@@ -113,26 +196,27 @@
     if (e.intent === 'carousel') {
       entry = queue?.entries?.[queue.cursor];
       if (!queue || Number(queue.schemaVersion) !== 4 || queue.status !== 'launched'
-        || Number(queue.expiresAt) <= now || queue.id !== e.runId || !entry
+        || !captureQueueTimeValid(queue, now) || !Number.isInteger(queue.cursor) || queue.cursor < 0
+        || e.issuedAt < queue.startedAt || queue.id !== e.runId || !entry
         || entry.entryId !== e.entryId || entry.attemptId !== e.attemptId || entry.traderId !== e.traderRecordId
         || ![1, 2].includes(entry.attemptsUsed) || entry.outcome
         || ['issuedAt', 'deadline', 'expiresAt', 'provider', 'sourceUrl', 'expectedTornId'].some((key) => entry.envelope?.[key] !== e[key])) {
         return reject('Result does not match the current Torn-issued attempt. Retry/Skip remains available.');
       }
-      const exact = traders.filter((item) => String(item.id ?? item.recordId) === e.traderRecordId);
+      const exact = traders.filter((item) => captureStableTraderId(item) === e.traderRecordId);
       trader = exact[0];
-      if (exact.length !== 1 || !trader || (Number(trader.userId) > 0 && Number(trader.userId) !== e.expectedTornId)) return reject('Saved trader identity changed, is ambiguous or is missing.');
+      if (exact.length !== 1 || !trader || captureTraderTornId(trader) !== e.expectedTornId) return reject('Saved trader identity changed, is ambiguous or is missing.');
       if (outcome === 'retry_needed' && entry.attemptsUsed !== 1) return reject('The two-attempt allowance is exhausted.');
     } else {
-      if (queue && Number(queue.expiresAt) > now) return reject('Finish or cancel the carousel before a separate manual capture.');
+      if (queue) return reject('Finish or cancel the carousel before a separate manual capture.');
       if (!manualConfirmed || outcome !== 'captured') return reject('Confirm the actual manual target on Torn before saving.');
       if (pending && Number(pending.expiresAt) > now && (Number(pending.userId) !== e.expectedTornId
         || (pending.traderId && pending.traderId !== e.traderRecordId && e.traderRecordId !== `torn:${pending.userId}`))) return reject('Manual capture differs from the armed trader; clear/re-arm the target.');
-      const exact = traders.filter((item) => String(item.id ?? item.recordId) === e.traderRecordId);
-      const sameId = traders.filter((item) => Number(item.userId) === e.expectedTornId);
+      const exact = traders.filter((item) => captureStableTraderId(item) === e.traderRecordId);
+      const sameId = traders.filter((item) => captureTraderTornId(item) === e.expectedTornId);
       if (exact.length > 1 || (!exact.length && sameId.length > 1)) return reject('Ambiguous saved trader identity; arm the exact record in Trader Book.');
       trader = exact[0] || (e.traderRecordId === `torn:${e.expectedTornId}` ? sameId[0] : null);
-      if (exact[0] && Number(exact[0].userId) !== e.expectedTornId) return reject('The armed manual target does not match the page Torn ID.');
+      if (exact[0] && captureTraderTornId(exact[0]) !== e.expectedTornId) return reject('The armed manual target does not match the page Torn ID.');
       if (!trader && e.traderRecordId !== `torn:${e.expectedTornId}`) return reject('The armed manual record no longer exists.');
     }
     const mismatch = independent && e.expectedTornId && observedId !== e.expectedTornId;
@@ -194,7 +278,30 @@
     } catch { return { ok: false, traders: [], queue: null, pending: null }; }
   }
 
+  function writeCaptureTraders(context, traders) {
+    const stored = JSON.stringify(Array.isArray(context.raw) ? traders : { ...context.raw, traders });
+    const before = context.encoded[EARLY_CAPTURE.tradersKey];
+    try {
+      // Recheck the exact authority and book snapshot immediately before the write.
+      // A changed Torn tab/storage snapshot must be revalidated, never overwritten.
+      if (Object.entries(context.encoded).some(([key, encoded]) => localStorage.getItem(key) !== encoded)) {
+        return { ok: false, rejected: true, error: 'Capture authority or storage changed; return for Retry/Skip or explicitly recapture.' };
+      }
+    } catch { return { ok: false, rejected: true, error: 'Capture storage recheck failed; no prices saved.' }; }
+    try {
+      if (!captureTransitionUsable()) return { ok: false, rejected: true, error: 'Capture page stopped; no prices saved.' };
+      localStorage.setItem(EARLY_CAPTURE.tradersKey, stored);
+      if (localStorage.getItem(EARLY_CAPTURE.tradersKey) !== stored) throw new Error('Trader capture readback failed');
+    } catch (error) {
+      try { if (before === null) localStorage.removeItem(EARLY_CAPTURE.tradersKey); else localStorage.setItem(EARLY_CAPTURE.tradersKey, before); } catch {}
+      return { ok: false, rejected: true, error: 'Capture persistence failed; no queue continuation is authorized.' };
+    }
+    return { ok: true };
+  }
+
   function persistCaptureImport(result, manualConfirmed = false, ownerAction = false) {
+    if (!captureTransitionHeld) return captureTransition(() => persistCaptureImport(result, manualConfirmed, ownerAction),
+      (error) => ({ ok: false, rejected: true, error }));
     const context = captureStoreContext();
     if (!context.ok) return { ok: false, rejected: true, error: 'Capture storage is unreadable; preserve the backup and resolve storage before recapturing.' };
     const decision = captureAuthorityDecision(result, { ...context, manualConfirmed, ownerAction });
@@ -221,23 +328,9 @@
     const traders = context.traders.slice();
     const index = decision.trader ? traders.indexOf(decision.trader) : -1;
     if (index < 0) traders.push(next); else traders[index] = next;
-    const stored = JSON.stringify(Array.isArray(context.raw) ? traders : { ...context.raw, traders });
-    const before = context.encoded[EARLY_CAPTURE.tradersKey];
-    try {
-      // Recheck the exact authority and book snapshot immediately before the write.
-      // A changed Torn tab/storage snapshot must be revalidated, never overwritten.
-      if (Object.entries(context.encoded).some(([key, encoded]) => localStorage.getItem(key) !== encoded)) {
-        return { ok: false, rejected: true, error: 'Capture authority or storage changed; return for Retry/Skip or explicitly recapture.' };
-      }
-    } catch { return { ok: false, rejected: true, error: 'Capture storage recheck failed; no prices saved.' }; }
-    try {
-      localStorage.setItem(EARLY_CAPTURE.tradersKey, stored);
-      if (localStorage.getItem(EARLY_CAPTURE.tradersKey) !== stored) throw new Error('Trader capture readback failed');
-    } catch (error) {
-      try { if (before === null) localStorage.removeItem(EARLY_CAPTURE.tradersKey); else localStorage.setItem(EARLY_CAPTURE.tradersKey, before); } catch {}
-      return { ok: false, rejected: true, error: 'Capture persistence failed; no queue continuation is authorized.' };
-    }
-    return { ok: true, outcome: decision.outcome, envelope: e, trader: next.name, traderId: next.id,
+    const write = writeCaptureTraders(context, traders);
+    if (!write.ok) return write;
+    return { ok: true, outcome: decision.outcome, envelope: e, trader: next.name, traderId: captureStableTraderId(next),
       count: captured ? result.items.length : 0, changes, result };
   }
 
@@ -395,8 +488,10 @@
     const compact = earlyDecodeBase64Url(encoded);
     // Manual imports require a visible Torn-side target confirmation, after UI startup.
     if (compact?.e?.intent === 'manual') return false;
+    if (!captureTransitionHeld) return captureTransition(() => runEarlyCapturePreflight());
     const result = captureResultFromCompactEarly(compact);
     const notice = persistCaptureImport(result);
+    if (!captureTransitionUsable()) return false;
     try { sessionStorage.setItem(EARLY_CAPTURE.noticeKey, JSON.stringify(notice)); } catch {}
     clearOffendingCaptureBridge(compact);
     url.searchParams.delete(EARLY_CAPTURE.importQueryKey);
@@ -437,17 +532,23 @@
     try {
       const payload = JSON.parse(raw.slice(EARLY_CAPTURE.bridgePrefix.length));
       if (payload?.type !== 'failure') return null;
+      if (!captureTransitionHeld) return captureTransition(() => consumeEarlyBridgeFailureNotice(),
+        (error) => ({ ok: false, rejected: true, error }));
       const notice = persistCaptureImport(captureResultFromCompactEarly(payload.compact));
       if (payload.compact) clearOffendingCaptureBridge(payload.compact); else earlyClearBridgeName();
       return notice;
     } catch { return null; }
   }
 
-  if (runEarlyCapturePreflight()) return;
-  const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
+  const earlyCapture = runEarlyCapturePreflight();
+  if (earlyCapture && (earlyCapture.then ? await earlyCapture : earlyCapture)) return;
+  if (capturePageStopped) return;
+  let EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
+  if (EARLY_CAPTURE_NOTICE?.then) EARLY_CAPTURE_NOTICE = await EARLY_CAPTURE_NOTICE;
+  if (capturePageStopped) return;
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.38
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.39
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -468,7 +569,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.38',
+    version: '0.19.39',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -1086,10 +1187,7 @@
     const disposition = normalizeTraderDisposition(candidate.disposition ?? candidate.traderStatus ?? legacyDisposition);
     const hiddenFromDisposition = normalizeTraderDisposition(candidate.hiddenFromDisposition) === 'avoid' ? 'avoid' : 'normal';
     return {
-      id: normalizeWhitespace(candidate.recordId)
-        || normalizeWhitespace(candidate.uuid)
-        || (typeof candidate.id === 'string' ? normalizeWhitespace(candidate.id) : '')
-        || createId('trader'),
+      id: captureStableTraderId(candidate) || createId('trader'),
       name,
       normalizedName: normalizeName(name),
       userId,
@@ -1622,6 +1720,8 @@
     const fromWindow = ['result', 'failure'].includes(bridged?.type) ? expandPriceCaptureResult(bridged.compact) : null;
     const imported = priceCaptureResultFromCurrentUrl() || fromWindow;
     if (!imported) return null;
+    if (!captureTransitionHeld) return captureTransition(() => consumeImportedPriceCapture(),
+      (error) => { toast(error); return { ok: false, rejected: true, error }; });
     let confirmed = false;
     if (imported.envelope?.intent === 'manual') {
       const context = captureStoreContext();
@@ -1691,9 +1791,16 @@
       if (statement) return { outcome, evidence: { ...evidence, statement }, reason: statement, items: [] };
     }
     const incompatible = provider === 'tornexchange'
-      ? [...document.querySelectorAll('table')].some((table) => /item name/i.test(table.textContent || '')
-        && !/buy price/i.test(table.textContent || '')) : false;
-    if (incompatible) return { outcome: 'parser_failure', evidence: { ...evidence, recognizable: true }, reason: 'Loaded item table has no supported buy-price column.', items: [] };
+      ? [...document.querySelectorAll('table')].some((table) => {
+        const { headingRow, nameIndex, priceIndex, supported } = tornExchangeTableColumns(table);
+        if (nameIndex < 0) return false;
+        if (!supported) return true;
+        const rows = table.querySelectorAll('tbody tr').length ? table.querySelectorAll('tbody tr') : table.querySelectorAll('tr');
+        return [...rows].some((row) => row !== headingRow
+          && normalizeWhitespace(row.children[nameIndex]?.textContent)
+          && !tornExchangeCellPrice(row.children[priceIndex]?.textContent));
+      }) : false;
+    if (incompatible) return { outcome: 'parser_failure', evidence: { ...evidence, recognizable: true }, reason: 'Loaded item table has no supported positive Buy Price evidence.', items: [] };
     return items.length ? { outcome: 'captured', evidence, items, reason: '' }
       : { outcome: 'loading_or_inconclusive', evidence, reason: 'Zero prices without affirmative final evidence.', items: [] };
   }
@@ -1880,7 +1987,7 @@
 
   function tornExchangeCellPrice(value) {
     const text = normalizeWhitespace(value);
-    if (!/\d/.test(text)) return null;
+    if (!/^\$?\s*(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return null;
     const number = Number(text.replace(/[^\d.-]/g, ''));
     return Number.isFinite(number) && number > 0 ? number : null;
   }
@@ -1902,33 +2009,18 @@
   function captureTornExchangePriceItems() {
     const found = new Map();
     for (const table of document.querySelectorAll('table')) {
-      const headingRow = table.querySelector('thead tr') || table.querySelector('tr');
-      const headings = [...(headingRow?.querySelectorAll('th,td') || [])].map((element) => normalizeName(element.textContent));
-      const nameIndex = headings.findIndex((heading) => heading === 'item name' || heading === 'item');
-      const priceIndex = headings.findIndex((heading) => heading.includes('buy price') || heading === 'price');
+      const { headingRow, nameIndex, priceIndex, supported } = tornExchangeTableColumns(table);
+      if (!supported) continue;
       const rows = table.querySelectorAll('tbody tr').length ? table.querySelectorAll('tbody tr') : table.querySelectorAll('tr');
       for (const row of rows) {
         if (row === headingRow) continue;
         const cells = [...row.children].filter((element) => /^(?:TH|TD)$/i.test(element.tagName));
         if (cells.length < 2) continue;
-        let selectedPriceIndex = priceIndex;
-        if (selectedPriceIndex < 0 || !tornExchangeCellPrice(cells[selectedPriceIndex]?.textContent)) {
-          for (let index = cells.length - 1; index >= 0; index -= 1) {
-            if (tornExchangeCellPrice(cells[index].textContent)) {
-              selectedPriceIndex = index;
-              break;
-            }
-          }
-        }
+        const selectedPriceIndex = priceIndex;
         const unitPrice = tornExchangeCellPrice(cells[selectedPriceIndex]?.textContent);
         if (!unitPrice) continue;
-        let itemName = normalizeWhitespace(cells[nameIndex]?.textContent);
-        if (!itemName || /^(?:image|item|item name|buy price|price)$/i.test(itemName) || tornExchangeCellPrice(itemName)) {
-          itemName = cells.map((cell, index) => ({ index, text: normalizeWhitespace(cell.textContent) }))
-            .filter((entry) => entry.index !== selectedPriceIndex && entry.text && !tornExchangeCellPrice(entry.text) && !/^image$/i.test(entry.text))
-            .sort((left, right) => right.text.length - left.text.length)[0]?.text || '';
-        }
-        if (!itemName) continue;
+        const itemName = normalizeWhitespace(cells[nameIndex]?.textContent);
+        if (!itemName || /^(?:image|item|item name|buy price|price)$/i.test(itemName) || tornExchangeCellPrice(itemName)) continue;
         const itemId = tornExchangeRowItemId(row);
         const item = normalizeTraderPriceItem({ itemId, itemName, unitPrice });
         if (!item) continue;
@@ -1938,6 +2030,16 @@
       }
     }
     return [...found.values()].sort((left, right) => left.itemName.localeCompare(right.itemName));
+  }
+
+  function tornExchangeTableColumns(table) {
+    const headingRow = table.querySelector('thead tr') || table.querySelector('tr');
+    const headings = [...(headingRow?.querySelectorAll('th,td') || [])].map((element) => normalizeName(element.textContent));
+    const nameIndex = headings.findIndex((heading) => heading === 'item name' || heading === 'item');
+    const priceIndex = headings.indexOf('buy price');
+    return { headingRow, nameIndex, priceIndex, supported: nameIndex >= 0 && priceIndex >= 0
+      && headings.filter(h => h === 'buy price').length === 1
+      && headings.filter(h => h === 'item name' || h === 'item').length === 1 };
   }
 
   function tornExchangeTraderIdentity() {
@@ -2191,6 +2293,9 @@
   }
 
   function saveTraderPriceCapture(trader, { url = '', title = '', items = [], sourceType = 'page', automatic = false, captureResult = null, manualConfirmed = false } = {}) {
+    if (!captureTransitionHeld) return captureTransition(() => saveTraderPriceCapture(trader,
+      { url, title, items, sourceType, automatic, captureResult, manualConfirmed }),
+      (error) => captureResult ? { ok: false, rejected: true, error } : null);
     if (captureResult) {
       const result = persistCaptureImport(captureResult, manualConfirmed);
       if (result.ok && result.outcome !== 'retry_needed') {
@@ -2207,6 +2312,11 @@
     if (!context.ok) { toast('Capture storage is unreadable; no capture was saved.'); return null; }
     if (context.queue) { toast('Finish or cancel the carousel before a separate manual capture.'); return null; }
     if (!trader) return null;
+    const matches = context.traders.filter(entry => captureStableTraderId(entry) === trader.id);
+    if (matches.length !== 1) return null;
+    const previous = matches[0];
+    trader = normalizeTrader(previous);
+    if (!trader) return null;
     const cleanUrl = normalizeHttpUrl(url || location.href);
     const cleanItems = items.map(normalizeTraderPriceItem).filter(Boolean);
     const previousItems = trader.pricePageItems || [];
@@ -2216,9 +2326,8 @@
       ? trader.pricePageUrl
       : trader.previousPricePageUrl;
     const now = new Date().toISOString();
-    const next = normalizeTrader({
-      ...trader,
-      recordId: trader.id,
+    const next = {
+      ...previous,
       previousPricePageUrl: cleanItems.length ? previousUrl : trader.previousPricePageUrl,
       pricePageUrl: cleanItems.length ? cleanUrl || trader.pricePageUrl : trader.pricePageUrl,
       pricePageTitle: cleanItems.length ? normalizeWhitespace(title || document.title || trader.pricePageTitle).slice(0, 160) : trader.pricePageTitle,
@@ -2231,18 +2340,26 @@
       pricePageLastReason: cleanItems.length ? '' : 'No supported prices parsed; previous snapshot not reverified.',
       pricePageLastResult: cleanItems.length ? `${sourceType}:${automatic ? 'auto' : 'manual'}` : 'no-prices-found',
       updatedAt: now,
-    });
-    const saved = upsertTrader(next);
+    };
+    const traders = context.traders.slice();
+    traders[traders.indexOf(previous)] = next;
+    const write = writeCaptureTraders(context, traders);
+    if (!write.ok) { toast(write.error); return null; }
+    state.traders = normalizeTraders(Array.isArray(context.raw) ? traders : { ...context.raw, traders });
+    const saved = normalizeTrader(next);
+    renderTraders();
+    renderPanel();
     return {
       trader: saved,
       parsedCount: cleanItems.length,
       changedCount,
-      preservedPrevious,
+      preservedPrevious: preservePrevious,
       url: cleanUrl,
     };
   }
 
   function captureCurrentPricePageForTrader(traderId = '', { automatic = false, consumePending = true } = {}) {
+    if (!captureTransitionHeld) return captureTransition(() => captureCurrentPricePageForTrader(traderId, { automatic, consumePending }), null, true);
     const pending = activePendingTraderCapture();
     const trader = state.traders.find((entry) => entry.id === traderId)
       || traderForPendingCapture(pending);
@@ -2269,6 +2386,10 @@
   }
 
   function requestTraderPriceRecapture(traderId, preferredUrl = '', envelope = null) {
+    if (!captureTransitionHeld) return captureTransition(() => requestTraderPriceRecapture(traderId, preferredUrl, envelope), false, true);
+    const fresh = captureStoreContext();
+    if (!fresh.ok) { toast('Capture storage is unreadable; navigation blocked.'); return false; }
+    state.traders = normalizeTraders(fresh.raw);
     const trader = state.traders.find((entry) => entry.id === traderId);
     const targetUrl = cleanSupportedPricePageUrl(preferredUrl || trader?.pricePageUrl);
     if (!trader || !targetUrl) {
@@ -2280,18 +2401,20 @@
     const queue = context.queue;
     if (envelope) {
       const entry = queue?.entries?.[queue.cursor];
-      if (queue?.status !== 'launched' || queue.id !== envelope.runId || !captureReceiptMatches(entry?.envelope, envelope)
+      if (!captureQueueTimeValid(queue) || queue?.status !== 'launched' || queue.id !== envelope.runId || !captureReceiptMatches(entry?.envelope, envelope)
         || JSON.stringify(captureEnvelope(entry.envelope)) !== JSON.stringify(captureEnvelope(envelope))) { toast('Attempt authority changed; navigation blocked.'); return false; }
     } else if (queue) { toast('Finish or cancel the carousel before a separate recapture.'); return false; }
     if (isWeav3rPriceListUrl(targetUrl)) {
       const request = { ...priceCaptureRequestForTrader(trader, targetUrl, envelope), attemptsUsed: envelope ? queue.entries[queue.cursor].attemptsUsed : 1 };
       if (!writePriceBridgeWindowName(request)) { toast('Request transport failed; no navigation.'); return false; }
+      if (!captureTransitionUsable()) return false;
       window.location.assign(weav3rUrlWithCaptureRequest(targetUrl, request));
       return true;
     }
     if (isTornExchangePriceListUrl(targetUrl)) {
       const request = { ...priceCaptureRequestForTrader(trader, targetUrl, envelope), attemptsUsed: envelope ? queue.entries[queue.cursor].attemptsUsed : 1 };
       if (!writePriceBridgeWindowName(request)) { toast('Request transport failed; no navigation.'); return false; }
+      if (!captureTransitionUsable()) return false;
       window.location.assign(targetUrl);
       return true;
     }
@@ -14936,9 +15059,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     bindPanelEvents();
     installNetworkObservers();
     bindObserver();
-    if (importedPriceCapture?.ok) {
-      setTimeout(() => toast(`${importedPriceCapture.trader || 'Capture'}: ${importedPriceCapture.outcome}.`), 150);
-    }
+    Promise.resolve(importedPriceCapture).then((capture) => {
+      if (capture?.ok) setTimeout(() => toast(`${capture.trader || 'Capture'}: ${capture.outcome}.`), 150);
+    });
     window.addEventListener('hashchange', () => scheduleScan(20));
     window.addEventListener('popstate', () => scheduleScan(20));
     document.addEventListener('visibilitychange', () => {
@@ -15415,8 +15538,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         : candidate.hidden ? 'hidden' : candidate.avoid ? 'avoid' : 'normal';
       return {
         raw: candidate,
-        id: clean(candidate.recordId ?? candidate.uuid)
-          || (typeof candidate.id === 'string' ? clean(candidate.id) : '')
+        id: captureStableTraderId(candidate)
           || (uid ? `trader-${uid}` : `trader-${key(name)}`),
         name,
         n: key(name),
@@ -15975,11 +16097,13 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function activeFavoriteCaptureCarousel() {
+    if (!captureTransitionHeld) return captureTransition(() => activeFavoriteCaptureCarousel(), false, true);
     const context = captureStoreContext();
     if (!context.ok) { showFavoriteToast('Capture storage is unreadable; export/resolve it before a new run.'); return null; }
     const persisted = context.queue;
     const legacy = loadSessionJson(A.carouselSession, null);
     const queue = normalizeFavoriteCaptureCarousel(persisted || legacy);
+    if (queue && !captureQueueTimeValid(persisted || legacy, Date.now(), false)) return { ...queue, status: 'unverified', lastError: 'Persisted queue lifetime is malformed. Imports and Retry are blocked; explicitly Skip/Cancel or restore the backup.' };
     if (queue && ['complete', 'canceled', 'expired'].includes(queue.status)) {
       return finishFavoriteCaptureCarousel(queue, queue.lastError, queue.status === 'complete' ? '' : queue.status) ? null : queue;
     }
@@ -15992,7 +16116,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return queue;
   }
 
+  function peekFavoriteCaptureCarousel() {
+    const context = captureStoreContext();
+    const queue = context.ok ? normalizeFavoriteCaptureCarousel(context.queue || loadSessionJson(A.carouselSession, null)) : null;
+    if (queue && !captureQueueTimeValid(context.queue || loadSessionJson(A.carouselSession, null), Date.now(), false)) return { ...queue, status: 'unverified', lastError: 'Persisted queue lifetime is malformed. Explicit Skip/Cancel required.' };
+    return queue;
+  }
+
   function saveFavoriteCaptureCarousel(queue) {
+    if (!captureTransitionUsable()) return false;
     const normalized = queue ? normalizeFavoriteCaptureCarousel(queue) : null;
     const before = localStorage.getItem(A.carouselSession);
     const encoded = normalized ? JSON.stringify(normalized) : null;
@@ -16094,7 +16226,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!result || typeof result !== 'object') return null;
     const finishedAt = Number(result.finishedAt) || 0;
     if (finishedAt && Date.now() - finishedAt > 7 * 24 * 60 * 60 * 1000) {
-      try { localStorage.removeItem(A.carouselResult); } catch {}
+      if (captureTransitionHeld) try { localStorage.removeItem(A.carouselResult); } catch {}
       return null;
     }
     return {
@@ -16109,6 +16241,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function saveCaptureRefreshResult(result) {
+    if (!captureTransitionUsable()) return false;
     const encoded = result ? JSON.stringify(result) : null;
     try {
       if (encoded) localStorage.setItem(A.carouselResult, encoded); else localStorage.removeItem(A.carouselResult);
@@ -16147,6 +16280,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function startSavedTraderCaptureCarousel(mode = 'stale', explicitTraders = null) {
+    if (!captureTransitionHeld) return captureTransition(() => startSavedTraderCaptureCarousel(mode, explicitTraders), false, true);
     const context = captureStoreContext();
     if (!context.ok || (context.queue && !normalizeFavoriteCaptureCarousel(context.queue))) { showFavoriteToast('Capture storage is unreadable; no new run was written.'); return false; }
     const existing = activeFavoriteCaptureCarousel();
@@ -16189,11 +16323,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!saveFavoriteCaptureCarousel(queue) || !saveCaptureRefreshResult(null)) return false;
     closeTraderRefreshDialog();
     showFavoriteToast(`${captureQueueLabel(queue)} armed: ${queue.entries.length} trader${queue.entries.length === 1 ? '' : 's'}`);
-    setTimeout(() => { const active = activeFavoriteCaptureCarousel(); if (active?.id === queue.id && active.status === 'ready') launchFavoriteCaptureCarousel(); }, 450);
+    setTimeout(() => { const active = peekFavoriteCaptureCarousel(); if (active?.id === queue.id && active.status === 'ready') launchFavoriteCaptureCarousel(); }, 450);
     return true;
   }
 
   function retryFailedTraderCaptureCarousel() {
+    if (!captureTransitionHeld) return captureTransition(() => retryFailedTraderCaptureCarousel(), false, true);
     const result = lastCaptureRefreshResult();
     if (!result?.failed?.length) { showFavoriteToast('No failed trader captures are waiting'); return false; }
     const all = normTraders();
@@ -16213,10 +16348,21 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function skipCurrentCaptureCarousel() {
+    if (!captureTransitionHeld) return captureTransition(() => skipCurrentCaptureCarousel(), false, true);
     const queue = activeFavoriteCaptureCarousel();
     if (!queue || queue.cursor >= queue.entries.length) return false;
     const current = queue.entries[queue.cursor];
     if (current.envelope && queue.status === 'launched' && current.envelope.expiresAt > Date.now()) {
+      const context = captureStoreContext();
+      const receipts = context.traders.filter(entry => captureStableTraderId(entry) === current.traderId);
+      if (receipts.length === 1 && captureReceiptMatches(receipts[0].pricePageLastCaptureReceipt, current.envelope)) {
+        // A successful store followed by a lost completion notice is completed
+        // once, rather than being overwritten by a Skip receipt.
+        const before = queue.cursor;
+        continueFavoriteCaptureCarousel(null);
+        const remaining = peekFavoriteCaptureCarousel();
+        return !remaining || remaining.cursor > before;
+      }
       const notice = persistCaptureImport({ envelope: current.envelope, sourceUrl: current.envelope.sourceUrl, outcome: 'user_skipped', producedAt: Date.now(), items: [], reason: 'User skipped; historical prices not reverified.' }, false, true);
       if (!notice.ok) { showFavoriteToast(notice.error); return false; }
     }
@@ -16230,6 +16376,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function finishFavoriteCaptureCarousel(queue, message = '', remainingOutcome = '') {
+    if (!captureTransitionHeld) return false;
     if (!queue) return false;
     const current = queue.entries[queue.cursor];
     if (remainingOutcome && current?.envelope && queue.status === 'launched' && current.envelope.expiresAt > Date.now()) persistCaptureImport({ envelope: current.envelope, sourceUrl: current.envelope.sourceUrl, outcome: remainingOutcome, producedAt: Date.now(), items: [], reason: message }, false, true);
@@ -16249,12 +16396,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function cancelFavoriteCaptureCarousel() {
+    if (!captureTransitionHeld) return captureTransition(() => cancelFavoriteCaptureCarousel(), false, 'run');
     const queue = activeFavoriteCaptureCarousel();
     if (queue) finishFavoriteCaptureCarousel(queue, 'User canceled; untouched entries remain unattempted.', 'canceled');
     else showFavoriteToast('No trader capture queue is active');
   }
 
   function launchFavoriteCaptureCarousel() {
+    if (!captureTransitionHeld) return captureTransition(() => launchFavoriteCaptureCarousel(), false, true);
     const queue = activeFavoriteCaptureCarousel();
     if (!queue || !['ready', 'launched', 'unverified'].includes(queue.status)) return false;
     if (queue.cursor >= queue.entries.length) return finishFavoriteCaptureCarousel(queue);
@@ -16263,6 +16412,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       showFavoriteToast('Attempt allowance unknown. Skip/Cancel, then explicitly start a fresh run.'); return false;
     }
     if (current.attemptsUsed >= 2) { showFavoriteToast('Two attempts issued; same-run Retry is exhausted. Use Skip/Cancel.'); return false; }
+    const context = captureStoreContext();
+    if (!context.ok) return false;
+    state.traders = normalizeTraders(context.raw);
     const trader = state.traders.find((entry) => entry.id === current.traderId);
     const targetUrl = carouselLaunchTarget(current, trader);
     const source = captureSource(targetUrl);
@@ -16289,6 +16441,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   }
 
   function startFavoriteCaptureCarousel() {
+    if (!captureTransitionHeld) return captureTransition(() => startFavoriteCaptureCarousel(), false, true);
     const context = captureStoreContext();
     if (!context.ok || (context.queue && !normalizeFavoriteCaptureCarousel(context.queue))) { showFavoriteToast('Capture storage is unreadable; no new run was written.'); return false; }
     const existing = activeFavoriteCaptureCarousel();
@@ -16327,31 +16480,33 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     });
     if (!saveFavoriteCaptureCarousel(queue) || !saveCaptureRefreshResult(null)) return false;
     showFavoriteToast(`Favorite carousel armed: ${queue.entries.length} trader${queue.entries.length === 1 ? '' : 's'}`);
-    setTimeout(() => { const active = activeFavoriteCaptureCarousel(); if (active?.id === queue.id && active.status === 'ready') launchFavoriteCaptureCarousel(); }, 450);
+    setTimeout(() => { const active = peekFavoriteCaptureCarousel(); if (active?.id === queue.id && active.status === 'ready') launchFavoriteCaptureCarousel(); }, 450);
     return true;
   }
 
   function scheduleFavoriteCaptureCarouselContinuation() {
-    const expected = activeFavoriteCaptureCarousel();
+    const expected = peekFavoriteCaptureCarousel();
     if (!expected) return;
     setTimeout(() => {
-      const queue = activeFavoriteCaptureCarousel();
+      const queue = peekFavoriteCaptureCarousel();
       if (queue?.id === expected.id && queue.cursor === expected.cursor && queue.status === 'ready') launchFavoriteCaptureCarousel();
     }, 850);
   }
 
   function continueFavoriteCaptureCarousel(notice) {
+    if (!captureTransitionHeld) return captureTransition(() => continueFavoriteCaptureCarousel(notice), false, true);
     const queue = activeFavoriteCaptureCarousel();
     if (!queue) return false;
     const current = queue.entries[queue.cursor];
     if (!current) return false;
-    const storedTrader = captureStoreContext().traders.find((entry) => entry.id === current.traderId);
+    const storedTraders = captureStoreContext().traders.filter((entry) => captureStableTraderId(entry) === current.traderId);
+    const storedTrader = storedTraders.length === 1 ? storedTraders[0] : null;
     // A committed receipt recovers a lost UI notice, without importing or writing prices twice.
     const receipt = storedTrader?.pricePageLastCaptureReceipt;
     if (!notice && receipt && captureReceiptMatches(receipt, current.envelope)) notice = { ok: true, envelope: receipt.envelope, outcome: receipt.outcome };
     if (!notice || !notice.ok || notice.rejected || notice.envelope?.intent !== 'carousel') return false;
     const e = captureEnvelope(notice.envelope);
-    if (!e || queue.status !== 'launched' || e.runId !== queue.id || e.entryId !== current.entryId
+    if (!e || !captureQueueTimeValid(queue) || queue.status !== 'launched' || e.runId !== queue.id || e.entryId !== current.entryId
       || e.attemptId !== current.attemptId || e.traderRecordId !== current.traderId || e.expiresAt <= Date.now()) return false;
     if (notice.outcome === 'retry_needed') {
       const decision = captureAuthorityDecision(notice.result, captureStoreContext());
@@ -16404,7 +16559,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!(host instanceof Element) || !host.matches('[data-tsimm-trader-decoration-host]') || !host.isConnected) return;
     const favoriteSelection = favoriteCaptureSelection(traders, favorites);
     const traderSelection = savedTraderCaptureSelection(traders);
-    const queue = activeFavoriteCaptureCarousel();
+    const queue = peekFavoriteCaptureCarousel();
     renderTraderRefreshDialog(traderSelection);
     let bar = host.querySelector(`#${A.carousel}`);
     if (!bar) {
@@ -16496,6 +16651,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       const deal = dealFromRow(overlay.querySelector('.td-row'), trader);
       if (deal) selectedDeal = deal;
     }
+    if (selectedDeal) {
+      const selectedKey = itemKey(selectedDeal.item.id, selectedDeal.item.name);
+      const item = trader.items.find(entry => itemKey(entry.id, entry.name) === selectedKey);
+      selectedDeal = item ? { ...selectedDeal, trader, item } : null;
+    }
     if (!dock) {
       dock = document.createElement('section');
       dock.id = A.dock;
@@ -16507,7 +16667,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }
     const favorite = isFavorite(favoriteStore(), selectedDeal.trader);
     const watched = isWatched(watchedStore(), selectedDeal.item);
-    dock.innerHTML = `<div class="watch-copy"><small>ITEM-CENTRIC WATCH · ${esc(selectedDeal.trader.name)}</small><strong>${esc(selectedDeal.item.name)}</strong><span>This trader pays ${cash(selectedDeal.item.price)} · compare with every favorite</span></div><button type="button" class="${favorite ? 'on' : ''}" aria-pressed="${favorite}" data-watch-favorite-toggle>${favorite ? '★ TRADER' : '☆ TRADER'}</button><button type="button" class="${watched ? 'on' : ''}" data-watch-item-toggle>${watched ? '★ WATCHED' : '☆ WATCH'}</button>`;
+    dock.innerHTML = `<div class="watch-copy"><small>ITEM-CENTRIC WATCH · ${esc(selectedDeal.trader.name)}</small><strong>${esc(selectedDeal.item.name)}</strong><span>${selectedDeal.trader.historical ? 'Historical / not reverified' : 'Captured indicative quote; buying terms unverified'}: ${cash(selectedDeal.item.price)} · ${esc(traderCaptureSummary(selectedDeal.trader.raw))}</span></div><button type="button" class="${favorite ? 'on' : ''}" aria-pressed="${favorite}" data-watch-favorite-toggle>${favorite ? '★ TRADER' : '☆ TRADER'}</button><button type="button" class="${watched ? 'on' : ''}" data-watch-item-toggle>${watched ? '★ WATCHED' : '☆ WATCH'}</button>${selectedDeal.trader.historical ? '<button type="button" data-tsimm-action="traders-open">TRADER BOOK / RECAPTURE</button>' : ''}`;
     const selectedKey = itemKey(selectedDeal.item.id, selectedDeal.item.name);
     overlay.querySelectorAll('.td-row').forEach((row) => {
       const deal = dealFromRow(row, trader);
@@ -17138,11 +17298,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     start();
   }
 
-  if (globalThis.__TS_IMM_TEST_MODE__ && globalThis.__TS_IMM_TEST_EXPORTS__) Object.assign(globalThis.__TS_IMM_TEST_EXPORTS__, { normalizeFavoriteCaptureCarousel, activeFavoriteCaptureCarousel, saveFavoriteCaptureCarousel, startSavedTraderCaptureCarousel, startFavoriteCaptureCarousel, favoriteCaptureSelection, launchFavoriteCaptureCarousel, continueFavoriteCaptureCarousel, skipCurrentCaptureCarousel, cancelFavoriteCaptureCarousel, lastCaptureRefreshResult, retryFailedTraderCaptureCarousel, normTraders, traderCaptureFresh, savedTraderCaptureSelection, exitsForItem, bestExit, renderWatchPanel, decorateMarket });
+  if (globalThis.__TS_IMM_TEST_MODE__ && globalThis.__TS_IMM_TEST_EXPORTS__) Object.assign(globalThis.__TS_IMM_TEST_EXPORTS__, { normalizeFavoriteCaptureCarousel, activeFavoriteCaptureCarousel, saveFavoriteCaptureCarousel, startSavedTraderCaptureCarousel, startFavoriteCaptureCarousel, favoriteCaptureSelection, launchFavoriteCaptureCarousel, continueFavoriteCaptureCarousel, skipCurrentCaptureCarousel, cancelFavoriteCaptureCarousel, lastCaptureRefreshResult, retryFailedTraderCaptureCarousel, normTraders, traderCaptureFresh, savedTraderCaptureSelection, exitsForItem, bestExit, renderWatchPanel, renderWatchDock, selectDeal, peekFavoriteCaptureCarousel, decorateMarket });
 
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     window.__TSIMM_WATCHLIST_API__ = {
       version: APP.version,
+      captureBlocked: showFavoriteToast,
       decorateBook,
       startFavoriteCaptureCarousel,
       launchFavoriteCaptureCarousel,

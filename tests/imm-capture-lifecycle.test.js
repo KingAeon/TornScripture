@@ -10,8 +10,8 @@ function importUrl(api, payload) {
 function current(memory) { return JSON.parse(memory.get(K.queue)); }
 function book(memory) { return JSON.parse(memory.get(K.book)); }
 
-test('Torn persists exact A and readbacks it before provider navigation; provider storage is isolated', () => {
-  const { torn, envelope, memory } = start();
+test('Torn persists exact A and readbacks it before provider navigation; provider storage is isolated', async () => {
+  const { torn, envelope, memory } = (await start());
   assert.equal(current(memory).entries[0].attemptsUsed, 1);
   assert.equal(torn.navigations.length, 1);
   const provider = runtime({ url: torn.navigations[0], clock: torn.clock });
@@ -20,8 +20,8 @@ test('Torn persists exact A and readbacks it before provider navigation; provide
   assert.equal(provider.api.captureStoreContext().queue, null);
 });
 
-test('A inconclusive deadline returns no-price checkpoint; only Torn persists B; B is final', () => {
-  const { torn, envelope, memory } = start();
+test('A inconclusive deadline returns no-price checkpoint; only Torn persists B; B is final', async () => {
+  const { torn, envelope, memory } = (await start());
   const provider = runtime({ url: torn.navigations[0], clock: torn.clock });
   assert.equal(provider.api.captureProviderAndReturn('weav3r', true), null);
   assert.equal(provider.timers.size, 1);
@@ -33,100 +33,100 @@ test('A inconclusive deadline returns no-price checkpoint; only Torn persists B;
   assert.equal(provider.memory.has(K.queue), false);
   const before = memory.get(K.book);
   const checkpoint = torn.api.expandPriceCaptureResult(bridge.compact);
-  const notice = torn.api.persistCaptureImport(checkpoint);
+  const notice = (await torn.api.persistCaptureImport(checkpoint));
   assert.equal(notice.ok, true); assert.equal(memory.get(K.book), before);
-  torn.api.continueFavoriteCaptureCarousel(notice);
+  (await torn.api.continueFavoriteCaptureCarousel(notice));
   const B = current(memory).entries[0];
   assert.equal(B.attemptsUsed, 2); assert.notEqual(B.attemptId, envelope.attemptId);
   assert.equal(torn.navigations.length, 2);
   const Bbytes = memory.get(K.queue);
-  torn.api.continueFavoriteCaptureCarousel(notice);
+  (await torn.api.continueFavoriteCaptureCarousel(notice));
   assert.equal(memory.get(K.queue), Bbytes); assert.equal(torn.navigations.length, 2);
   const finalPage = runtime({ url: torn.navigations[1], clock: torn.clock });
   finalPage.api.captureProviderAndReturn('weav3r', true); finalPage.fireDeadline();
   const final = finalPage.api.expandPriceCaptureResult(JSON.parse(finalPage.window.name.slice('TSIMM_PRICE_BRIDGE:'.length)).compact);
   assert.equal(final.outcome, 'timeout'); assert.equal(final.envelope.attemptId, B.attemptId);
-  assert.equal(torn.api.persistCaptureImport(result(B.envelope, { outcome: 'retry_needed', items: [], producedAt: torn.clock.now })).ok, false);
-  const finalNotice = torn.api.persistCaptureImport(final); assert.equal(finalNotice.ok, true);
-  torn.api.continueFavoriteCaptureCarousel(finalNotice);
+  assert.equal((await torn.api.persistCaptureImport(result(B.envelope, { outcome: 'retry_needed', items: [], producedAt: torn.clock.now }))).ok, false);
+  const finalNotice = (await torn.api.persistCaptureImport(final)); assert.equal(finalNotice.ok, true);
+  (await torn.api.continueFavoriteCaptureCarousel(finalNotice));
   assert.equal(memory.has(K.queue), false); assert.equal(JSON.parse(memory.get(K.result)).outcomes[0].outcome, 'timeout');
   assert.equal(book(memory)[0].pricePageItems[0].unitPrice, 500);
 });
 
-test('lost A handoff permits explicit B once; lost B result never resets allowance after restart', () => {
-  const { torn, memory, envelope } = start();
+test('lost A handoff permits explicit B once; lost B result never resets allowance after restart', async () => {
+  const { torn, memory, envelope } = (await start());
   torn.clock.now += 120000;
   const restarted = runtime({ memory, clock: torn.clock });
   assert.equal(restarted.navigations.length, 0);
   assert.equal(current(memory).entries[0].attemptId, envelope.attemptId);
-  assert.equal(restarted.api.launchFavoriteCaptureCarousel(), true);
+  assert.equal((await restarted.api.launchFavoriteCaptureCarousel()), true);
   const B = current(memory).entries[0]; assert.equal(B.attemptsUsed, 2);
   const anotherRestart = runtime({ memory, clock: torn.clock });
-  assert.equal(anotherRestart.api.launchFavoriteCaptureCarousel(), false);
+  assert.equal((await anotherRestart.api.launchFavoriteCaptureCarousel()), false);
   assert.equal(anotherRestart.navigations.length, 0);
   assert.equal(current(memory).entries[0].attemptId, B.attemptId);
 });
 
 for (const field of ['runId', 'entryId', 'attemptId', 'traderRecordId', 'expectedTornId', 'provider', 'sourceUrl', 'issuedAt', 'deadline', 'expiresAt']) {
-  test(`corrupt ${field} is rejected before early, late and direct price writes`, () => {
+  test(`corrupt ${field} is rejected before early, late and direct price writes`, async () => {
     for (const path of ['early', 'late', 'save']) {
-      const { torn, envelope, memory } = start(); torn.clock.now += 1000;
+      const { torn, envelope, memory } = (await start()); torn.clock.now += 1000;
       const payload = result(envelope); payload.envelope = { ...envelope, [field]: typeof envelope[field] === 'number' ? envelope[field] + 1 : 'unrelated' };
       const beforeBook = memory.get(K.book), beforeQueue = memory.get(K.queue), ledger = memory.get(K.ledger);
-      if (path === 'early') runtime({ memory, clock: torn.clock, url: importUrl(torn.api, payload), testMode: false });
-      else if (path === 'late') { torn.setUrl(importUrl(torn.api, payload)); torn.api.consumeImportedPriceCapture(); }
-      else torn.api.saveTraderPriceCapture(null, { captureResult: payload });
+      if (path === 'early') await runtime({ memory, clock: torn.clock, url: importUrl(torn.api, payload), testMode: false }).ready;
+      else if (path === 'late') { torn.setUrl(importUrl(torn.api, payload)); (await torn.api.consumeImportedPriceCapture()); }
+      else (await torn.api.saveTraderPriceCapture(null, { captureResult: payload }));
       assert.equal(memory.get(K.book), beforeBook, path); assert.equal(memory.get(K.queue), beforeQueue, path); assert.equal(memory.get(K.ledger), ledger, path);
     }
   });
 }
 
-test('late A success after B, old-run replay, manual collision, legacy v1 and spoofed window.name do not write', () => {
-  const { torn, envelope, memory } = start(); torn.clock.now += 1000;
+test('late A success after B, old-run replay, manual collision, legacy v1 and spoofed window.name do not write', async () => {
+  const { torn, envelope, memory } = (await start()); torn.clock.now += 1000;
   const A = result(envelope);
-  torn.api.launchFavoriteCaptureCarousel();
+  (await torn.api.launchFavoriteCaptureCarousel());
   const before = memory.get(K.book), B = memory.get(K.queue);
-  assert.equal(torn.api.persistCaptureImport(A).ok, false);
+  assert.equal((await torn.api.persistCaptureImport(A)).ok, false);
   assert.equal(memory.get(K.queue), B);
   const manual = { ...A, envelope: { ...envelope, intent: 'manual' } };
-  assert.equal(torn.api.persistCaptureImport(manual, true).ok, false);
-  const legacy = { ...A, envelope: null }; assert.equal(torn.api.persistCaptureImport(legacy).ok, false);
+  assert.equal((await torn.api.persistCaptureImport(manual, true)).ok, false);
+  const legacy = { ...A, envelope: null }; assert.equal((await torn.api.persistCaptureImport(legacy)).ok, false);
   torn.window.name = 'TSIMM_PRICE_BRIDGE:' + JSON.stringify({ type: 'result', compact: { v: 1, t: { userId: 2321305 }, i: [[1, 9999999]] } });
-  torn.api.consumeImportedPriceCapture(); assert.equal(memory.get(K.book), before);
-  torn.api.cancelFavoriteCaptureCarousel(); torn.api.startSavedTraderCaptureCarousel('all'); torn.api.launchFavoriteCaptureCarousel();
+  (await torn.api.consumeImportedPriceCapture()); assert.equal(memory.get(K.book), before);
+  (await torn.api.cancelFavoriteCaptureCarousel()); (await torn.api.startSavedTraderCaptureCarousel('all')); (await torn.api.launchFavoriteCaptureCarousel());
   const newBook = memory.get(K.book), newQueue = memory.get(K.queue), summary = memory.get(K.result);
-  assert.equal(torn.api.persistCaptureImport(A).ok, false); assert.equal(memory.get(K.book), newBook); assert.equal(memory.get(K.queue), newQueue); assert.equal(memory.get(K.result), summary);
+  assert.equal((await torn.api.persistCaptureImport(A)).ok, false); assert.equal(memory.get(K.book), newBook); assert.equal(memory.get(K.queue), newQueue); assert.equal(memory.get(K.result), summary);
 });
 
-test('capture completion is exactly once; lost completion notice recovers committed receipt without a new price write', () => {
-  const { torn, envelope, memory } = start([trader(), trader('c', 2321306, 'Next')]); torn.clock.now += 1000;
-  const payload = result(envelope), notice = torn.api.persistCaptureImport(payload);
+test('capture completion is exactly once; lost completion notice recovers committed receipt without a new price write', async () => {
+  const { torn, envelope, memory } = (await start([trader(), trader('c', 2321306, 'Next')])); torn.clock.now += 1000;
+  const payload = result(envelope), notice = (await torn.api.persistCaptureImport(payload));
   const after = memory.get(K.book);
-  assert.equal(notice.ok, true); assert.equal(torn.api.persistCaptureImport(payload).ok, false);
+  assert.equal(notice.ok, true); assert.equal((await torn.api.persistCaptureImport(payload)).ok, false);
   const restarted = runtime({ memory, clock: torn.clock });
-  restarted.api.continueFavoriteCaptureCarousel(null);
+  (await restarted.api.continueFavoriteCaptureCarousel(null));
   assert.equal(current(memory).cursor, 1); assert.equal(memory.get(K.book), after);
-  const q = memory.get(K.queue); restarted.api.continueFavoriteCaptureCarousel(notice);
+  const q = memory.get(K.queue); (await restarted.api.continueFavoriteCaptureCarousel(notice));
   assert.equal(memory.get(K.queue), q); assert.equal(book(memory)[0].pricePageCaptureCount, 8);
 });
 
 for (const fault of ['set', 'readback']) {
-  test(`queue ${fault} failure blocks A and B navigation; trader ${fault} failure blocks completion`, () => {
+  test(`queue ${fault} failure blocks A and B navigation; trader ${fault} failure blocks completion`, async () => {
     const t = runtime({ memory: new Map([[K.book, JSON.stringify([trader()])]]) });
-    t.api.startSavedTraderCaptureCarousel('all'); t.faults[fault] = K.queue;
-    assert.equal(t.api.launchFavoriteCaptureCarousel(), false); assert.equal(t.navigations.length, 0);
-    const { torn, memory, envelope } = start();
+    (await t.api.startSavedTraderCaptureCarousel('all')); t.faults[fault] = K.queue;
+    assert.equal((await t.api.launchFavoriteCaptureCarousel()), false); assert.equal(t.navigations.length, 0);
+    const { torn, memory, envelope } = (await start());
     const oldQueue = memory.get(K.queue); torn.faults[fault] = K.queue;
-    assert.equal(torn.api.launchFavoriteCaptureCarousel(), false); assert.equal(torn.navigations.length, 1);
+    assert.equal((await torn.api.launchFavoriteCaptureCarousel()), false); assert.equal(torn.navigations.length, 1);
     torn.faults[fault] = null; assert.equal(memory.get(K.queue), oldQueue);
     torn.clock.now += 1000; torn.faults[fault] = K.book;
-    const oldBook = memory.get(K.book); assert.equal(torn.api.persistCaptureImport(result(envelope)).ok, false);
+    const oldBook = memory.get(K.book); assert.equal((await torn.api.persistCaptureImport(result(envelope))).ok, false);
     assert.equal(memory.get(K.book), oldBook); assert.equal(memory.get(K.queue), oldQueue);
   });
 }
 
-test('provider reload retains issuance deadline; inactive page tears down; unrelated/expired route never navigates', () => {
-  const { torn, envelope } = start(); torn.clock.now += 59000;
+test('provider reload retains issuance deadline; inactive page tears down; unrelated/expired route never navigates', async () => {
+  const { torn, envelope } = (await start()); torn.clock.now += 59000;
   const p = runtime({ url: torn.navigations[0], clock: torn.clock });
   p.api.captureProviderAndReturn('weav3r', true);
   assert.equal([...p.timers.values()][0].delay, 1000);
@@ -138,20 +138,20 @@ test('provider reload retains issuance deadline; inactive page tears down; unrel
   expired.api.captureProviderAndReturn('weav3r', true); assert.equal(expired.navigations.length, 0);
 });
 
-test('after-deadline parse is refused; bounded completion may be delivered within TTL without renewing capture time', () => {
-  const { torn, envelope, memory } = start(); torn.clock.now = envelope.deadline + 1000;
+test('after-deadline parse is refused; bounded completion may be delivered within TTL without renewing capture time', async () => {
+  const { torn, envelope, memory } = (await start()); torn.clock.now = envelope.deadline + 1000;
   const page = runtime({ url: torn.navigations[0], clock: torn.clock, items: prices });
   assert.equal(page.api.createWeav3rCaptureResult().result.items.length, 0);
   const before = memory.get(K.book);
-  assert.equal(torn.api.persistCaptureImport(result(envelope, { producedAt: envelope.deadline + 1 })).ok, false);
+  assert.equal((await torn.api.persistCaptureImport(result(envelope, { producedAt: envelope.deadline + 1 }))).ok, false);
   assert.equal(memory.get(K.book), before);
-  const bounded = torn.api.persistCaptureImport(result(envelope, { producedAt: envelope.deadline - 1 }));
+  const bounded = (await torn.api.persistCaptureImport(result(envelope, { producedAt: envelope.deadline - 1 })));
   assert.equal(bounded.ok, true); assert.equal(book(memory)[0].pricePageCapturedAt, new Date(envelope.deadline - 1).toISOString());
 });
 
-test('TornExchange no carrier is manual-only; copied ID is not proof; supported independent Profile succeeds conditionally', () => {
+test('TornExchange no carrier is manual-only; copied ID is not proof; supported independent Profile succeeds conditionally', async () => {
   const t = trader(); t.pricePageUrl = 'https://tornexchange.com/prices/VladBull';
-  const { torn } = start([t]);
+  const { torn } = (await start([t]));
   const lost = runtime({ url: torn.navigations[0], clock: torn.clock, items: prices });
   assert.equal(lost.api.tornExchangeCaptureRequest(), null);
   lost.api.captureProviderAndReturn('tornexchange', true); assert.equal(lost.navigations.length, 0);
@@ -165,34 +165,34 @@ test('TornExchange no carrier is manual-only; copied ID is not proof; supported 
   assert.equal(success.evidence.kind, 'tornexchange-profile');
 });
 
-test('direct unarmed manual capture has fresh intent, visible target confirmations, independent identity and replay protection', () => {
+test('direct unarmed manual capture has fresh intent, visible target confirmations, independent identity and replay protection', async () => {
   const p = runtime({ url: 'https://weav3r.dev/pricelist/2321305', items: prices });
   const captured = p.api.captureProviderAndReturn('weav3r', false); assert.equal(captured.envelope.intent, 'manual');
   const t = runtime({ url: p.navigations[0], clock: p.clock });
-  t.api.consumeImportedPriceCapture(); assert.equal(book(t.memory)[0].userId, 2321305);
-  const before = t.memory.get(K.book); t.setUrl(p.navigations[0]); t.api.consumeImportedPriceCapture(); assert.equal(t.memory.get(K.book), before);
+  (await t.api.consumeImportedPriceCapture()); assert.equal(book(t.memory)[0].userId, 2321305);
+  const before = t.memory.get(K.book); t.setUrl(p.navigations[0]); (await t.api.consumeImportedPriceCapture()); assert.equal(t.memory.get(K.book), before);
   const canceled = runtime({ url: 'https://tornexchange.com/prices/VladBull', items: prices, confirmed: false });
   assert.equal(canceled.api.captureProviderAndReturn('tornexchange', false), null); assert.equal(canceled.window.name, ''); assert.equal(canceled.writes.length, 0);
 });
 
-test('armed manual ID mismatch cannot emit a success; manual collision cannot overwrite or complete a queued entry', () => {
-  const { torn, memory } = start();
+test('armed manual ID mismatch cannot emit a success; manual collision cannot overwrite or complete a queued entry', async () => {
+  const { torn, memory } = (await start());
   const p = runtime({ url: 'https://weav3r.dev/pricelist/2321305', items: prices, clock: torn.clock });
   p.api.captureProviderAndReturn('weav3r', false);
   const before = memory.get(K.book), q = memory.get(K.queue);
-  const returning = runtime({ url: p.navigations[0], memory, clock: torn.clock }); returning.api.consumeImportedPriceCapture();
+  const returning = runtime({ url: p.navigations[0], memory, clock: torn.clock }); (await returning.api.consumeImportedPriceCapture());
   assert.equal(memory.get(K.book), before); assert.equal(memory.get(K.queue), q);
   const wrong = runtime({ url: 'https://tornexchange.com/prices/Other', name: torn.window.name, pageId: 9, items: prices });
   const outcome = wrong.api.captureProviderAndReturn('tornexchange', false); assert.equal(outcome, null);
 });
 
-test('affirmative final empty/unavailable evidence is distinct from zero rows and preserves historical snapshot and URL bytes', () => {
+test('affirmative final empty/unavailable evidence is distinct from zero rows and preserves historical snapshot and URL bytes', async () => {
   for (const [outcome, statement] of [['explicitly_empty', 'This pricelist is empty.'], ['explicitly_unavailable', 'This trader is not buying.']]) {
-    const { torn, memory } = start();
+    const { torn, memory } = (await start());
     const before = book(memory)[0], ledger = memory.get(K.ledger);
     const page = runtime({ url: torn.navigations[0], clock: torn.clock, statement });
     const payload = page.api.captureProviderAndReturn('weav3r', true); assert.equal(payload.outcome, outcome);
-    const notice = torn.api.persistCaptureImport(payload); assert.equal(notice.ok, true);
+    const notice = (await torn.api.persistCaptureImport(payload)); assert.equal(notice.ok, true);
     const after = book(memory)[0];
     for (const field of ['pricePageItems', 'pricePageCapturedAt', 'pricePageUrl', 'previousPricePageUrl', 'pricePageCaptureCount', 'pricePageLastChangedCount']) assert.deepEqual(after[field], before[field], field);
     assert.equal(memory.get(K.ledger), ledger); assert.equal(torn.api.traderCaptureHistorical(after), true);
@@ -201,20 +201,20 @@ test('affirmative final empty/unavailable evidence is distinct from zero rows an
   assert.equal(page.api.providerPageOutcome('weav3r', [], { tornId: 2321305 }).outcome, 'loading_or_inconclusive');
 });
 
-test('legacy v3 launched has unknown budget; Skip/Cancel then explicit new run; duplicate-name retry never targets both IDs', () => {
+test('legacy v3 launched has unknown budget; Skip/Cancel then explicit new run; duplicate-name retry never targets both IDs', async () => {
   const memory = new Map([[K.book, JSON.stringify([trader('a', 1, 'Same'), trader('b', 2, 'Same')])],
     [K.queue, JSON.stringify({ schemaVersion: 3, id: 'old', status: 'launched', cursor: 0, entries: [{ traderId: 'a', traderName: 'Same', userId: 1, pricePageUrl: 'https://weav3r.dev/pricelist/1' }], expiresAt: Date.parse('2026-10-10') })]]);
-  const t = runtime({ memory }); const q = t.api.activeFavoriteCaptureCarousel();
+  const t = runtime({ memory }); const q = (await t.api.activeFavoriteCaptureCarousel());
   assert.equal(q.status, 'unverified'); assert.equal(q.entries[0].attemptsUsed, null);
-  assert.equal(t.api.launchFavoriteCaptureCarousel(), false); t.api.cancelFavoriteCaptureCarousel();
+  assert.equal((await t.api.launchFavoriteCaptureCarousel()), false); (await t.api.cancelFavoriteCaptureCarousel());
   memory.set(K.result, JSON.stringify({ failed: ['Same'], finishedAt: t.clock.now }));
-  assert.equal(t.api.retryFailedTraderCaptureCarousel(), false); assert.equal(memory.has(K.queue), false);
+  assert.equal((await t.api.retryFailedTraderCaptureCarousel()), false); assert.equal(memory.has(K.queue), false);
   memory.set(K.result, JSON.stringify({ failed: ['Same'], outcomes: [{ traderRecordId: 'a', outcome: 'timeout', attempted: true }], finishedAt: t.clock.now }));
-  assert.equal(t.api.retryFailedTraderCaptureCarousel(), true); assert.equal(current(memory).entries.length, 1); assert.equal(current(memory).entries[0].traderId, 'a');
+  assert.equal((await t.api.retryFailedTraderCaptureCarousel()), true); assert.equal(current(memory).entries.length, 1); assert.equal(current(memory).entries[0].traderId, 'a');
   assert.notEqual(current(memory).id, 'old');
 });
 
-test('every historical quote consumer excludes failed prices from current-best and gain calculations; cash stays independent', () => {
+test('every historical quote consumer excludes failed prices from current-best and gain calculations; cash stays independent', async () => {
   const failed = { ...trader(), pricePageLastOutcome: 'explicitly_unavailable', pricePageLastReason: 'Closed at last check', pricePageCapturedAt: '2026-10-09T20:00:00Z', pricePageLastCheckedAt: '2026-10-09T21:00:00Z' };
   const good = { ...trader('b', 2, 'Good'), pricePageCapturedAt: '2026-10-09T20:00:00Z', pricePageLastOutcome: 'captured' };
   const memory = new Map([[K.book, JSON.stringify([failed, good])], ['tornscripture-imm-favorite-traders-v1', JSON.stringify({ entries: [{ traderId: 'a', traderName: 'VladBull' }, { traderId: 'b', traderName: 'Good' }] })]]);
@@ -242,7 +242,7 @@ test('every historical quote consumer excludes failed prices from current-best a
   assert.equal(live.items[0].currentQuote.source, 'live trade cash'); assert.equal(live.items[0].currentQuote.unitPrice, 1234);
 });
 
-test('unknown legacy captured time is not backfilled from checked time; summary expires after seven days', () => {
+test('unknown legacy captured time is not backfilled from checked time; summary expires after seven days', async () => {
   const old = { ...trader(), pricePageCapturedAt: null, pricePageLastCheckedAt: '2026-10-09T21:00:00Z' };
   const t = runtime({ memory: new Map([[K.book, JSON.stringify([old])]]) });
   assert.equal(t.api.normTraders()[0].captured, null); assert.equal(t.api.tradeExitQuoteForTrader(old, { itemId: 1 }).historical, true);
@@ -250,8 +250,8 @@ test('unknown legacy captured time is not backfilled from checked time; summary 
   assert.equal(t.api.lastCaptureRefreshResult(), null);
 });
 
-test('mixed success/final unavailable/success advances each stable ID exactly once and preserves every protected storage byte', () => {
-  const { torn, memory } = start([trader(), trader('b', 2, 'Closed'), trader('c', 3, 'Good')]);
+test('mixed success/final unavailable/success advances each stable ID exactly once and preserves every protected storage byte', async () => {
+  const { torn, memory } = (await start([trader(), trader('b', 2, 'Closed'), trader('c', 3, 'Good')]));
   const protectedKeys = ['tornscripture-imm-api-key-v1', 'tornscripture-imm-pending-purchase-v1', 'tornscripture-imm-pending-trade-sale-v1', 'tornscripture-imm-trade-journal-v1', 'tornscripture-imm-receipt-audits-v1', K.ledger];
   for (const key of protectedKeys) if (!memory.has(key)) memory.set(key, 'fixture: exact protected bytes ' + key);
   const snapshot = new Map(protectedKeys.map(key => [key, memory.get(key)]));
@@ -259,13 +259,13 @@ test('mixed success/final unavailable/success advances each stable ID exactly on
     const e = current(memory).entries[index].envelope; torn.clock.now += 1000;
     const payload = result(e, { outcome, items: outcome === 'captured' ? prices : [], producedAt: torn.clock.now,
       evidence: { kind: 'weav3r-route', tornId: e.expectedTornId, statement: 'This trader is not buying.' } });
-    const notice = torn.api.persistCaptureImport(payload); assert.equal(notice.ok, true);
-    torn.api.continueFavoriteCaptureCarousel(notice);
+    const notice = (await torn.api.persistCaptureImport(payload)); assert.equal(notice.ok, true);
+    (await torn.api.continueFavoriteCaptureCarousel(notice));
     const bytes = memory.get(K.book), queue = memory.get(K.queue);
-    assert.equal(torn.api.persistCaptureImport(payload).ok, false);
-    torn.api.continueFavoriteCaptureCarousel(notice);
+    assert.equal((await torn.api.persistCaptureImport(payload)).ok, false);
+    (await torn.api.continueFavoriteCaptureCarousel(notice));
     assert.equal(memory.get(K.book), bytes); assert.equal(memory.get(K.queue), queue);
-    if (index < 2) torn.api.launchFavoriteCaptureCarousel();
+    if (index < 2) (await torn.api.launchFavoriteCaptureCarousel());
   }
   const summary = JSON.parse(memory.get(K.result));
   assert.deepEqual(summary.outcomes.map(e => e.traderRecordId), ['a', 'b', 'c']);
@@ -275,53 +275,53 @@ test('mixed success/final unavailable/success advances each stable ID exactly on
   assert.ok(torn.writes.every(([key]) => [K.book, K.queue, K.result].includes(key)));
 });
 
-test('malformed trader, queue or pending store is preserved; neither imports nor new runs overwrite it', () => {
+test('malformed trader, queue or pending store is preserved; neither imports nor new runs overwrite it', async () => {
   for (const key of [K.book, K.queue, 'tornscripture-imm-pending-trader-capture-v1']) {
-    const { torn, memory, envelope } = start(); torn.clock.now += 1000;
+    const { torn, memory, envelope } = (await start()); torn.clock.now += 1000;
     memory.set(key, '{broken JSON'); const bytes = new Map(memory);
-    assert.equal(torn.api.persistCaptureImport(result(envelope), true).ok, false);
-    assert.equal(torn.api.startSavedTraderCaptureCarousel('all'), false);
-    assert.equal(torn.api.startFavoriteCaptureCarousel(), false);
+    assert.equal((await torn.api.persistCaptureImport(result(envelope), true)).ok, false);
+    assert.equal((await torn.api.startSavedTraderCaptureCarousel('all')), false);
+    assert.equal((await torn.api.startFavoriteCaptureCarousel()), false);
     assert.deepEqual(memory, bytes);
   }
 });
 
-test('failed summary readback preserves closed queue and recovers outcomes when storage is available', () => {
-  const { torn, memory, envelope } = start(); torn.clock.now += 1000;
-  const notice = torn.api.persistCaptureImport(result(envelope));
-  torn.faults.readback = K.result; torn.api.continueFavoriteCaptureCarousel(notice);
+test('failed summary readback preserves closed queue and recovers outcomes when storage is available', async () => {
+  const { torn, memory, envelope } = (await start()); torn.clock.now += 1000;
+  const notice = (await torn.api.persistCaptureImport(result(envelope)));
+  torn.faults.readback = K.result; (await torn.api.continueFavoriteCaptureCarousel(notice));
   assert.equal(current(memory).status, 'complete'); assert.equal(torn.navigations.length, 1);
   torn.faults.readback = null;
   const recovered = runtime({ memory, clock: torn.clock });
-  assert.equal(recovered.api.activeFavoriteCaptureCarousel(), null);
+  assert.equal((await recovered.api.activeFavoriteCaptureCarousel()), null);
   assert.equal(memory.has(K.queue), false); assert.equal(JSON.parse(memory.get(K.result)).outcomes[0].outcome, 'captured');
 });
 
-test('manual armed capture binds exact saved record; wrong pending ID and declined Torn confirmation have no write', () => {
+test('manual armed capture binds exact saved record; wrong pending ID and declined Torn confirmation have no write', async () => {
   const saved = trader();
   const torn = runtime({ memory: new Map([[K.book, JSON.stringify([saved])]]) });
-  torn.api.requestTraderPriceRecapture(saved.id);
+  (await torn.api.requestTraderPriceRecapture(saved.id));
   const p = runtime({ url: torn.navigations[0], name: torn.window.name, items: prices, clock: torn.clock });
   const capture = p.api.captureProviderAndReturn('weav3r', false);
   assert.equal(capture.envelope.traderRecordId, saved.id);
   torn.memory.set('tornscripture-imm-pending-trader-capture-v1', JSON.stringify({ traderId: saved.id, userId: 9, expiresAt: torn.clock.now + 900000 }));
   const old = torn.memory.get(K.book);
-  assert.equal(torn.api.persistCaptureImport(capture, true).ok, false); assert.equal(torn.memory.get(K.book), old);
+  assert.equal((await torn.api.persistCaptureImport(capture, true)).ok, false); assert.equal(torn.memory.get(K.book), old);
   torn.memory.delete('tornscripture-imm-pending-trader-capture-v1');
   const decline = runtime({ memory: torn.memory, clock: torn.clock, url: p.navigations[0], confirmed: false });
-  decline.api.consumeImportedPriceCapture(); assert.equal(torn.memory.get(K.book), old);
-  assert.equal(torn.api.persistCaptureImport(capture, true).ok, true);
+  (await decline.api.consumeImportedPriceCapture()); assert.equal(torn.memory.get(K.book), old);
+  assert.equal((await torn.api.persistCaptureImport(capture, true)).ok, true);
   assert.equal(book(torn.memory).length, 1); assert.equal(book(torn.memory)[0].id, saved.id);
 });
 
-test('TornExchange incompatible loaded table cannot use fallback numeric cells as success; foreign and conflicting Profile links give no identity', () => {
+test('TornExchange incompatible loaded table cannot use fallback numeric cells as success; foreign and conflicting Profile links give no identity', async () => {
   const saved = trader(); saved.pricePageUrl = 'https://tornexchange.com/prices/VladBull';
-  const { torn, memory } = start([saved]);
+  const { torn, memory } = (await start([saved]));
   const page = runtime({ url: torn.navigations[0], name: torn.window.name, clock: torn.clock, items: prices });
-  const table = page.document.querySelectorAll('table')[0]; table.textContent = 'Item Name Unsupported Quantity';
+  const table = page.document.querySelectorAll('table')[0]; table.textContent = 'Item Name Unsupported Quantity'; table.querySelector('thead tr').selectors['th,td'][1].textContent = 'Quantity';
   const failure = page.api.captureProviderAndReturn('tornexchange', true);
   assert.equal(failure.outcome, 'parser_failure'); assert.equal(failure.items.length, 0);
-  assert.equal(torn.api.persistCaptureImport(failure).ok, true); assert.equal(book(memory)[0].pricePageItems[0].unitPrice, 500);
+  assert.equal((await torn.api.persistCaptureImport(failure)).ok, true); assert.equal(book(memory)[0].pricePageItems[0].unitPrice, 500);
   const p = runtime({ url: saved.pricePageUrl });
   const profile = p.document.querySelectorAll('a[href]').at(-1); profile.href = 'https://evil.invalid/profiles.php?XID=2321305';
   assert.equal(p.api.tornExchangeTraderIdentity().userId, null);
@@ -331,8 +331,8 @@ test('TornExchange incompatible loaded table cannot use fallback numeric cells a
   assert.equal(p.api.tornExchangeTraderIdentity().userId, null);
 });
 
-test('qualified existing Weav3r hash survives window.name reset; contradictory hash never falls back; TornExchange gains no invented URL carrier', () => {
-  const { torn } = start();
+test('qualified existing Weav3r hash survives window.name reset; contradictory hash never falls back; TornExchange gains no invented URL carrier', async () => {
+  const { torn } = (await start());
   const page = runtime({ url: torn.navigations[0], name: '', clock: torn.clock, items: prices });
   assert.equal(page.api.captureProviderAndReturn('weav3r', true).outcome, 'captured');
   const malformed = new URL(torn.navigations[0]); malformed.hash = 'tsimm-capture=broken';
@@ -342,10 +342,10 @@ test('qualified existing Weav3r hash survives window.name reset; contradictory h
   assert.equal(te.api.tornExchangeCaptureRequest(), null); te.api.captureProviderAndReturn('tornexchange', true); assert.equal(te.navigations.length, 0);
 });
 
-test('repeated supported provider initialization is idempotent and pagehide clears every scheduled capture timer and observer', () => {
+test('repeated supported provider initialization is idempotent and pagehide clears every scheduled capture timer and observer', async () => {
   for (const provider of ['weav3r', 'tornexchange']) {
     const saved = trader(); if (provider === 'tornexchange') saved.pricePageUrl = 'https://tornexchange.com/prices/VladBull';
-    const { torn } = start([saved]); const page = runtime({ url: torn.navigations[0], name: torn.window.name, clock: torn.clock });
+    const { torn } = (await start([saved])); const page = runtime({ url: torn.navigations[0], name: torn.window.name, clock: torn.clock });
     const initialize = provider === 'weav3r' ? page.api.initializeWeav3rPriceCapture : page.api.initializeTornExchangePriceCapture;
     initialize(); const count = page.elements.length, timers = page.timers.size;
     initialize(); assert.equal(page.elements.length, count); assert.equal(page.timers.size, timers);
@@ -355,19 +355,19 @@ test('repeated supported provider initialization is idempotent and pagehide clea
   }
 });
 
-test('expired request is no-write; 12-hour queue expiry reports untouched entries unattempted without renewal', () => {
-  const { torn, memory, envelope } = start([trader(), trader('b', 2)]);
+test('expired request is no-write; 12-hour queue expiry reports untouched entries unattempted without renewal', async () => {
+  const { torn, memory, envelope } = (await start([trader(), trader('b', 2)]));
   torn.clock.now = envelope.expiresAt + 1; const bookBefore = memory.get(K.book);
-  assert.equal(torn.api.persistCaptureImport(result(envelope)).ok, false); assert.equal(memory.get(K.book), bookBefore);
+  assert.equal((await torn.api.persistCaptureImport(result(envelope))).ok, false); assert.equal(memory.get(K.book), bookBefore);
   torn.clock.now = current(memory).expiresAt + 1;
-  assert.equal(torn.api.activeFavoriteCaptureCarousel(), null);
+  assert.equal((await torn.api.activeFavoriteCaptureCarousel()), null);
   const outcomes = JSON.parse(memory.get(K.result)).outcomes;
   assert.equal(outcomes[0].outcome, 'expired'); assert.equal(outcomes[0].attempted, true);
   assert.equal(outcomes[1].outcome, 'expired'); assert.equal(outcomes[1].attempted, false);
   assert.equal(memory.get(K.book), bookBefore);
 });
 
-test('historical item-row annotations and watch banner show no best-exit, gain or buy threshold and offer recapture', () => {
+test('historical item-row annotations and watch banner show no best-exit, gain or buy threshold and offer recapture', async () => {
   const failed = { ...trader(), pricePageLastOutcome: 'timeout' };
   const memory = new Map([[K.book, JSON.stringify([failed])],
     ['tornscripture-imm-favorite-traders-v1', JSON.stringify({ entries: [{ traderId: 'a', traderName: 'VladBull' }] })],
@@ -384,100 +384,100 @@ test('historical item-row annotations and watch banner show no best-exit, gain o
   assert.doesNotMatch(panel.innerHTML, /BEST EXIT|buy below|buy threshold/i);
 });
 
-test('explicit armed manual button starts a fresh manual window after the old deadline, never an automatic renewal', () => {
+test('explicit armed manual button starts a fresh manual window after the old deadline, never an automatic renewal', async () => {
   for (const provider of ['weav3r', 'tornexchange']) {
     const saved = trader(); if (provider === 'tornexchange') saved.pricePageUrl = 'https://tornexchange.com/prices/VladBull';
-    const torn = runtime({ memory: new Map([[K.book, JSON.stringify([saved])]]) }); torn.api.requestTraderPriceRecapture(saved.id);
+    const torn = runtime({ memory: new Map([[K.book, JSON.stringify([saved])]]) }); (await torn.api.requestTraderPriceRecapture(saved.id));
     torn.clock.now += 120000;
     const page = runtime({ url: torn.navigations[0], name: torn.window.name, clock: torn.clock, items: prices });
     assert.equal((provider === 'weav3r' ? page.api.createWeav3rCaptureResult() : page.api.createTornExchangeCaptureResult()).result.items.length, 0);
     const capture = page.api.captureProviderAndReturn(provider, false);
     assert.equal(capture.envelope.intent, 'manual'); assert.equal(capture.envelope.issuedAt, torn.clock.now);
-    assert.equal(capture.items.length, 1); assert.equal(torn.api.persistCaptureImport(capture, true).ok, true);
+    assert.equal(capture.items.length, 1); assert.equal((await torn.api.persistCaptureImport(capture, true)).ok, true);
   }
 });
 
-test('capture object wrapper and arbitrary trader fields survive success and failure imports', () => {
-  const { torn, memory, envelope } = start();
+test('capture object wrapper and arbitrary trader fields survive success and failure imports', async () => {
+  const { torn, memory, envelope } = (await start());
   const saved = book(memory)[0]; saved.unknownHistoricalField = { keep: ['all', 'bytes'] };
   memory.set(K.book, JSON.stringify({ traders: [saved], wrapperVersion: 3, unknownMetadata: { keep: true } }));
-  torn.clock.now += 1000; assert.equal(torn.api.persistCaptureImport(result(envelope)).ok, true);
+  torn.clock.now += 1000; assert.equal((await torn.api.persistCaptureImport(result(envelope))).ok, true);
   const stored = JSON.parse(memory.get(K.book)); assert.equal(stored.wrapperVersion, 3);
   assert.deepEqual(stored.unknownMetadata, { keep: true }); assert.deepEqual(stored.traders[0].unknownHistoricalField, saved.unknownHistoricalField);
 });
 
-test('cleanup of an old URL cannot erase a different active request; invalid prices and exhausted receipts fail closed', () => {
-  const { torn, memory, envelope } = start(); torn.clock.now += 1000;
+test('cleanup of an old URL cannot erase a different active request; invalid prices and exhausted receipts fail closed', async () => {
+  const { torn, memory, envelope } = (await start()); torn.clock.now += 1000;
   const request = torn.window.name;
-  const stale = result({ ...envelope, attemptId: 'old' }); torn.setUrl(importUrl(torn.api, stale)); torn.api.consumeImportedPriceCapture();
+  const stale = result({ ...envelope, attemptId: 'old' }); torn.setUrl(importUrl(torn.api, stale)); (await torn.api.consumeImportedPriceCapture());
   assert.equal(torn.window.name, request);
-  const old = memory.get(K.book); assert.equal(torn.api.persistCaptureImport(result(envelope, { items: [null] })).ok, false); assert.equal(memory.get(K.book), old);
+  const old = memory.get(K.book); assert.equal((await torn.api.persistCaptureImport(result(envelope, { items: [null] }))).ok, false); assert.equal(memory.get(K.book), old);
   const saved = book(memory)[0]; saved.pricePageCaptureReceipts = Array.from({ length: 64 }, (_, i) => ({ runId: 'old', entryId: String(i), attemptId: String(i), expiresAt: torn.clock.now + 900000 }));
   memory.set(K.book, JSON.stringify([saved])); const full = memory.get(K.book);
-  assert.equal(torn.api.persistCaptureImport(result(envelope)).ok, false); assert.equal(memory.get(K.book), full);
+  assert.equal((await torn.api.persistCaptureImport(result(envelope))).ok, false); assert.equal(memory.get(K.book), full);
 });
 
-test('malformed URL payload leaves a different active request intact', () => {
-  const { torn, memory } = start(); const request = torn.window.name, bytes = memory.get(K.book);
-  const returned = runtime({ url: 'https://www.torn.com/index.php?tsimmPriceImport=broken', memory, clock: torn.clock, name: request, testMode: false });
+test('malformed URL payload leaves a different active request intact', async () => {
+  const { torn, memory } = (await start()); const request = torn.window.name, bytes = memory.get(K.book);
+  const returned = runtime({ url: 'https://www.torn.com/index.php?tsimmPriceImport=broken', memory, clock: torn.clock, name: request, testMode: false }); await returned.ready;
   assert.equal(returned.window.name, request); assert.equal(memory.get(K.book), bytes);
 });
 
-test('legacy launched current allowance stays unknown while the later unlaunched entry may start A after explicit Skip', () => {
-  const { torn, memory } = start([trader(), trader('b', 2, 'Later')]);
+test('legacy launched current allowance stays unknown while the later unlaunched entry may start A after explicit Skip', async () => {
+  const { torn, memory } = (await start([trader(), trader('b', 2, 'Later')]));
   const old = current(memory); old.schemaVersion = 3;
   for (const entry of old.entries) { delete entry.envelope; delete entry.attemptsUsed; delete entry.attemptId; }
   memory.set(K.queue, JSON.stringify(old)); const runtimeAfterUpgrade = runtime({ memory, clock: torn.clock });
-  const queue = runtimeAfterUpgrade.api.activeFavoriteCaptureCarousel();
+  const queue = (await runtimeAfterUpgrade.api.activeFavoriteCaptureCarousel());
   assert.equal(queue.status, 'unverified'); assert.equal(queue.entries[0].attemptsUsed, null); assert.equal(queue.entries[1].attemptsUsed, 0);
-  assert.equal(runtimeAfterUpgrade.api.skipCurrentCaptureCarousel(), true);
-  assert.equal(runtimeAfterUpgrade.api.launchFavoriteCaptureCarousel(), true);
+  assert.equal((await runtimeAfterUpgrade.api.skipCurrentCaptureCarousel()), true);
+  assert.equal((await runtimeAfterUpgrade.api.launchFavoriteCaptureCarousel()), true);
   assert.equal(current(memory).entries[1].attemptsUsed, 1); assert.equal(current(memory).cursor, 1);
 });
 
-test('failed Skip metadata persistence blocks continuation; duplicate saved record IDs reject price authority', () => {
-  const { torn, memory, envelope } = start([trader(), trader('b', 2)]);
+test('failed Skip metadata persistence blocks continuation; duplicate saved record IDs reject price authority', async () => {
+  const { torn, memory, envelope } = (await start([trader(), trader('b', 2)]));
   torn.faults.set = K.book; const before = memory.get(K.queue);
-  assert.equal(torn.api.skipCurrentCaptureCarousel(), false); assert.equal(memory.get(K.queue), before); assert.equal(torn.navigations.length, 1);
+  assert.equal((await torn.api.skipCurrentCaptureCarousel()), false); assert.equal(memory.get(K.queue), before); assert.equal(torn.navigations.length, 1);
   torn.faults.set = null; torn.clock.now += 1000; memory.set(K.book, JSON.stringify([trader(), trader()]));
-  const duplicate = memory.get(K.book); assert.equal(torn.api.persistCaptureImport(result(envelope)).ok, false); assert.equal(memory.get(K.book), duplicate);
+  const duplicate = memory.get(K.book); assert.equal((await torn.api.persistCaptureImport(result(envelope))).ok, false); assert.equal(memory.get(K.book), duplicate);
 });
 
-test('failed expiry finalization or legacy migration cannot be bypassed by starting a replacement run', () => {
+test('failed expiry finalization or legacy migration cannot be bypassed by starting a replacement run', async () => {
   for (const scenario of ['expired', 'legacy']) {
-    const { torn, memory } = start();
+    const { torn, memory } = (await start());
     if (scenario === 'expired') torn.clock.now = current(memory).expiresAt + 1;
     else { const old = current(memory); old.schemaVersion = 3; memory.set(K.queue, JSON.stringify(old)); }
     const before = memory.get(K.queue); torn.faults.set = K.queue;
-    assert.equal(torn.api.startSavedTraderCaptureCarousel('all'), false);
+    assert.equal((await torn.api.startSavedTraderCaptureCarousel('all')), false);
     assert.equal(memory.get(K.queue), before); assert.equal(torn.navigations.length, 1);
   }
 });
 
-test('failure to clear previous summary leaves a tracked ready run and blocks initial navigation', () => {
+test('failure to clear previous summary leaves a tracked ready run and blocks initial navigation', async () => {
   const memory = new Map([[K.book, JSON.stringify([trader()])], [K.result, '{"failed":["old"],"finishedAt":1}']]);
   const t = runtime({ memory }); const summary = memory.get(K.result); t.faults.set = K.result;
-  assert.equal(t.api.startSavedTraderCaptureCarousel('all'), false);
+  assert.equal((await t.api.startSavedTraderCaptureCarousel('all')), false);
   assert.equal(t.navigations.length, 0); assert.equal(current(memory).entries[0].attemptsUsed, 0); assert.equal(memory.get(K.result), summary);
 });
 
-test('successful production B return stores once, completes once and never issues a third attempt', () => {
-  const { torn, memory } = start();
+test('successful production B return stores once, completes once and never issues a third attempt', async () => {
+  const { torn, memory } = (await start());
   const A = runtime({ url: torn.navigations[0], clock: torn.clock }); A.api.captureProviderAndReturn('weav3r', true); A.fireDeadline();
-  const returnedA = runtime({ url: A.navigations[0], memory, clock: torn.clock, testMode: false });
-  const checkpoint = JSON.parse(returnedA.session.get(K.notice)); torn.api.continueFavoriteCaptureCarousel(checkpoint);
+  const returnedA = runtime({ url: A.navigations[0], memory, clock: torn.clock, testMode: false }); await returnedA.ready;
+  const checkpoint = JSON.parse(returnedA.session.get(K.notice)); (await torn.api.continueFavoriteCaptureCarousel(checkpoint));
   const entry = current(memory).entries[0]; assert.equal(entry.attemptsUsed, 2);
   const B = runtime({ url: torn.navigations[1], clock: torn.clock, items: prices }); const success = B.api.captureProviderAndReturn('weav3r', true);
   assert.equal(success.envelope.attemptId, entry.attemptId);
-  const returnedB = runtime({ url: B.navigations[0], memory, clock: torn.clock, testMode: false });
-  const notice = JSON.parse(returnedB.session.get(K.notice)); torn.api.continueFavoriteCaptureCarousel(notice);
+  const returnedB = runtime({ url: B.navigations[0], memory, clock: torn.clock, testMode: false }); await returnedB.ready;
+  const notice = JSON.parse(returnedB.session.get(K.notice)); (await torn.api.continueFavoriteCaptureCarousel(notice));
   assert.equal(memory.has(K.queue), false); assert.equal(book(memory)[0].pricePageCaptureCount, 8);
   const bytes = memory.get(K.book), summary = memory.get(K.result);
-  runtime({ url: B.navigations[0], memory, clock: torn.clock, testMode: false }); torn.api.continueFavoriteCaptureCarousel(notice);
+  await runtime({ url: B.navigations[0], memory, clock: torn.clock, testMode: false }).ready; (await torn.api.continueFavoriteCaptureCarousel(notice));
   assert.equal(memory.get(K.book), bytes); assert.equal(memory.get(K.result), summary); assert.equal(torn.navigations.length, 2);
 });
 
-test('favorite/all/stale selection preserves dispositions and uses successful age rather than the latest failed check', () => {
+test('favorite/all/stale selection preserves dispositions and uses successful age rather than the latest failed check', async () => {
   const aged = { ...trader(), pricePageLastOutcome: 'timeout', pricePageLastCheckedAt: '2026-10-09T21:00:00Z' };
   const fresh = { ...trader('b', 2, 'Fresh'), pricePageCapturedAt: '2026-10-09T20:00:00Z', pricePageLastOutcome: 'captured' };
   const avoid = { ...trader('c', 3, 'Avoid'), disposition: 'avoid' }, hidden = { ...trader('d', 4, 'Hidden'), disposition: 'hidden' };
@@ -485,18 +485,18 @@ test('favorite/all/stale selection preserves dispositions and uses successful ag
   const t = runtime({ memory }); const selection = t.api.savedTraderCaptureSelection();
   assert.deepEqual(clone(selection.eligible.map(x => x.id)), ['a', 'b']); assert.deepEqual(clone(selection.stale.map(x => x.id)), ['a']); assert.deepEqual(clone(selection.fresh.map(x => x.id)), ['b']);
   assert.deepEqual(clone(selection.excluded.map(x => x.id)), ['c', 'd']);
-  assert.equal(t.api.startFavoriteCaptureCarousel(), true); assert.equal(current(memory).mode, 'favorite'); assert.equal(current(memory).entries[0].traderId, 'b');
-  t.api.cancelFavoriteCaptureCarousel(); assert.equal(t.api.startSavedTraderCaptureCarousel('stale'), true); assert.equal(current(memory).entries[0].traderId, 'a');
+  assert.equal((await t.api.startFavoriteCaptureCarousel()), true); assert.equal(current(memory).mode, 'favorite'); assert.equal(current(memory).entries[0].traderId, 'b');
+  (await t.api.cancelFavoriteCaptureCarousel()); assert.equal((await t.api.startSavedTraderCaptureCarousel('stale')), true); assert.equal(current(memory).entries[0].traderId, 'a');
 });
 
-test('authority changed between initial validation and persistence is rejected before any trader-store write', () => {
-  const { torn, memory, envelope } = start(); torn.clock.now += 1000;
+test('authority changed between initial validation and persistence is rejected before any trader-store write', async () => {
+  const { torn, memory, envelope } = (await start()); torn.clock.now += 1000;
   const get = torn.sandbox.localStorage.getItem.bind(torn.sandbox.localStorage); let queueReads = 0;
   torn.sandbox.localStorage.getItem = key => {
     if (key === K.queue && ++queueReads === 2) { const q = current(memory); q.status = 'canceled'; memory.set(K.queue, JSON.stringify(q)); }
     return get(key);
   };
   const old = memory.get(K.book), count = torn.writes.filter(([key]) => key === K.book).length;
-  assert.equal(torn.api.persistCaptureImport(result(envelope)).ok, false);
+  assert.equal((await torn.api.persistCaptureImport(result(envelope))).ok, false);
   assert.equal(memory.get(K.book), old); assert.equal(torn.writes.filter(([key]) => key === K.book).length, count);
 });

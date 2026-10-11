@@ -4,6 +4,10 @@ const vm = require('node:vm');
 const scriptPath = process.env.TSIMM_TEST_SCRIPT ? path.resolve(process.env.TSIMM_TEST_SCRIPT)
   : path.join(__dirname, '..', '..', 'TornScripture-Item-Market-Margin.user.js');
 const source = fs.readFileSync(scriptPath, 'utf8');
+// Real Node Web Locks qualify executable coordination, not browser compatibility.
+const nativeLocks = navigator.locks;
+const originStores = new WeakMap();
+let nextStore = 0;
 const K = { book: 'tornscripture-imm-traders-v1', queue: 'tornscripture-imm-favorite-recapture-carousel-v1',
   ledger: 'tornscripture-imm-ledger-v1', result: 'tornscripture-imm-trader-recapture-result-v1', notice: 'tornscripture-imm-core-capture-notice-v1' };
 class Element {
@@ -39,7 +43,11 @@ function trader(id = 'a', userId = 2321305, name = 'VladBull') {
     pricePageCaptureCount: 7, pricePageLastChangedCount: 2, pricePageLastResult: 'captured' };
 }
 function runtime({ url = 'https://www.torn.com/index.php', memory = new Map(), session = new Map(), name = '',
-  clock = { now: Date.parse('2026-10-09T21:00:00Z') }, testMode = true, confirmed = true, pageId = 2321305, pageName = 'VladBull', items = [], statement = '' } = {}) {
+  clock = { now: Date.parse('2026-10-09T21:00:00Z') }, testMode = true, confirmed = true, pageId = 2321305, pageName = 'VladBull', items = [], statement = '', locks } = {}) {
+  if (!originStores.has(memory)) originStores.set(memory, ++nextStore);
+  const lockPrefix = `${new URL(url).origin}:${originStores.get(memory)}:`;
+  const lockName = lockPrefix + 'tornscripture-imm-capture-transition-v1';
+  const lockManager = locks === undefined ? { request: (name, options, callback) => nativeLocks.request(lockPrefix + name, options, callback) } : locks;
   let nextTimer = 0;
   const timers = new Map(), writes = [], navigations = [], events = {}, windowEvents = {}, elements = [];
   const faults = { set: null, readback: null };
@@ -87,25 +95,25 @@ function runtime({ url = 'https://www.torn.com/index.php', memory = new Map(), s
   const sandbox = { console, document, window, location, localStorage, sessionStorage, Element, HTMLElement: Element, Document,
     Node: { TEXT_NODE: 3 }, NodeFilter: { SHOW_TEXT: 4 }, Date: DateClass, URL, TextEncoder, TextDecoder, Uint8Array, Intl,
     atob: text => Buffer.from(text, 'base64').toString('binary'), btoa: text => Buffer.from(text, 'binary').toString('base64'),
-    history: { state: null, replaceState(_, __, value) { setUrl(value); } }, navigator: {},
+    history: { state: null, replaceState(_, __, value) { setUrl(value); } }, navigator: { locks: lockManager }, AbortController,
     getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
     MutationObserver: class { observe() {} disconnect() { this.disconnected = true; } },
     confirm: () => confirmed, alert() {}, prompt: () => null,
     setTimeout(fn, delay = 0) { const id = ++nextTimer; timers.set(id, { fn, delay, at: clock.now + delay }); return id; },
     clearTimeout: id => timers.delete(id), setInterval: () => ++nextTimer, clearInterval() {},
     __TS_IMM_TEST_MODE__: testMode };
-  vm.createContext(sandbox); vm.runInContext(source, sandbox, { filename: scriptPath });
+  vm.createContext(sandbox); const ready = vm.runInContext(source, sandbox, { filename: scriptPath });
   const api = sandbox.__TS_IMM_TEST_EXPORTS__;
-  return { api, sandbox, memory, session, timers, writes, navigations, faults, clock, document, window, setUrl, elements,
+  return { get api() { return sandbox.__TS_IMM_TEST_EXPORTS__; }, ready, lockName, nativeLocks, sandbox, memory, session, timers, writes, navigations, faults, clock, document, window, setUrl, elements,
     fireDeadline() { const entry = [...timers].find(([, t]) => t.delay > 0 && t.delay <= 60000 && t.at - clock.now >= 10000);
       if (!entry) throw Error('No bounded attempt timer'); const [id, timer] = entry; clock.now = timer.at; timers.delete(id); timer.fn(); },
     fireEvent(type) { for (const fn of events[type] || []) fn(); for (const fn of windowEvents[type] || []) fn(); },
   };
 }
-function start(traders = [trader()]) {
+async function start(traders = [trader()]) {
   const memory = new Map([[K.book, JSON.stringify(traders)], [K.ledger, '{"schemaVersion":6,"lots":[],"sales":[],"sentinel":"exact bytes"}']]);
   const torn = runtime({ memory });
-  torn.api.startSavedTraderCaptureCarousel('all'); torn.api.launchFavoriteCaptureCarousel();
+  await torn.api.startSavedTraderCaptureCarousel('all'); await torn.api.launchFavoriteCaptureCarousel();
   const queue = JSON.parse(memory.get(K.queue));
   return { torn, memory, queue, envelope: queue.entries[queue.cursor].envelope };
 }
