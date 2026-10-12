@@ -1,8 +1,55 @@
 # BL-R01B v2.2 implementation evidence and acceptance gates
 
-Status: N4–N5 corrected in the separately owner-authorized bounded raw-state consistency pass after [independent V1 BLOCKED at e11fcfc](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6112233636). Author-side executable validation passes; fresh independent exact-head [V1] is required. Owner TornPDA/desktop [V2] and Ledger Integrity remain on hold until V1 PASS. This branch is not a release. Exact published SHA/tree are recorded in the PR conversation, avoiding a self-referential commit hash here.
+Status: receipt-link asynchronous completion/recovery corrected in the separately owner-authorized bounded pass below. Author-side validation passes. The independent targeted [Q] remains BLOCKED until a fresh independent review of the corrected exact head; full independent [V1] requires separate owner authorization after Q PASS. Owner [V2]/Ledger Integrity and merge/release remain later gates. This branch is not a release. Published SHA/tree are recorded in the PR conversation, avoiding a self-referential commit hash here.
 
-## Current bounded N4–N5 correction and raw-state audit (2026-10-11)
+## Bounded receipt-link asynchronous correction (2026-10-12)
+
+Authority: [owner authorization 6116482125](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6116482125), [independent Q BLOCKED and complete fixtures](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6115230919), and [assistant-first caller audit](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6113407596). Starting head `2463e0cbcc42cebb9117daacd3c0d8791c388921`, tree `e2c945ec8d8ceee361e2b4dae88d374d18e1476f`; approved main/base `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`. Same existing draft PR #139 and branch `agent/bl-r01b-v22-trader-refresh-implementation`.
+
+Complete governance/Divine Knowledge refresh and current GitHub authorization preceded edits. Full non-shallow clean branch checkout, all 213 published blobs/worktree hashes, starting tree/refs and executable preflight matched. Git 2.51.1, Node v24.19.0 and Python 3.12.14; native Node Web Locks available. A same-head expected-SHA non-force update proved isolated-branch publication without changing its head. Starting full suite independently executed in this implementation workspace: **1197/1197**, exit 0. Unchanged Q acceptance assertions reproduced **0/4 pass, 4 fail**, exit 1. No implementation was attempted through a partial repository reader.
+
+### Root cause and bounded mechanism
+
+The protected receipt-link caller treated the Web Locks writer's Promise as a synchronous result, removed its armed capture before grant/readback and reset unpreviewed pasted text. The owner explicitly permits this one protected-handler exception. No other protected accounting/recovery function body changes.
+
+- The actual document-click handler is asynchronous and awaits the existing `captureTransition`. Its synchronous critical callback revalidates the original normalized/persisted pending identity, expiry and page-local arming revision before invoking the unchanged `saveTraderPriceCapture` under the grant.
+- Verified positive pricing consumes only that still-current intent **inside the same grant**, preventing another cooperating receipt caller from saving it again. Rejection, denied/null/aborted acquisition, write/readback failure, rollback, active queue and zero supported prices retain applicable recovery. Explicit clear/expiry/re-arm never manufactures or resurrects old intent. The existing separate deliberate Ledger counterparty metadata link still commits before capture and is not rolled back by capture failure.
+- A page-local UI request guard blocks duplicate taps, including attempts to link another receipt while the first save is pending. A local arming revision distinguishes same-trader rearming even within the same millisecond; raw pending bytes distinguish cooperating contexts. These are ephemeral UI fields, not persistent capture authority or another coordinator.
+- The original pasted text is retained in the receipt draft before any render. Same-draft edits during waiting survive settlement. One in-memory recovery draft supports deliberate close/reopen; switching/closing preserves the original input without an old completion reopening or overwriting the current draft. A completion for a closed/replaced draft names the original receipt ID rather than claiming the current receipt.
+- Actual parsed counts are reported after success. Zero supported prices explicitly preserve existing historical quote behavior/check-count semantics and retain armed retry; they are not labeled saved pricing. Existing real lock/persistence/queue diagnostics still execute; the earlier Q never proved completely silent failure.
+
+Only immediate integration surfaces change: handler, in-memory state, arm/clear revision increments and receipt rendering/open/close input preservation; shared test harness adds opt-in production-event exposure and one-shot readback faults. Existing capture writer, lock implementation, raw queue gates, A/B budget, persistent keys/schemas, identity precedence, accounting arithmetic and safety boundary remain unchanged. Five IMM markers remain **0.19.39** for this draft amendment; release versioning is a separate gate. The approved-base `preservedPrevious` ReferenceError is documented by Q and is not repaired here; the starting candidate's already-correct writer remains byte-identical.
+
+### Production tests and author validation
+
+New maintained **31-case** `tests/imm-receipt-link.test.js` uses the complete unmodified production file with normal initialization (`testMode:false`, opt-in CommonJS state exposure), registered production document-click actions, real parser/writer/renderers and native Node Web Locks. Synthetic DOM/storage/clock and explicit lock/storage faults do not constitute live TornPDA/browser acceptance. No production handler/writer/authority function is replaced.
+
+Coverage includes normal/held/denied/null grants, visibility/pagehide/timer abort, storage write/readback rollback and retry without repaste, intervening production queue, duplicate taps, two cooperating receipt contexts, rearming before/after save, explicit clear/expiry, cross-tab replacement and expired cached intent, closed/switched/reopened drafts, unpreviewed input and later edits, zero prices with/without history, under-grant book write/intent cleanup, actual feedback and exact accounting/protected-store sentinels. Original lots, allocations, cash, costs, profit and saved receipt audits remain byte-identical; only deliberate sale counterparty fields and Ledger timestamp may change.
+
+| Fresh corrected-workspace check | Result | Exit |
+|---|---:|---:|
+| Unchanged independent Q acceptance, author rerun | 4/4 | 0 |
+| Maintained receipt regression | 31/31 | 0 |
+| Capture lifecycle | 46/46 | 0 |
+| Capture coordination | 75/75 | 0 |
+| N1–N3 | 122/122 | 0 |
+| N4–N5 | 554/554 | 0 |
+| Protected supported regressions | 400/400, 21 suites | 0 |
+| Full supported suite | 1228/1228, 21 suites | 0 |
+
+All final groups have zero failures/cancellations/skips/todos; counts overlap. Exact commands/TAP exits, per-file syntax, diff/key/version/protected-body audits and immutable publication receipt are in the correction report/evidence. The other **21** protected regions are byte-identical to approved base; the one authorized handler differs. Development fixture calibration corrected an expected trader chosen by sorted index instead of armed ID and seeded historical items through existing normalization. Shared CommonJS exposure was made opt-in after two existing interrupted-startup assertions correctly caught an empty API object. No original Q or maintained capture/protected assertion was weakened; those failures remain recorded in development evidence.
+
+### Next gates, manual checks and rollback
+
+Mandatory order: **B correction → fresh independent targeted Q → separate owner authorization for full independent V1 → owner V2 TornPDA/desktop + Ledger Integrity → separate merge/release authorization**. Author regression PASS changes neither independent verdict. No automatic next gate, merge, mark-ready, auto-merge or release is authorized. Main and PR #140 stay untouched.
+
+After those preceding gates and owner V2 authorization, export Trader Book/Ledger and use only the exact reviewed build in all cooperating tabs. On TornPDA and desktop: paste a receipt without Preview; link once and double-tap while waiting; inspect real success count and one book capture; force controlled lock denial/contention and storage failures in an isolated profile; retry without rearm/repaste; rearm/clear/expire while waiting; close/switch/reopen the receipt; confirm old completion never replaces the current draft; check zero-price historical preservation. Compare Ledger exports allowing only the deliberate counterparty metadata/timestamp change, and require original lot/sale arithmetic/receipt-audit data unchanged plus Ledger Integrity PASS.
+
+Remaining risks: real browser DOM/touch/textarea behavior, userscript managers, TornPDA lifecycle/BFCache/process kill, cross-site carriers/provider markup and native browser lock support were not tested here. In-memory draft recovery does not survive reload/process loss. Locks exclude only cooperating same-origin versions; close/reload old IMM tabs. Persistent-storage failure/rollback remains best effort and existing multi-key interruption risks require backups/manual recovery.
+
+Rollback: preserve exports and deliberately cancel/export any review queue/summary; disable the review build and reinstall stable IMM 0.19.37 at the approved base. Never resume schema-v4 in-flight state under a v3 runtime or reset accounting. For caller-only rollback before release, revert this single amendment on the existing feature branch under separate authorization. PR #139 remains DRAFT/UNMERGED.
+
+## Prior bounded N4–N5 correction and raw-state audit (2026-10-11)
 
 Owner authority: the submitted `[B][WORK] Fresh Thread, Divine Knowledge Refresh and Bounded N4–N5 Correction` instruction authorizes the underlying raw-state/normalization repair on the same existing draft PR/branch, within frozen BL-R01B v2.2. It does not authorize release or a storage redesign. Approved main/base is `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`; exact amendment parent is `e11fcfc298a1faa20c174a6fe02c714e264fcee6`, tree `ac79f7f9cf39e355e04cd6b902794e0b47194376`, sole parent `d740a3bd7979d2904ee6f0131bf334752b9e50cf`.
 

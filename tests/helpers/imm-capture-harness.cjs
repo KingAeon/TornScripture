@@ -43,17 +43,17 @@ function trader(id = 'a', userId = 2321305, name = 'VladBull') {
     pricePageCaptureCount: 7, pricePageLastChangedCount: 2, pricePageLastResult: 'captured' };
 }
 function runtime({ url = 'https://www.torn.com/index.php', memory = new Map(), session = new Map(), name = '',
-  clock = { now: Date.parse('2026-10-09T21:00:00Z') }, testMode = true, confirmed = true, pageId = 2321305, pageName = 'VladBull', items = [], statement = '', locks } = {}) {
+  clock = { now: Date.parse('2026-10-09T21:00:00Z') }, testMode = true, productionEvents = false, confirmed = true, pageId = 2321305, pageName = 'VladBull', items = [], statement = '', locks } = {}) {
   if (!originStores.has(memory)) originStores.set(memory, ++nextStore);
   const lockPrefix = `${new URL(url).origin}:${originStores.get(memory)}:`;
   const lockName = lockPrefix + 'tornscripture-imm-capture-transition-v1';
   const lockManager = locks === undefined ? { request: (name, options, callback) => nativeLocks.request(lockPrefix + name, options, callback) } : locks;
   let nextTimer = 0;
   const timers = new Map(), writes = [], navigations = [], events = {}, windowEvents = {}, elements = [];
-  const faults = { set: null, readback: null };
+  const faults = { set: null, readback: null, readbackOnce: false };
   let failedReadback = null;
   const localStorage = { getItem(key) { if (failedReadback === key) { failedReadback = null; return 'bad-readback'; } return memory.get(key) ?? null; },
-    setItem(key, value) { if (faults.set === key) throw Error('fixture persistence failure'); writes.push([key, String(value)]); memory.set(key, String(value)); if (faults.readback === key) failedReadback = key; },
+    setItem(key, value) { if (faults.set === key) throw Error('fixture persistence failure'); writes.push([key, String(value)]); memory.set(key, String(value)); if (faults.readback === key) { failedReadback = key; if (faults.readbackOnce) faults.readback = null; } },
     removeItem(key) { if (faults.set === key) throw Error('fixture remove failure'); memory.delete(key); } };
   const sessionStorage = { getItem: key => session.get(key) ?? null, setItem: (key, value) => session.set(key, String(value)), removeItem: key => session.delete(key) };
   const location = {};
@@ -87,12 +87,12 @@ function runtime({ url = 'https://www.torn.com/index.php', memory = new Map(), s
       if (selector.startsWith('main h1')) return statement ? [new Element(statement)] : [];
       if (selector === 'table') return items.length ? [table] : [];
       return [];
-    }, querySelector() { return null; } };
+    }, querySelector(selector) { return document.fixtureSelectors?.[selector] || null; } };
   const DateClass = class extends Date { constructor(...args) { super(...(args.length ? args : [clock.now])); } static now() { return clock.now; } };
   const window = { name, location, addEventListener: (type, fn) => { (windowEvents[type] ||= []).push(fn); }, removeEventListener() {}, innerWidth: 400, innerHeight: 800 };
   class Document {}
   Object.setPrototypeOf(document, Document.prototype);
-  const sandbox = { console, document, window, location, localStorage, sessionStorage, Element, HTMLElement: Element, Document,
+  const sandbox = { ...(productionEvents ? { module: { exports: {} } } : {}), console, document, window, location, localStorage, sessionStorage, Element, HTMLElement: Element, Document,
     Node: { TEXT_NODE: 3 }, NodeFilter: { SHOW_TEXT: 4 }, Date: DateClass, URL, TextEncoder, TextDecoder, Uint8Array, Intl,
     atob: text => Buffer.from(text, 'base64').toString('binary'), btoa: text => Buffer.from(text, 'binary').toString('base64'),
     history: { state: null, replaceState(_, __, value) { setUrl(value); } }, navigator: { locks: lockManager }, AbortController,
@@ -104,7 +104,14 @@ function runtime({ url = 'https://www.torn.com/index.php', memory = new Map(), s
     __TS_IMM_TEST_MODE__: testMode };
   vm.createContext(sandbox); const ready = vm.runInContext(source, sandbox, { filename: scriptPath });
   const api = sandbox.__TS_IMM_TEST_EXPORTS__;
-  return { get api() { return sandbox.__TS_IMM_TEST_EXPORTS__; }, ready, lockName, nativeLocks, sandbox, memory, session, timers, writes, navigations, faults, clock, document, window, setUrl, elements,
+  return { get api() { return sandbox.__TS_IMM_TEST_EXPORTS__ || sandbox.module?.exports; }, ready, lockName, nativeLocks, sandbox, memory, session, timers, writes, navigations, faults, clock, document, window, setUrl, elements,
+    events, windowEvents,
+    clickAction(action, saleId, traderId) {
+      const target = new Element(); target.dataset = { tsimmAction: action, tsimmSaleId: saleId, tsimmTraderId: traderId };
+      target.closest = selector => selector === '[data-tsimm-action]' ? target : null;
+      const event = { target, preventDefault() {}, stopPropagation() {}, isTrusted: false };
+      for (const fn of events.click || []) fn(event);
+    },
     fireDeadline() { const entry = [...timers].find(([, t]) => t.delay > 0 && t.delay <= 60000 && t.at - clock.now >= 10000);
       if (!entry) throw Error('No bounded attempt timer'); const [id, timer] = entry; clock.now = timer.at; timers.delete(id); timer.fn(); },
     fireEvent(type) { for (const fn of events[type] || []) fn(); for (const fn of windowEvents[type] || []) fn(); },

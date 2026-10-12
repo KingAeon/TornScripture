@@ -1029,6 +1029,8 @@
       renderGeneration: 0,
     },
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
+    pendingTraderCaptureRevision: 0,
+    receiptTraderLinkPending: null,
     pendingPurchases: initialPendingPurchases,
     pendingPurchase: initialPendingPurchases[initialPendingPurchases.length - 1] || null,
     purchaseSignals: [],
@@ -1050,6 +1052,7 @@
     initialized: false,
     networkObserversBound: false,
     receiptAuditDraft: null,
+    receiptAuditRecoveryDraft: null,
     priceRecaptureTimer: null,
     priceRecaptureInFlight: false,
     weav3rCapturePreview: null,
@@ -1384,6 +1387,7 @@
   }
 
   function clearPendingTraderCapture(message = '') {
+    state.pendingTraderCaptureRevision += 1;
     state.pendingTraderCapture = null;
     savePendingTraderCapture();
     if (readPriceBridgeWindowName()?.type === 'request') clearPriceBridgeWindowName();
@@ -1394,6 +1398,7 @@
 
   function armTraderForPriceCapture(trader) {
     if (!trader) return;
+    state.pendingTraderCaptureRevision += 1;
     state.pendingTraderCapture = {
       traderId: trader.id,
       userId: trader.userId || null,
@@ -2547,7 +2552,11 @@
     }, 900);
   }
 
-  function linkPendingTraderToReceiptAudit() {
+  async function linkPendingTraderToReceiptAudit() {
+    if (state.receiptTraderLinkPending) {
+      toast('A receipt price capture is already pending. Wait for its result before retrying.');
+      return;
+    }
     const pending = activePendingTraderCapture();
     const trader = traderForPendingCapture(pending);
     const draft = state.receiptAuditDraft;
@@ -2557,25 +2566,86 @@
       toast('No armed trader or receipt sale was available to link.');
       return;
     }
-    const rawText = String(input?.value || draft?.rawText || '').trim();
+    const rawText = String(input?.value ?? draft?.rawText ?? '');
     const parsed = parseReceiptInput(rawText);
-    sale.counterparty = trader.name;
-    if (trader.userId) sale.counterpartyId = trader.userId;
-    if (trader.profileUrl) sale.counterpartyProfileUrl = trader.profileUrl;
-    saveLedger();
-    const items = priceItemsFromParsedReceipt(parsed);
-    const url = parsed.receiptUrl || sale.receiptAudit?.receiptUrl || sale.saleUrl || location.href;
-    const result = saveTraderPriceCapture(trader, {
-      url,
-      title: `Receipt / pricing page for ${trader.name}`,
-      items,
-      sourceType: 'receipt-audit',
-      automatic: false,
-    });
-    clearPendingTraderCapture();
-    renderReceiptAudit();
-    renderLedger();
-    toast(`${trader.name} linked to this receipt${result?.parsedCount ? ` · ${result.parsedCount} prices captured` : ''}.`);
+    draft.rawText = rawText;
+    state.receiptAuditRecoveryDraft = draft;
+    const operation = { draft, revision: state.pendingTraderCaptureRevision };
+    const identity = JSON.stringify(pending);
+    let pendingBytes;
+    let linked = false;
+    // This is a UI request guard, not capture authority or another coordinator.
+    state.receiptTraderLinkPending = operation;
+    const sameIntent = () => {
+      try {
+        return state.pendingTraderCaptureRevision === operation.revision
+          && JSON.stringify(normalizePendingTraderCapture(state.pendingTraderCapture)) === identity
+          && JSON.stringify(normalizePendingTraderCapture(JSON.parse(pendingBytes))) === identity
+          && localStorage.getItem(APP.pendingTraderCaptureStorageKey) === pendingBytes;
+      } catch { return false; }
+    };
+    const sameReceipt = () => state.receiptAuditDraft === draft
+      && Boolean(document.getElementById(APP.receiptAuditOverlayId));
+    try {
+      sale.counterparty = trader.name;
+      if (trader.userId) sale.counterpartyId = trader.userId;
+      if (trader.profileUrl) sale.counterpartyProfileUrl = trader.profileUrl;
+      saveLedger();
+      linked = true;
+      pendingBytes = localStorage.getItem(APP.pendingTraderCaptureStorageKey);
+      const items = priceItemsFromParsedReceipt(parsed);
+      const url = parsed.receiptUrl || sale.receiptAudit?.receiptUrl || sale.saleUrl || location.href;
+      renderReceiptAudit();
+      renderLedger();
+      // Revalidate the original arming intent inside the existing synchronous
+      // critical section. A clear, expiry or re-arm while waiting cannot save.
+      const result = await captureTransition(() => {
+        if (!sameIntent()) return null;
+        const saved = saveTraderPriceCapture(trader, {
+          url,
+          title: `Receipt / pricing page for ${trader.name}`,
+          items,
+          sourceType: 'receipt-audit',
+          automatic: false,
+        });
+        // Consume only verified positive pricing, under this same grant, so a
+        // second cooperating receipt caller cannot save the same armed intent.
+        if (saved?.trader?.id === trader.id && Number.isSafeInteger(saved.parsedCount)
+          && saved.parsedCount > 0 && sameIntent()) clearPendingTraderCapture();
+        return saved;
+      }, null);
+      const captured = result?.trader?.id === trader.id
+        && Number.isSafeInteger(result.parsedCount) && result.parsedCount > 0;
+      const receipt = sameReceipt() ? 'this receipt' : `receipt ${sale.id}`;
+      const outcome = captured
+        ? `${result.parsedCount} prices captured`
+        : result?.parsedCount === 0
+          ? `no supported prices found${result.preservedPrevious ? '; previous prices kept' : ''}`
+          : 'prices not saved';
+      toast(`${trader.name} linked to ${receipt} · ${outcome}.${!captured && sameIntent() ? ' Armed capture kept; retry this receipt when capture is available.' : ''}`);
+    } catch {
+      toast(linked
+        ? `${trader.name} linked to receipt ${sale.id}; price capture could not complete. Any still-armed capture is kept for retry.`
+        : 'Receipt link could not be saved. Armed capture and receipt text are kept for retry.');
+    } finally {
+      if (state.receiptTraderLinkPending === operation) state.receiptTraderLinkPending = null;
+      if (sameReceipt()) {
+        // Keep edits made during the wait, and never redraw a closed/new draft.
+        const currentInput = document.querySelector(`#${APP.receiptAuditOverlayId} [data-tsimm-receipt-input]`);
+        draft.rawText = String(currentInput?.value ?? draft.rawText);
+        // Another cooperating tab may have consumed/replaced the cached arm.
+        // Refresh display state only; never remove its persisted pending key.
+        if (state.pendingTraderCaptureRevision === operation.revision) {
+          try {
+            const currentBytes = localStorage.getItem(APP.pendingTraderCaptureStorageKey);
+            if (currentBytes !== pendingBytes) {
+              state.pendingTraderCapture = normalizePendingTraderCapture(JSON.parse(currentBytes));
+            }
+          } catch { /* Unreadable intent stays a manual recovery condition. */ }
+        }
+        renderReceiptAudit();
+      }
+    }
   }
 
   function normalizeReceiptAuditItem(candidate) {
@@ -11019,16 +11089,24 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         <div class="tsimm-audit-actions">
           <button type="button" data-tsimm-action="receipt-audit-preview">Parse preview</button>
           <button type="button" data-tsimm-action="receipt-audit-save" ${audit ? '' : 'disabled'}>Save audit</button>
-          ${activePendingTraderCapture() ? `<button type="button" data-tsimm-action="receipt-link-pending-trader">Link ${escapeHtml(activePendingTraderCapture().name)} + save page</button>` : ''}
+          ${activePendingTraderCapture() ? `<button type="button" data-tsimm-action="receipt-link-pending-trader" ${state.receiptTraderLinkPending?.draft === draft ? 'disabled' : ''}>Link ${escapeHtml(activePendingTraderCapture().name)} + save page</button>` : ''}
           ${sale.receiptAudit ? '<button type="button" data-tsimm-action="receipt-audit-clear">Clear saved audit</button>' : ''}
         </div>
       </div>
     `;
   }
 
+  function preserveReceiptTraderLinkInput() {
+    const draft = state.receiptTraderLinkPending?.draft;
+    if (!draft || state.receiptAuditDraft !== draft) return;
+    const input = document.querySelector(`#${APP.receiptAuditOverlayId} [data-tsimm-receipt-input]`);
+    if (input) draft.rawText = String(input.value);
+  }
+
   function openReceiptAudit(saleId) {
     const sale = (state.ledger.sales || []).find((entry) => entry.id === saleId);
     if (!sale) return;
+    preserveReceiptTraderLinkInput();
     injectStyles();
     let overlay = document.getElementById(APP.receiptAuditOverlayId);
     if (!overlay) {
@@ -11037,15 +11115,17 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       overlay.dataset.tsimmGenerated = 'true';
       document.body.appendChild(overlay);
     }
+    const recovery = state.receiptAuditRecoveryDraft?.saleId === saleId ? state.receiptAuditRecoveryDraft : null;
     state.receiptAuditDraft = {
       saleId,
-      rawText: sale.receiptAudit?.rawText || sale.receiptAudit?.receiptUrl || '',
+      rawText: recovery?.rawText ?? (sale.receiptAudit?.rawText || sale.receiptAudit?.receiptUrl || ''),
       audit: sale.receiptAudit || null,
     };
     renderReceiptAudit();
   }
 
   function closeReceiptAudit() {
+    preserveReceiptTraderLinkInput();
     document.getElementById(APP.receiptAuditOverlayId)?.remove();
     state.receiptAuditDraft = null;
   }
