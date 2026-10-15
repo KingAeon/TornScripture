@@ -73,7 +73,7 @@ async function fixture({ twoTraders = false } = {}) {
   memory.set(K.ledger, JSON.stringify(p.state.ledger));
   for (const key of PROTECTED) memory.set(key, JSON.stringify({ sentinel: key, exact: ' original bytes ' }));
   p.protectedBytes = new Map(PROTECTED.map(key => [key, memory.get(key)]));
-  p.arm('a'); p.open();
+  await p.arm('a'); p.open();
   assert.ok(p.overlay.innerHTML.includes('data-tsimm-action="receipt-link-pending-trader"'));
   p.originalBook = memory.get(K.book); p.originalPending = memory.get(PENDING);
   p.originalLedger = memory.get(K.ledger);

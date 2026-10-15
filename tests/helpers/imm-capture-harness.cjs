@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { webcrypto } = require('node:crypto');
 const scriptPath = process.env.TSIMM_TEST_SCRIPT ? path.resolve(process.env.TSIMM_TEST_SCRIPT)
   : path.join(__dirname, '..', '..', 'TornScripture-Item-Market-Margin.user.js');
 const source = fs.readFileSync(scriptPath, 'utf8');
@@ -93,7 +94,7 @@ function runtime({ url = 'https://www.torn.com/index.php', memory = new Map(), s
   class Document {}
   Object.setPrototypeOf(document, Document.prototype);
   const sandbox = { ...(productionEvents ? { module: { exports: {} } } : {}), console, document, window, location, localStorage, sessionStorage, Element, HTMLElement: Element, Document,
-    Node: { TEXT_NODE: 3 }, NodeFilter: { SHOW_TEXT: 4 }, Date: DateClass, URL, TextEncoder, TextDecoder, Uint8Array, Intl,
+    Node: { TEXT_NODE: 3 }, NodeFilter: { SHOW_TEXT: 4 }, Date: DateClass, URL, TextEncoder, TextDecoder, Uint8Array, Intl, crypto: webcrypto,
     atob: text => Buffer.from(text, 'base64').toString('binary'), btoa: text => Buffer.from(text, 'binary').toString('base64'),
     history: { state: null, replaceState(_, __, value) { setUrl(value); } }, navigator: { locks: lockManager }, AbortController,
     getComputedStyle: () => ({ display: 'block', visibility: 'visible', opacity: '1' }),
@@ -110,7 +111,7 @@ function runtime({ url = 'https://www.torn.com/index.php', memory = new Map(), s
       const target = new Element(); target.dataset = { tsimmAction: action, tsimmSaleId: saleId, tsimmTraderId: traderId };
       target.closest = selector => selector === '[data-tsimm-action]' ? target : null;
       const event = { target, preventDefault() {}, stopPropagation() {}, isTrusted: false };
-      for (const fn of events.click || []) fn(event);
+      return Promise.allSettled((events.click || []).map(fn => fn(event)));
     },
     fireDeadline() { const entry = [...timers].find(([, t]) => t.delay > 0 && t.delay <= 60000 && t.at - clock.now >= 10000);
       if (!entry) throw Error('No bounded attempt timer'); const [id, timer] = entry; clock.now = timer.at; timers.delete(id); timer.fn(); },

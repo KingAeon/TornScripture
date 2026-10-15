@@ -95,9 +95,10 @@ test('two cooperating receipt contexts consume one shared armed intent under the
 });
 
 for (const id of ['b', 'a']) test(`rearming ${id === 'a' ? 'same trader in the same millisecond' : 'a different trader'} before grant cancels the old price intent only`, async () => {
-  const p = await fixture({ twoTraders: true }), holder = await hold(p); p.link(); await turn();
-  p.arm(id); const newer = p.memory.get(PENDING);
-  holder.release(); await holder.task; await p.drain();
+  const p = await fixture({ twoTraders: true }), holder = await hold(p);
+  const armed = p.arm(id); await turn(); p.link(); await turn();
+  holder.release(); await holder.task; await armed; await p.drain();
+  const newer = p.memory.get(PENDING);
   assert.equal(p.memory.get(K.book), p.originalBook); assert.equal(p.memory.get(PENDING), newer);
   assert.equal(p.state.pendingTraderCapture.traderId, id); assert.match(feedback(p).at(-1), /prices not saved/);
   p.assertAccounting();
@@ -105,8 +106,9 @@ for (const id of ['b', 'a']) test(`rearming ${id === 'a' ? 'same trader in the s
 
 test('a new arming after verified writer completion survives the older await continuation', async () => {
   const p = await fixture({ twoTraders: true });
+  let rearmed = false;
   p.sandbox.navigator.locks.request = (name, options, callback) => {
-    const task = p.nativeRequest(name, options, lock => { const value = callback(lock); p.arm('b'); return value; });
+    const task = p.nativeRequest(name, options, lock => { const value = callback(lock); if (!rearmed) { rearmed = true; p.arm('b'); } return value; });
     p.requests.push(task); return task;
   };
   p.link(); await p.drain();
@@ -116,8 +118,9 @@ test('a new arming after verified writer completion survives the older await con
 });
 
 test('explicit clearing before grant never recreates the original intent or saves prices', async () => {
-  const p = await fixture(), holder = await hold(p); p.link(); await turn();
-  p.clickAction('trader-clear-capture'); holder.release(); await holder.task; await p.drain();
+  const p = await fixture(), holder = await hold(p);
+  const cleared = p.clickAction('trader-clear-capture'); await turn(); p.link(); await turn();
+  holder.release(); await holder.task; await cleared; await p.drain();
   assert.equal(p.memory.get(PENDING), undefined); assert.equal(p.state.pendingTraderCapture, null);
   assert.equal(p.memory.get(K.book), p.originalBook); p.assertAccounting();
 });
@@ -132,9 +135,10 @@ test('intent expiry before grant has no price write, resurrection or retry-succe
 
 for (const change of ['clear', 'replace']) test(`another context ${change}s the persisted arm while this receipt waits`, async () => {
   const p = await fixture({ twoTraders: true }), other = await secondContext(p), holder = await hold(p);
-  p.link(); await turn();
-  if (change === 'clear') other.clickAction('trader-clear-capture'); else other.arm('b');
-  const bytes = p.memory.get(PENDING); holder.release(); await holder.task; await p.drain();
+  const changed = change === 'clear' ? other.clickAction('trader-clear-capture') : other.arm('b');
+  await turn(); p.link(); await turn();
+  holder.release(); await holder.task; await changed; await p.drain();
+  const bytes = p.memory.get(PENDING);
   assert.equal(p.memory.get(K.book), p.originalBook); assert.equal(p.memory.get(PENDING), bytes);
   assert.equal(p.state.pendingTraderCapture?.traderId ?? null, change === 'clear' ? null : 'b');
   p.assertAccounting();
@@ -142,8 +146,10 @@ for (const change of ['clear', 'replace']) test(`another context ${change}s the 
 
 test('expired cached arm cannot remove a replacement persisted by another context', async () => {
   const p = await fixture({ twoTraders: true }), other = await secondContext(p), holder = await hold(p);
-  p.link(); await turn(); p.clock.now = JSON.parse(p.originalPending).expiresAt + 1; other.arm('b');
-  const bytes = p.memory.get(PENDING); holder.release(); await holder.task; await p.drain();
+  const armed = other.arm('b'); await turn(); p.link(); await turn();
+  p.clock.now = JSON.parse(p.originalPending).expiresAt + 1;
+  holder.release(); await holder.task; await armed; await p.drain();
+  const bytes = p.memory.get(PENDING);
   assert.equal(p.memory.get(PENDING), bytes); assert.equal(p.state.pendingTraderCapture.traderId, 'b');
   assert.equal(p.memory.get(K.book), p.originalBook); p.assertAccounting();
 });
