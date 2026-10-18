@@ -1,5 +1,43 @@
 # BL-R01B v2.2 implementation evidence and acceptance gates
 
+## Bounded V1-01/V1-02 and provider-only Undo correction (2026-10-18)
+
+Authority: [owner-frozen correctness amendment](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6252193836), the owner's exact-pinned B assignment, [independent full V1 failures and original fixtures](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6251472357), and [preceding targeted Q](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6185316250). Starting head `7c68a0df7dea29cff928314d9766ab9dfa0ab005`, tree `3ec58a3af3a6d31753467a8cc3254d2589a999ff`, approved main/base `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`. Same existing branch and draft PR #139. IMM remains unreleased **0.19.39**, Report **0.2.3**; stable/tester **0.19.37** and global update metadata are unchanged.
+
+The exact original external fixture was retrieved from the published V1 comment and reproduced **14/18 PASS, four FAIL** before edits. Its unchanged assertions now pass **18/18**. Full production Report Undo independently restored an older marker-free book after both a newer provider success and an explicit-unavailable observation on the starting source; those two characterization passes assert the unsafe starting behavior, not candidate acceptance.
+
+### Existing writer and metadata intent
+
+`saveTraders` now binds the requested record and deliberate metadata fields before waiting, rereads the raw book under the existing native capture lock, and changes only that record's selected metadata. Current provider snapshots, successful/attempt clocks, terminal state/reasons/counts, source/legacy aliases and both replay-proof domains remain authoritative regardless of receipt-link markers. Unrelated rows added by other tabs are preserved. Journal notes merge by existing note identity; stale notes do not overwrite unrelated roles or notes. Existing aliases are not rewritten. Removed/replaced/ambiguous identities fail closed instead of silently recreating or retargeting a record.
+
+Upsert/import distinguishes stable IDs and known Torn IDs from display names, so different known IDs sharing a name do not merge. Incoming capture proof is validated raw before import normalization. A new imported trader, or historical rows imported into a genuinely bare existing record, is labeled `imported_unverified`, not a newly verified provider success. Existing observations and proof are preserved. A new proof-bearing record cannot be imported into an active carousel. Normal notes, ratings, roles, classifications, hide/restore, profile metadata and safe imports remain available. Raw export remains available for corrupt evidence.
+
+Provider replay and terminal evidence is validated before these management writes; malformed/colliding proof is preserved and blocks the write. The provider authority decision, parser, queue protocol and receipt writer are not replaced. The established raw writer returns its already verified serialized bytes to the constrained companion adapter; it adds no second persistence mechanism.
+
+### Matching companion operations and Undo
+
+The core snapshot adapter accepts reviewed move/disconnect/Undo intent, exact current-book bytes, unambiguous trader identities and valid proof. Live provider replay receipts now protect price/count fields as retained receipt-link markers already did. Even expired historical provider proof stays with its original trader during deliberate transformations. Moved prices are `reassigned_unverified`; disconnected prices are historical/disconnected. No source run/entry/attempt authority is copied to a target trader.
+
+After a verified move/disconnect, Report saves the existing backup's original `root`/`shape` plus optional **`expectedAfter`**, the exact serialized post-operation book returned inside the core grant. No new top-level key or backup migration is added. Undo must match that postimage under the same native lock, in addition to the ordinary acquisition snapshot check. Any intervening capture or book change refuses the stale restore without book mutation, backup removal, success or reload. A legitimate Undo with no intervening change still restores the reviewed record data and preserves wrapper metadata.
+
+Legacy root-only backups remain readable and retained, but lack proof of the state following their operation; automatic Undo is refused with export/review guidance. This is the frozen fail-closed compatibility policy, not a destructive migration. A failed backup write after a verified operation accurately reports that the change saved but Undo is unverified. Undo write/readback failure preserves its backup and does not reload. Older noncooperating IMM/Report copies remain unsafe; matching source bytes, not identical version labels, are required.
+
+### Freshness and evidence
+
+`traderCaptureFresh` accepts finite age from zero through exactly 72 hours. Future observations, invalid/missing dates and 72h+1ms are not fresh; future quotes remain historical and excluded from current recommendations. Other timeout/request/queue/summary/retention periods are unchanged. The separate seven-day invalid-summary-clock characterization is outside this amendment.
+
+New maintained `tests/imm-capture-metadata.test.js` runs whole production files and actual event handlers with synthetic DOM/storage/clocks and native Node Web Locks. Its 54 cases cover metadata/positive and negative observations, early return/replay, both lock orders, aliases/wrappers, import/identity and journal compatibility, current/future/72h boundaries, provider-only Undo before/after retention expiry, legitimate Undo, deliberate move/disconnect, raw corruption/export and persistence/rollback/backup faults. Existing 113 receipt-link/identity cases remain unchanged and pass. Full suite, exact final head/tree, hashes, syntax/diff/protected-body receipts and test totals are published in the consolidated author evidence comment; development assertions are not independent Q or V1.
+
+### Gates and rollback
+
+No protected accounting function, FIFO/lot/sale/cash/profit path, receipt audit, credential, provider identity/parser, A/B queue authority, listener/timer/observer, endpoint or release version is changed. The other 21 protected bodies remain byte-identical to approved base. Tests preserve complete Ledger and seven neighboring storage sentinels; only the previously authorized receipt metadata exception applies to existing receipt tests.
+
+Before separately authorized live acceptance, export raw Trader Book, Ledger and the existing Report backup; disable older copies. Test stale ordinary edits around successful/failed provider returns and real Undo refusal, legitimate Undo, manual captures, receipt reconciliation and Ledger Integrity on TornPDA and desktop. These Node tests do not establish browser transport, document-start, clipboard/touch, BFCache or process-loss behavior.
+
+Rollback is data-preserving: retain exports, cancel/export v4 queues and clear/export candidate pending authority while reviewed controls work, disable both reviewed scripts, then return to stable IMM 0.19.37 and baseline Report. Do not resume v4 queues under v3, reuse candidate arms, restore stale backups over newer evidence, or reset accounting/history. If storage is unreadable, keep captures disabled for explicit recovery. The optional `expectedAfter` backup field is ignored by old Report, whose Undo is not safe against newer capture state; do not use old Undo on candidate-era data.
+
+After publishing this bounded correction, **STOP**. Fresh independent targeted Q on the new exact head is the next gate; repeat full V1, owner TornPDA/desktop V2 plus Ledger Integrity, and merge/release each require their later authorization. No tester upgrade or infrastructure spending occurs.
+
 Status: the owner-authorized durable receipt-link identity/completion correction below supersedes the older author-side receipt correction. Independent Q remains BLOCKED on the starting candidate; no fresh independent Q or full V1 is claimed or initiated by this implementation. PR #139 remains a draft, not a release. Exact publication head/tree are recorded in the PR evidence comment rather than self-referentially here.
 
 ## Durable receipt identity and completion correction (2026-10-15 UTC)

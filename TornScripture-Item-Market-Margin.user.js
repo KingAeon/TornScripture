@@ -460,7 +460,7 @@
       } catch { return { ok: false, rejected: true, indeterminate: true, error: 'Capture outcome indeterminate: storage recovery is unreadable. Resolve storage and reconcile completion evidence before retry.' }; }
       return { ok: false, rejected: true, error: 'Capture persistence failed; no queue continuation is authorized.' };
     }
-    return { ok: true };
+    return { ok: true, storedBytes: stored };
   }
 
   function persistCaptureImport(result, manualConfirmed = false, ownerAction = false) {
@@ -1418,38 +1418,104 @@
     );
   }
 
-  function saveTraders() {
-    const requested = earlyClone(state.traders);
+  function traderCaptureField(key) {
+    return key.startsWith('pricePage') || ['previousPricePageUrl', 'pricesCapturedAt', 'pricingItems',
+      'pricingPageUrl', 'pricingProvider', 'pricingPageTitle', 'receiptPageUrl', 'receiptLinkCompletions'].includes(key);
+  }
+
+  function validateTraderCaptureEvidence(traders) {
+    receiptLinkBookEvidence(traders);
+    const owners = new Set();
+    for (const trader of traders) {
+      const receipts = trader.pricePageCaptureReceipts;
+      if (receipts !== undefined && !Array.isArray(receipts)) throw new Error('Provider replay evidence is malformed; export the raw Trader Book before recovery.');
+      const ids = new Set();
+      for (const receipt of receipts || []) {
+        const identity = JSON.stringify([receipt?.runId, receipt?.entryId, receipt?.attemptId]);
+        if (!receipt || !['runId', 'entryId', 'attemptId'].every(key => captureQueueIdentifier(receipt[key]))
+          || typeof receipt.expiresAt !== 'number' || !Number.isFinite(receipt.expiresAt) || receipt.expiresAt <= 0
+          || ids.has(identity) || owners.has(identity)) throw new Error('Provider replay evidence is malformed or colliding; preserve/export it before recovery.');
+        ids.add(identity); owners.add(identity);
+      }
+      const last = trader.pricePageLastCaptureReceipt;
+      if (last != null) {
+        const e = captureEnvelope(last.envelope);
+        if (!e || !captureReceiptMatches(last, e) || last.expiresAt !== e.expiresAt
+          || !(e.traderRecordId === captureStableTraderId(trader)
+            || (e.intent === 'manual' && e.traderRecordId === `torn:${captureTraderTornId(trader)}`))
+          || e.expectedTornId !== captureTraderTornId(trader)
+          || Object.keys(e).some(key => last.envelope[key] !== e[key])
+          || !['captured', 'explicitly_empty', 'explicitly_unavailable', 'parser_failure', 'identity_mismatch', 'timeout', 'user_skipped', 'canceled', 'expired'].includes(last.outcome)
+          || !(receipts || []).some(receipt => captureReceiptMatches(receipt, e) && receipt.expiresAt === e.expiresAt)) {
+          throw new Error('Provider terminal evidence is inconsistent; preserve/export the raw book before recovery.');
+        }
+      }
+    }
+  }
+
+  function saveTraders(traderId, fields = [], { remove = false, imported = false, create = false } = {}) {
+    // Bind the deliberate metadata edit before waiting; all capture fields come
+    // from the authoritative row under the existing grant, never this cache.
+    const requested = earlyClone(state.traders.find(trader => trader.id === traderId) || null);
     const save = () => {
       const context = captureStoreContext();
       try {
         if (!context.ok) throw new Error('Trader Book storage is unreadable; no trader update saved.');
-        receiptLinkBookEvidence(context.traders);
-        receiptLinkBookEvidence(requested);
-        const traders = normalizeTraders(requested).map(candidate => {
-          const matches = context.traders.filter(entry => captureStableTraderId(entry) === candidate.id);
-          if (matches.length > 1) throw new Error('Ambiguous trader identity; no update saved.');
-          const previous = matches[0];
-          if (!previous) return candidate;
+        validateTraderCaptureEvidence(context.traders);
+        if (requested) receiptLinkBookEvidence([requested]);
+        let matches = context.traders.filter(entry => captureStableTraderId(entry) === traderId);
+        if (!matches.length && requested?.userId) matches = context.traders.filter(entry => captureTraderTornId(entry) === requested.userId
+          && (create || !captureStableTraderId(entry)));
+        if (matches.length > 1) throw new Error('Ambiguous trader identity; no update saved.');
+        const previous = matches[0];
+        const traders = context.traders.slice();
+        if (remove) {
+          if (!previous) throw new Error('Trader changed or was removed; reopen the current book before retrying.');
+          if ((previous.pricePageCaptureReceipts || []).some(receipt => receipt.expiresAt > Date.now())) throw new Error('Provider capture proof is protected until request expiry. Hide this trader instead.');
+          traders.splice(traders.indexOf(previous), 1);
+        } else if (previous) {
+          if (!requested || captureTraderTornId(previous) !== requested.userId) throw new Error('Trader Torn identity changed; reopen the current record before editing.');
           const combined = new Map();
-          for (const marker of [...receiptLinkCompletions(candidate), ...receiptLinkCompletions(previous)]) {
+          for (const marker of [...receiptLinkCompletions(requested), ...receiptLinkCompletions(previous)]) {
             const old = combined.get(marker.armId);
             if (old && Object.keys(marker).some(key => old[key] !== marker[key])) throw new Error('Conflicting receipt completion evidence; no update saved.');
             combined.set(marker.armId, marker);
           }
           const retained = [...combined.values()].filter(marker => marker.retainUntil >= Date.now());
-          const next = { ...previous, ...candidate, receiptLinkCompletions: retained };
-          // A cached edit/import must not roll back the snapshot/count committed
-          // with a retained marker, or erase provider replay receipts beside it.
-          if (receiptLinkCompletions(previous).some(marker => marker.retainUntil >= Date.now())) {
-            for (const key of Object.keys(previous)) if (key.startsWith('pricePage') || key === 'previousPricePageUrl') next[key] = earlyClone(previous[key]);
+          const next = { ...previous };
+          if (retained.length || Object.prototype.hasOwnProperty.call(previous, 'receiptLinkCompletions')) next.receiptLinkCompletions = retained;
+          for (const key of fields) {
+            if (traderCaptureField(key) || ['id', 'recordId', 'uuid', 'userId', 'tornId'].includes(key)) continue;
+            if (Object.prototype.hasOwnProperty.call(requested, key)) next[key] = earlyClone(requested[key]);
           }
-          for (const key of ['id', 'recordId', 'uuid']) {
-            if (Object.prototype.hasOwnProperty.call(previous, key)) next[key] = previous[key];
-            else if (key !== 'id') delete next[key];
+          if (fields.includes('relationshipJournal')) next.relationshipJournal = normalizeTraderRelationshipJournal([
+            ...(previous.relationshipJournal || []), ...(requested.relationshipJournal || []),
+          ], requested.updatedAt);
+          const hasObservation = (previous.pricePageItems || previous.pricingItems || []).length
+            || previous.pricePageCapturedAt || previous.pricesCapturedAt || previous.pricePageLastCheckedAt
+            || previous.pricePageLastOutcome || previous.pricePageLastResult || previous.pricePageCaptureCount
+            || previous.pricePageAttemptCount || (previous.pricePageCaptureReceipts || []).length
+            || receiptLinkCompletions(previous).length;
+          if (imported && !hasObservation && (requested.pricePageItems || []).length) {
+            // A bare existing record can receive historical imported rows, not
+            // another record's provider completion or a new verified capture.
+            for (const key of Object.keys(requested)) if (traderCaptureField(key)
+              && !['pricePageCaptureReceipts', 'pricePageLastCaptureReceipt', 'receiptLinkCompletions'].includes(key)) next[key] = earlyClone(requested[key]);
+            next.pricePageLastOutcome = 'imported_unverified';
+            next.pricePageLastReason = 'Imported historical prices; explicitly recapture to verify the current provider observation.';
           }
-          return next;
-        });
+          traders[traders.indexOf(previous)] = next;
+        } else {
+          if (!requested || !create) throw new Error('Trader changed or was removed; reopen the current book before retrying.');
+          const next = { ...requested };
+          if (imported) {
+            if (context.queue && ((next.pricePageCaptureReceipts || []).length || next.pricePageLastCaptureReceipt)) throw new Error('Finish or cancel the carousel before importing historical provider proof.');
+            validateTraderCaptureEvidence([next]);
+            next.pricePageLastOutcome = 'imported_unverified';
+            next.pricePageLastReason = 'Imported historical prices; explicitly recapture to verify the current provider observation.';
+          }
+          traders.push(next);
+        }
         const write = writeCaptureTraders(context, traders);
         if (!write.ok) throw new Error(write.error);
         state.traders = normalizeTraders(traders);
@@ -1460,10 +1526,10 @@
         return false;
       }
     };
-    return captureTransitionHeld ? save() : captureTransition(save, false);
+    return captureTransitionHeld ? save() : captureTransition(save, message => { toast(message); return false; });
   }
 
-  function saveTraderBookSnapshot(expectedBytes, records) {
+  function saveTraderBookSnapshot(expectedBytes, records, { operation = '', expectedAfter = '' } = {}) {
     // Companion move/disconnect/Undo must use the same existing writer/grant.
     // They may not restore a stale whole-book backup over live capture proof.
     const save = () => {
@@ -1472,20 +1538,24 @@
       if (context.queue) return { ok: false, error: 'Finish or cancel the carousel before changing a pricelist connection.' };
       if (context.encoded[EARLY_CAPTURE.tradersKey] !== expectedBytes) return { ok: false, error: 'Trader Book changed while waiting. Reopen the report and review the current data.' };
       try {
-        receiptLinkBookEvidence(context.traders);
-        receiptLinkBookEvidence(records);
+        validateTraderCaptureEvidence(context.traders);
+        validateTraderCaptureEvidence(records);
         for (const previous of context.traders) {
-          if (!receiptLinkCompletions(previous).some(marker => marker.retainUntil >= Date.now())) continue;
           const matches = records.filter(entry => captureStableTraderId(entry) === captureStableTraderId(previous));
-          if (matches.length !== 1) throw new Error('Protected receipt capture cannot be removed before its retention deadline.');
+          if (matches.length !== 1 || captureTraderTornId(matches[0]) !== captureTraderTornId(previous)) throw new Error('Trader identity is ambiguous or changed; no pricelist operation confirmed.');
           const next = matches[0];
+          const protectedCapture = receiptLinkCompletions(previous).some(marker => marker.retainUntil >= Date.now())
+            || (previous.pricePageCaptureReceipts || []).some(receipt => receipt.expiresAt > Date.now());
           for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
-            if ((key.startsWith('pricePage') || key === 'previousPricePageUrl')
-              && JSON.stringify(previous[key]) !== JSON.stringify(next[key])) {
-              throw new Error('Receipt capture prices/count are protected until their retention deadline. Preserve/export the book and wait before moving, disconnecting or restoring older pricing.');
+            if (traderCaptureField(key) && JSON.stringify(previous[key]) !== JSON.stringify(next[key])) {
+              if (protectedCapture) throw new Error('Capture prices/count and replay proof are protected until their retention deadline. Preserve/export the book and wait before changing the pricelist.');
+              if (['pricePageCaptureReceipts', 'pricePageLastCaptureReceipt', 'receiptLinkCompletions'].includes(key)) throw new Error('Historical capture proof must stay with its original trader; no pricelist operation confirmed.');
             }
           }
         }
+        if (operation === 'undo') {
+          if (!expectedAfter || context.encoded[EARLY_CAPTURE.tradersKey] !== expectedAfter) throw new Error('Undo refused: the book changed after that operation, or this legacy backup has no verified post-operation state. Preserve/export the backup and review the current book.');
+        } else if (!['move', 'disconnect'].includes(operation)) throw new Error('An explicit reviewed pricelist operation is required.');
       } catch (error) { return { ok: false, error: error.message }; }
       const result = writeCaptureTraders(context, records);
       if (result.ok) state.traders = normalizeTraders(records);
@@ -13596,13 +13666,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return linked;
   }
 
-  async function upsertTrader(trader) {
+  async function upsertTrader(trader, { imported = false } = {}) {
     if (!trader) return null;
-    const index = state.traders.findIndex((candidate) =>
-      (trader.userId && candidate.userId === trader.userId)
-      || candidate.normalizedName === trader.normalizedName
-      || candidate.id === trader.id
-    );
+    const matches = state.traders.filter(candidate => candidate.id === trader.id
+      || (trader.userId && candidate.userId === trader.userId)
+      || (!trader.userId && !candidate.userId && candidate.normalizedName === trader.normalizedName));
+    if (matches.length > 1) { toast('Ambiguous trader identity; no update saved.'); return null; }
+    const index = matches.length ? state.traders.indexOf(matches[0]) : -1;
+    const previous = index >= 0 ? earlyClone(state.traders[index]) : null;
     if (index >= 0) {
       const existing = state.traders[index];
       const incomingRoles = normalizeTraderRelationshipRoles(trader.relationshipRoles);
@@ -13620,12 +13691,14 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       };
     }
     else state.traders.push(trader);
-    if (!await saveTraders()) return null;
+    const requested = index >= 0 ? state.traders[index] : trader;
+    const fields = Object.keys(requested).filter(key => !previous || JSON.stringify(previous[key]) !== JSON.stringify(requested[key]));
+    if (!await saveTraders(requested.id, fields, { imported, create: index < 0 })) return null;
     const savedTrader = state.traders.find((candidate) =>
-      candidate.id === trader.id
+      candidate.id === requested.id
       || (trader.userId && candidate.userId === trader.userId)
-      || candidate.normalizedName === trader.normalizedName
-    ) || trader;
+    );
+    if (!savedTrader) return null;
     linkRecordedSalesToTrader(savedTrader);
     renderTraders();
     renderLedger();
@@ -13731,7 +13804,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       ? ['buyer', 'supplier']
       : normalizeTraderRelationshipRoles(value);
     trader.updatedAt = new Date().toISOString();
-    if (!await saveTraders()) return null;
+    if (!await saveTraders(id, ['relationshipRoles', 'updatedAt'])) return null;
     state.traderUi.activeDossierId = trader.id;
     renderTraders();
     renderPanel();
@@ -13754,7 +13827,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       entry,
     ];
     trader.updatedAt = now;
-    if (!await saveTraders()) return null;
+    if (!await saveTraders(id, ['relationshipJournal', 'updatedAt'])) return null;
     state.traderUi.activeDossierId = trader.id;
     renderTraders();
     renderPanel();
@@ -13790,7 +13863,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     trader.avoidReasons = reasons.length ? reasons : ['other'];
     trader.dispositionUpdatedAt = new Date().toISOString();
     trader.updatedAt = trader.dispositionUpdatedAt;
-    if (!await saveTraders()) return null;
+    if (!await saveTraders(id, ['disposition', 'hiddenFromDisposition', 'avoidReasons', 'dispositionUpdatedAt', 'updatedAt'])) return null;
     renderTraders();
     renderPanel();
     toast(`${trader.name} marked AVOID${traderReasonLabels(trader).length ? ` · ${traderReasonLabels(trader).join(', ')}` : ''}.`);
@@ -13803,7 +13876,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     trader.disposition = 'hidden';
     trader.dispositionUpdatedAt = new Date().toISOString();
     trader.updatedAt = trader.dispositionUpdatedAt;
-    if (!await saveTraders()) return null;
+    if (!await saveTraders(id, ['disposition', 'hiddenFromDisposition', 'dispositionUpdatedAt', 'updatedAt'])) return null;
     renderTraders();
     renderPanel();
     toast(`${trader.name} hidden. Their history and captured prices were preserved.`);
@@ -13818,7 +13891,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     trader.hiddenFromDisposition = restored === 'avoid' ? 'avoid' : 'normal';
     trader.dispositionUpdatedAt = new Date().toISOString();
     trader.updatedAt = trader.dispositionUpdatedAt;
-    if (!await saveTraders()) return null;
+    if (!await saveTraders(id, ['disposition', 'hiddenFromDisposition', 'avoidReasons', 'dispositionUpdatedAt', 'updatedAt'])) return null;
     renderTraders();
     renderPanel();
     toast(`${trader.name} restored as ${restored === 'avoid' ? 'AVOID' : 'ACTIVE'}.`);
@@ -13835,7 +13908,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     if (!trader || !confirm(`Remove ${trader.name} from your trader book?`)) return;
     state.traders = state.traders.filter((entry) => entry.id !== id);
     if (state.traderUi.activeDossierId === id) state.traderUi.activeDossierId = '';
-    if (!await saveTraders()) return null;
+    if (!await saveTraders(id, [], { remove: true })) return null;
     renderTraders();
     renderPanel();
   }
@@ -13874,11 +13947,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       const parsed = JSON.parse(raw);
       const records = Array.isArray(parsed) ? parsed : parsed?.traders;
       if (!Array.isArray(records)) throw new Error('No valid trader list was found.');
-      receiptLinkBookEvidence(records);
+      validateTraderCaptureEvidence(records);
       const imported = normalizeTraders(parsed);
       if (!imported.length) throw new Error('No valid traders were found.');
       receiptLinkBookEvidence(imported);
-      for (const trader of imported) if (!await upsertTrader(trader)) return;
+      for (const trader of imported) if (!await upsertTrader(trader, { imported: true })) return;
       toast(`Imported ${formatInteger(imported.length)} traders.`);
     } catch (error) {
       toast(error?.message || 'Trader import failed.');
@@ -16675,7 +16748,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
 
   function traderCaptureFresh(trader) {
     const captured = Date.parse(trader?.captured || '');
-    return Number.isFinite(captured) && Date.now() - captured <= TRADER_CAPTURE_FRESH_MS;
+    const age = Date.now() - captured;
+    return Number.isFinite(age) && age >= 0 && age <= TRADER_CAPTURE_FRESH_MS;
   }
 
 
