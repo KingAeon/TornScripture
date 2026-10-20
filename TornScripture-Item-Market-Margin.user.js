@@ -1516,6 +1516,8 @@
           }
           traders.push(next);
         }
+        // New imports must not acquire provider proof owned by another row.
+        validateTraderCaptureEvidence(traders);
         const write = writeCaptureTraders(context, traders);
         if (!write.ok) throw new Error(write.error);
         state.traders = normalizeTraders(traders);
