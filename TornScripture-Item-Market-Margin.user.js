@@ -1033,6 +1033,9 @@
   function handleLauncherPointerCancel(event) {
     const gesture = state.launcherPointerGesture;
     if (!gesture || event.pointerId !== gesture.pointerId) return;
+    if (event.type === 'lostpointercapture'
+      && gesture.captureTarget
+      && event.target !== gesture.captureTarget) return;
     clearLauncherPointerGesture();
     state.launcherSuppressClick = false;
     if (gesture.panel.isConnected) applyLauncherPosition(gesture.panel);

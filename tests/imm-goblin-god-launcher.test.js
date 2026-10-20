@@ -345,6 +345,12 @@ test('mid-drag panel re-render retains capture owner and keeps tracking the live
   imm.renderPanel();
   imm.handleLauncherPointerMove(pointerEvent(panel, 13, initial.left + 80, initial.top + 62, { pointerType: 'touch' }));
   assert.equal(imm.state.launcherPointerGesture.captureTarget, panel);
+  imm.handleLauncherPointerCancel({
+    type: 'lostpointercapture',
+    target: button,
+    pointerId: 13,
+  });
+  assert.ok(imm.state.launcherPointerGesture, 'loss from the old touch target is an expected capture transfer');
   const moved = panel.getBoundingClientRect();
   assert.equal(moved.left - initial.left, 62);
   assert.equal(moved.top - initial.top, 44);
@@ -360,6 +366,25 @@ test('mid-drag panel re-render retains capture owner and keeps tracking the live
   };
   assert.equal(imm.suppressDraggedLauncherClick(rerenderGhostClick), true);
   assert.equal(rerenderGhostClick.defaultPrevented, true);
+});
+
+test('lost pointer capture on the active panel cancels the drag', () => {
+  const { panel, button } = makeLauncher();
+  imm.state.settings.collapsed = true;
+  imm.state.launcherPosition = { schemaVersion: 1, side: 'right', top: 300 };
+  imm.state.launcherSafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+  imm.state.launcherPointerGesture = null;
+
+  imm.handleLauncherPointerDown(pointerEvent(button, 14, 365, 320));
+  imm.handleLauncherPointerMove(pointerEvent(button, 14, 50, 410));
+  assert.equal(imm.state.launcherPointerGesture.captureTarget, panel);
+  imm.handleLauncherPointerCancel({
+    type: 'lostpointercapture',
+    target: panel,
+    pointerId: 14,
+  });
+  assert.equal(imm.state.launcherPointerGesture, null);
+  assert.equal(panel.style.left, '340px');
 });
 
 test('collapsed rendering remains one accessible launcher and expansion clears its position override', () => {
