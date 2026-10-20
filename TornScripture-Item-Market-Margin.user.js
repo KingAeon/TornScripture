@@ -935,7 +935,7 @@
 
   function releaseLauncherPointerCapture(gesture) {
     try {
-      if (gesture.captureTarget.hasPointerCapture?.(gesture.pointerId)) {
+      if (gesture.captureTarget?.hasPointerCapture?.(gesture.pointerId)) {
         gesture.captureTarget.releasePointerCapture(gesture.pointerId);
       }
     } catch {}
@@ -960,6 +960,7 @@
       panel,
       captureTarget: panel,
       pointerId: event.pointerId,
+      captureTarget: null,
       startX: event.clientX,
       startY: event.clientY,
       offsetX: event.clientX - rect.left,
@@ -974,9 +975,6 @@
       renderedHeight: rect.height,
       moved: false,
     };
-    try {
-      panel.setPointerCapture?.(event.pointerId);
-    } catch {}
   }
 
   function handleLauncherPointerMove(event) {
@@ -990,6 +988,10 @@
     const deltaY = event.clientY - gesture.startY;
     if (!gesture.moved && Math.hypot(deltaX, deltaY) > LAUNCHER_DRAG_THRESHOLD) {
       gesture.moved = true;
+      try {
+        gesture.panel.setPointerCapture?.(gesture.pointerId);
+        gesture.captureTarget = gesture.panel;
+      } catch {}
     }
     if (!gesture.moved) return;
     const viewport = launcherViewport();

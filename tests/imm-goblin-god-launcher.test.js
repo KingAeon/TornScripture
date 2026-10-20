@@ -105,6 +105,7 @@ function makeLauncher() {
     isConnected: true,
     offsetWidth: 52,
     offsetHeight: 52,
+    captureCalls: 0,
     style: { left: '340px', top: '300px' },
     classList: { contains(name) { return name === 'tsimm-collapsed'; } },
     getBoundingClientRect() {
@@ -115,7 +116,7 @@ function makeLauncher() {
         height: 52 * scale,
       };
     },
-    setPointerCapture() {},
+    setPointerCapture() { this.captureCalls += 1; },
     hasPointerCapture() { return false; },
   };
   const button = {
@@ -232,6 +233,7 @@ test('touch drag snaps right while a stationary tap or keyboard activation remai
   panel.style.top = '300px';
 
   imm.handleLauncherPointerDown(pointerEvent(button, 2, 20, 320, { pointerType: 'touch' }));
+  assert.equal(panel.captureCalls, 0, 'a stationary tap must not retarget pointerup to the panel');
   imm.handleLauncherPointerMove(pointerEvent(button, 2, 26, 322, { pointerType: 'touch' }));
   assert.equal(imm.state.launcherPointerGesture.moved, false, 'motion under the threshold is not a drag');
   imm.handleLauncherPointerUp(pointerEvent(button, 2, 26, 322, { pointerType: 'touch' }));
@@ -338,10 +340,11 @@ test('mid-drag panel re-render retains capture owner and keeps tracking the live
   const initial = panel.getBoundingClientRect();
   imm.handleLauncherPointerDown(pointerEvent(button, 13, initial.left + 18, initial.top + 18, { pointerType: 'touch' }));
 
-  assert.equal(imm.state.launcherPointerGesture.captureTarget, panel);
+  assert.equal(imm.state.launcherPointerGesture.captureTarget, null, 'capture is deferred until the drag threshold');
   button.isConnected = false;
   imm.renderPanel();
   imm.handleLauncherPointerMove(pointerEvent(panel, 13, initial.left + 80, initial.top + 62, { pointerType: 'touch' }));
+  assert.equal(imm.state.launcherPointerGesture.captureTarget, panel);
   const moved = panel.getBoundingClientRect();
   assert.equal(moved.left - initial.left, 62);
   assert.equal(moved.top - initial.top, 44);
