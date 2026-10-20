@@ -821,30 +821,32 @@
     };
   }
 
-  function launcherPositionBounds(viewport) {
+  function launcherPositionBounds(viewport, size = {}) {
     const safe = viewport.safeArea || {};
     const width = Math.max(1, Number(viewport.width) || 1);
     const height = Math.max(1, Number(viewport.height) || 1);
-    const maxAvailableLeft = Math.max(0, width - LAUNCHER_SIZE);
-    const maxAvailableTop = Math.max(0, height - LAUNCHER_SIZE);
+    const launcherWidth = Math.max(1, Number(size.width) || LAUNCHER_SIZE);
+    const launcherHeight = Math.max(1, Number(size.height) || LAUNCHER_SIZE);
+    const maxAvailableLeft = Math.max(0, width - launcherWidth);
+    const maxAvailableTop = Math.max(0, height - launcherHeight);
     const viewportLeft = Number(viewport.left) || 0;
     const viewportTop = Number(viewport.top) || 0;
     const minLeft = Math.min(viewportLeft + maxAvailableLeft, viewportLeft + Math.max(0, Number(safe.left) || 0) + LAUNCHER_EDGE_GAP);
     const maxLeft = Math.max(minLeft, Math.min(
       viewportLeft + maxAvailableLeft,
-      viewportLeft + width - LAUNCHER_SIZE - Math.max(0, Number(safe.right) || 0) - LAUNCHER_EDGE_GAP,
+      viewportLeft + width - launcherWidth - Math.max(0, Number(safe.right) || 0) - LAUNCHER_EDGE_GAP,
     ));
     const minTop = Math.min(viewportTop + maxAvailableTop, viewportTop + Math.max(0, Number(safe.top) || 0) + LAUNCHER_EDGE_GAP);
     const maxTop = Math.max(minTop, Math.min(
       viewportTop + maxAvailableTop,
-      viewportTop + height - LAUNCHER_SIZE - Math.max(0, Number(safe.bottom) || 0) - LAUNCHER_EDGE_GAP,
+      viewportTop + height - launcherHeight - Math.max(0, Number(safe.bottom) || 0) - LAUNCHER_EDGE_GAP,
     ));
     return { minLeft, maxLeft, minTop, maxTop };
   }
 
-  function clampLauncherPosition(position, viewport) {
+  function clampLauncherPosition(position, viewport, size) {
     const normalized = normalizeLauncherPosition(position) || { schemaVersion: 1, side: 'right', top: 0 };
-    const bounds = launcherPositionBounds(viewport);
+    const bounds = launcherPositionBounds(viewport, size);
     return {
       schemaVersion: 1,
       side: normalized.side,
@@ -852,17 +854,18 @@
     };
   }
 
-  function defaultLauncherPosition(viewport) {
+  function defaultLauncherPosition(viewport, size = {}) {
     const safe = viewport.safeArea || {};
+    const launcherHeight = Math.max(1, Number(size.height) || LAUNCHER_SIZE);
     const usableHeight = Math.max(
-      LAUNCHER_SIZE,
+      launcherHeight,
       viewport.height - (Number(safe.top) || 0) - (Number(safe.bottom) || 0),
     );
     return clampLauncherPosition({
       schemaVersion: 1,
       side: 'right',
-      top: (Number(viewport.top) || 0) + (Number(safe.top) || 0) + Math.round((usableHeight - LAUNCHER_SIZE) * 0.42),
-    }, viewport);
+      top: (Number(viewport.top) || 0) + (Number(safe.top) || 0) + Math.round((usableHeight - launcherHeight) * 0.42),
+    }, viewport, size);
   }
 
   function launcherCoordinateScale(panel, rect = panel.getBoundingClientRect()) {
@@ -907,18 +910,20 @@
     }
     if (state.launcherPointerGesture?.panel === panel) return;
     viewport.safeArea = readLauncherSafeAreaInsets();
-    const position = clampLauncherPosition(
-      state.launcherPosition || defaultLauncherPosition(viewport),
-      viewport,
-    );
-    state.launcherPosition = position;
-    const bounds = launcherPositionBounds(viewport);
     panel.style.left = '0px';
     panel.style.right = 'auto';
     panel.style.top = '0px';
     panel.style.bottom = 'auto';
     const origin = panel.getBoundingClientRect();
     const scale = launcherCoordinateScale(panel, origin);
+    const size = { width: origin.width, height: origin.height };
+    const position = clampLauncherPosition(
+      state.launcherPosition || defaultLauncherPosition(viewport, size),
+      viewport,
+      size,
+    );
+    state.launcherPosition = position;
+    const bounds = launcherPositionBounds(viewport, size);
     const targetLeft = position.side === 'left' ? bounds.minLeft : bounds.maxLeft;
     panel.style.left = `${(targetLeft - origin.left) / scale.x}px`;
     panel.style.top = `${(position.top - origin.top) / scale.y}px`;
@@ -965,6 +970,8 @@
       startStyleTop: Number.parseFloat(panel.style.top) || 0,
       scaleX: scale.x,
       scaleY: scale.y,
+      renderedWidth: rect.width,
+      renderedHeight: rect.height,
       moved: false,
     };
     try {
@@ -987,7 +994,10 @@
     if (!gesture.moved) return;
     const viewport = launcherViewport();
     viewport.safeArea = readLauncherSafeAreaInsets();
-    const bounds = launcherPositionBounds(viewport);
+    const bounds = launcherPositionBounds(viewport, {
+      width: gesture.renderedWidth,
+      height: gesture.renderedHeight,
+    });
     const left = Math.min(bounds.maxLeft, Math.max(bounds.minLeft, event.clientX - gesture.offsetX));
     const top = Math.min(bounds.maxTop, Math.max(bounds.minTop, event.clientY - gesture.offsetY));
     gesture.panel.style.left = `${gesture.startStyleLeft + ((left - gesture.startRectLeft) / gesture.scaleX)}px`;
@@ -1005,10 +1015,13 @@
       || !gesture.panel.classList?.contains('tsimm-collapsed')) return;
     const viewport = launcherViewport();
     viewport.safeArea = readLauncherSafeAreaInsets();
-    const bounds = launcherPositionBounds(viewport);
+    const bounds = launcherPositionBounds(viewport, {
+      width: gesture.renderedWidth,
+      height: gesture.renderedHeight,
+    });
     const left = Math.min(bounds.maxLeft, Math.max(bounds.minLeft, event.clientX - gesture.offsetX));
     const top = Math.min(bounds.maxTop, Math.max(bounds.minTop, event.clientY - gesture.offsetY));
-    const side = left + (LAUNCHER_SIZE / 2) < (Number(viewport.left) || 0) + (viewport.width / 2) ? 'left' : 'right';
+    const side = left + (gesture.renderedWidth / 2) < (Number(viewport.left) || 0) + (viewport.width / 2) ? 'left' : 'right';
     state.launcherPosition = clampLauncherPosition({ schemaVersion: 1, side, top }, viewport);
     saveLauncherPosition(state.launcherPosition);
     state.launcherSuppressClick = true;
@@ -1046,9 +1059,11 @@
     const previous = state.launcherPosition;
     const viewport = launcherViewport();
     viewport.safeArea = readLauncherSafeAreaInsets();
+    const rect = panel.getBoundingClientRect();
     state.launcherPosition = clampLauncherPosition(
-      previous || defaultLauncherPosition(viewport),
+      previous || defaultLauncherPosition(viewport, { width: rect.width, height: rect.height }),
       viewport,
+      { width: rect.width, height: rect.height },
     );
     if (previous && (previous.side !== state.launcherPosition.side || previous.top !== state.launcherPosition.top)) {
       saveLauncherPosition(state.launcherPosition);
@@ -15101,6 +15116,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       clampLauncherPosition,
       defaultLauncherPosition,
       launcherViewport,
+      applyLauncherPosition,
       handleLauncherPointerDown,
       handleLauncherPointerMove,
       handleLauncherPointerUp,

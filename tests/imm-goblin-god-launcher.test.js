@@ -288,6 +288,8 @@ test('mouse and touch movement track 1:1 through a scaled containing block befor
   assert.equal(afterMouseMove.top - initial.top, 65);
   imm.handleLauncherPointerUp(pointerEvent(button, 11, initial.left + 112, initial.top + 85, { pointerType: 'mouse' }));
   assert.equal(imm.state.launcherPosition.side, 'right');
+  const rightSnap = panel.getBoundingClientRect();
+  assert.ok(Math.abs((rightSnap.left + rightSnap.width) - (400 - 8)) < 1e-8);
 
   const touchStart = panel.getBoundingClientRect();
   imm.handleLauncherPointerDown(pointerEvent(button, 12, touchStart.left + 14, touchStart.top + 14, { pointerType: 'touch' }));
@@ -297,6 +299,27 @@ test('mouse and touch movement track 1:1 through a scaled containing block befor
   assert.ok(Math.abs((afterTouchMove.top - touchStart.top) - 80) < 1e-8);
   imm.handleLauncherPointerUp(pointerEvent(button, 12, touchStart.left - 166, touchStart.top + 94, { pointerType: 'touch' }));
   assert.equal(imm.state.launcherPosition.side, 'left');
+  assert.equal(panel.getBoundingClientRect().left, 8);
+});
+
+test('rendered size keeps enlarged launchers inside viewport and safe-area bounds', () => {
+  const { panel } = makeScaledLauncher(1.4, { left: 16, top: 22 });
+  imm.state.settings.collapsed = true;
+  imm.state.launcherPosition = { schemaVersion: 1, side: 'right', top: 900 };
+  imm.state.launcherSafeAreaInsets = { top: 0, right: 0, bottom: 20, left: 0 };
+
+  imm.applyLauncherPosition(panel, {
+    left: 0,
+    top: 0,
+    width: 400,
+    height: 800,
+    safeArea: imm.state.launcherSafeAreaInsets,
+  });
+
+  const rect = panel.getBoundingClientRect();
+  assert.ok(Math.abs((rect.left + rect.width) - (400 - 8)) < 1e-8);
+  assert.ok(rect.top >= 8);
+  assert.ok(rect.top + rect.height <= 800 - 20 - 8);
 });
 
 test('mid-drag panel re-render retains capture owner and keeps tracking the live finger', () => {
