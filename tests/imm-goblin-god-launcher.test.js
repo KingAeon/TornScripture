@@ -6,6 +6,7 @@ const { before, test } = require('node:test');
 
 const storage = new Map();
 const elementsById = new Map();
+const listenerRegistrations = [];
 global.localStorage = {
   getItem(key) { return storage.get(key) ?? null; },
   setItem(key, value) { storage.set(key, String(value)); },
@@ -28,7 +29,10 @@ function makeElement() {
       remove(name) { classes.delete(name); },
       contains(name) { return classes.has(name); },
     },
-    appendChild() {},
+    appendChild(element) {
+      element.isConnected = true;
+      if (element.id) elementsById.set(element.id, element);
+    },
     remove() {
       this.isConnected = false;
       if (this.id) elementsById.delete(this.id);
@@ -41,29 +45,23 @@ function makeElement() {
 
 global.document = {
   readyState: 'complete',
-  body: Object.assign(makeElement(), {
-    appendChild(element) {
-      element.isConnected = true;
-      if (element.id) elementsById.set(element.id, element);
-    },
-  }),
-  head: Object.assign(makeElement(), {
-    appendChild(element) {
-      element.isConnected = true;
-      if (element.id) elementsById.set(element.id, element);
-    },
-  }),
+  body: makeElement(),
+  head: makeElement(),
   documentElement: { clientWidth: 400, clientHeight: 800 },
   createElement() { return makeElement(); },
   getElementById(id) { return elementsById.get(id) || null; },
-  addEventListener() {},
+  addEventListener(type, listener, options) {
+    listenerRegistrations.push(['document', type, listener, options]);
+  },
   querySelector() { return null; },
   querySelectorAll() { return []; },
 };
 global.window = {
   innerWidth: 400,
   innerHeight: 800,
-  addEventListener() {},
+  addEventListener(type, listener, options) {
+    listenerRegistrations.push(['window', type, listener, options]);
+  },
   removeEventListener() {},
   getComputedStyle() {
     return {
@@ -72,6 +70,16 @@ global.window = {
       paddingBottom: '0px',
       paddingLeft: '0px',
     };
+  },
+  visualViewport: {
+    offsetLeft: 0,
+    offsetTop: 0,
+    width: 400,
+    height: 800,
+    scale: 1,
+    addEventListener(type, listener, options) {
+      listenerRegistrations.push(['visualViewport', type, listener, options]);
+    },
   },
 };
 global.location = {
@@ -91,18 +99,24 @@ before(() => {
 });
 
 function makeLauncher() {
+  const scale = 1;
+  const origin = { left: 0, top: 0 };
   const panel = {
     isConnected: true,
+    offsetWidth: 52,
+    offsetHeight: 52,
     style: { left: '340px', top: '300px' },
     classList: { contains(name) { return name === 'tsimm-collapsed'; } },
     getBoundingClientRect() {
       return {
-        left: Number.parseFloat(this.style.left) || 0,
-        top: Number.parseFloat(this.style.top) || 0,
-        width: 52,
-        height: 52,
+        left: origin.left + (Number.parseFloat(this.style.left) || 0) * scale,
+        top: origin.top + (Number.parseFloat(this.style.top) || 0) * scale,
+        width: 52 * scale,
+        height: 52 * scale,
       };
     },
+    setPointerCapture() {},
+    hasPointerCapture() { return false; },
   };
   const button = {
     isConnected: true,
@@ -113,6 +127,23 @@ function makeLauncher() {
       if (selector === '#tornscripture-imm-panel') return panel;
       return null;
     },
+  };
+  return { panel, button };
+}
+
+function makeScaledLauncher(scale = 0.65, origin = { left: 12, top: 18 }) {
+  const { panel, button } = makeLauncher();
+  panel.scale = scale;
+  panel.origin = origin;
+  panel.offsetWidth = 52;
+  panel.offsetHeight = 52;
+  panel.getBoundingClientRect = function getBoundingClientRect() {
+    return {
+      left: origin.left + (Number.parseFloat(this.style.left) || 0) * scale,
+      top: origin.top + (Number.parseFloat(this.style.top) || 0) * scale,
+      width: 52 * scale,
+      height: 52 * scale,
+    };
   };
   return { panel, button };
 }
@@ -243,6 +274,68 @@ test('pointer cancellation clears transient drag state without persisting a part
   assert.equal(storage.has('tornscripture-imm-launcher-position-v1'), false);
 });
 
+test('mouse and touch movement track 1:1 through a scaled containing block before edge snap', () => {
+  const { panel, button } = makeScaledLauncher(0.65);
+  imm.state.settings.collapsed = true;
+  imm.state.launcherPosition = { schemaVersion: 1, side: 'right', top: 300 };
+  imm.state.launcherSafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+  const initial = panel.getBoundingClientRect();
+
+  imm.handleLauncherPointerDown(pointerEvent(button, 11, initial.left + 12, initial.top + 20, { pointerType: 'mouse' }));
+  imm.handleLauncherPointerMove(pointerEvent(button, 11, initial.left + 112, initial.top + 85, { pointerType: 'mouse' }));
+  const afterMouseMove = panel.getBoundingClientRect();
+  assert.equal(afterMouseMove.left - initial.left, 100);
+  assert.equal(afterMouseMove.top - initial.top, 65);
+  imm.handleLauncherPointerUp(pointerEvent(button, 11, initial.left + 112, initial.top + 85, { pointerType: 'mouse' }));
+  assert.equal(imm.state.launcherPosition.side, 'right');
+
+  const touchStart = panel.getBoundingClientRect();
+  imm.handleLauncherPointerDown(pointerEvent(button, 12, touchStart.left + 14, touchStart.top + 14, { pointerType: 'touch' }));
+  imm.handleLauncherPointerMove(pointerEvent(button, 12, touchStart.left - 166, touchStart.top + 94, { pointerType: 'touch' }));
+  const afterTouchMove = panel.getBoundingClientRect();
+  assert.ok(Math.abs((afterTouchMove.left - touchStart.left) - (-180)) < 1e-8);
+  assert.ok(Math.abs((afterTouchMove.top - touchStart.top) - 80) < 1e-8);
+  imm.handleLauncherPointerUp(pointerEvent(button, 12, touchStart.left - 166, touchStart.top + 94, { pointerType: 'touch' }));
+  assert.equal(imm.state.launcherPosition.side, 'left');
+});
+
+test('mid-drag panel re-render retains capture owner and keeps tracking the live finger', () => {
+  const { panel, button } = makeLauncher();
+  panel.id = 'tornscripture-imm-panel';
+  panel.style.left = '200px';
+  panel.offsetWidth = 52;
+  panel.offsetHeight = 52;
+  panel.innerHTML = '';
+  panel.querySelector = () => null;
+  panel.classList.toggle = () => {};
+  elementsById.set(panel.id, panel);
+  imm.state.settings.collapsed = true;
+  imm.state.launcherPosition = { schemaVersion: 1, side: 'right', top: 300 };
+  imm.state.launcherSafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+  const initial = panel.getBoundingClientRect();
+  imm.handleLauncherPointerDown(pointerEvent(button, 13, initial.left + 18, initial.top + 18, { pointerType: 'touch' }));
+
+  assert.equal(imm.state.launcherPointerGesture.captureTarget, panel);
+  button.isConnected = false;
+  imm.renderPanel();
+  imm.handleLauncherPointerMove(pointerEvent(panel, 13, initial.left + 80, initial.top + 62, { pointerType: 'touch' }));
+  const moved = panel.getBoundingClientRect();
+  assert.equal(moved.left - initial.left, 62);
+  assert.equal(moved.top - initial.top, 44);
+  imm.handleLauncherPointerUp(pointerEvent(panel, 13, initial.left + 80, initial.top + 62, { pointerType: 'touch' }));
+  assert.equal(imm.state.launcherPointerGesture, null);
+  assert.equal(imm.state.launcherSuppressClick, true);
+
+  const rerenderGhostClick = {
+    target: panel,
+    detail: 1,
+    preventDefault() { this.defaultPrevented = true; },
+    stopImmediatePropagation() { this.stopped = true; },
+  };
+  assert.equal(imm.suppressDraggedLauncherClick(rerenderGhostClick), true);
+  assert.equal(rerenderGhostClick.defaultPrevented, true);
+});
+
 test('collapsed rendering remains one accessible launcher and expansion clears its position override', () => {
   imm.state.settings.collapsed = true;
   imm.state.launcherPosition = { schemaVersion: 1, side: 'right', top: 300 };
@@ -266,4 +359,37 @@ test('collapsed rendering remains one accessible launcher and expansion clears i
   assert.equal(panel.style.top, '');
   assert.match(panel.innerHTML, /aria-label="Collapse GOBLIN GOD IMM panel"/);
   assert.match(panel.innerHTML, /aria-expanded="true"/);
+});
+
+test('repeated launcher binding registers each delegated listener only once', () => {
+  const before = listenerRegistrations.length;
+  imm.state.launcherInteractionsBound = false;
+  imm.bindLauncherInteractions();
+  const first = listenerRegistrations.slice(before);
+  imm.bindLauncherInteractions();
+  const repeated = listenerRegistrations.slice(before);
+
+  assert.equal(first.length, 10);
+  assert.equal(repeated.length, first.length);
+  assert.equal(first.filter(([owner, type]) => owner === 'document' && type.startsWith('pointer')).length, 4);
+  assert.equal(first.filter(([owner, type]) => owner === 'document' && type === 'lostpointercapture').length, 1);
+  assert.equal(first.filter(([owner, type]) => owner === 'window' && type === 'resize').length, 1);
+  assert.equal(first.filter(([owner]) => owner === 'visualViewport').length, 2);
+});
+
+test('viewport bounds follow the visual viewport offsets and scale', () => {
+  const previous = window.visualViewport;
+  window.visualViewport = {
+    offsetLeft: 80,
+    offsetTop: 35,
+    width: 240,
+    height: 360,
+    scale: 1.7,
+  };
+  const viewport = imm.launcherViewport();
+  assert.deepEqual(
+    imm.clampLauncherPosition({ schemaVersion: 1, side: 'right', top: 900 }, viewport),
+    { schemaVersion: 1, side: 'right', top: 335 },
+  );
+  window.visualViewport = previous;
 });
