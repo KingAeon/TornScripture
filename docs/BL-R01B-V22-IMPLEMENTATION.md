@@ -1,5 +1,53 @@
 # BL-R01B v2.2 implementation evidence and acceptance gates
 
+## Bounded V1-ME-01 provider evidence correction (2026-10-20 UTC)
+
+Authority: [owner-frozen ME-F1–ME-F5](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6284966843) and [independent full V1 blocker](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6283855469), followed by the owner's separate `[B][WORK]` implementation assignment. Starting head `e9d46125566136ca35224af186a33b5a5f153d7d`, tree `02e20c88ffa3cbf8217feb95a202847928ff657d`, sole parent `b891b6f4a2c7782a111f55c5da9a2060a754f2b5`; approved main/base `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`. Live PR/ref/commit checks matched these pins. The complete non-shallow checkout was clean before edits. IMM **0.19.39** and Report **0.2.3** remain drafts; stable/tester **0.19.37** is untouched.
+
+### Reproduction and correction boundary
+
+Before editing, all **1411/1411** maintained tests passed. The original independent 34-case fixture was available and copied byte-identically (SHA-256 `c581f672f4f8e319b0a7158ef175210bb106d2443b2096a9f09396d5f004c622`): **26/34 PASS, eight failures**. Its separate minimal initialized round-trip fixture (SHA-256 `54fb343e27fe59df03bf9bb3dea88749e915e2f1d71dac7b2f3e64d858307308`) failed **0/1**. The actual Export action first retained the unreadable historical receipt. A fully initialized provider scan and document-start Torn return then erased it, changed price **500→1000** and count **7→8**, and reported `ok:true`, `outcome:captured`, `count:1`. Null replay and inconsistent terminal evidence reproduced the same admission gap. Production validators, parser, authority, lock and writer decisions were not substituted.
+
+The product correction changes only two existing functions:
+
+- `persistCaptureImport` validates the full freshly reread authoritative book with existing `validateTraderCaptureEvidence` inside the current exclusive transition, before authority admission, receipt pruning, terminal replacement or observation composition. Rejected history remains stored unchanged and returns the validator's preserve/export/review diagnostic.
+- `writeCaptureTraders` upgrades its existing old/proposed receipt-link checks to that same validator, which includes receipt-link checks and provider replay/terminal checks. The complete proposed book must pass before snapshot recheck, mutation and readback. This separately blocks a new provider receipt colliding with another trader's otherwise valid historical proof, including expired ownership.
+
+No validator, provider parser/identity rule, queue control, coordination design or Report source is changed. The existing snapshot/readback/rollback and indeterminate-storage reporting remain in place. Both checks are necessary: a proposed-book check alone would accept history already erased during composition; an existing-book check alone would permit a collision introduced by the new observation.
+
+### Executed author acceptance
+
+The unchanged independent suite now passes **34/34**, and its separate minimal round trip **1/1**. New maintained `tests/imm-provider-evidence.test.js` adds **68** cases: unreadable/null/nonfinite/coerced/zero expiry, missing/invalid replay identities, null/wrong-shaped replay fields, duplicates, inconsistent terminals, corruption on another trader, positive/unavailable returns, public wrapper/ordinary/document-start imports, full initialized round trips, whole-proposed-book foreign ownership, fresh reread after waiting for the native grant, manual confirmation, pending retention, raw Export, direct price writer, valid expiry pruning, legacy absence, partial replay and receipt-link markers, exactly-once behavior and explicit recovery. Rejected attempts compare all raw persistent bytes, including queue, pending authority, complete nonempty Ledger, Report backup/settings and seven adjacent stores. Valid pruning has its own passing commit-boundary controls.
+
+Complete maintained suite: **1479/1479 PASS**, 21 suites, including the new 68. Unchanged historical author reruns: canonical G1–G4 **18/18**; original Q-M1 **1/1**; established Q-M1 **45/45**; original receipt Q1–Q4 **4/4**; established receipt/Report including A1–A3 **51/51** (one case characterizes the unsafe historical companion, not the matching current Report). The latter groups were executed together: **119/119**. Existing N1–N5, lifecycle/coordination, accounting/API recovery, inventory and Training regressions are included in the complete suite. Counts overlap and are not additive. Final acceptance groups have zero failures, skips, cancellations or TODOs. These are implementation-author reruns, not independent Q/V1 verdicts.
+
+Commands from the checkout, with external fixtures in sibling `evidence/`:
+
+```bash
+node --test --test-reporter=tap --test-timeout=15000 tests/*.test.js
+TSIMM_REVIEW_REPO="$PWD" node --test --test-reporter=tap --test-timeout=15000 ../evidence/fresh-v1.test.cjs ../evidence/minimal-v1-malformed-proof.test.cjs
+TSIMM_TEST_SCRIPT="$PWD/TornScripture-Item-Market-Margin.user.js" node --test --test-reporter=tap --test-timeout=15000 ../evidence/original-gaps-canonical.test.cjs ../evidence/minimal-import-collision.test.cjs ../evidence/established-qm1.test.cjs ../evidence/receipt-independent/receipt-contract.test.cjs ../evidence/receipt-independent/adversarial.test.cjs
+git ls-files -z '*.js' '*.cjs' | xargs -0 -n1 node --check
+git diff --check
+git diff --cached --check
+git diff --check c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475 HEAD
+git fsck --full
+```
+
+All **30** tracked JS/CJS paths pass syntax checks. Acorn AST extraction confirms all **21 protected full declarations and bodies** match both the approved base and starting head; only the two functions above change in IMM, with no added/removed named functions. Matching Report and the previously permitted receipt-link handler are unchanged by this amendment. Full diff, hashes, exact resulting head/tree/parent and published parity are recorded in the consolidated `[B]` PR evidence comment. Publication uses connected GitHub Git objects and an expected-head non-force branch update because native Git push has no credentials.
+
+### Recovery, effects and remaining manual gates
+
+A rejected capture does not change Trader Book bytes, prices, counts, clocks, terminal evidence, queue position/budget, pending arm or unrelated stores. Early URL cleanup retains a truthful session rejection notice; ordinary imports show the diagnostic and do not continue the queue. Raw Export remains available for the documented malformed historical JSON records. If JSON/container storage is unreadable, or exact original textual bytes are needed, preserve the literal storage value separately rather than replacing it with a normalized export. Do not delete a malformed receipt to force capture acceptance.
+
+Explicit Retry remains within the original two-attempt budget. Skip refuses a terminal write while the historical book is malformed, preserves authority and explains export/recovery; explicit Cancel can still end the run without rewriting that history or claiming a capture. Export/review the evidence before deliberate recovery. Existing unsupported-legacy and partial receipt-link recovery behavior remains covered by the maintained suite. No automatic repair or migration is introduced.
+
+Before any separately authorized owner desktop/TornPDA test, preserve raw Trader Book, Ledger and Report-backup exports plus installed source hashes; use exactly the reviewed IMM/Report pair or disable Report, and close/reload older cooperating tabs. Verify visible early/ordinary rejection and cleanup notices, manual confirmation, malformed-book Export, lost-return Retry/Skip/Cancel, valid expired pruning, one healthy capture and duplicate return, positive/unavailable outcomes, actual provider transport and matching Report operations. Require unchanged no-accounting Ledger exports and Ledger Integrity PASS. Node VM DOM/storage/timer/clipboard/navigation fixtures and native Node locks do not establish real Android/browser, BFCache, process-kill or provider-markup acceptance.
+
+Rollback of this amendment means reinstalling exact feature head `e9d46125566136ca35224af186a33b5a5f153d7d` only after preserving current raw evidence and canceling/exporting in-flight authority. That older feature head contains this known defect; disable capture if malformed history exists. Do not restore stale backups over newer stored history. For a separately chosen stable downgrade, preserve all raw data, cancel/export v4 queues and pending authority, disable the draft pair and follow the stable **0.19.37** instructions below; do not resume v4 queues under v3 or apply an old Report Undo. No accounting reset is part of rollback.
+
+This amendment changes no top-level storage key, schema, endpoint, credential, version/release metadata, listener, timer, observer, lock, gameplay action or accounting behavior. PR #139 remains **OPEN / DRAFT / UNMERGED**. Stop after author implementation publication. Fresh independent focused **[Q]**, separately authorized full **[V1]**, owner **[V2]** plus Ledger Integrity and exact-head review, and explicit merge/release authorization remain separate gates.
+
 ## Bounded Q-M1 import admission correction (2026-10-20 UTC)
 
 Authority: [frozen Q-M1 specification](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6271271680), [owner implementation authorization](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6275542648), and [independent blocker with original production fixture](https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6254602280). Starting head `b891b6f4a2c7782a111f55c5da9a2060a754f2b5`, tree `19b3afb0e0be61906219531e2886f0e311aa5d01`, sole parent `7c68a0df7dea29cff928314d9766ab9dfa0ab005`; approved main/base `c95136b08ad8cc3f8cc4c4ac2ae7462cebaa2475`. Existing PR #139 and its branch only; IMM **0.19.39**, matching Report **0.2.3**, released IMM **0.19.37** unchanged.

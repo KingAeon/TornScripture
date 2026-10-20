@@ -424,8 +424,9 @@
 
   function writeCaptureTraders(context, traders) {
     try {
-      receiptLinkBookEvidence(context.traders);
-      receiptLinkBookEvidence(traders);
+      // Validate both proof domains for the entire book at every write gate.
+      validateTraderCaptureEvidence(context.traders);
+      validateTraderCaptureEvidence(traders);
       // Every book writer shares this guard. A protected marker can neither
       // disappear with its trader nor be rewritten by a stale cached update.
       for (const previous of context.traders) {
@@ -468,6 +469,10 @@
       (error) => ({ ok: false, rejected: true, error }));
     const context = captureStoreContext();
     if (!context.ok) return { ok: false, rejected: true, error: 'Capture storage is unreadable; preserve the backup and resolve storage before recapturing.' };
+    // Inspect authoritative history before expiry pruning or terminal replacement
+    // can discard malformed proof. This also runs during document-start import.
+    try { validateTraderCaptureEvidence(context.traders); }
+    catch (error) { return { ok: false, rejected: true, error: error.message }; }
     const decision = captureAuthorityDecision(result, { ...context, manualConfirmed, ownerAction });
     if (!decision.ok) return { ok: false, rejected: true, error: decision.reason };
     const e = decision.envelope;
