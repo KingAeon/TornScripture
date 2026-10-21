@@ -4,16 +4,18 @@ const { webcrypto } = require('node:crypto');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const execFileAsync = promisify(execFile);
 const { result, Element } = require('./helpers/imm-capture-harness.cjs');
 const { fixture, hold, secondContext, turn, feedback, bookWrites, runtime, K, PENDING, RECEIPT } = require('./helpers/imm-receipt-harness.cjs');
 
 const book = p => JSON.parse(p.memory.get(K.book));
 const rows = p => Array.isArray(book(p)) ? book(p) : book(p).traders;
 const saved = p => rows(p).find(entry => entry.id === 'a' || entry.recordId === 'a');
-function loadReport(p, baseline = false) {
+async function loadReport(p, baseline = false) {
   const reportPath = path.join(__dirname, '..', 'TornScripture-IMM-Trader-Report.user.js');
-  const source = baseline ? execFileSync('git', ['show', '269982d2d8a7148af40f5640c901348095a05b5c:TornScripture-IMM-Trader-Report.user.js'], { cwd: path.join(__dirname, '..'), encoding: 'utf8' }) : fs.readFileSync(reportPath, 'utf8');
+  const source = baseline ? (await execFileAsync('git', ['show', '269982d2d8a7148af40f5640c901348095a05b5c:TornScripture-IMM-Trader-Report.user.js'], { cwd: path.join(__dirname, '..'), encoding: 'utf8' })).stdout : fs.readFileSync(reportPath, 'utf8');
   p.reportAlerts = []; p.reloads = 0;
   p.sandbox.alert = message => p.reportAlerts.push(message);
   p.sandbox.location.reload = () => { p.reloads++; };
@@ -453,7 +455,7 @@ test('baseline companion Undo characterizes actual removal of a later receipt co
   const p = await fixture();
   p.memory.set('tornscripture-imm-trader-link-backup-v1', JSON.stringify({ root: JSON.parse(p.originalBook) }));
   failCleanup(p); p.link(); await p.drain(); assert.equal(saved(p).receiptLinkCompletions.length, 1);
-  loadReport(p, true); await p.reportClick('undo');
+  await loadReport(p, true); await p.reportClick('undo');
   assert.equal(saved(p).pricePageCaptureCount, 7); assert.deepEqual(saved(p).receiptLinkCompletions, []);
   assert.equal(p.memory.get(PENDING), p.originalPending); p.assertAccounting();
 });
@@ -462,7 +464,7 @@ for (const action of ['disconnect', 'move', 'undo']) test('companion ' + action 
   const p = await fixture({ twoTraders: true });
   p.memory.set('tornscripture-imm-trader-link-backup-v1', JSON.stringify({ root: JSON.parse(p.originalBook) }));
   failCleanup(p); p.link(); await p.drain(); const before = p.memory.get(K.book);
-  loadReport(p); await p.reportClick('open');
+  await loadReport(p); await p.reportClick('open');
   assert.ok(p.document.getElementById('tornscripture-imm-trader-deals-addon'));
   const target = new Element(); target.value = 'b';
   p.document.fixtureSelectors['#tornscripture-imm-trader-deals-addon [data-td-move-target]'] = target;
@@ -473,7 +475,7 @@ for (const action of ['disconnect', 'move', 'undo']) test('companion ' + action 
 });
 
 test('companion cached snapshot queued behind receipt capture rejects stale whole-book write', async () => {
-  const p = await fixture(), held = await hold(p); loadReport(p); await p.reportClick('open');
+  const p = await fixture(), held = await hold(p); await loadReport(p); await p.reportClick('open');
   p.link(); await turn(); const changed = p.reportClick('disconnect'); await turn();
   assert.equal(p.memory.get(K.book), p.originalBook);
   held.release(); await held.task; await p.drain(); await changed;
@@ -482,7 +484,7 @@ test('companion cached snapshot queued behind receipt capture rejects stale whol
 });
 
 for (const mode of ['missing-core', 'denied', 'null']) test('companion writer fails closed with ' + mode, async () => {
-  const p = await fixture(); loadReport(p); await p.reportClick('open');
+  const p = await fixture(); await loadReport(p); await p.reportClick('open');
   if (mode === 'missing-core') delete p.window.__TSIMM_WATCHLIST_API__.saveTraderBookSnapshot;
   else p.failLocks(mode);
   await p.reportClick('disconnect'); await p.drain();
@@ -491,7 +493,7 @@ for (const mode of ['missing-core', 'denied', 'null']) test('companion writer fa
 });
 
 test('companion unprotected historical disconnect remains coordinated and usable', async () => {
-  const p = await fixture(), ledger = p.memory.get(K.ledger); loadReport(p); await p.reportClick('open');
+  const p = await fixture(), ledger = p.memory.get(K.ledger); await loadReport(p); await p.reportClick('open');
   await p.reportClick('disconnect'); await p.drain();
   assert.equal(saved(p).pricePageCaptureCount, 0); assert.deepEqual(saved(p).pricePageItems, []);
   assert.equal(bookWrites(p).length, 1); assert.equal(p.reloads, 1); assert.deepEqual(p.reportAlerts, []);
