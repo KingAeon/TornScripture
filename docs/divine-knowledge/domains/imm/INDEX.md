@@ -1,6 +1,6 @@
 # IMM Domain
 
-Stable observed version: **0.19.36**.
+Historical observed version was **0.19.36**; approved main at 2026-10-11 verified **0.19.37** stable, with **0.19.39** only on draft PR #139 pending independent V1. Recheck live GitHub before use; see [BL continuity](../black-ledger/PR-139-STATUS-2026-10-11.md).
 
 Primary script: `TornScripture-Item-Market-Margin.user.js`.
 
