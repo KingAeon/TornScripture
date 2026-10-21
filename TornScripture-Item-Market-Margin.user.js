@@ -120,6 +120,15 @@
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
   }
 
+  function captureTraderProofOwner(traders, trader) {
+    const stable = captureStableTraderId(trader), tornId = captureTraderTornId(trader);
+    const independentIds = [trader.userId, trader.tornId, typeof trader.id === 'number' ? trader.id : undefined]
+      .filter(value => value !== undefined && value !== null);
+    return Boolean(captureQueueIdentifier(stable) && Number.isSafeInteger(tornId) && tornId > 0
+      && independentIds.every(value => Number(value) === tornId)
+      && traders.filter(row => captureStableTraderId(row) === stable).length === 1);
+  }
+
   function captureQueueTimeValid(queue, now = Date.now(), requireActive = true) {
     return Boolean(queue && typeof queue.startedAt === 'number' && Number.isFinite(queue.startedAt)
       && queue.startedAt > 0 && queue.startedAt <= now
@@ -153,7 +162,10 @@
   }
 
   function captureEnvelope(candidate) {
-    if (!candidate || !['carousel', 'manual'].includes(candidate.intent)) return null;
+    // Issuance integrity is shared by live authority and historical proof.
+    // Current queue/clock liveness belongs to the live callers, not this model.
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
+      || !['carousel', 'manual'].includes(candidate.intent)) return null;
     const result = {};
     for (const field of ['intent', 'runId', 'entryId', 'attemptId', 'traderRecordId', 'sourceUrl', 'provider']) {
       result[field] = earlyClean(candidate[field]).slice(0, field === 'sourceUrl' ? 2048 : 160);
@@ -165,7 +177,13 @@
       if (!Number.isFinite(result[field]) || result[field] <= 0) return null;
     }
     if (result.deadline <= result.issuedAt || result.deadline - result.issuedAt > 60000
-      || result.expiresAt <= result.issuedAt || result.expiresAt - result.issuedAt > 900000) return null;
+      || result.expiresAt <= result.issuedAt || result.expiresAt - result.issuedAt > 900000
+      || result.deadline > result.expiresAt || !Number.isSafeInteger(result.expectedTornId) || result.expectedTornId <= 0
+      || Object.keys(candidate).some(key => !Object.prototype.hasOwnProperty.call(result, key))
+      || Object.keys(result).some(key => candidate[key] !== result[key])) return null;
+    const source = captureSource(result.sourceUrl);
+    if (!source || source.url !== result.sourceUrl || source.provider !== result.provider
+      || (source.tornId !== null && source.tornId !== result.expectedTornId)) return null;
     return result;
   }
 
@@ -218,10 +236,8 @@
       || ![1, 2].includes(entry.attemptsUsed) || entry.outcome
       || e.expectedTornId !== entry.userId || !Number.isInteger(e.expectedTornId) || e.expectedTornId <= 0
       || e.sourceUrl !== entry.pricePageUrl || e.issuedAt < queue.startedAt || e.issuedAt > now
-      || e.deadline > e.expiresAt || Object.keys(e).some((key) => raw[key] !== e[key])) return null;
-    const source = captureSource(e.sourceUrl);
-    return source && source.url === e.sourceUrl && source.provider === e.provider
-      && (!source.tornId || source.tornId === e.expectedTornId) ? e : null;
+      || Object.keys(e).some((key) => raw[key] !== e[key])) return null;
+    return e;
   }
 
   function captureCommittedReceipt(context, queue) {
@@ -230,6 +246,9 @@
 
   function captureTerminalReceipt(context, e) {
     if (!context.ok || !e) return null;
+    // A partial receipt or inconsistent book cannot authenticate completion,
+    // including recovery/summary paths that perform no Trader Book write.
+    try { validateTraderCaptureEvidence(context.traders); } catch { return null; }
     const matches = context.traders.filter((trader) => captureStableTraderId(trader) === e.traderRecordId);
     const trader = matches.length === 1 ? matches[0] : null;
     const receipt = trader?.pricePageLastCaptureReceipt;
@@ -315,6 +334,7 @@
       if (exact[0] && captureTraderTornId(exact[0]) !== e.expectedTornId) return reject('The armed manual target does not match the page Torn ID.');
       if (!trader && e.traderRecordId !== `torn:${e.expectedTornId}`) return reject('The armed manual record no longer exists.');
     }
+    if (trader && !captureTraderProofOwner(traders, trader)) return reject('Saved trader proof identity is invalid or ambiguous; preserve/export the book before recovery.');
     const mismatch = independent && e.expectedTornId && observedId !== e.expectedTornId;
     if (localAction) {
       // No source-price evidence or price mutation is permitted for owner controls.
@@ -1380,8 +1400,10 @@
       pricePageLastOutcome: earlyClean(candidate.pricePageLastOutcome).slice(0, 40),
       pricePageLastReason: earlyClean(candidate.pricePageLastReason).slice(0, 240),
       pricePageAttemptCount: Math.max(0, Math.floor(Number(candidate.pricePageAttemptCount) || 0)),
-      pricePageCaptureReceipts: Array.isArray(candidate.pricePageCaptureReceipts) ? candidate.pricePageCaptureReceipts.filter((r) => r && typeof r === 'object').map((r) => ({ runId: earlyClean(r.runId), entryId: earlyClean(r.entryId), attemptId: earlyClean(r.attemptId), expiresAt: Number(r.expiresAt) })) : [],
-      pricePageLastCaptureReceipt: candidate.pricePageLastCaptureReceipt || null,
+      pricePageCaptureReceipts: Object.prototype.hasOwnProperty.call(candidate, 'pricePageCaptureReceipts')
+        ? candidate.pricePageCaptureReceipts : [],
+      pricePageLastCaptureReceipt: Object.prototype.hasOwnProperty.call(candidate, 'pricePageLastCaptureReceipt')
+        ? candidate.pricePageLastCaptureReceipt : null,
       // Preserve invalid evidence too: writers must reject it, never normalize
       // corruption into an empty replay set. Legacy absence is the empty set.
       receiptLinkCompletions: Object.prototype.hasOwnProperty.call(candidate, 'receiptLinkCompletions')
@@ -1411,7 +1433,10 @@
       // Historical display dedupe may not discard durable replay evidence.
       // Retain marked/corrupt records individually; writers validate ambiguity.
       const evidence = Object.prototype.hasOwnProperty.call(candidate, 'receiptLinkCompletions')
-        && (!Array.isArray(candidate.receiptLinkCompletions) || candidate.receiptLinkCompletions.length > 0);
+        && (!Array.isArray(candidate.receiptLinkCompletions) || candidate.receiptLinkCompletions.length > 0)
+        || Object.prototype.hasOwnProperty.call(candidate, 'pricePageCaptureReceipts')
+          && (!Array.isArray(candidate.pricePageCaptureReceipts) || candidate.pricePageCaptureReceipts.length > 0)
+        || candidate.pricePageLastCaptureReceipt != null;
       const key = evidence ? `receipt-record:${position}` : trader.userId ? `id:${trader.userId}` : `name:${trader.normalizedName}`;
       unique.set(key, trader);
     }
@@ -1429,6 +1454,9 @@
   }
 
   function validateTraderCaptureEvidence(traders) {
+    if (!Array.isArray(traders) || traders.some(trader => !trader || typeof trader !== 'object' || Array.isArray(trader))) {
+      throw new Error('Trader proof representation is unsupported; preserve/export the raw book before recovery.');
+    }
     receiptLinkBookEvidence(traders);
     const owners = new Set();
     for (const trader of traders) {
@@ -1437,17 +1465,30 @@
       const ids = new Set();
       for (const receipt of receipts || []) {
         const identity = JSON.stringify([receipt?.runId, receipt?.entryId, receipt?.attemptId]);
-        if (!receipt || !['runId', 'entryId', 'attemptId'].every(key => captureQueueIdentifier(receipt[key]))
+        if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)
+          || Object.keys(receipt).some(key => !['runId', 'entryId', 'attemptId', 'expiresAt'].includes(key))
+          || !['runId', 'entryId', 'attemptId'].every(key => captureQueueIdentifier(receipt[key]))
           || typeof receipt.expiresAt !== 'number' || !Number.isFinite(receipt.expiresAt) || receipt.expiresAt <= 0
           || ids.has(identity) || owners.has(identity)) throw new Error('Provider replay evidence is malformed or colliding; preserve/export it before recovery.');
         ids.add(identity); owners.add(identity);
       }
       const last = trader.pricePageLastCaptureReceipt;
+      if ((receipts || []).length || last != null) {
+        if (!captureTraderProofOwner(traders, trader)) {
+          throw new Error('Provider proof owner is invalid or ambiguous; preserve/export the raw book before recovery.');
+        }
+      }
       if (last != null) {
         const e = captureEnvelope(last.envelope);
-        if (!e || !captureReceiptMatches(last, e) || last.expiresAt !== e.expiresAt
-          || !(e.traderRecordId === captureStableTraderId(trader)
-            || (e.intent === 'manual' && e.traderRecordId === `torn:${captureTraderTornId(trader)}`))
+        // Resolve stable identity before a manual alias, as live admission does.
+        // An alias cannot bypass an existing exact owner on another trader.
+        const exact = e ? traders.filter(row => captureStableTraderId(row) === e.traderRecordId) : [];
+        const bound = exact.length ? exact : e?.intent === 'manual' && e.traderRecordId === `torn:${e.expectedTornId}`
+          ? traders.filter(row => captureTraderTornId(row) === e.expectedTornId) : [];
+        if (!last || typeof last !== 'object' || Array.isArray(last)
+          || Object.keys(last).some(key => !['runId', 'entryId', 'attemptId', 'expiresAt', 'envelope', 'outcome'].includes(key))
+          || !e || !captureReceiptMatches(last, e) || last.expiresAt !== e.expiresAt
+          || bound.length !== 1 || bound[0] !== trader
           || e.expectedTornId !== captureTraderTornId(trader)
           || Object.keys(e).some(key => last.envelope[key] !== e[key])
           || !['captured', 'explicitly_empty', 'explicitly_unavailable', 'parser_failure', 'identity_mismatch', 'timeout', 'user_skipped', 'canceled', 'expired'].includes(last.outcome)
@@ -2701,6 +2742,8 @@
     }
     const context = captureStoreContext();
     if (!context.ok) { toast('Capture storage is unreadable; no capture was saved.'); return null; }
+    try { validateTraderCaptureEvidence(context.traders); }
+    catch (error) { toast(error.message); return receiptLink ? { status: 'not-captured', error: error.message } : null; }
     let completions = [];
     if (receiptLink) {
       try {
@@ -13928,8 +13971,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       if (!Array.isArray(raw) && !Array.isArray(raw?.traders)) throw new Error('Invalid Trader Book');
       // Read-only backup remains available even if pending/queue authority or
       // completion evidence is corrupt. Never normalize evidence out of export.
-      text = JSON.stringify(Array.isArray(raw)
-        ? { schema: 'tornscripture-imm-traders', schemaVersion: 3, traders: raw } : raw, null, 2);
+      // Keep the original JSON text too: parsing/stringifying an unsupported
+      // number (for example 1e400) would replace recovery evidence with null.
+      text = Array.isArray(raw)
+        ? `{"schema":"tornscripture-imm-traders","schemaVersion":3,"traders":${bytes ?? '[]'}}`
+        : bytes;
     } catch { toast('Trader Book export could not read storage; preserve the raw backup and resolve storage.'); return; }
     try {
       await navigator.clipboard.writeText(text);
@@ -17120,6 +17166,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const current = queue.entries[queue.cursor];
     if (!current) return false;
     const context = captureStoreContext();
+    try { validateTraderCaptureEvidence(context.traders); }
+    catch (error) { showFavoriteToast(error.message); return false; }
     const issued = captureCurrentAttemptEnvelope(context.queue);
     if (!issued || queue.cursor !== context.queue.cursor || current.entryId !== issued.entryId
       || current.traderId !== issued.traderRecordId || current.attemptId !== issued.attemptId) return false;
