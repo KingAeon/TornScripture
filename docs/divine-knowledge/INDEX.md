@@ -14,6 +14,16 @@ For substantive TornScriptures work:
 
 Do not reload the entire subtree by default.
 
+## Quick command: `[DK]`
+
+Owner-approved **2026-10-18**. When the owner sends `[DK]` (including `[D][DK]`) in a TornScriptures thread, perform a **concise, read-only Divine Knowledge synchronization**. This is a recall convention, not authorization for implementation, a paid workspace, a documentation commit, verification escalation, or release.
+
+1. **Restore agreed doctrine:** recall the Mutual Covenant, owner-only product/merge/spending authority, assistant-first analysis, discussion/specification/implementation/verification/release separation, least expensive adequate tool, narrow scope, executable-workspace preflight for high-risk work, fail-closed accounting, compatibility, evidence standards, and stop conditions. The source of authority remains `AGENTS.md` and the governing docs, not this shorthand.
+2. **Load selectively:** follow this INDEX → `NOW.md` → relevant domain/chapter indexes. Read `AUTHORITY.md` and canonical governance/invariant documents where needed; do not reread the entire subtree or repeat already verified stable text merely to perform the ceremony. If performing substantive follow-on work, obey all normally required full-source reads and gates.
+3. **Recheck changing facts:** for the active work, check the relevant live GitHub PR/ref/head/base and latest independent verdict or blocker before making a consequential recommendation. Treat dated snapshots as historical when newer canonical evidence differs. Use the GitHub connector for adequate read-only checks before escalating to a full executable workspace.
+4. **Report briefly:** reply with `[DK] SYNCHRONIZED`, active project, current gate/verdict, recommended next mode, meaningful conflicts or stale checkpoints, and `No changes made`. If a required source is unavailable, say `[DK] PARTIAL` and identify what could not be verified. Expand only for material discrepancies or at the owner's request.
+5. **Never auto-advance:** `[DK]` alone authorizes no code edits, documentation writes, tests, Work/Codex session, owner [V2], merge, release, spending, or irreversible action. Separately granted Divine Knowledge documentation-maintenance authority is unchanged and is not invoked by the shorthand.
+
 ## Authority
 
 See `AUTHORITY.md`. The project assistant may maintain, reorganize, consolidate, supersede, archive, rename, or delete content inside `docs/divine-knowledge/**` when useful for project continuity. Product code, releases, branch deletion, spending, gameplay behavior, credentials, and merges remain outside that standing authority.
