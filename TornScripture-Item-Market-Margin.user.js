@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.39
+// @version      0.19.40
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.39' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.39' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.40' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.40' });
   }
 
 
@@ -737,7 +737,7 @@
   if (capturePageStopped) return;
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.39
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.40
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -758,7 +758,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.39',
+    version: '0.19.40',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -781,6 +781,7 @@
     catalogStorageKey: 'tornscripture-imm-catalog-v1',
     sharedCatalogStorageKey: 'tornscripture-ish-torn-catalog-v1',
     settingsStorageKey: 'tornscripture-imm-settings-v1',
+    launcherPositionStorageKey: 'tornscripture-imm-launcher-position-v1',
     ledgerStorageKey: 'tornscripture-imm-ledger-v1',
     tradeJournalStorageKey: 'tornscripture-imm-unresolved-trade-journal-v1',
     ledgerCleanupBackupStorageKey: 'tornscripture-imm-ledger-cleanup-backup-v1',
@@ -1105,6 +1106,11 @@
 
   const state = {
     settings: normalizeSettings(loadJson(APP.settingsStorageKey, DEFAULT_SETTINGS)),
+    launcherPosition: loadLauncherPosition(),
+    launcherSafeAreaInsets: null,
+    launcherPointerGesture: null,
+    launcherSuppressClick: false,
+    launcherInteractionsBound: false,
     catalog: mergeCatalogCaches(),
     ledger: normalizeLedger(loadJson(APP.ledgerStorageKey, {})),
     tradeJournal: normalizeTradeJournal(loadJson(APP.tradeJournalStorageKey, {})),
@@ -1186,6 +1192,321 @@
 
   function saveJson(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  const LAUNCHER_SIZE = 52;
+  const LAUNCHER_EDGE_GAP = 8;
+  const LAUNCHER_DRAG_THRESHOLD = 7;
+
+  function normalizeLauncherPosition(raw) {
+    if (!raw || typeof raw !== 'object' || raw.schemaVersion !== 1
+      || !['left', 'right'].includes(raw.side)
+      || typeof raw.top !== 'number' || !Number.isFinite(raw.top)
+      || raw.top < 0 || raw.top > 100000) return null;
+    return { schemaVersion: 1, side: raw.side, top: Math.round(raw.top) };
+  }
+
+  function loadLauncherPosition(storage) {
+    try {
+      const store = storage || globalThis.localStorage;
+      return normalizeLauncherPosition(JSON.parse(store.getItem(APP.launcherPositionStorageKey) || 'null'));
+    } catch {
+      return null;
+    }
+  }
+
+  function saveLauncherPosition(position, storage) {
+    const normalized = normalizeLauncherPosition(position);
+    if (!normalized) return false;
+    try {
+      const store = storage || globalThis.localStorage;
+      store.setItem(APP.launcherPositionStorageKey, JSON.stringify(normalized));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function launcherViewport() {
+    const safeArea = state.launcherSafeAreaInsets || { top: 0, right: 0, bottom: 0, left: 0 };
+    const visualViewport = window.visualViewport;
+    return {
+      left: Math.max(0, Number(visualViewport?.offsetLeft) || 0),
+      top: Math.max(0, Number(visualViewport?.offsetTop) || 0),
+      width: Math.max(1, Number(visualViewport?.width) || Number(window.innerWidth) || Number(document.documentElement?.clientWidth) || 1),
+      height: Math.max(1, Number(visualViewport?.height) || Number(window.innerHeight) || Number(document.documentElement?.clientHeight) || 1),
+      safeArea,
+    };
+  }
+
+  function launcherPositionBounds(viewport, size = {}) {
+    const safe = viewport.safeArea || {};
+    const width = Math.max(1, Number(viewport.width) || 1);
+    const height = Math.max(1, Number(viewport.height) || 1);
+    const launcherWidth = Math.max(1, Number(size.width) || LAUNCHER_SIZE);
+    const launcherHeight = Math.max(1, Number(size.height) || LAUNCHER_SIZE);
+    const maxAvailableLeft = Math.max(0, width - launcherWidth);
+    const maxAvailableTop = Math.max(0, height - launcherHeight);
+    const viewportLeft = Number(viewport.left) || 0;
+    const viewportTop = Number(viewport.top) || 0;
+    const minLeft = Math.min(viewportLeft + maxAvailableLeft, viewportLeft + Math.max(0, Number(safe.left) || 0) + LAUNCHER_EDGE_GAP);
+    const maxLeft = Math.max(minLeft, Math.min(
+      viewportLeft + maxAvailableLeft,
+      viewportLeft + width - launcherWidth - Math.max(0, Number(safe.right) || 0) - LAUNCHER_EDGE_GAP,
+    ));
+    const minTop = Math.min(viewportTop + maxAvailableTop, viewportTop + Math.max(0, Number(safe.top) || 0) + LAUNCHER_EDGE_GAP);
+    const maxTop = Math.max(minTop, Math.min(
+      viewportTop + maxAvailableTop,
+      viewportTop + height - launcherHeight - Math.max(0, Number(safe.bottom) || 0) - LAUNCHER_EDGE_GAP,
+    ));
+    return { minLeft, maxLeft, minTop, maxTop };
+  }
+
+  function clampLauncherPosition(position, viewport, size) {
+    const normalized = normalizeLauncherPosition(position) || { schemaVersion: 1, side: 'right', top: 0 };
+    const bounds = launcherPositionBounds(viewport, size);
+    return {
+      schemaVersion: 1,
+      side: normalized.side,
+      top: Math.round(Math.min(bounds.maxTop, Math.max(bounds.minTop, normalized.top))),
+    };
+  }
+
+  function defaultLauncherPosition(viewport, size = {}) {
+    const safe = viewport.safeArea || {};
+    const launcherHeight = Math.max(1, Number(size.height) || LAUNCHER_SIZE);
+    const usableHeight = Math.max(
+      launcherHeight,
+      viewport.height - (Number(safe.top) || 0) - (Number(safe.bottom) || 0),
+    );
+    return clampLauncherPosition({
+      schemaVersion: 1,
+      side: 'right',
+      top: (Number(viewport.top) || 0) + (Number(safe.top) || 0) + Math.round((usableHeight - launcherHeight) * 0.42),
+    }, viewport, size);
+  }
+
+  function launcherCoordinateScale(panel, rect = panel.getBoundingClientRect()) {
+    const width = Number(panel.offsetWidth) || LAUNCHER_SIZE;
+    const height = Number(panel.offsetHeight) || LAUNCHER_SIZE;
+    const scaleX = rect.width / width;
+    const scaleY = rect.height / height;
+    return {
+      x: Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1,
+      y: Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1,
+    };
+  }
+
+  function readLauncherSafeAreaInsets() {
+    if (state.launcherSafeAreaInsets) return state.launcherSafeAreaInsets;
+    const insets = { top: 0, right: 0, bottom: 0, left: 0 };
+    let probe = null;
+    try {
+      probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+      document.body.appendChild(probe);
+      const computed = window.getComputedStyle?.(probe);
+      for (const side of ['top', 'right', 'bottom', 'left']) {
+        insets[side] = Math.max(0, Number.parseFloat(computed?.[`padding${side[0].toUpperCase()}${side.slice(1)}`]) || 0);
+      }
+    } catch {
+      // Safe-area measurement is optional; viewport clamping still applies.
+    } finally {
+      probe?.remove();
+    }
+    state.launcherSafeAreaInsets = insets;
+    return insets;
+  }
+
+  function applyLauncherPosition(panel, viewport = launcherViewport()) {
+    if (!state.settings.collapsed) {
+      panel.style.left = '';
+      panel.style.right = '';
+      panel.style.top = '';
+      panel.style.bottom = '';
+      return;
+    }
+    if (state.launcherPointerGesture?.panel === panel) return;
+    viewport.safeArea = readLauncherSafeAreaInsets();
+    panel.style.left = '0px';
+    panel.style.right = 'auto';
+    panel.style.top = '0px';
+    panel.style.bottom = 'auto';
+    const origin = panel.getBoundingClientRect();
+    const scale = launcherCoordinateScale(panel, origin);
+    const size = { width: origin.width, height: origin.height };
+    const position = clampLauncherPosition(
+      state.launcherPosition || defaultLauncherPosition(viewport, size),
+      viewport,
+      size,
+    );
+    state.launcherPosition = position;
+    const bounds = launcherPositionBounds(viewport, size);
+    const targetLeft = position.side === 'left' ? bounds.minLeft : bounds.maxLeft;
+    panel.style.left = `${(targetLeft - origin.left) / scale.x}px`;
+    panel.style.top = `${(position.top - origin.top) / scale.y}px`;
+  }
+
+  function launcherButtonFromTarget(target) {
+    return target?.closest?.('[data-tsimm-launcher]') || null;
+  }
+
+  function releaseLauncherPointerCapture(gesture) {
+    try {
+      if (gesture.captureTarget?.hasPointerCapture?.(gesture.pointerId)) {
+        gesture.captureTarget.releasePointerCapture(gesture.pointerId);
+      }
+    } catch {}
+  }
+
+  function clearLauncherPointerGesture() {
+    const gesture = state.launcherPointerGesture;
+    state.launcherPointerGesture = null;
+    if (gesture) releaseLauncherPointerCapture(gesture);
+    return gesture;
+  }
+
+  function handleLauncherPointerDown(event) {
+    state.launcherSuppressClick = false;
+    if (state.launcherPointerGesture || event.button !== 0) return;
+    const button = launcherButtonFromTarget(event.target);
+    const panel = button?.closest?.(`#${APP.panelId}`);
+    if (!button || !panel?.classList?.contains('tsimm-collapsed')) return;
+    const rect = panel.getBoundingClientRect();
+    const scale = launcherCoordinateScale(panel, rect);
+    state.launcherPointerGesture = {
+      panel,
+      captureTarget: panel,
+      pointerId: event.pointerId,
+      captureTarget: null,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      startRectLeft: rect.left,
+      startRectTop: rect.top,
+      startStyleLeft: Number.parseFloat(panel.style.left) || 0,
+      startStyleTop: Number.parseFloat(panel.style.top) || 0,
+      scaleX: scale.x,
+      scaleY: scale.y,
+      renderedWidth: rect.width,
+      renderedHeight: rect.height,
+      moved: false,
+    };
+  }
+
+  function handleLauncherPointerMove(event) {
+    const gesture = state.launcherPointerGesture;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    if (!gesture.panel.isConnected || !gesture.panel.classList?.contains('tsimm-collapsed')) {
+      clearLauncherPointerGesture();
+      return;
+    }
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (!gesture.moved && Math.hypot(deltaX, deltaY) > LAUNCHER_DRAG_THRESHOLD) {
+      gesture.moved = true;
+      try {
+        gesture.panel.setPointerCapture?.(gesture.pointerId);
+        gesture.captureTarget = gesture.panel;
+      } catch {}
+    }
+    if (!gesture.moved) return;
+    const viewport = launcherViewport();
+    viewport.safeArea = readLauncherSafeAreaInsets();
+    const bounds = launcherPositionBounds(viewport, {
+      width: gesture.renderedWidth,
+      height: gesture.renderedHeight,
+    });
+    const left = Math.min(bounds.maxLeft, Math.max(bounds.minLeft, event.clientX - gesture.offsetX));
+    const top = Math.min(bounds.maxTop, Math.max(bounds.minTop, event.clientY - gesture.offsetY));
+    gesture.panel.style.left = `${gesture.startStyleLeft + ((left - gesture.startRectLeft) / gesture.scaleX)}px`;
+    gesture.panel.style.right = 'auto';
+    gesture.panel.style.top = `${gesture.startStyleTop + ((top - gesture.startRectTop) / gesture.scaleY)}px`;
+    gesture.panel.style.bottom = 'auto';
+    event.preventDefault();
+  }
+
+  function handleLauncherPointerUp(event) {
+    const gesture = state.launcherPointerGesture;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    clearLauncherPointerGesture();
+    if (!gesture.moved || !gesture.panel.isConnected
+      || !gesture.panel.classList?.contains('tsimm-collapsed')) return;
+    const viewport = launcherViewport();
+    viewport.safeArea = readLauncherSafeAreaInsets();
+    const bounds = launcherPositionBounds(viewport, {
+      width: gesture.renderedWidth,
+      height: gesture.renderedHeight,
+    });
+    const left = Math.min(bounds.maxLeft, Math.max(bounds.minLeft, event.clientX - gesture.offsetX));
+    const top = Math.min(bounds.maxTop, Math.max(bounds.minTop, event.clientY - gesture.offsetY));
+    const side = left + (gesture.renderedWidth / 2) < (Number(viewport.left) || 0) + (viewport.width / 2) ? 'left' : 'right';
+    state.launcherPosition = clampLauncherPosition({ schemaVersion: 1, side, top }, viewport);
+    saveLauncherPosition(state.launcherPosition);
+    state.launcherSuppressClick = true;
+    applyLauncherPosition(gesture.panel, viewport);
+  }
+
+  function handleLauncherPointerCancel(event) {
+    const gesture = state.launcherPointerGesture;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    if (event.type === 'lostpointercapture'
+      && gesture.captureTarget
+      && event.target !== gesture.captureTarget) return;
+    clearLauncherPointerGesture();
+    state.launcherSuppressClick = false;
+    if (gesture.panel.isConnected) applyLauncherPosition(gesture.panel);
+  }
+
+  function suppressDraggedLauncherClick(event) {
+    const targetIsPanel = event.target === document.getElementById(APP.panelId);
+    if (!state.launcherSuppressClick || (!launcherButtonFromTarget(event.target) && !targetIsPanel)) return false;
+    if (!event.detail) {
+      state.launcherSuppressClick = false;
+      return false;
+    }
+    state.launcherSuppressClick = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+
+  function handleLauncherViewportChange() {
+    state.launcherSafeAreaInsets = null;
+    if (state.launcherPointerGesture) handleLauncherPointerCancel({
+      pointerId: state.launcherPointerGesture.pointerId,
+    });
+    const panel = document.getElementById(APP.panelId);
+    if (!panel || !state.settings.collapsed) return;
+    const previous = state.launcherPosition;
+    const viewport = launcherViewport();
+    viewport.safeArea = readLauncherSafeAreaInsets();
+    const rect = panel.getBoundingClientRect();
+    state.launcherPosition = clampLauncherPosition(
+      previous || defaultLauncherPosition(viewport, { width: rect.width, height: rect.height }),
+      viewport,
+      { width: rect.width, height: rect.height },
+    );
+    if (previous && (previous.side !== state.launcherPosition.side || previous.top !== state.launcherPosition.top)) {
+      saveLauncherPosition(state.launcherPosition);
+    }
+    applyLauncherPosition(panel, viewport);
+  }
+
+  function bindLauncherInteractions() {
+    if (state.launcherInteractionsBound) return;
+    state.launcherInteractionsBound = true;
+    document.addEventListener('pointerdown', handleLauncherPointerDown, true);
+    document.addEventListener('pointermove', handleLauncherPointerMove, true);
+    document.addEventListener('pointerup', handleLauncherPointerUp, true);
+    document.addEventListener('pointercancel', handleLauncherPointerCancel, true);
+    document.addEventListener('lostpointercapture', handleLauncherPointerCancel, true);
+    document.addEventListener('click', suppressDraggedLauncherClick, true);
+    window.addEventListener('resize', handleLauncherViewportChange, { passive: true });
+    window.addEventListener('orientationchange', handleLauncherViewportChange, { passive: true });
+    window.visualViewport?.addEventListener('resize', handleLauncherViewportChange, { passive: true });
+    window.visualViewport?.addEventListener('scroll', handleLauncherViewportChange, { passive: true });
   }
 
   function createId(prefix = 'id') {
@@ -2333,7 +2654,7 @@
       <div class="tsimm-head">
         <strong>🧌 ${escapeHtml(APP.brandName)}</strong>
         <small>${escapeHtml(APP.brandSubtitle)} v${escapeHtml(APP.version)} · TornW3B pricelist</small>
-        <button type="button" data-tsimm-weav3r-action="toggle">${state.settings.collapsed ? '+' : '−'}</button>
+        <button class="tsimm-launcher" type="button" data-tsimm-launcher data-tsimm-weav3r-action="toggle" aria-label="${state.settings.collapsed ? 'Open' : 'Collapse'} GOBLIN GOD IMM panel" aria-expanded="${!state.settings.collapsed}">${state.settings.collapsed ? '🧌' : '−'}</button>
       </div>
       <div class="tsimm-body">
         <div class="tsimm-status">
@@ -2350,6 +2671,7 @@
           <button class="tsimm-btn" type="button" data-tsimm-weav3r-action="rescan">Rescan page</button>
         </div>
       </div>`;
+    applyLauncherPosition(panel);
   }
 
   function scheduleWeav3rCaptureScan(delay = 450) {
@@ -14797,12 +15119,12 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const style = document.createElement('style');
     style.id = APP.styleId;
     style.textContent = `
-      #${APP.panelId}{position:fixed;right:8px;bottom:118px;width:min(292px,calc(100vw - 16px));max-height:calc(100vh - 134px);max-height:calc(100dvh - 134px);z-index:${IMM_LAYERS.ordinary};display:flex;flex-direction:column;border:1px solid #58506b;border-radius:12px;background:#1d1b22;color:#f4f1f8;box-shadow:0 10px 30px #0009;font:12px/1.35 Arial,sans-serif;overflow:hidden}
+      #${APP.panelId}{position:fixed;right:max(8px,env(safe-area-inset-right));bottom:max(118px,calc(env(safe-area-inset-bottom) + 8px));width:min(292px,calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)));max-height:calc(100vh - 134px);max-height:calc(100dvh - max(134px,env(safe-area-inset-top) + env(safe-area-inset-bottom) + 16px));z-index:${IMM_LAYERS.ordinary};display:flex;flex-direction:column;border:1px solid #58506b;border-radius:12px;background:#1d1b22;color:#f4f1f8;box-shadow:0 10px 30px #0009;font:12px/1.35 Arial,sans-serif;overflow:hidden}
       #${APP.panelId} *{box-sizing:border-box}
-      #${APP.panelId}.tsimm-collapsed{width:auto}
+      #${APP.panelId}.tsimm-collapsed{width:${LAUNCHER_SIZE}px;height:${LAUNCHER_SIZE}px;min-width:${LAUNCHER_SIZE}px;max-height:none!important;border:0;border-radius:50%;background:transparent;overflow:visible}
       .tsimm-head{display:flex;align-items:center;gap:7px;padding:8px 9px;background:#292530;border-bottom:1px solid #4e475b}
       .tsimm-head strong{flex:1;font-size:13px}.tsimm-head small{color:#aaa1b7}.tsimm-head button,.tsimm-btn{border:1px solid #625a70;border-radius:7px;background:#393341;color:#fff;padding:6px 8px;font-weight:700;cursor:pointer}
-      .tsimm-head{flex:0 0 auto}.tsimm-head button{padding:2px 7px}.tsimm-body{min-height:0;padding:9px;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}.tsimm-collapsed{max-height:none!important}.tsimm-collapsed .tsimm-body,.tsimm-collapsed .tsimm-head small{display:none}
+      .tsimm-head{flex:0 0 auto}.tsimm-head button{padding:2px 7px}.tsimm-launcher{touch-action:none;user-select:none;-webkit-user-select:none}.tsimm-body{min-height:0;padding:9px;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}.tsimm-collapsed{max-height:none!important}.tsimm-collapsed .tsimm-body,.tsimm-collapsed .tsimm-head strong,.tsimm-collapsed .tsimm-head small{display:none}.tsimm-collapsed .tsimm-head{width:${LAUNCHER_SIZE}px;height:${LAUNCHER_SIZE}px;min-height:${LAUNCHER_SIZE}px;gap:0;padding:0;border:0;border-radius:50%;background:transparent}.tsimm-collapsed .tsimm-head .tsimm-launcher{display:flex;flex:0 0 ${LAUNCHER_SIZE}px;align-items:center;justify-content:center;width:${LAUNCHER_SIZE}px;height:${LAUNCHER_SIZE}px;padding:0;border:1px solid #a7d94f;border-radius:50%;background:#25320f;color:#e9ffb4;font-size:23px;line-height:1;box-shadow:0 5px 16px #000a}
       .tsimm-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));gap:5px;margin-bottom:7px}.tsimm-stat{padding:5px;border:1px solid #46404f;border-radius:7px;background:#242129;text-align:center}.tsimm-stat strong{display:block;font-size:14px}.tsimm-stat span{color:#b7afc0;font-size:10px}
       .tsimm-actions{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0}.tsimm-btn{flex:1;min-width:78px}.tsimm-btn-primary{background:#5b2b82;border-color:#8e55b9}.tsimm-btn-blue{background:#174f75!important;border-color:#3b8fc2!important;color:#eaf7ff!important}.tsimm-btn:disabled{opacity:.55;cursor:wait}
       .tsimm-controls{display:grid;grid-template-columns:1fr 72px;gap:5px;align-items:center;margin-top:6px}.tsimm-controls input{width:100%;border:1px solid #5a5266;border-radius:6px;background:#17151b;color:#fff;padding:5px}.tsimm-check{display:flex;align-items:center;gap:6px;margin-top:7px;color:#c9c2d0}
@@ -15147,7 +15469,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       <div class="tsimm-head">
         <strong>🧌 ${escapeHtml(APP.brandName)}</strong>
         <small>${escapeHtml(APP.brandSubtitle)} v${escapeHtml(APP.version)} · ${escapeHtml(stats.pageType)}</small>
-        <button type="button" data-tsimm-action="toggle">${state.settings.collapsed ? '+' : '−'}</button>
+        <button class="tsimm-launcher" type="button" data-tsimm-launcher data-tsimm-action="toggle" aria-label="${state.settings.collapsed ? 'Open' : 'Collapse'} GOBLIN GOD IMM panel" aria-expanded="${!state.settings.collapsed}">${state.settings.collapsed ? '🧌' : '−'}</button>
       </div>
       <div class="tsimm-body">
         ${statusHtml}
@@ -15180,6 +15502,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     `;
     const nextBody = panel.querySelector('.tsimm-body');
     if (nextBody && previousBodyScroll > 0) nextBody.scrollTop = previousBodyScroll;
+    applyLauncherPosition(panel);
   }
 
   function bindPanelEvents() {
@@ -15649,6 +15972,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   function initialize() {
     if (state.initialized || !document.body) return;
     state.initialized = true;
+    bindLauncherInteractions();
     if (isTornExchangePriceListUrl(location.href)) {
       initializeTornExchangePriceCapture();
       return;
@@ -15697,6 +16021,20 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       initializeWeav3rPriceCapture, initializeTornExchangePriceCapture,
       traderCaptureHistorical, traderCaptureSummary, tradeExitQuoteForTrader, singleItemTraderQuotes, singleItemTraderQuotesHtml,
       pricedTradeBestTraderQuote, pricedTradeBestMatchHtml, pricedTradeCompactBadgeHtml, pricedTradeRenderRowBadge, renderPricedTradePanel,
+      normalizeLauncherPosition,
+      loadLauncherPosition,
+      saveLauncherPosition,
+      clampLauncherPosition,
+      defaultLauncherPosition,
+      launcherViewport,
+      applyLauncherPosition,
+      handleLauncherPointerDown,
+      handleLauncherPointerMove,
+      handleLauncherPointerUp,
+      handleLauncherPointerCancel,
+      suppressDraggedLauncherClick,
+      bindLauncherInteractions,
+      renderPanel,
       normalizeLedger,
       normalizeTradeJournal,
       normalizeTradeJournalEntry,
