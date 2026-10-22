@@ -2986,13 +2986,23 @@
     };
   }
 
-  function prepareTraderCapturePriceItems(items, receipt = false, expectedCount = items?.length) {
+  function prepareTraderCapturePriceItems(items, { receipt = false, expectedCount = items?.length, rawText = '' } = {}) {
     const invalid = () => { throw new Error('Not captured: invalid price. Keep the source text and armed capture; correct the price evidence and retry.'); };
     const positive = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '')
       && Number.isFinite(Number(value)) && Number(value) > 0;
     const nonnegative = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '')
       && Number.isFinite(Number(value)) && Number(value) >= 0;
     if (!Array.isArray(items) || items.length !== expectedCount) return invalid();
+    // Text receipt parsing can also skip an invalid explicit currency value
+    // and derive a positive unit from a later total. Validate full source
+    // tokens on recognized item lines before accepting those parsed numbers.
+    if (receipt && rawText) for (const line of rawText.split(/\r?\n/)) {
+      if (!parseReceiptTextLine(line)) continue;
+      for (const match of line.matchAll(/\$\s*([^\s$|=;:]*)/g)) {
+        const token = match[1].replace(/[)\]}!?]+$/g, '');
+        if (!/^[\d,.]+$/.test(token) || !Number.isFinite(Number(token.replace(/,/g, '')))) return invalid();
+      }
+    }
     const clean = items.map(candidate => {
       if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return invalid();
       const priceFields = receipt
@@ -3039,7 +3049,8 @@
     // price admission. Financial receipt parsing keeps its existing behavior.
     const items = parsed?.sourceFormat === 'json'
       ? findReceiptItemsArray(JSON.parse(parsed.rawText), true) : parsed?.items || [];
-    return prepareTraderCapturePriceItems(items, true, parsed?.items?.length || 0);
+    return prepareTraderCapturePriceItems(items, { receipt: true, expectedCount: parsed?.items?.length || 0,
+      rawText: parsed?.sourceFormat === 'text' ? parsed.rawText : '' });
   }
 
   function pageTextWithoutImmUi() {

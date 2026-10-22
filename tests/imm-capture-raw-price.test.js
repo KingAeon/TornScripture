@@ -231,3 +231,25 @@ test('finite success with cleanup failure reconciles the original completion ins
   assert.equal(bookWrites(p).length, 1); assert.equal(p.memory.get(PENDING), p.originalPending);
   assert.match(feedback(p).at(-1), /already captured.*no new price write/); p.assertAccounting();
 });
+
+for (const token of ['Infinity', '-Infinity', 'NaN', '1e400', '1e3', 'bad', '1.2.3'])
+  for (const position of ['unit', 'total']) test(`text receipt ${position} ${token} cannot disappear into a finite fallback`, async () => {
+    const input = position === 'unit' ? `Fixture Item x2 @ $${token} = $2468` : `Fixture Item x2 @ $1234 = $${token}`;
+    const { p, before } = await receiptAttempt(input); rejectedReceipt(p, before);
+  });
+for (const input of ['Fixture Item x2 @ $1,234 = $2,468', 'Fixture Item x2 @ $1,234 (total $2,468)', 'Fixture Item x2 $2,468'])
+  test('supported formatted text receipt remains usable: '+input, async () => {
+    const { p } = await receiptAttempt(input);
+    assert.equal(saved(p).pricePageItems[0].unitPrice, 1234); assert.equal(saved(p).pricePageCaptureCount, 8);
+    assert.equal(p.memory.has(PENDING), false); assert.equal(bookWrites(p).length, 1); p.assertAccounting();
+  });
+test('one malformed text line blocks all otherwise valid receipt prices', async () => {
+  const { p, before } = await receiptAttempt('Fixture Item x2 @ $1234 = $2468\nOther Item x1 @ $Infinity = $20');
+  rejectedReceipt(p, before);
+});
+test('all-zero text receipt retains the frozen non-successful check semantics', async () => {
+  const { p, before } = await receiptAttempt('Fixture Item x2 $0');
+  assert.deepEqual(saved(p).pricePageItems, JSON.parse(before.book).find(row => row.id === 'a').pricePageItems);
+  assert.equal(saved(p).pricePageCaptureCount, 8); assert.equal(p.memory.get(PENDING), before.arm);
+  assert.equal(saved(p).receiptLinkCompletions?.length || 0, 0); p.assertAccounting();
+});
