@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.40
+// @version      0.19.41
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.40' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.40' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.41' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.41' });
   }
 
 
@@ -737,7 +737,7 @@
   if (capturePageStopped) return;
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.40
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.41
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -758,7 +758,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.40',
+    version: '0.19.41',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2986,16 +2986,60 @@
     };
   }
 
+  function prepareTraderCapturePriceItems(items, receipt = false, expectedCount = items?.length) {
+    const invalid = () => { throw new Error('Not captured: invalid price. Keep the source text and armed capture; correct the price evidence and retry.'); };
+    const positive = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '')
+      && Number.isFinite(Number(value)) && Number(value) > 0;
+    const nonnegative = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '')
+      && Number.isFinite(Number(value)) && Number(value) >= 0;
+    if (!Array.isArray(items) || items.length !== expectedCount) return invalid();
+    const clean = items.map(candidate => {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return invalid();
+      const priceFields = receipt
+        ? ['unitPrice', 'unit_price', 'priceUsed', 'price_each', 'price', 'cost_each']
+        : ['unitPrice', 'price', 'value'];
+      const totalFields = receipt
+        ? ['totalValue', 'total_value', 'totalPrice', 'total_price', 'value', 'proceeds']
+        : ['totalValue', 'totalPrice', 'total'];
+      // Inspect explicit source fields before a normalizer can replace an
+      // invalid price with a total/quantity fallback or drop the whole row.
+      const values = [...priceFields, ...totalFields]
+        .filter(key => Object.prototype.hasOwnProperty.call(candidate, key)).map(key => candidate[key]);
+      if (receipt && candidate.item && Object.prototype.hasOwnProperty.call(candidate.item, 'price')) values.push(candidate.item.price);
+      if (values.some(value => !nonnegative(value))
+        || values.some(value => Number(value) === 0) && values.some(value => Number(value) > 0)
+        || !positive(candidate.quantity ?? candidate.qty ?? (receipt ? candidate.amount ?? candidate.item?.quantity : undefined) ?? 1)) return invalid();
+      let item;
+      try {
+        const source = receipt ? receiptItemFromObject(candidate) : candidate;
+        // The frozen all-zero/no-price receipt check remains non-successful.
+        // It cannot supply a fallback or disappear beside a positive row.
+        if (receipt && source?.unitPrice === 0) {
+          if (values.some(value => Number(value) > 0)) return invalid();
+          return null;
+        }
+        item = normalizeTraderPriceItem(receipt && source
+          ? { ...source, sourceText: `${source.itemName} × ${source.quantity}` } : source);
+      } catch { return invalid(); }
+      if (!item || !positive(item.unitPrice) || !Number.isSafeInteger(item.quantity) || item.quantity <= 0
+        || item.itemId !== null && (!Number.isSafeInteger(item.itemId) || item.itemId <= 0)
+        || !Number.isFinite(item.unitPrice * item.quantity)) return invalid();
+      return item;
+    });
+    if (clean.some(item => item === null)) {
+      if (clean.some(item => item !== null)) return invalid();
+      return [];
+    }
+    if (!Number.isFinite(clean.reduce((total, item) => total + item.unitPrice * item.quantity, 0))) return invalid();
+    return clean;
+  }
+
   function priceItemsFromParsedReceipt(parsed) {
-    return (parsed?.items || []).map((item) => ({
-      itemId: item.itemId,
-      itemName: item.itemName,
-      unitPrice: Number(item.unitPrice) > 0
-        ? Number(item.unitPrice)
-        : (Number(item.totalValue) > 0 && Number(item.quantity) > 0 ? Number(item.totalValue) / Number(item.quantity) : 0),
-      quantity: item.quantity || 1,
-      sourceText: `${item.itemName} × ${item.quantity}`,
-    })).map(normalizeTraderPriceItem).filter(Boolean);
+    // Reuse the receipt selector, opting into its original raw array only for
+    // price admission. Financial receipt parsing keeps its existing behavior.
+    const items = parsed?.sourceFormat === 'json'
+      ? findReceiptItemsArray(JSON.parse(parsed.rawText), true) : parsed?.items || [];
+    return prepareTraderCapturePriceItems(items, true, parsed?.items?.length || 0);
   }
 
   function pageTextWithoutImmUi() {
@@ -3093,9 +3137,19 @@
     trader = normalizeTrader(previous);
     if (!trader) return null;
     const cleanUrl = normalizeHttpUrl(url || location.href);
-    const cleanItems = items.map(normalizeTraderPriceItem).filter(Boolean);
+    let cleanItems;
+    try {
+      cleanItems = prepareTraderCapturePriceItems(items);
+      // A write must not turn opaque raw 1e400 history into JSON null while
+      // copying the old book. Leave it exportable for deliberate recovery.
+      JSON.stringify(context.raw, (key, value) => {
+        if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Historical data cannot be preserved safely. Export the raw Trader Book for review; no capture was saved.');
+        return value;
+      });
+    } catch (error) { toast(error.message); return receiptLink ? { status: 'not-captured', error: error.message } : null; }
     const previousItems = trader.pricePageItems || [];
-    const preservePrevious = cleanItems.length === 0 && previousItems.length > 0;
+    const preservePrevious = cleanItems.length === 0 && [previous.pricePageItems, previous.pricingItems]
+      .some(value => Array.isArray(value) && value.length > 0);
     const changedCount = cleanItems.length ? capturedPriceChangeCount(previousItems, cleanItems) : 0;
     const previousUrl = cleanUrl && trader.pricePageUrl && cleanUrl !== trader.pricePageUrl
       ? trader.pricePageUrl
@@ -3103,14 +3157,17 @@
     const now = new Date().toISOString();
     const next = {
       ...previous,
-      previousPricePageUrl: cleanItems.length ? previousUrl : trader.previousPricePageUrl,
-      pricePageUrl: cleanItems.length ? cleanUrl || trader.pricePageUrl : trader.pricePageUrl,
-      pricePageTitle: cleanItems.length ? normalizeWhitespace(title || document.title || trader.pricePageTitle).slice(0, 160) : trader.pricePageTitle,
-      pricePageItems: preservePrevious ? previousItems : cleanItems,
-      pricePageCapturedAt: cleanItems.length ? now : trader.pricePageCapturedAt,
+      // Failed checks retain exact raw field presence, aliases and extensions.
+      ...(cleanItems.length ? {
+        previousPricePageUrl: previousUrl,
+        pricePageUrl: cleanUrl || trader.pricePageUrl,
+        pricePageTitle: normalizeWhitespace(title || document.title || trader.pricePageTitle).slice(0, 160),
+        pricePageItems: cleanItems,
+        pricePageCapturedAt: now,
+        pricePageLastChangedCount: changedCount,
+      } : {}),
       pricePageLastCheckedAt: now,
       pricePageCaptureCount: Number(trader.pricePageCaptureCount || 0) + 1,
-      pricePageLastChangedCount: cleanItems.length ? changedCount : trader.pricePageLastChangedCount,
       pricePageLastOutcome: cleanItems.length ? 'captured' : 'loading_or_inconclusive',
       pricePageLastReason: cleanItems.length ? '' : 'No supported prices parsed; previous snapshot not reverified.',
       pricePageLastResult: cleanItems.length ? `${sourceType}:${automatic ? 'auto' : 'manual'}` : 'no-prices-found',
@@ -3163,10 +3220,13 @@
         }
       } catch (error) { toast(error.message); return null; }
     }
+    let items;
+    try { items = capturePriceItemsFromCurrentPage(); }
+    catch (error) { toast(error.message); return null; }
     const result = saveTraderPriceCapture(trader, {
       url: location.href,
       title: document.title,
-      items: capturePriceItemsFromCurrentPage(),
+      items,
       sourceType: 'price-page',
       automatic,
     });
@@ -3350,9 +3410,10 @@
       const cleanup = result?.cleanupUnresolved
         ? ` Prices saved; pending cleanup ${result.cleanupUnknown ? 'state unknown' : 'unresolved'}. Reconcile or clear this completed arm; do not re-save prices.` : '';
       toast(`${trader.name} linked to ${receipt} · ${outcome}.${cleanup}${!completed && result?.status !== 'indeterminate' && sameIntent() ? ' Armed capture kept; retry this receipt when capture is available.' : ''}`);
-    } catch {
+    } catch (error) {
       toast(linked
-        ? `${trader.name} linked to receipt ${sale.id}; price capture could not complete. Any still-armed capture is kept for retry.`
+        ? `${trader.name} linked to receipt ${sale.id}; ${error?.message?.startsWith('Not captured: invalid price')
+          ? error.message : 'price capture could not complete. Any still-armed capture is kept for retry.'}`
         : 'Receipt link could not be saved. Armed capture and receipt text are kept for retry.');
     } finally {
       if (state.receiptTraderLinkPending === operation) state.receiptTraderLinkPending = null;
@@ -11417,9 +11478,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     return normalizeHttpUrl(match[0].replace(/[),.;!?]+$/, ''));
   }
 
-  function findReceiptItemsArray(root) {
+  function findReceiptItemsArray(root, preserveRaw = false) {
     const queue = [{ value: root, depth: 0 }];
     const visited = new Set();
+    let unsupported = null;
     while (queue.length) {
       const { value, depth } = queue.shift();
       if (!value || typeof value !== 'object' || visited.has(value) || depth > 7) continue;
@@ -11428,13 +11490,15 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         const qualifying = value.filter((item) => item && typeof item === 'object' && (
           item.name || item.itemName || item.item_name || item.item || item.itemId || item.itemID
         ) && (item.quantity || item.qty || item.amount));
-        if (qualifying.length) return qualifying;
+        if (qualifying.length) return preserveRaw ? value : qualifying;
+        if (preserveRaw && !unsupported && value.some(item => item && typeof item === 'object'
+          && (item.name || item.itemName || item.item_name || item.item || item.itemId || item.itemID))) unsupported = value;
         for (const entry of value) queue.push({ value: entry, depth: depth + 1 });
       } else {
         for (const child of Object.values(value)) queue.push({ value: child, depth: depth + 1 });
       }
     }
-    return [];
+    return preserveRaw && unsupported ? unsupported : [];
   }
 
   function deepReceiptNumber(root, keys) {
