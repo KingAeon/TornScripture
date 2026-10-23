@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.41
+// @version      0.19.42
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.41' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.41' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.42' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.42' });
   }
 
 
@@ -737,7 +737,7 @@
   if (capturePageStopped) return;
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.41
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.42
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -758,7 +758,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.41',
+    version: '0.19.42',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2993,14 +2993,44 @@
     const nonnegative = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '')
       && Number.isFinite(Number(value)) && Number(value) >= 0;
     if (!Array.isArray(items) || items.length !== expectedCount) return invalid();
-    // Text receipt parsing can also skip an invalid explicit currency value
-    // and derive a positive unit from a later total. Validate full source
-    // tokens on recognized item lines before accepting those parsed numbers.
+    // Classify raw item rows before the financial parser can drop a bad
+    // quantity or turn an explicit bad price into a later-total fallback.
     if (receipt && rawText) for (const line of rawText.split(/\r?\n/)) {
-      if (!parseReceiptTextLine(line)) continue;
-      for (const match of line.matchAll(/\$\s*([^\s$|=;:]*)/g)) {
+      const text = normalizeWhitespace(line);
+      if (!text || /^(?:total|grand total|cash|receipt|thanks|trade|seller|buyer)\b/i.test(text)
+        || /^(?:https?:\/\/|www\.)/i.test(text)) continue;
+      const catalog = catalogNameInReceiptLine(text);
+      const after = catalog
+        ? text.match(new RegExp(`${escapeRegExp(catalog.name)}\\s*[x×]\\s*([^\\s$@=|;:()]*)`, 'i'))
+        : text.match(/^.+?\s+[x×]\s*([^\s$@=|;:()]*)/i)
+          || text.match(/^.+?[x×]\s*([+-]?(?:[\d,.]|Infinity|NaN)[^\s$@=|;:()]*)/i);
+      const before = catalog
+        ? text.match(new RegExp(`^([^\\s]+)\\s*[x×]\\s*${escapeRegExp(catalog.name)}`, 'i'))
+        : text.match(/^([^\s]+)\s+[x×]\s+.+/i)
+          || text.match(/^([+-]?(?:[\d,.]+(?:e[+-]?\d+)?|Infinity|NaN))\s*[x×]\s*.+/i);
+      let quantityToken = before && /^[+-]?(?:[\d,.]|Infinity|NaN)/i.test(before[1])
+        ? before[1] : after?.[1] ?? before?.[1];
+      const parsedItem = parseReceiptTextLine(text);
+      if (quantityToken === undefined && !parsedItem) continue; // ordinary prose, heading or note
+      if (quantityToken === undefined) {
+        // Preserve supported compact namex2 rows while inspecting their full
+        // original quantity rather than the parser's floored numeric prefix.
+        quantityToken = text.match(new RegExp(`${escapeRegExp(parsedItem.itemName)}\\s*[x×]\\s*([^\\s$@=|;:()]*)`, 'i'))?.[1];
+      }
+      const quantity = Number(quantityToken?.replace(/,/g, ''));
+      if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(quantityToken || '')
+        || !Number.isSafeInteger(quantity) || quantity <= 0 || !parsedItem
+        || parsedItem.quantity !== quantity) return invalid();
+      const prices = [...text.matchAll(/\$\s*([^\s$|=;:]*)/g)];
+      if (!prices.length) return invalid();
+      for (const match of prices) {
         const token = match[1].replace(/[)\]}!?]+$/g, '');
-        if (!/^[\d,.]+$/.test(token) || !Number.isFinite(Number(token.replace(/,/g, '')))) return invalid();
+        if (!/^(?:(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?|\.\d+)$/.test(token)
+          || !Number.isFinite(Number(token.replace(/,/g, '')))) return invalid();
+        // An explicit unit must also have a finite row total. A single
+        // total-only token retains the financial parser's quantity fallback.
+        if (/@\s*$/.test(text.slice(0, match.index))
+          && !Number.isFinite(Number(token.replace(/,/g, '')) * quantity)) return invalid();
       }
     }
     const clean = items.map(candidate => {
@@ -3050,7 +3080,7 @@
     const items = parsed?.sourceFormat === 'json'
       ? findReceiptItemsArray(JSON.parse(parsed.rawText), true) : parsed?.items || [];
     return prepareTraderCapturePriceItems(items, { receipt: true, expectedCount: parsed?.items?.length || 0,
-      rawText: parsed?.sourceFormat === 'text' ? parsed.rawText : '' });
+      rawText: parsed?.sourceFormat === 'json' ? '' : parsed?.rawText || '' });
   }
 
   function pageTextWithoutImmUi() {

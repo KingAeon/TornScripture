@@ -93,7 +93,7 @@ test('Independent document-start valid return waits for exclusion and stops boot
   assert.equal(page.navigations.length,1);assert.equal(page.window.__TSIMM_WATCHLIST_API__,undefined);
 });
 test('Independent ordinary test bootstrap initializes synchronously without requiring locks',async()=>{
-  const page=runtime({locks:null});assert.equal(page.window.__TSIMM_WATCHLIST_API__.status().version,'0.19.41');
+  const page=runtime({locks:null});assert.equal(page.window.__TSIMM_WATCHLIST_API__.status().version,'0.19.42');
   assert.equal(page.api.normalizeTrader(trader()).id,'a');await page.ready;assert.equal(page.writes.length,0);
 });
 for(const price of ['', 'N/A', '1e3', '$1,23', '25 items', 'Infinity']){
