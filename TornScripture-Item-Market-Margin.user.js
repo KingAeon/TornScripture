@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.42
+// @version      0.19.43
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.42' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.42' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.43' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.43' });
   }
 
 
@@ -737,7 +737,7 @@
   if (capturePageStopped) return;
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.42
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.43
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -758,7 +758,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.42',
+    version: '0.19.43',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -2997,19 +2997,31 @@
     // quantity or turn an explicit bad price into a later-total fallback.
     if (receipt && rawText) for (const line of rawText.split(/\r?\n/)) {
       const text = normalizeWhitespace(line);
-      if (!text || /^(?:total|grand total|cash|receipt|thanks|trade|seller|buyer)\b/i.test(text)
-        || /^(?:https?:\/\/|www\.)/i.test(text)) continue;
-      const catalog = catalogNameInReceiptLine(text);
+      if (!text || /^(?:https?:\/\/|www\.)/i.test(text)) continue;
+      const heading = /^(?:total|grand total|cash|receipt|thanks|trade|seller|buyer)\b/i.test(text);
+      // A quoted example in a heading is not a row. Inspect structure outside
+      // quotes, but always validate original field spellings for actual rows.
+      const shape = heading ? text.replace(/"[^"]*"|“[^”]*”/g, '') : text;
+      const catalog = catalogNameInReceiptLine(shape);
       const after = catalog
-        ? text.match(new RegExp(`${escapeRegExp(catalog.name)}\\s*[x×]\\s*([^\\s$@=|;:()]*)`, 'i'))
-        : text.match(/^.+?\s+[x×]\s*([^\s$@=|;:()]*)/i)
-          || text.match(/^.+?[x×]\s*([+-]?(?:[\d,.]|Infinity|NaN)[^\s$@=|;:()]*)/i);
+        ? shape.match(new RegExp(`${escapeRegExp(catalog.name)}\\s*[x×]\\s*([^\\s$@=|;:()]*)`, 'i'))
+        : shape.match(/^.+?\s+[x×]\s*([^\s$@=|;:()]*)/i)
+          || shape.match(/^.+?[x×]\s*([+-]?(?:[\d,.]|Infinity|NaN)[^\s$@=|;:()]*)/i);
       const before = catalog
-        ? text.match(new RegExp(`^([^\\s]+)\\s*[x×]\\s*${escapeRegExp(catalog.name)}`, 'i'))
-        : text.match(/^([^\s]+)\s+[x×]\s+.+/i)
-          || text.match(/^([+-]?(?:[\d,.]+(?:e[+-]?\d+)?|Infinity|NaN))\s*[x×]\s*.+/i);
+        ? shape.match(new RegExp(`^([^\\s]+)\\s*[x×]\\s*${escapeRegExp(catalog.name)}`, 'i'))
+        : shape.match(/^([^\s]+)\s+[x×]\s+.+/i)
+          || shape.match(/^([+-]?(?:[\d,.]+(?:e[+-]?\d+)?|Infinity|NaN))\s*[x×]\s*.+/i);
       let quantityToken = before && /^[+-]?(?:[\d,.]|Infinity|NaN)/i.test(before[1])
         ? before[1] : after?.[1] ?? before?.[1];
+      if (heading) {
+        const prefix = after ? shape.slice(0, after.index + after[0].length - after[1].length) : '';
+        if (quantityToken === undefined || !/[@=$]/.test(shape)
+          || !/[@=]/.test(shape) && !/^[+-]?(?:\d|Infinity|NaN)/i.test(quantityToken)
+            && /[;:"“”]/.test(prefix.replace(/^receipt:\s*/i, ''))) continue;
+        // Header-like names are not grounds to discard item-shaped evidence.
+        // Unsupported name-first header rows fail below; supported quantity-
+        // first rows still use the unchanged financial parser.
+      }
       const parsedItem = parseReceiptTextLine(text);
       if (quantityToken === undefined && !parsedItem) continue; // ordinary prose, heading or note
       if (quantityToken === undefined) {
@@ -3021,6 +3033,25 @@
       if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(quantityToken || '')
         || !Number.isSafeInteger(quantity) || quantity <= 0 || !parsedItem
         || parsedItem.quantity !== quantity) return invalid();
+      // Presence of @ or = is independent of $. Validate the entire field,
+      // rather than letting another surviving dollar token supply a fallback.
+      const fields = [...text.matchAll(/([@=])([^@=]*)/g)];
+      if (fields.length > 2 || fields.length === 2
+        && (fields[0][1] !== '@' || fields[1][1] !== '=')) return invalid();
+      const amount = raw => {
+        const token = raw.trim().replace(/[)\]}!?]+$/g, '').trim();
+        if (!/^\$?\s*(?:(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?|\.\d+)$/.test(token)) return NaN;
+        const value = Number(token.replace(/^\$\s*/, '').replace(/,/g, ''));
+        return Number.isFinite(value) && value > 0 ? value : NaN;
+      };
+      for (const field of fields) {
+        // Preserve the established parenthesized total form as two complete
+        // values; unsupported suffixes cannot become ignored trailing prose.
+        const parenthesized = field[2].match(/^(.*?)\s*\(\s*total\s+(.+)\)\s*$/i);
+        const value = amount(parenthesized ? parenthesized[1] : field[2]);
+        if (!Number.isFinite(value) || field[1] === '@' && !Number.isFinite(value * quantity)
+          || parenthesized && (field[1] !== '@' || !Number.isFinite(amount(parenthesized[2])))) return invalid();
+      }
       const prices = [...text.matchAll(/\$\s*([^\s$|=;:]*)/g)];
       if (!prices.length) return invalid();
       for (const match of prices) {
