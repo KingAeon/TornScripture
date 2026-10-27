@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.43
+// @version      0.19.44
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.43' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.43' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.44' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.44' });
   }
 
 
@@ -737,7 +737,7 @@
   if (capturePageStopped) return;
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.43
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.44
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -758,7 +758,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.43',
+    version: '0.19.44',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -3003,16 +3003,18 @@
       // quotes, but always validate original field spellings for actual rows.
       const shape = heading ? text.replace(/"[^"]*"|“[^”]*”/g, '') : text;
       const catalog = catalogNameInReceiptLine(shape);
+      // Keep the entire quantity-side field up to the price boundary. A
+      // delimiter inside an attached suffix must not hide its remaining text.
       const after = catalog
-        ? shape.match(new RegExp(`${escapeRegExp(catalog.name)}\\s*[x×]\\s*([^\\s$@=|;:()]*)`, 'i'))
-        : shape.match(/^.+?\s+[x×]\s*([^\s$@=|;:()]*)/i)
-          || shape.match(/^.+?[x×]\s*([+-]?(?:[\d,.]|Infinity|NaN)[^\s$@=|;:()]*)/i);
+        ? shape.match(new RegExp(`${escapeRegExp(catalog.name)}\\s*[x×]\\s*([^$@=]*)`, 'i'))
+        : shape.match(/^.+?\s+[x×]\s*([^$@=]*)/i)
+          || shape.match(/^.+?[x×]\s*([+-]?(?:[\d,.]|Infinity|NaN)[^$@=]*)/i);
       const before = catalog
-        ? shape.match(new RegExp(`^([^\\s]+)\\s*[x×]\\s*${escapeRegExp(catalog.name)}`, 'i'))
-        : shape.match(/^([^\s]+)\s+[x×]\s+.+/i)
-          || shape.match(/^([+-]?(?:[\d,.]+(?:e[+-]?\d+)?|Infinity|NaN))\s*[x×]\s*.+/i);
-      let quantityToken = before && /^[+-]?(?:[\d,.]|Infinity|NaN)/i.test(before[1])
-        ? before[1] : after?.[1] ?? before?.[1];
+        ? shape.match(new RegExp(`^(.+?)\\s*[x×]\\s*${escapeRegExp(catalog.name)}`, 'i'))
+        : shape.match(/^(.+?)\s*[x×]\s*.+/i);
+      const startsQuantity = value => /^[+-]?(?:[\d,.]|Infinity|NaN)/i.test(value || '');
+      const quantityFirst = before && startsQuantity(before[1]) && !startsQuantity(after?.[1]);
+      let quantityToken = quantityFirst ? before[1] : after?.[1];
       if (heading) {
         const prefix = after ? shape.slice(0, after.index + after[0].length - after[1].length) : '';
         if (quantityToken === undefined || !/[@=$]/.test(shape)
@@ -3027,8 +3029,12 @@
       if (quantityToken === undefined) {
         // Preserve supported compact namex2 rows while inspecting their full
         // original quantity rather than the parser's floored numeric prefix.
-        quantityToken = text.match(new RegExp(`${escapeRegExp(parsedItem.itemName)}\\s*[x×]\\s*([^\\s$@=|;:()]*)`, 'i'))?.[1];
+        quantityToken = text.match(new RegExp(`${escapeRegExp(parsedItem.itemName)}\\s*[x×]\\s*([^$@=]*)`, 'i'))?.[1];
       }
+      // Existing bare field separators remain supported, but only when
+      // consumed in full immediately before the price field (or row end).
+      quantityToken = quantityToken?.trim();
+      if (!quantityFirst) quantityToken = quantityToken?.replace(/\s*[|;:]$/, '').trim();
       const quantity = Number(quantityToken?.replace(/,/g, ''));
       if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(quantityToken || '')
         || !Number.isSafeInteger(quantity) || quantity <= 0 || !parsedItem
