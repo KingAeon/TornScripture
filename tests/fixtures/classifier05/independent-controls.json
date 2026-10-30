@@ -1,0 +1,318 @@
+[
+  {
+    "line": "Xenonx2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Xenon",
+    "operator": 5
+  },
+  {
+    "line": "2xXenon @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Xenon",
+    "operator": 1
+  },
+  {
+    "line": "Box7x2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7",
+    "operator": 4
+  },
+  {
+    "line": "2xBox7 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7",
+    "operator": 1
+  },
+  {
+    "line": "Xanaxx2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Xanax",
+    "operator": 5
+  },
+  {
+    "line": "2xXanax @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Xanax",
+    "operator": 1
+  },
+  {
+    "line": "Flux9 Itemx2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Flux9 Item",
+    "operator": 10
+  },
+  {
+    "line": "2xFlux9 Item @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Flux9 Item",
+    "operator": 1
+  },
+  {
+    "line": "🧪Xanaxx2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "🧪Xanax",
+    "operator": 7
+  },
+  {
+    "line": "2x🧪Xanax @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "🧪Xanax",
+    "operator": 1
+  },
+  {
+    "line": "Other Item x 0x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "0x2",
+    "fencedAt": 14
+  },
+  {
+    "line": "Other Item × 0x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "0x2",
+    "fencedAt": 14
+  },
+  {
+    "line": "Other Item x 0X2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "0X2"
+  },
+  {
+    "line": "Other Item × 0X2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "0X2"
+  },
+  {
+    "line": "Other Item x 0×2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "0×2",
+    "fencedAt": 14
+  },
+  {
+    "line": "Other Item × 0×2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "0×2",
+    "fencedAt": 14
+  },
+  {
+    "line": "Other Item x 1e3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "1e3"
+  },
+  {
+    "line": "Other Item × 1e3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "1e3"
+  },
+  {
+    "line": "Other Item x 2x3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2x3",
+    "fencedAt": 14
+  },
+  {
+    "line": "Other Item × 2x3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2x3",
+    "fencedAt": 14
+  },
+  {
+    "line": "Other Item x 2/1 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2/1"
+  },
+  {
+    "line": "Other Item × 2/1 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2/1"
+  },
+  {
+    "line": "Other Item x 2;garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2;garbage"
+  },
+  {
+    "line": "Other Item × 2;garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2;garbage"
+  },
+  {
+    "line": "Other Item x 2:garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2:garbage"
+  },
+  {
+    "line": "Other Item × 2:garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2:garbage"
+  },
+  {
+    "line": "Other Item x 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2(garbage)"
+  },
+  {
+    "line": "Other Item × 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "2(garbage)"
+  },
+  {
+    "line": "Other Item x 9007199254740993 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "9007199254740993"
+  },
+  {
+    "line": "Other Item × 9007199254740993 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "9007199254740993"
+  },
+  {
+    "line": "Other Item x -2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "-2"
+  },
+  {
+    "line": "Other Item × -2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "-2"
+  },
+  {
+    "line": "Other Item x + @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "+"
+  },
+  {
+    "line": "Other Item × + @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "+"
+  },
+  {
+    "line": "Other Item x - @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "-"
+  },
+  {
+    "line": "Other Item × - @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11,
+    "atom": "-"
+  },
+  {
+    "line": "Other Item x  @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11
+  },
+  {
+    "line": "Other Item ×  @ $1234 = $2468",
+    "expected": "REJECT",
+    "identity": "Other Item",
+    "operator": 11
+  },
+  {
+    "line": "+ × Other Item @ $1 = $2",
+    "expected": "REJECT"
+  },
+  {
+    "line": "- × Other Item @ $1 = $2",
+    "expected": "REJECT"
+  },
+  {
+    "line": "× Other Item @ $1 = $2",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2 = 2 × Other Item @ $1 = $2",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2 @ 2 × Other Item @ $1 = $2",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2; @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Other Item"
+  },
+  {
+    "line": "Other Item x2: @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Other Item"
+  },
+  {
+    "line": "Other Item x2 | @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Other Item"
+  },
+  {
+    "line": "Thanks x marks the shop; cash budget $Infinity is prose.",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Fixture Item x2 $0",
+    "expected": "VALID_ZERO_ONLY_OBSERVATION",
+    "identity": "Fixture Item"
+  },
+  {
+    "line": "Xanaxx2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Xanax",
+    "operator": 5
+  },
+  {
+    "line": "2 × Box7 Item @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7 Item",
+    "operator": 2
+  }
+]

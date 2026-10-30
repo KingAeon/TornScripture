@@ -3111,13 +3111,213 @@
     return clean;
   }
 
-  function priceItemsFromParsedReceipt(parsed) {
+  function sourceCompleteCertificate(raw,offset,candidate,earlier) {
+    const roles=[['identity',candidate.identitySpan],['operator',candidate.operatorSpan],['quantity',candidate.quantitySpan],['money-tail',candidate.fieldsSpan]];
+    roles.sort((a,b)=>a[1].start-b[1].start || a[1].end-b[1].end);
+    const parts=[],unsupported=[];let cursor=offset;
+    const span=(a,b)=>Object.freeze({start:a,end:b,raw:raw.slice(a-offset,b-offset)});
+    for(const [role,s]of roles){
+      if(s.start<cursor){unsupported.push({reason:'overlapping roles',span:s});continue;}
+      if(s.start>cursor){const gap=span(cursor,s.start),allowed=/^\s*$/.test(gap.raw)||cursor===offset&&/^[-•*\s]*$/.test(gap.raw);parts.push(Object.freeze({role:allowed?'trivia':'unexplained',span:gap}));if(!allowed)unsupported.push({reason:'meaningful source prefix or gap omitted',span:gap});}
+      parts.push(Object.freeze({role,span:s}));cursor=s.end;
+    }
+    if(cursor<offset+raw.length){const tail=span(cursor,offset+raw.length);parts.push(Object.freeze({role:'unexplained',span:tail}));unsupported.push({reason:'unexplained source suffix',span:tail});}
+    const previous=earlier.map(o=>Object.freeze({operatorSpan:o.operatorSpan,quantitySpan:o.quantitySpan,identitySpan:o.identitySpan,treatment:'retained credible earlier obligation; no erasure',relation:o.operatorSpan.start>=candidate.identitySpan.start&&o.operatorSpan.end<=candidate.identitySpan.end?'covered by rival identity but retained as material role conflict':'separate earlier source obligation retained'}));
+    const roleDefects=[];
+    if(!candidate.identitySpan.raw.trim())roleDefects.push('missing whole item identity');
+    if(!candidate.quantitySpan.raw.trim())roleDefects.push('missing whole quantity field');
+    if(!candidate.fieldsSpan.raw.trim())roleDefects.push('missing money tail');
+    if(candidate.earlyMoney)roleDefects.push('early monetary marker contradiction');
+    // complete describes SOURCE COVERAGE. Damaged empty fields remain visible as
+    // malformed obligations; coverage completeness is never numerical validity.
+    return Object.freeze({complete:unsupported.length===0,rowSpan:span(offset,offset+raw.length),parts:Object.freeze(parts),unsupported:Object.freeze(unsupported),roleDefects:Object.freeze(roleDefects),earlierRoleTreatment:Object.freeze(previous)});
+  }
+
+  function receiptRoleObligations(rawText, catalogItems = []) {
+    const result = [];
+    const quantityShape = s => !s || /^[+-]?$/.test(s) || /^[+-]?(?:[\d,.]|Infinity|NaN)/i.test(s);
+    const identityShape = s => /\p{L}/u.test(s) && !/[@=$]/.test(s);
+    const wholeIdentity = s => identityShape(s) && !/^[+\-\d.,]/.test(s);
+    const exact = s => catalogItems.find(i => normalizeName(i.name) === normalizeName(s));
+    let origin = 0;
+    for (const [lineIndex, fragment] of String(rawText).split('\n').entries()) {
+      const raw = fragment.replace(/\r$/, ''), offset = origin; origin += fragment.length + 1;
+      const span = (a,b) => Object.freeze({start:offset+a,end:offset+b,raw:raw.slice(a,b)});
+      const trimmed = (a,b) => { const s=raw.slice(a,b);return span(a+s.length-s.trimStart().length,Math.max(a+s.length-s.trimStart().length,a+s.trimEnd().length)); };
+      const inventory = Object.freeze([...raw.matchAll(/[\s\S]/gu)].map(m=>Object.freeze({token:m[0],span:span(m.index,m.index+m[0].length)})));
+      const obligations=[], rejectedAlternatives=[], literalTokens=[], eligibility=[];
+      // Quoted examples and links cannot supply whole original row anchors.
+      const shape = raw.replace(/"[^"]*"|“[^”]*”/g,s=>' '.repeat(s.length));
+      const isLink = /^(?:https?:\/\/|www\.)/i.test(raw.trim());
+      for (const glyph of inventory.filter(t=>/[x×]/i.test(t.token))) {
+        const op=glyph.span.start-offset, prev=shape[op-1]||'', next=shape[op+1]||'';
+        const rightText=shape.slice(op+1), marker=rightText.search(/[@=$]/);
+        const end=marker<0?raw.length:op+1+marker;
+        const left=shape.slice(0,op).trim(),right=shape.slice(op+1,end).trim();
+        const reject = (reason, extra={}) => {const row=Object.freeze({operatorSpan:glyph.span,eligible:false,reason,...extra});eligibility.push(row);literalTokens.push(Object.freeze({...glyph,reason}));};
+        if (glyph.token === 'X') {reject('uppercase X inventoried but not a multiplication operator');continue;}
+        if (isLink || !/[x×]/.test(shape[op])) {reject(isLink?'link lacks whole row anchor':'quoted source lacks whole row anchor');continue;}
+        const fence=obligations.find(o=>o.orientation==='name-first'&&glyph.span.start>=o.quantitySpan.start&&glyph.span.end<=o.quantitySpan.end);
+        if(fence){const alt=Object.freeze({operatorSpan:glyph.span,identitySpan:trimmed(0,op),quantitySpan:trimmed(op+1,end),rejected:true,reason:'inside conserved quantity fence',conservedOperator:fence.operatorSpan,exactAlternative:exact(raw.slice(0,op).trim())?.name||null});rejectedAlternatives.push(alt);eligibility.push(Object.freeze({operatorSpan:glyph.span,eligible:false,reason:alt.reason,conservedOperator:fence.operatorSpan}));continue;}
+        const owned=obligations.find(o=>o.orientation==='quantity-first'&&glyph.span.start>=o.identitySpan.start&&glyph.span.end<=o.identitySpan.end);
+        const separated=/\s/.test(prev), realFields=/[@=]/.test(shape.slice(end));
+        const compactTail=/^[+-]?(?:\d[\d,.]*|Infinity|NaN)(?:\s*[|;:])?$/i.test(right);
+        const internal=/\p{L}/u.test(prev)&&/\p{L}/u.test(next);
+        const add=(orientation,idStart,idEnd,qStart,qEnd,reason)=>{
+          let identitySpan=trimmed(idStart,idEnd);const decoration=identitySpan.raw.match(/^[-•*\s]+/);
+          if(decoration)identitySpan=span(identitySpan.start-offset+decoration[0].length,identitySpan.end-offset);
+          const itemName=normalizeWhitespace(identitySpan.raw),catalog=exact(itemName);
+          const o=Object.freeze({orientation,identitySpan,itemName,normalizedName:normalizeName(itemName),catalogId:catalog?.id||null,operatorSpan:glyph.span,quantitySpan:trimmed(qStart,qEnd),fieldsSpan:span(end,raw.length),earlyMoney:/[@=$]/.test(shape.slice(0,op))});
+          const certificate=sourceCompleteCertificate(raw,offset,o,obligations);
+          if(!certificate.complete){rejectedAlternatives.push(Object.freeze({...o,rejected:true,reason:'candidate lacks complete source coverage',certificate}));reject('candidate lacks complete source coverage',{certificate});return;}
+          const certified=Object.freeze({...o,certificate});obligations.push(certified);eligibility.push(Object.freeze({operatorSpan:glyph.span,eligible:true,orientation,reason,identitySpan:o.identitySpan,quantitySpan:o.quantitySpan}));
+        };
+        if(owned){
+          // Whole remaining name ownership makes interior/word-ending x literal.
+          // A separately anchored terminal quantity suffix remains a competing
+          // row role, rather than silently disappearing into the name.
+          const ownedPrefix=shape.slice(owned.identitySpan.start-offset,op).trim();
+          const independentlyBounded = separated || Boolean(exact(shape.slice(0,op).trim()));
+          const rivalAtom = compactTail || separated && (quantityShape(right) || !/\s/.test(right) && realFields);
+          if(wholeIdentity(ownedPrefix)&&rivalAtom&&!internal&&independentlyBounded){
+            // A genuine separated or independently exact full-name alternative
+            // accounts for source position zero and retains the earlier role.
+            add('name-first',0,op,op+1,end,'independent complete-source competing role; earlier edge role retained');
+          }else {
+            if(wholeIdentity(ownedPrefix)&&compactTail&&!internal){
+              const fragment={orientation:'name-first',identitySpan:trimmed(owned.identitySpan.start-offset,op),operatorSpan:glyph.span,quantitySpan:trimmed(op+1,end),fieldsSpan:span(end,raw.length)};
+              rejectedAlternatives.push(Object.freeze({...fragment,rejected:true,reason:'substring-only internal candidate lacks independent whole-source identity',omittedPrefixSpan:span(0,owned.identitySpan.start-offset),certificate:sourceCompleteCertificate(raw,offset,fragment,obligations)}));
+            }
+            reject('literal in owned whole quantity-first item identity; no independent complete-source rival',{owner:owned.identitySpan});
+          }
+          continue;
+        }
+        let admitted=false;
+        // A separated operator plus a real monetary tail establishes the whole
+      // quantity field even when that field contains unsupported word tokens.
+      const scalarRight=quantityShape(right)||realFields&&(separated||! /\s/.test(right));
+        const nameEdge=separated||compactTail||glyph.token==='×'&&!internal;
+        // No valid-integer prerequisite for separator-bounded damaged quantities.
+        if(identityShape(left)&&nameEdge&&scalarRight&&(!internal||compactTail)){
+          add('name-first',0,op,op+1,end,'complete name-side boundary and whole quantity-side atom');admitted=true;
+        }
+        const bareEdge=!left&&(glyph.token==='×'||/\s/.test(next));
+        const leadingField=quantityShape(left)&&left!==''||bareEdge||left!==''&&! /\s/.test(left)&&realFields&&!identityShape(left);
+        // A whole-leading field can be damaged, but must not include a name
+        // already owned by a prior operator. Names start at the next whole span.
+        if((wholeIdentity(right)||marker>=0&&!right)&&leadingField&&(!internal||quantityShape(left)&&!/[x×]/i.test(left))){
+          add('quantity-first',op+1,end,0,op,'whole original leading quantity-side field');admitted=true;
+        }
+        if(!admitted)reject(internal?'literal internal name glyph; no terminal quantity boundary':'no independently anchored complete row skeleton');
+      }
+      // Every marker is retained even when it precedes the selected field tail.
+      const markerCoverage=Object.freeze(inventory.filter(t=>/[@=$]/.test(t.token)).map(t=>Object.freeze({...t,accounts:Object.freeze(obligations.map((o,i)=>({obligation:i,role:t.span.start>=o.fieldsSpan.start?'monetary-tail':'unexplained-early-marker'})))})));
+      result.push(Object.freeze({lineNumber:lineIndex+1,raw,span:span(0,raw.length),inventory,obligations:Object.freeze(obligations),rejectedAlternatives:Object.freeze(rejectedAlternatives),literalTokens:Object.freeze(literalTokens),eligibility:Object.freeze(eligibility),markerCoverage}));
+    }
+    return Object.freeze(result);
+  }
+
+    function validateReceiptObligations(lines) {
+      return Object.freeze(lines.map(line => {
+        if (!line.obligations.length) return Object.freeze({ ...line, category: 'NON_ITEM', reason: 'no anchored row obligation' });
+        if (line.rejectedAlternatives.some(a => a.exactAlternative)) return Object.freeze({ ...line, category: 'REVIEW_REQUIRED', reason: 'exact catalog alternative conflicts with conserved quantity fence' });
+        if (line.obligations.length !== 1) return Object.freeze({ ...line, category: 'REVIEW_REQUIRED', reason: 'undischarged competing obligations' });
+        const o = line.obligations[0], origin = line.span.start, amounts = [];
+        let token = o.quantitySpan.raw;
+        if (o.orientation === 'name-first') token = token.replace(/\s*[|;:]$/, '').trim();
+        const quantity = Number(token.replace(/,/g, ''));
+        let valid = /\p{L}/u.test(o.itemName) && !o.earlyMoney && /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(token)
+          && Number.isSafeInteger(quantity) && quantity > 0 && o.fieldsSpan.raw.trim() !== '';
+        const amount = (a, b, role) => {
+          const raw = line.raw.slice(a, b), lexeme = raw.trim().replace(/[)\]}!?]+$/g, '').trim();
+          const value = Number(lexeme.replace(/^\$\s*/, '').replace(/,/g, ''));
+          if (!/^\$?\s*(?:(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?|\.\d+)$/.test(lexeme)
+            || !Number.isFinite(value) || value < 0 || role === 'unit' && !Number.isFinite(value * quantity)) valid = false;
+          amounts.push(Object.freeze({ role, value, currency: lexeme.startsWith('$'), span: Object.freeze({ start: origin + a, end: origin + b, raw }) }));
+        };
+        const start = o.fieldsSpan.start - origin, fields = [...o.fieldsSpan.raw.matchAll(/([@=])([^@=]*)/g)];
+        if (fields.length) {
+          if (line.raw[start] !== fields[0][1] || fields.length > 2
+            || fields.length === 2 && (fields[0][1] !== '@' || fields[1][1] !== '=')) valid = false;
+          for (const field of fields) {
+            const a = start + field.index + 1, b = a + field[2].length, total = field[2].match(/^(.*?)\s*\(\s*total\s+(.+)\)\s*$/i);
+            if (total) {
+              if (field[1] !== '@' || fields.length !== 1) valid = false;
+              const open = line.raw.indexOf('(', a), label = line.raw.slice(open, b).match(/total\s+/i);
+              amount(a, open, 'unit'); amount(open + label.index + label[0].length, line.raw.lastIndexOf(')', b - 1), 'total');
+            } else amount(a, b, field[1] === '@' ? 'unit' : 'total');
+          }
+        } else {
+          const dollars = [...o.fieldsSpan.raw.matchAll(/\$/g)];
+          if (!dollars.length || dollars.length > 2) valid = false;
+          for (let i = 0; i < dollars.length; i += 1) amount(start + dollars[i].index,
+            i + 1 < dollars.length ? start + dollars[i + 1].index : line.raw.length,
+            dollars.length === 2 && i === 0 ? 'unit' : 'total');
+        }
+        if (!amounts.some(a => a.currency) || fields.length && amounts.some(a => a.value === 0)
+          || amounts.some(a => a.value === 0) && amounts.some(a => a.value > 0)) valid = false;
+        return Object.freeze({ ...line, category: !valid ? 'MALFORMED_ITEM' : amounts.every(a => a.value === 0) ? 'VALID_ZERO_ONLY_OBSERVATION' : 'VALID_POSITIVE_ITEM',
+          reason: valid ? 'all obligations discharged in full' : 'unsupported complete original field', itemName: o.itemName, normalizedName: o.normalizedName,
+          catalogId: o.catalogId, quantity, amounts: Object.freeze(amounts) });
+      }));
+    }
+
+    function reconcileReceiptObligations(rows, parsedItems, parseLine) {
+      const invalid = () => { throw new Error('Not captured: invalid price. Keep the source text and armed capture; correct the price evidence and retry.'); };
+      if (rows.some(r => !['NON_ITEM', 'VALID_POSITIVE_ITEM', 'VALID_ZERO_ONLY_OBSERVATION'].includes(r.category))) return invalid();
+      const positive = rows.some(r => r.category === 'VALID_POSITIVE_ITEM'), zero = rows.some(r => r.category === 'VALID_ZERO_ONLY_OBSERVATION');
+      if (positive && zero) return invalid();
+      const projected = [], seen = new Map();
+      for (const row of rows) {
+        if (row.category === 'NON_ITEM') continue;
+        const item = parseLine(row.raw);
+        // Original financial projection is currency-token based, including its
+        // one-currency total fallback. Compare raw validated amounts explicitly;
+        // do not reinterpret prefixless fields or change historical semantics.
+        const currencyAmounts = row.amounts.filter(a => a.currency);
+        const rawTotal = currencyAmounts.at(-1)?.value;
+        const rawUnit = currencyAmounts.length >= 2 ? currencyAmounts[0].value : rawTotal / row.quantity;
+        if (!item || item.normalizedName !== row.normalizedName || item.itemId !== row.catalogId || item.quantity !== row.quantity
+          || item.unitPrice !== rawUnit || item.totalValue !== rawTotal
+          || !Number.isFinite(item.unitPrice) || !Number.isFinite(item.totalValue) || !Number.isFinite(item.unitPrice * item.quantity)
+          || positive && (item.unitPrice <= 0 || item.totalValue <= 0) || zero && (item.unitPrice !== 0 || item.totalValue !== 0)) return invalid();
+        const key = `${item.normalizedName}:${item.quantity}:${Math.round(item.totalValue)}`;
+        const evidence = JSON.stringify([item.itemId, item.normalizedName, item.quantity, item.unitPrice, item.totalValue,
+          row.amounts.map(a => [a.role, a.currency, a.value])]);
+        if (seen.has(key)) { if (seen.get(key) !== evidence) return invalid(); }
+        else { seen.set(key, evidence); projected.push(item); }
+      }
+      const facts = item => [item.itemId, item.itemName, item.normalizedName, item.quantity, item.unitPrice, item.totalValue];
+      if (JSON.stringify(projected.map(facts)) !== JSON.stringify((parsedItems || []).map(facts))) return invalid();
+      return Object.freeze({ outcome: positive ? 'PRICE_CAPTURE' : zero ? 'UNSUCCESSFUL_ZERO_CHECK' : 'NO_ITEM', items: Object.freeze(projected) });
+    }
+
+  // Deliberate text admission is independent of the legacy financial projection.
+  // Decisions and source certificates are ephemeral; R8 linking stays unchanged.
+  function admitTraderReceiptText(rawText, parsed, catalogItems = []) {
+    let rows = [];
+    try {
+      rows = validateReceiptObligations(receiptRoleObligations(rawText, catalogItems));
+      if (rows.some(row => ['VALID_POSITIVE_ITEM', 'VALID_ZERO_ONLY_OBSERVATION'].includes(row.category))
+        && parsed?.sourceFormat !== 'text') throw new Error('Not captured: invalid price. Source-format reconciliation mismatch.');
+      const result = reconcileReceiptObligations(rows, parsed?.items || [],
+        line => parseReceiptInput(line).items[0] || null);
+      return Object.freeze({ ...result, rows });
+    } catch (error) {
+      return Object.freeze({ outcome: 'REJECT', rows,
+        error: error?.message || 'Not captured: invalid price. Keep the source text and armed capture.' });
+    }
+  }
+
+  function priceItemsFromParsedReceipt(parsed, { receiptTextAdmission = null } = {}) {
+    if (receiptTextAdmission?.outcome === 'REJECT') throw new Error(receiptTextAdmission.error);
+
     // Reuse the receipt selector, opting into its original raw array only for
     // price admission. Financial receipt parsing keeps its existing behavior.
     const items = parsed?.sourceFormat === 'json'
       ? findReceiptItemsArray(JSON.parse(parsed.rawText), true) : parsed?.items || [];
     return prepareTraderCapturePriceItems(items, { receipt: true, expectedCount: parsed?.items?.length || 0,
-      rawText: parsed?.sourceFormat === 'json' ? '' : parsed?.rawText || '' });
+      rawText: parsed?.sourceFormat === 'json' || receiptTextAdmission ? '' : parsed?.rawText || '' });
   }
 
   function pageTextWithoutImmUi() {
@@ -3411,6 +3611,8 @@
     }
     const rawText = String(input?.value ?? draft?.rawText ?? '');
     const parsed = parseReceiptInput(rawText);
+    const receiptTextAdmission = parsed.sourceFormat === 'json' ? null
+      : admitTraderReceiptText(rawText, parsed, Object.values(state.catalog?.itemsById || {}));
     draft.rawText = rawText;
     state.receiptAuditRecoveryDraft = draft;
     const operation = { draft, revision: state.pendingTraderCaptureRevision };
@@ -3436,7 +3638,7 @@
       saveLedger();
       linked = true;
       pendingBytes = localStorage.getItem(APP.pendingTraderCaptureStorageKey);
-      const items = priceItemsFromParsedReceipt(parsed);
+      const items = priceItemsFromParsedReceipt(parsed, { receiptTextAdmission });
       const url = parsed.receiptUrl || sale.receiptAudit?.receiptUrl || sale.saleUrl || location.href;
       renderReceiptAudit();
       renderLedger();
@@ -16297,6 +16499,8 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       normalizeTraders,
       normalizeReceiptAudit,
       parseReceiptInput,
+      sourceCompleteCertificate, receiptRoleObligations, validateReceiptObligations,
+      reconcileReceiptObligations, admitTraderReceiptText,
       buildReceiptAudit,
       npcBuybackFor,
       capturedPriceChangeCount,
