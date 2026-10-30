@@ -1,0 +1,306 @@
+{
+  "version": "RC3-POLICY-01",
+  "originalFixtureSHA256": "3b53a77e6ff12556235a0130b629e3f34ca0018c21ef65741677ba0992a90e48",
+  "cases": [
+    {
+      "index": 40,
+      "mode": "unknown",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "3d184ac974ba0183ef1c10071f8efff477c17e33ba6a93b37d6c6d0990a8cb31",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 41,
+      "mode": "unknown",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "567d7d6a315be228bfa479140542c217a71729d0c695088113f1af3aa0b5f637",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 42,
+      "mode": "unknown",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "8f60ed9c9ce6333b5e7f1d4cd31eb9772ef2bea7ecfd36066bcda5e959a70cd3",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 43,
+      "mode": "unknown",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "2afbfd3fc67912d7f96f3971990b3bdb1cb7872f059063c5554810a8197e6bbc",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 44,
+      "mode": "unknown",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "63ac2ae52ca824de83f5a806f7af461271ec1680cc3656ef7bf31244b95dd8ba",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 45,
+      "mode": "unknown",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "305b72e128a40111d376e1801c5078f1d899fb8bc31d2decb864750194447db1",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 46,
+      "mode": "unknown",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "78296a9b72664145e2e54bc62edc8ea0d0c8a2e54de231f496d933c448a912e9",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 47,
+      "mode": "unknown",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "646eadb1de8a8f79bceeb0da12a2cea360882ba076c65a4229ab9ae22ee09e6c",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 82,
+      "mode": "unknown",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "65b49dd476bcdeea9628bff85e2cb7b7ddccfea91f82b71cde614e01bf8f62fb",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 83,
+      "mode": "unknown",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "c72f3f97cc6ecfb110eab1afa769180704877e6fd1eaea064702dc8db67befa7",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 40,
+      "mode": "catalog",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "3d184ac974ba0183ef1c10071f8efff477c17e33ba6a93b37d6c6d0990a8cb31",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 41,
+      "mode": "catalog",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "567d7d6a315be228bfa479140542c217a71729d0c695088113f1af3aa0b5f637",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 42,
+      "mode": "catalog",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "8f60ed9c9ce6333b5e7f1d4cd31eb9772ef2bea7ecfd36066bcda5e959a70cd3",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 43,
+      "mode": "catalog",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "2afbfd3fc67912d7f96f3971990b3bdb1cb7872f059063c5554810a8197e6bbc",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 44,
+      "mode": "catalog",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "63ac2ae52ca824de83f5a806f7af461271ec1680cc3656ef7bf31244b95dd8ba",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 45,
+      "mode": "catalog",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "305b72e128a40111d376e1801c5078f1d899fb8bc31d2decb864750194447db1",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 46,
+      "mode": "catalog",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "78296a9b72664145e2e54bc62edc8ea0d0c8a2e54de231f496d933c448a912e9",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 47,
+      "mode": "catalog",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "646eadb1de8a8f79bceeb0da12a2cea360882ba076c65a4229ab9ae22ee09e6c",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 82,
+      "mode": "catalog",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "65b49dd476bcdeea9628bff85e2cb7b7ddccfea91f82b71cde614e01bf8f62fb",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 83,
+      "mode": "catalog",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "c72f3f97cc6ecfb110eab1afa769180704877e6fd1eaea064702dc8db67befa7",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 40,
+      "mode": "exact-conflict",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "3d184ac974ba0183ef1c10071f8efff477c17e33ba6a93b37d6c6d0990a8cb31",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 41,
+      "mode": "exact-conflict",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "567d7d6a315be228bfa479140542c217a71729d0c695088113f1af3aa0b5f637",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 42,
+      "mode": "exact-conflict",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "8f60ed9c9ce6333b5e7f1d4cd31eb9772ef2bea7ecfd36066bcda5e959a70cd3",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 43,
+      "mode": "exact-conflict",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "2afbfd3fc67912d7f96f3971990b3bdb1cb7872f059063c5554810a8197e6bbc",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 44,
+      "mode": "exact-conflict",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "63ac2ae52ca824de83f5a806f7af461271ec1680cc3656ef7bf31244b95dd8ba",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 45,
+      "mode": "exact-conflict",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "305b72e128a40111d376e1801c5078f1d899fb8bc31d2decb864750194447db1",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 46,
+      "mode": "exact-conflict",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "78296a9b72664145e2e54bc62edc8ea0d0c8a2e54de231f496d933c448a912e9",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 47,
+      "mode": "exact-conflict",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "646eadb1de8a8f79bceeb0da12a2cea360882ba076c65a4229ab9ae22ee09e6c",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 82,
+      "mode": "exact-conflict",
+      "order": "good-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "65b49dd476bcdeea9628bff85e2cb7b7ddccfea91f82b71cde614e01bf8f62fb",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    },
+    {
+      "index": 83,
+      "mode": "exact-conflict",
+      "order": "bad-first",
+      "originalExpected": "PRICE_CAPTURE",
+      "rc3Expected": "REJECT",
+      "sourceSHA256": "c72f3f97cc6ecfb110eab1afa769180704877e6fd1eaea064702dc8db67befa7",
+      "reason": "RC3-POLICY-01: raw Box7 Item qty2 is structurally valid; unchanged legacy projection disagrees on whole identity and quantity7; atomic receipt rejection",
+      "authority": "https://github.com/KingAeon/TornScripture/pull/139#issuecomment-6500180220"
+    }
+  ]
+}

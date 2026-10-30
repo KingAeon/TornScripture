@@ -437,19 +437,20 @@
   }
 
   function rawTraderRecords() {
-    const raw = readJson(APP.tradersKey, []);
-    return {
-      shape: Array.isArray(raw) ? 'array' : 'object',
-      root: raw,
-      records: Array.isArray(raw) ? raw : Array.isArray(raw?.traders) ? raw.traders : [],
-    };
+    try {
+      const bytes = localStorage.getItem(APP.tradersKey);
+      const raw = bytes === null ? [] : JSON.parse(bytes);
+      const records = Array.isArray(raw) ? raw : raw?.traders;
+      if (!Array.isArray(records)) return null;
+      return { bytes, shape: Array.isArray(raw) ? 'array' : 'object', root: raw, records };
+    } catch { return null; }
   }
 
-  function saveRawTraderRecords(snapshot, records) {
-    if (snapshot.shape === 'object') {
-      return writeJson(APP.tradersKey, { ...snapshot.root, traders: records });
-    }
-    return writeJson(APP.tradersKey, records);
+  async function saveRawTraderRecords(snapshot, records, operation, expectedAfter = '') {
+    const writer = window.__TSIMM_WATCHLIST_API__?.saveTraderBookSnapshot;
+    if (!snapshot || typeof writer !== 'function') return { ok: false, error: 'The reviewed IMM core is required for coordinated Trader Book changes. Reload matching versions before retrying.' };
+    try { return await writer(snapshot.bytes, records, { operation, expectedAfter }); }
+    catch { return { ok: false, error: 'Trader Book write outcome is unresolved. Preserve/export data and reconcile storage before retrying.' }; }
   }
 
   function pricePayload(record) {
@@ -479,6 +480,8 @@
     next.pricePageCaptureCount = 0;
     next.pricePageLastChangedCount = 0;
     next.pricePageLastResult = '';
+    next.pricePageLastOutcome = 'disconnected';
+    next.pricePageLastReason = 'Pricelist deliberately disconnected; historical proof kept with this trader.';
     next.updatedAt = new Date().toISOString();
     delete next.pricingPageUrl;
     delete next.receiptPageUrl;
@@ -499,25 +502,34 @@
     next.pricePageCaptureCount = payload.pricePageCaptureCount;
     next.pricePageLastChangedCount = payload.pricePageLastChangedCount;
     next.pricePageLastResult = payload.pricePageLastResult;
+    next.pricePageLastOutcome = 'reassigned_unverified';
+    next.pricePageLastReason = 'Moved historical prices; explicitly recapture the actual trader before using them as a current quote.';
     next.updatedAt = new Date().toISOString();
     return next;
   }
 
   function rawRecordMatches(record, trader) {
     const normalized = normalizeTrader(record);
-    return Boolean(normalized && (
-      normalized.id === trader.id
-      || (normalized.userId && trader.userId && Number(normalized.userId) === Number(trader.userId))
-      || normalized.normalizedName === trader.normalizedName
-    ));
+    return Boolean(normalized && normalized.id === trader.id && normalized.userId === trader.userId);
   }
 
-  function storeLinkBackup(snapshot) {
-    writeJson(APP.linkBackupKey, {
+  function storeLinkBackup(snapshot, expectedAfter) {
+    if (typeof expectedAfter !== 'string' || !expectedAfter) {
+      alert('Pricelist change was saved, but the core returned no verified Undo state. Use the matching reviewed scripts and export the current book.');
+      return false;
+    }
+    const backup = {
       savedAt: new Date().toISOString(),
       shape: snapshot.shape,
       root: snapshot.root,
-    });
+      expectedAfter,
+    };
+    const encoded = JSON.stringify(backup);
+    try {
+      localStorage.setItem(APP.linkBackupKey, encoded);
+      if (localStorage.getItem(APP.linkBackupKey) !== encoded) throw new Error('Backup readback failed');
+      return true;
+    } catch { alert('Pricelist change was saved, but its Undo backup could not be verified. Export the current book; no Undo is promised.'); return false; }
   }
 
   function rebuildAfterLinkChange() {
@@ -528,7 +540,7 @@
     location.reload();
   }
 
-  function disconnectActivePricelist() {
+  async function disconnectActivePricelist() {
     refreshData(true);
     const trader = traders.find((entry) => entry.id === activeTraderId);
     if (!trader) return;
@@ -539,19 +551,22 @@
     if (!confirmed) return;
 
     const snapshot = rawTraderRecords();
-    const index = snapshot.records.findIndex((record) => rawRecordMatches(record, trader));
-    if (index < 0) return;
-    storeLinkBackup(snapshot);
+    if (!snapshot) { alert('Trader Book is unreadable; no change was made.'); return; }
+    const matches = snapshot.records.map((record, index) => rawRecordMatches(record, trader) ? index : -1).filter(index => index >= 0);
+    if (matches.length !== 1) { alert('Trader identity is ambiguous; no pricelist change was made.'); return; }
+    const index = matches[0];
     const records = [...snapshot.records];
     records[index] = clearPriceConnection(records[index]);
-    if (!saveRawTraderRecords(snapshot, records)) {
-      alert('IMM could not update local trader storage. No data was changed.');
+    const result = await saveRawTraderRecords(snapshot, records, 'disconnect');
+    if (!result.ok) {
+      alert(result.error || 'IMM could not confirm the trader update.');
       return;
     }
+    storeLinkBackup(snapshot, result.storedBytes);
     rebuildAfterLinkChange();
   }
 
-  function moveActivePricelist() {
+  async function moveActivePricelist() {
     refreshData(true);
     const source = traders.find((entry) => entry.id === activeTraderId);
     const targetId = clean(document.querySelector(`#${APP.overlayId} [data-td-move-target]`)?.value);
@@ -567,11 +582,11 @@
     if (!confirmed) return;
 
     const snapshot = rawTraderRecords();
-    const sourceIndex = snapshot.records.findIndex((record) => rawRecordMatches(record, source));
-    const targetIndex = snapshot.records.findIndex((record) => rawRecordMatches(record, target));
-    if (sourceIndex < 0 || targetIndex < 0) return;
-
-    storeLinkBackup(snapshot);
+    if (!snapshot) { alert('Trader Book is unreadable; no change was made.'); return; }
+    const sourceMatches = snapshot.records.map((record, index) => rawRecordMatches(record, source) ? index : -1).filter(index => index >= 0);
+    const targetMatches = snapshot.records.map((record, index) => rawRecordMatches(record, target) ? index : -1).filter(index => index >= 0);
+    if (sourceMatches.length !== 1 || targetMatches.length !== 1) { alert('Trader identity is ambiguous; no pricelist change was made.'); return; }
+    const sourceIndex = sourceMatches[0], targetIndex = targetMatches[0];
     const records = [...snapshot.records];
     const payload = pricePayload(records[sourceIndex]);
     const targetPreviousUrl = clean(records[targetIndex]?.pricePageUrl ?? records[targetIndex]?.pricingPageUrl);
@@ -579,19 +594,24 @@
     records[sourceIndex] = clearPriceConnection(records[sourceIndex]);
     records[targetIndex] = applyPricePayload(records[targetIndex], payload);
 
-    if (!saveRawTraderRecords(snapshot, records)) {
-      alert('IMM could not update local trader storage. No data was changed.');
+    const result = await saveRawTraderRecords(snapshot, records, 'move');
+    if (!result.ok) {
+      alert(result.error || 'IMM could not confirm the trader update.');
       return;
     }
+    storeLinkBackup(snapshot, result.storedBytes);
     rebuildAfterLinkChange();
   }
 
-  function undoLastLinkChange() {
+  async function undoLastLinkChange() {
     const backup = readJson(APP.linkBackupKey, null);
     if (!backup?.root) return;
     if (!confirm('Undo the most recent pricelist move or disconnect?')) return;
-    if (!writeJson(APP.tradersKey, backup.root)) {
-      alert('IMM could not restore the trader backup.');
+    const snapshot = rawTraderRecords();
+    const records = Array.isArray(backup.root) ? backup.root : backup.root?.traders;
+    const result = await saveRawTraderRecords(snapshot, records, 'undo', backup.expectedAfter);
+    if (!result.ok) {
+      alert(result.error || 'IMM could not confirm the trader backup restore.');
       return;
     }
     try {
@@ -773,7 +793,7 @@
     if (bound) return;
     bound = true;
 
-    document.addEventListener('click', (event) => {
+    document.addEventListener('click', async (event) => {
       const opener = event.target.closest('[data-tsimm-deals-open]');
       if (opener) {
         openReport(opener.dataset.tsimmTraderId);
@@ -828,9 +848,9 @@
         ui.limit += 200;
         persistUi();
         renderReport();
-      } else if (action === 'disconnect') disconnectActivePricelist();
-      else if (action === 'move') moveActivePricelist();
-      else if (action === 'undo') undoLastLinkChange();
+      } else if (action === 'disconnect') await disconnectActivePricelist();
+      else if (action === 'move') await moveActivePricelist();
+      else if (action === 'undo') await undoLastLinkChange();
     }, true);
 
     document.addEventListener('change', (event) => {
