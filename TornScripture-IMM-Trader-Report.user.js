@@ -343,13 +343,13 @@
     try {
       refreshData();
       for (const card of book.querySelectorAll('.tsimm-trader-card')) {
-        for (const legacyButton of card.querySelectorAll('[data-tsimm-deals-trader]')) legacyButton.remove();
         const trader = traderForCard(card);
         let button = card.querySelector('[data-tsimm-deals-open]');
         if (!trader?.items?.length) {
           button?.remove();
           continue;
         }
+        for (const legacyButton of card.querySelectorAll('[data-tsimm-deals-trader]')) legacyButton.remove();
         const actions = card.querySelector('.tsimm-trader-actions') || card;
         const edit = actions.querySelector('[data-tsimm-action="trader-edit"]');
         if (!button) {

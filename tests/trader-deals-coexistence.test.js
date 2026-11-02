@@ -13,15 +13,16 @@ const trader = {
   pricePageItems: [{ itemId: 10, itemName: 'Test Item', unitPrice: 100 }],
 };
 
-function createEnvironment(scripts, extraStorage = []) {
+function createEnvironment(scripts, extraStorage = [], options = {}) {
   const elementsById = new Map();
   const listeners = new Map();
   const observers = [];
   const timers = new Map();
   const intervals = [];
   const errors = [];
+  const savedTrader = options.trader || trader;
   const storage = new Map([
-    ['tornscripture-imm-traders-v1', JSON.stringify([trader])],
+    ['tornscripture-imm-traders-v1', JSON.stringify([savedTrader])],
     ['tornscripture-imm-catalog-v1', '{}'],
     ['tornscripture-ish-torn-catalog-v1', '{}'],
     ['tornscripture-imm-ledger-v1', '{}'],
@@ -145,15 +146,17 @@ function createEnvironment(scripts, extraStorage = []) {
   function makeCard() {
     const card = document.createElement('article');
     card.className = 'tsimm-trader-card';
-    const identity = document.createElement('span');
-    identity.dataset.tsimmTraderId = trader.recordId;
-    card.appendChild(identity);
+    if (!options.reportCannotResolve) {
+      const identity = document.createElement('span');
+      identity.dataset.tsimmTraderId = savedTrader.recordId;
+      card.appendChild(identity);
+    }
     const actions = document.createElement('div');
     actions.className = 'tsimm-trader-actions';
     card.appendChild(actions);
     const edit = document.createElement('button');
     edit.dataset.tsimmAction = 'trader-edit';
-    edit.dataset.tsimmTraderId = trader.recordId;
+    edit.dataset.tsimmTraderId = options.cardTraderId || savedTrader.recordId;
     actions.appendChild(edit);
     return card;
   }
@@ -299,6 +302,32 @@ for (const order of [['report', 'legacy'], ['legacy', 'report']]) {
     assertReportOwnership();
   });
 }
+
+test('Report preserves the eligible legacy fallback when its trader lookup fails, in either observer order', () => {
+  const fallbackTrader = {
+    name: 'Trader One',
+    userId: 101,
+    pricePageItems: [{ itemId: 10, itemName: 'Test Item', unitPrice: 100 }],
+  };
+  for (const scriptOrder of [['report', 'legacy'], ['legacy', 'report']]) {
+    const env = createEnvironment(scriptOrder, [], {
+      trader: fallbackTrader,
+      reportCannotResolve: true,
+      cardTraderId: 'trader-trader one',
+    });
+    const legacyButton = env.book.querySelector('[data-tsimm-deals-trader]');
+    assert.ok(legacyButton, `${scriptOrder.join(' then ')} should retain the legacy button`);
+    assert.equal(buttonCount(env.book, '[data-tsimm-deals-open]'), 0);
+
+    for (const observer of [...env.observers].reverse()) observer.callback([], observer);
+    env.flushTimers();
+
+    assert.equal(env.book.querySelector('[data-tsimm-deals-trader]'), legacyButton);
+    assert.equal(buttonCount(env.book, '[data-tsimm-deals-trader]'), 1);
+    assert.equal(buttonCount(env.book, '[data-tsimm-deals-open]'), 0);
+    assert.deepEqual(env.errors, []);
+  }
+});
 
 test('the two installable scripts have distinct userscript-manager identities', () => {
   assert.notEqual(metadataName(reportSource), metadataName(legacySource));
