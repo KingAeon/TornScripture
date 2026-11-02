@@ -13,7 +13,7 @@ const trader = {
   pricePageItems: [{ itemId: 10, itemName: 'Test Item', unitPrice: 100 }],
 };
 
-function createEnvironment(scripts) {
+function createEnvironment(scripts, extraStorage = []) {
   const elementsById = new Map();
   const listeners = new Map();
   const observers = [];
@@ -25,6 +25,7 @@ function createEnvironment(scripts) {
     ['tornscripture-imm-catalog-v1', '{}'],
     ['tornscripture-ish-torn-catalog-v1', '{}'],
     ['tornscripture-imm-ledger-v1', '{}'],
+    ...extraStorage,
   ]);
   let nextTimerId = 0;
 
@@ -182,7 +183,7 @@ function createEnvironment(scripts) {
       return id;
     },
     clearTimeout(id) { timers.delete(id); },
-    setInterval(callback) { intervals.push(callback); return intervals.length; },
+    setInterval(callback, delay) { intervals.push({ callback, delay }); return intervals.length; },
     CustomEvent: class {},
   });
 
@@ -204,9 +205,9 @@ function createEnvironment(scripts) {
     document,
     storage,
     observers,
+    intervals,
     errors,
     flushTimers,
-    makeCard,
     rerender() {
       book.replaceChildren(makeCard());
       for (const observer of observers) observer.callback([], observer);
@@ -226,6 +227,13 @@ function metadataName(source) {
   return source.match(/^\/\/ @name\s+(.+)$/m)?.[1]?.trim();
 }
 
+function versions(source) {
+  return {
+    metadata: source.match(/^\/\/ @version\s+(.+)$/m)?.[1]?.trim(),
+    internal: source.match(/version:\s*'([^']+)'/)?.[1],
+  };
+}
+
 test('Report alone decorates and opens one styled Report button', () => {
   const env = createEnvironment(['report']);
   assert.deepEqual(env.errors, []);
@@ -237,14 +245,18 @@ test('Report alone decorates and opens one styled Report button', () => {
   const style = env.document.getElementById('tornscripture-imm-trader-report-style');
   assert.ok(style);
   assert.match(style.textContent, /#tornscripture-imm-traders \.tsimm-report-deals-button/);
+  assert.equal(env.document.head.children.filter((child) => child.tagName === 'style').length, 1);
+  assert.equal(env.intervals.length, 1);
+  assert.equal(env.intervals[0].delay, 750);
   env.click(button);
-  assert.ok(env.document.getElementById('tornscripture-imm-trader-deals-addon'));
+  const overlay = env.document.getElementById('tornscripture-imm-trader-deals-addon');
+  assert.ok(overlay);
+  assert.match(overlay.innerHTML, /TRADER ONE_DEALS/);
 });
 
 test('legacy Deals alone retains its settings and opens one styled legacy button', () => {
-  const env = createEnvironment(['legacy']);
   const savedSettings = JSON.stringify({ nearFloor: 91, bucket: 'all', search: 'item' });
-  env.storage.set('tornscripture-imm-trader-deals-settings-v1', savedSettings);
+  const env = createEnvironment(['legacy'], [['tornscripture-imm-trader-deals-settings-v1', savedSettings]]);
   const button = env.book.querySelector('[data-tsimm-deals-trader]');
   assert.ok(button);
   assert.equal(buttonCount(env.book, '[data-tsimm-deals-trader]'), 1);
@@ -254,8 +266,13 @@ test('legacy Deals alone retains its settings and opens one styled legacy button
   const style = env.document.getElementById('tornscripture-imm-trader-deals-legacy-style');
   assert.ok(style);
   assert.match(style.textContent, /#tornscripture-imm-traders \.tsimm-legacy-deals-button/);
+  assert.doesNotMatch(style.textContent, /display:\s*none/);
+  assert.equal(env.document.head.children.filter((child) => child.tagName === 'style').length, 1);
+  assert.equal(env.intervals.length, 0);
   env.click(button);
-  assert.ok(env.document.getElementById('tornscripture-imm-trader-deals'));
+  const overlay = env.document.getElementById('tornscripture-imm-trader-deals');
+  assert.ok(overlay);
+  assert.match(overlay.innerHTML, /Trader One Deals/);
 });
 
 for (const order of [['report', 'legacy'], ['legacy', 'report']]) {
@@ -267,6 +284,9 @@ for (const order of [['report', 'legacy'], ['legacy', 'report']]) {
       assert.ok(env.document.getElementById('tornscripture-imm-trader-report-style'));
       assert.ok(env.document.getElementById('tornscripture-imm-trader-deals-legacy-style'));
       assert.equal(env.document.getElementById('tornscripture-imm-trader-deals-style'), null);
+      assert.equal(env.document.head.children.filter((child) => child.tagName === 'style').length, 2);
+      assert.equal(env.observers.length, 2);
+      assert.equal(env.intervals.length, 1);
     };
 
     assertReportOwnership();
@@ -282,4 +302,6 @@ for (const order of [['report', 'legacy'], ['legacy', 'report']]) {
 
 test('the two installable scripts have distinct userscript-manager identities', () => {
   assert.notEqual(metadataName(reportSource), metadataName(legacySource));
+  assert.deepEqual(versions(reportSource), { metadata: '0.2.4', internal: '0.2.4' });
+  assert.deepEqual(versions(legacySource), { metadata: '0.1.2', internal: '0.1.2' });
 });
