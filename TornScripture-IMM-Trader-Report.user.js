@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         TornScripture - IMM Trader Deals
+// @name         TornScripture - IMM Trader Deals Report
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.2.3
+// @version      0.2.4
 // @description  Terminal-style per-trader Deals reports with visible compact rows and safe pricelist controls.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -18,10 +18,10 @@
   'use strict';
 
   const APP = Object.freeze({
-    version: '0.2.3',
+    version: '0.2.4',
     traderBookId: 'tornscripture-imm-traders',
     overlayId: 'tornscripture-imm-trader-deals-addon',
-    styleId: 'tornscripture-imm-trader-deals-style',
+    styleId: 'tornscripture-imm-trader-report-style',
     tradersKey: 'tornscripture-imm-traders-v1',
     catalogKey: 'tornscripture-imm-catalog-v1',
     sharedCatalogKey: 'tornscripture-ish-torn-catalog-v1',
@@ -343,6 +343,7 @@
     try {
       refreshData();
       for (const card of book.querySelectorAll('.tsimm-trader-card')) {
+        for (const legacyButton of card.querySelectorAll('[data-tsimm-deals-trader]')) legacyButton.remove();
         const trader = traderForCard(card);
         let button = card.querySelector('[data-tsimm-deals-open]');
         if (!trader?.items?.length) {
@@ -354,7 +355,7 @@
         if (!button) {
           button = document.createElement('button');
           button.type = 'button';
-          button.className = 'tsimm-deals-button';
+          button.className = 'tsimm-report-deals-button';
           button.dataset.tsimmDealsOpen = '1';
           edit ? actions.insertBefore(button, edit) : actions.appendChild(button);
         }
@@ -864,7 +865,7 @@
     const style = document.createElement('style');
     style.id = APP.styleId;
     style.textContent = `
-      .tsimm-deals-button{background:#073914!important;border-color:#55ff79!important;color:#b6ff9d!important;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}
+      #${APP.traderBookId} .tsimm-report-deals-button{background:#073914!important;border-color:#55ff79!important;color:#b6ff9d!important;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important}
       #${APP.overlayId}{position:fixed;inset:0;z-index:2147483645;background:#000d;display:flex;align-items:center;justify-content:center;padding:8px;color:#aaff83;font:12px/1.32 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
       #${APP.overlayId} *{box-sizing:border-box}
       .td-shell{position:relative;width:min(760px,100%);height:min(94dvh,900px);display:flex;flex-direction:column;overflow:hidden;background:#020704;border:1px solid #39b84f;border-radius:10px;box-shadow:0 0 0 1px #0d3516,0 18px 54px #000}

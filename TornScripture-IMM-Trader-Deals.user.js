@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         TornScripture - IMM Trader Deals
+// @name         TornScripture - IMM Trader Deals Legacy
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.1.1
+// @version      0.1.2
 // @description  Adds a Deals report to each captured IMM trader, highlighting prices near or above Torn market value.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -18,7 +18,7 @@
   'use strict';
 
   const APP = Object.freeze({
-    version: '0.1.1',
+    version: '0.1.2',
     tradersKey: 'tornscripture-imm-traders-v1',
     catalogKey: 'tornscripture-imm-catalog-v1',
     sharedCatalogKey: 'tornscripture-ish-torn-catalog-v1',
@@ -26,7 +26,7 @@
     settingsKey: 'tornscripture-imm-trader-deals-settings-v1',
     traderOverlayId: 'tornscripture-imm-traders',
     overlayId: 'tornscripture-imm-trader-deals',
-    styleId: 'tornscripture-imm-trader-deals-style',
+    styleId: 'tornscripture-imm-trader-deals-legacy-style',
   });
 
   const defaults = Object.freeze({
@@ -219,8 +219,7 @@
     const style = document.createElement('style');
     style.id = APP.styleId;
     style.textContent = `
-      .tsimm-addon-report-button{display:none!important}
-      .tsimm-deals-button{background:#166b61!important;border-color:#39b8a9!important;color:#edfffb!important}
+      #${APP.traderOverlayId} .tsimm-legacy-deals-button{background:#166b61!important;border-color:#39b8a9!important;color:#edfffb!important}
       #${APP.overlayId}{position:fixed;inset:0;z-index:2147483646;background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f8fb}
       .tsimm-d-shell{width:min(740px,100%);max-height:96vh;display:flex;flex-direction:column;background:#171d24;border:1px solid #4c7a78;border-radius:12px;overflow:hidden;box-shadow:0 14px 44px #000e}
       .tsimm-d-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;background:#1c2b2c;border-bottom:1px solid #365354}.tsimm-d-head small{display:block;color:#a9c4c3}.tsimm-d-head button,.tsimm-d-actions button,.tsimm-d-tabs button,.tsimm-d-more{border:1px solid #547170;border-radius:7px;background:#293b3c;color:#fff;padding:6px 9px;font-weight:800}
@@ -243,12 +242,13 @@
       if (!edit) return;
       const trader = map.get(edit.dataset.tsimmTraderId);
       let button = card.querySelector('[data-tsimm-deals-trader]');
+      if (card.querySelector('[data-tsimm-deals-open]')) { button?.remove(); return; }
       if (!trader?.items?.length) { button?.remove(); return; }
       const total = counts(rowsFor(trader)).deals;
       if (!button) {
         button = document.createElement('button');
         button.type = 'button';
-        button.className = 'tsimm-deals-button';
+        button.className = 'tsimm-legacy-deals-button';
         button.dataset.tsimmDealsTrader = trader.id;
         edit.parentElement?.insertBefore(button, edit);
       }
