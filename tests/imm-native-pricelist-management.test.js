@@ -77,11 +77,10 @@ function createEnvironment(options = {}) {
   const initialStore = options.store || makeStore();
   const initialTraderRaw = typeof initialStore === 'string' ? initialStore : JSON.stringify(initialStore);
   const initialLedgerRaw = JSON.stringify({ schema: 'synthetic-ledger', lots: [{ id: 'lot-fixture', remainingQuantity: 3 }], sales: [{ id: 'sale-fixture', cashReceived: 7654 }] });
-  const storage = new Map([
+  const storage = options.storage || new Map([
     [TRADERS_KEY, initialTraderRaw],
     [LEDGER_KEY, initialLedgerRaw],
     [PRICE_INDEX_KEY, '{"fixture":"index"}'],
-    [REPORT_BACKUP_KEY, 'legacy-report-backup-must-not-change'],
     ...(options.extraStorage || []),
   ]);
   const session = new Map(options.sessionStorage || []);
@@ -93,11 +92,16 @@ function createEnvironment(options = {}) {
   const listeners = [];
   const prompts = [];
   const errors = [];
+  const downloads = [];
   const failSetKeys = new Set();
   const failRemoveKeys = new Set();
+  const failGetKeys = new Set();
   let confirmHandler = options.confirm || (() => true);
   const localStorage = {
-    getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+    getItem(key) {
+      if (failGetKeys.has(key)) throw new Error(`synthetic read failure for ${key}`);
+      return storage.has(key) ? storage.get(key) : null;
+    },
     setItem(key, value) {
       if (failSetKeys.has(key)) throw new Error(`synthetic write failure for ${key}`);
       storage.set(key, String(value));
@@ -112,10 +116,26 @@ function createEnvironment(options = {}) {
     setItem(key, value) { session.set(key, String(value)); },
     removeItem(key) { session.delete(key); },
   };
+  class TestURL extends URL {
+    static createObjectURL(blob) {
+      downloads.push({ blob });
+      return `blob:synthetic-${downloads.length}`;
+    }
+    static revokeObjectURL() {}
+  }
   const document = {
     readyState: 'complete',
     getElementById(id) { return elements.get(id) || null; },
-    createElement(tagName) { return { tagName, style: {}, dataset: {}, remove() {}, select() {} }; },
+    createElement(tagName) {
+      return {
+        tagName,
+        style: {},
+        dataset: {},
+        remove() {},
+        select() {},
+        click() { downloads[downloads.length - 1].download = this.download; },
+      };
+    },
     querySelector() { return null; },
     querySelectorAll() { return []; },
     addEventListener(...args) { listeners.push(args); },
@@ -135,7 +155,8 @@ function createEnvironment(options = {}) {
     sessionStorage,
     location: { href: 'https://www.torn.com/index.php', hostname: 'www.torn.com', hash: '' },
     navigator: {},
-    URL,
+    URL: TestURL,
+    Blob,
     crypto: crypto.webcrypto,
     TextEncoder,
     CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } },
@@ -162,6 +183,8 @@ function createEnvironment(options = {}) {
     errors,
     failSetKeys,
     failRemoveKeys,
+    failGetKeys,
+    downloads,
     setConfirm(handler) { confirmHandler = handler; },
     snapshotStorage() { return [...storage.entries()].sort(([a], [b]) => a.localeCompare(b)); },
     traderRoot() { return JSON.parse(storage.get(TRADERS_KEY)); },
@@ -255,7 +278,7 @@ test('Disconnect cancellation changes no storage; confirmed Disconnect changes o
   assert.deepEqual(disconnected, withoutLinkFields(original.traders[0]));
   assert.deepEqual(withoutLinkFields(disconnected), withoutLinkFields(original.traders[0]));
   assert.equal(env.storage.get(LEDGER_KEY), ledgerRaw);
-  assert.equal(env.storage.get(REPORT_BACKUP_KEY), 'legacy-report-backup-must-not-change');
+  assert.equal(env.storage.has(REPORT_BACKUP_KEY), false);
   assert.equal(await env.imm.undoTraderPricelistLink(), true);
   assert.deepEqual(env.traderRoot(), original);
   assert.equal(env.storage.get(LEDGER_KEY), ledgerRaw);
@@ -428,7 +451,10 @@ test('ambiguous identities, malformed payloads, and matching pending capture/rec
 });
 
 test('Report co-install retains ownership and its undo backup; native controls stay unavailable', async () => {
-  const env = createEnvironment({ reportEnabled: true });
+  const env = createEnvironment({
+    reportEnabled: true,
+    extraStorage: [[REPORT_BACKUP_KEY, 'legacy-report-backup-must-not-change']],
+  });
   const before = env.snapshotStorage();
   const html = env.imm.traderDealsHtml('source-1');
   assert.doesNotMatch(html, /data-tsimm-action="trader-link-manage"/);
@@ -437,6 +463,167 @@ test('Report co-install retains ownership and its undo backup; native controls s
   assert.equal(await env.imm.undoTraderPricelistLink(), false);
   assert.deepEqual(env.snapshotStorage(), before);
   assert.equal(env.storage.get(REPORT_BACKUP_KEY), 'legacy-report-backup-must-not-change');
+});
+
+test('native Move and Disconnect refuse an unresolved or unreadable Report whole-book backup', async (t) => {
+  await t.test('present legacy backup blocks native Move without consuming the backup', async () => {
+    const env = createEnvironment({ extraStorage: [[REPORT_BACKUP_KEY, 'legacy-report-backup']] });
+    const before = env.snapshotStorage();
+    assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), false);
+    assert.deepEqual(env.snapshotStorage(), before);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /Trader Report has a saved whole-book Undo/);
+    assert.equal(env.prompts.length, 0);
+  });
+
+  await t.test('unavailable legacy-backup storage blocks native Disconnect', async () => {
+    const env = createEnvironment();
+    const before = env.snapshotStorage();
+    env.failGetKeys.add(REPORT_BACKUP_KEY);
+    assert.equal(await env.imm.disconnectTraderPricelist('source-1'), false);
+    env.failGetKeys.clear();
+    assert.deepEqual(env.snapshotStorage(), before);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /could not check Trader Report/);
+    assert.equal(env.prompts.length, 0);
+  });
+});
+
+test('stale Undo can be exported, retired, and native management resumed across reloads', async () => {
+  const env = createEnvironment();
+  const beforeRaw = env.storage.get(TRADERS_KEY);
+  assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
+
+  const edited = env.traderRoot();
+  edited.traders[1].notes = 'ordinary Trader Book edit';
+  const editedRaw = JSON.stringify(edited);
+  env.storage.set(TRADERS_KEY, editedRaw);
+  env.imm.state.traderStorageVersion = editedRaw;
+  assert.equal(await env.imm.undoTraderPricelistLink(), false);
+  assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
+
+  const snapshotRaw = env.storage.get(UNDO_KEY);
+  assert.equal(await env.imm.resolveTraderPricelistUndo(), true);
+  assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
+  assert.equal(env.storage.has(UNDO_KEY), false);
+  assert.equal(env.storage.has(REPORT_BACKUP_KEY), false);
+  assert.equal(env.downloads.length, 1);
+  assert.match(env.downloads[0].download, /stale/);
+  assert.equal(await env.downloads[0].blob.text(), snapshotRaw);
+  assert.match(env.imm.state.traderUi.deals.linkMessage, /exported and retired/);
+
+  assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+  env.imm.state.traderUi.activeDealsId = 'target-1';
+  assert.equal(await env.imm.moveTraderPricelist('target-1', 'source-1'), true);
+  const reloaded = createEnvironment({ storage: env.storage });
+  assert.equal(reloaded.imm.state.traderStorageVersion, reloaded.storage.get(TRADERS_KEY));
+  assert.ok(reloaded.storage.has(UNDO_KEY));
+  reloaded.imm.state.traderUi.activeDealsId = 'source-1';
+  assert.equal(await reloaded.imm.undoTraderPricelistLink(), true);
+  assert.equal(reloaded.storage.get(TRADERS_KEY), editedRaw);
+  assert.equal(await reloaded.imm.undoTraderPricelistLink(), false);
+  assert.equal(reloaded.storage.get(TRADERS_KEY), editedRaw);
+  assert.notEqual(beforeRaw, editedRaw);
+});
+
+test('orphaned before-state snapshot can be exported and retired without restoring Trader Book', async () => {
+  const env = createEnvironment();
+  const beforeRaw = env.storage.get(TRADERS_KEY);
+  assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
+  const snapshotRaw = env.storage.get(UNDO_KEY);
+
+  env.storage.set(TRADERS_KEY, beforeRaw);
+  env.imm.state.traderStorageVersion = beforeRaw;
+  assert.equal(await env.imm.resolveTraderPricelistUndo(), true);
+  assert.equal(env.storage.get(TRADERS_KEY), beforeRaw);
+  assert.equal(env.storage.has(UNDO_KEY), false);
+  assert.match(env.downloads[0].download, /orphaned-before/);
+  assert.equal(await env.downloads[0].blob.text(), snapshotRaw);
+
+  assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+  const reloaded = createEnvironment({ storage: env.storage });
+  assert.equal(await reloaded.imm.moveTraderPricelist('source-1', 'target-1'), true);
+});
+
+test('native Undo retirement refuses intact snapshots and cancellation preserves stale evidence', async (t) => {
+  await t.test('an intact after-state keeps its available Undo', async () => {
+    const env = createEnvironment();
+    assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
+    const snapshot = env.storage.get(UNDO_KEY);
+    assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+    assert.equal(env.storage.get(UNDO_KEY), snapshot);
+    assert.equal(env.downloads.length, 0);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /still matches.*Use Undo/);
+  });
+
+  await t.test('cancelled retirement leaves data, snapshot, and downloaded files unchanged', async () => {
+    const env = createEnvironment();
+    assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
+    const edited = env.traderRoot();
+    edited.traders[1].notes = 'stale';
+    const editedRaw = JSON.stringify(edited);
+    env.storage.set(TRADERS_KEY, editedRaw);
+    env.imm.state.traderStorageVersion = editedRaw;
+    const snapshot = env.storage.get(UNDO_KEY);
+    env.setConfirm(() => false);
+    assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+    assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
+    assert.equal(env.storage.get(UNDO_KEY), snapshot);
+    assert.equal(env.downloads.length, 0);
+  });
+});
+
+test('corrupt native Undo is exported before retirement; failed and concurrent retirement preserve the snapshot', async (t) => {
+  await t.test('corrupt snapshot is preserved as exact exported evidence', async () => {
+    const env = createEnvironment({ extraStorage: [[UNDO_KEY, 'not-json-snapshot']] });
+    const liveRaw = env.storage.get(TRADERS_KEY);
+    assert.equal(await env.imm.resolveTraderPricelistUndo(), true);
+    assert.equal(env.storage.get(TRADERS_KEY), liveRaw);
+    assert.equal(env.storage.has(UNDO_KEY), false);
+    assert.match(env.downloads[0].download, /corrupt/);
+    assert.equal(await env.downloads[0].blob.text(), 'not-json-snapshot');
+  });
+
+  await t.test('failed snapshot removal leaves exported evidence and key available', async () => {
+    const env = createEnvironment({ extraStorage: [[UNDO_KEY, 'not-json-snapshot']] });
+    const liveRaw = env.storage.get(TRADERS_KEY);
+    env.failRemoveKeys.add(UNDO_KEY);
+    assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+    env.failRemoveKeys.clear();
+    assert.equal(env.storage.get(TRADERS_KEY), liveRaw);
+    assert.equal(env.storage.get(UNDO_KEY), 'not-json-snapshot');
+    assert.equal(env.downloads.length, 1);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /could not verify removal/);
+  });
+
+  await t.test('malformed current Trader Book prevents corrupt-snapshot retirement', async () => {
+    const env = createEnvironment({
+      store: 'not-a-trader-book',
+      extraStorage: [[UNDO_KEY, 'not-json-snapshot']],
+    });
+    const before = env.snapshotStorage();
+    assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+    assert.deepEqual(env.snapshotStorage(), before);
+    assert.equal(env.downloads.length, 0);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /Trader Book|trader/i);
+  });
+
+  await t.test('Trader Book changed during confirmation prevents retirement', async () => {
+    let editedRaw;
+    const env = createEnvironment({
+      extraStorage: [[UNDO_KEY, 'not-json-snapshot']],
+      confirm(message, current) {
+        const changed = current.traderRoot();
+        changed.traders[0].notes = 'concurrent recovery edit';
+        editedRaw = JSON.stringify(changed);
+        current.storage.set(TRADERS_KEY, editedRaw);
+        return true;
+      },
+    });
+    assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+    assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
+    assert.equal(env.storage.get(UNDO_KEY), 'not-json-snapshot');
+    assert.equal(env.downloads.length, 1);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /changed during recovery.*not retired/);
+  });
 });
 
 test('Act IV-B branch metadata identifies an isolated test build without live update URLs', () => {

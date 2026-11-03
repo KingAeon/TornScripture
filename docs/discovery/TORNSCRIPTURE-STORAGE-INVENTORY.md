@@ -186,7 +186,7 @@ Report clears the price-index key after link changes. The link-backup key belong
 
 ### IMM Act IV-B native pricelist recovery
 
-The isolated IMM v0.19.40 test build owns `tornscripture-imm-native-trader-link-undo-v1`. Its single-use snapshot stores the exact pre-mutation Trader Book JSON plus SHA-256 fingerprints of both the before-image and resulting JSON, so Undo can verify its recovery image and refuse stale or concurrent edits without retaining a second full copy of the book. IMM never reads, overwrites, or consumes Report's `tornscripture-imm-trader-link-backup-v1`; successful native link changes invalidate only the Report-owned price-index cache key above.
+The isolated IMM v0.19.40 test build owns `tornscripture-imm-native-trader-link-undo-v1`. Its single-use snapshot stores the exact pre-mutation Trader Book JSON plus SHA-256 fingerprints of both the before-image and resulting JSON, so Undo can verify its recovery image and refuse stale or concurrent edits without retaining a second full copy of the book. When Undo is stale, orphaned, or corrupt, IMM can export the exact snapshot for owner-reviewed recovery before explicit retirement; it does not change Trader Book data during retirement. Native Move/Disconnect performs a read-only presence check of Report's `tornscripture-imm-trader-link-backup-v1` and refuses when that backup exists or cannot be checked. IMM never overwrites or consumes Report's backup; successful native link changes invalidate only the Report-owned price-index cache key above.
 
 ## 6. Cross-script dependency finding
 

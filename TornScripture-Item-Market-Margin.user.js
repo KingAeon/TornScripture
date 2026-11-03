@@ -377,6 +377,7 @@
     tradersStorageKey: 'tornscripture-imm-traders-v1',
     traderPriceIndexStorageKey: 'tornscripture-imm-trader-price-index-v1',
     nativeTraderLinkUndoStorageKey: 'tornscripture-imm-native-trader-link-undo-v1',
+    legacyTraderLinkBackupStorageKey: 'tornscripture-imm-trader-link-backup-v1',
     traderViewStorageKey: 'tornscripture-imm-trader-view-v1',
     pendingTraderCaptureStorageKey: 'tornscripture-imm-pending-trader-capture-v1',
     priceRecaptureSessionKey: 'tornscripture-imm-price-recapture-v1',
@@ -2507,6 +2508,47 @@
     }
   }
 
+  async function classifyNativeTraderLinkUndo(snapshotRaw, liveRaw) {
+    parseTraderLinkStore(liveRaw);
+    let snapshot;
+    try {
+      snapshot = parseNativeTraderLinkUndo(snapshotRaw);
+    } catch {
+      return { kind: 'corrupt' };
+    }
+    const beforeHash = await traderStoreSha256(snapshot.beforeRaw);
+    if (beforeHash !== snapshot.beforeSha256) return { kind: 'corrupt' };
+    const liveHash = await traderStoreSha256(liveRaw);
+    if (liveHash === snapshot.beforeSha256) return { kind: 'orphaned-before', snapshot };
+    if (liveHash === snapshot.afterSha256) return { kind: 'intact-after', snapshot };
+    return { kind: 'stale', snapshot };
+  }
+
+  function downloadNativeTraderLinkUndoSnapshot(snapshotRaw, kind) {
+    if (typeof Blob !== 'function' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+      throw new Error('This browser cannot securely export the native recovery snapshot. It was not retired.');
+    }
+    const link = document.createElement('a');
+    if (typeof link?.click !== 'function' || typeof document.body?.appendChild !== 'function') {
+      throw new Error('This browser cannot securely export the native recovery snapshot. It was not retired.');
+    }
+    const isJson = kind !== 'corrupt';
+    const objectUrl = URL.createObjectURL(new Blob([snapshotRaw], { type: isJson ? 'application/json' : 'text/plain' }));
+    try {
+      link.href = objectUrl;
+      link.download = `tornscripture-imm-native-link-undo-${kind}-${Date.now()}.${isJson ? 'json' : 'txt'}`;
+      document.body.appendChild(link);
+      link.click();
+    } finally {
+      try {
+        link.remove?.();
+      } catch {}
+      try {
+        URL.revokeObjectURL(objectUrl);
+      } catch {}
+    }
+  }
+
   function activePendingLinkConflict(traderIds, parsedStore) {
     const now = Date.now();
     const affectedRecords = parsedStore.indexed
@@ -2622,6 +2664,13 @@
 
   function resolveTraderLinkMutation(operation, sourceId, targetId = '') {
     if (traderDealsAddonActive()) throw new Error('Trader Report currently owns Manage Link. Disable Report to use IMM controls.');
+    const reportBackupRaw = readStorageString(APP.legacyTraderLinkBackupStorageKey);
+    if (reportBackupRaw === undefined) {
+      throw new Error('IMM could not check Trader Report’s saved whole-book Undo. Resolve or export that backup before changing a native pricelist.');
+    }
+    if (reportBackupRaw !== null) {
+      throw new Error('Trader Report has a saved whole-book Undo that could overwrite newer edits. Use Report Undo or manually review its backup before changing a native pricelist; IMM will not clear it.');
+    }
     if (typeof sourceId !== 'string' || !sourceId || sourceId !== state.traderUi.activeDealsId) {
       throw new Error('The selected Trader Book view is stale. Reopen this trader by its stable ID and try again.');
     }
@@ -2830,6 +2879,77 @@
 
   async function disconnectTraderPricelist(sourceId) {
     return commitTraderLinkMutation('disconnect', sourceId);
+  }
+
+  async function resolveTraderPricelistUndo() {
+    if (traderDealsAddonActive()) {
+      setTraderLinkMessage('Trader Report currently owns Manage Link. Disable Report to use IMM controls.');
+      return false;
+    }
+    const snapshotRaw = readStorageString(APP.nativeTraderLinkUndoStorageKey);
+    const liveRaw = readStorageString(APP.tradersStorageKey);
+    if (snapshotRaw === undefined || liveRaw === undefined) {
+      setTraderLinkMessage('IMM could not verify the native undo snapshot or current Trader Book. Nothing was retired.');
+      return false;
+    }
+    if (snapshotRaw === null) {
+      setTraderLinkMessage('No native pricelist undo snapshot is available to resolve.');
+      return false;
+    }
+    if (state.traderStorageVersion !== liveRaw) {
+      setTraderLinkMessage('Trader Book changed after this view was loaded. Reopen Trader Book before resolving its undo snapshot.');
+      return false;
+    }
+
+    let classification;
+    try {
+      classification = await classifyNativeTraderLinkUndo(snapshotRaw, liveRaw);
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not classify the native undo snapshot. Nothing was retired.');
+      return false;
+    }
+    if (classification.kind === 'intact-after') {
+      setTraderLinkMessage('The native Undo snapshot still matches the current Trader Book. Use Undo or make the next confirmed link change; it was not retired.');
+      return false;
+    }
+
+    const stateDescription = classification.kind === 'orphaned-before'
+      ? 'Trader Book still matches the verified before-image; the interrupted native operation did not commit.'
+      : classification.kind === 'stale'
+        ? 'Trader Book changed after the native operation; this Undo can no longer be applied safely.'
+        : 'The native Undo snapshot is malformed or its before-image fingerprint cannot be verified.';
+    if (!confirm(`${stateDescription}\n\nDownload a private copy of the exact native recovery snapshot, then retire it so native Move and Disconnect can resume? This will not change Trader Book data. The download may contain your full Trader Book before-image. Retiring removes this snapshot from IMM; keep the downloaded file for owner-reviewed recovery. Trader Report’s backup is not affected.`)) {
+      return false;
+    }
+
+    try {
+      downloadNativeTraderLinkUndoSnapshot(snapshotRaw, classification.kind);
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not export the native recovery snapshot. It was not retired.');
+      return false;
+    }
+    if (
+      traderDealsAddonActive()
+      || readStorageString(APP.nativeTraderLinkUndoStorageKey) !== snapshotRaw
+      || readStorageString(APP.tradersStorageKey) !== liveRaw
+    ) {
+      setTraderLinkMessage('The native snapshot or Trader Book changed during recovery. The snapshot was exported but not retired; reload and review before retrying.');
+      return false;
+    }
+    if (!removeStorageString(APP.nativeTraderLinkUndoStorageKey)) {
+      setTraderLinkMessage('IMM could not verify removal of the native Undo snapshot. Trader Book data was not changed; keep the exported recovery file and review storage before retrying.');
+      return false;
+    }
+    if (readStorageString(APP.tradersStorageKey) !== liveRaw) {
+      const restored = restoreStorageStringIfCurrent(APP.nativeTraderLinkUndoStorageKey, null, snapshotRaw);
+      setTraderLinkMessage(restored
+        ? 'Trader Book changed during recovery. Its native Undo snapshot was restored; reload before continuing.'
+        : 'Trader Book changed during recovery and the snapshot could not be restored safely. Keep the downloaded recovery file and review storage before continuing.');
+      return false;
+    }
+    setTraderLinkMessage(`The ${classification.kind === 'orphaned-before' ? 'interrupted' : classification.kind === 'stale' ? 'stale' : 'corrupt'} native Undo snapshot was exported and retired. Trader Book data was not changed; native pricelist management can resume.`);
+    renderTraders();
+    return true;
   }
 
   async function undoTraderPricelistLink() {
@@ -14397,8 +14517,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         <button type="button" data-tsimm-action="trader-link-move">Move pricelist</button>
         <button type="button" data-tsimm-action="trader-link-disconnect">Disconnect pricelist</button>
         ${undoRaw !== null && undoRaw !== undefined ? '<button type="button" data-tsimm-action="trader-link-undo">Undo last native link change</button>' : ''}
+        ${undoRaw !== null && undoRaw !== undefined ? '<button type="button" data-tsimm-action="trader-link-resolve">Export &amp; resolve stale Undo</button>' : ''}
+        <small>Only resolve after Undo refuses. IMM exports the exact recovery snapshot before retiring a stale, interrupted, or corrupt snapshot; Trader Book data is not changed.</small>
         ${state.traderUi.deals.linkMessage ? `<div class="tsimm-trader-deals-message" role="status">${escapeHtml(state.traderUi.deals.linkMessage)}</div>` : ''}
-        <small>The native undo snapshot is separate from Trader Report’s existing backup.</small>
+        <small>Native changes are blocked while Trader Report’s whole-book Undo backup exists or cannot be checked.</small>
       </section>
     `;
   }
@@ -15682,6 +15804,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         undoTraderPricelistLink().catch((error) => {
           setTraderLinkMessage(error?.message || 'IMM could not undo this pricelist change.');
         });
+      } else if (action === 'trader-link-resolve') {
+        resolveTraderPricelistUndo().catch((error) => {
+          setTraderLinkMessage(error?.message || 'IMM could not resolve this pricelist undo snapshot.');
+        });
       } else if (action === 'trader-deals-back') {
         closeTraderDeals();
       } else if (action === 'trader-deals-filter') {
@@ -16233,6 +16359,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       traderLinkManagementHtml,
       moveTraderPricelist,
       disconnectTraderPricelist,
+      resolveTraderPricelistUndo,
       undoTraderPricelistLink,
       openTraderDeals,
       copyTraderDeals,
