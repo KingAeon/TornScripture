@@ -1,0 +1,1879 @@
+[
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xBox Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xBox Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Box Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Box Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Box Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Box Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Box Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Box Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xXanax @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xXanax @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Xanax @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Xanax @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Xanax @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Xanax @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Xanax @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Xanax @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xFixture Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xFixture Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Fixture Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Fixture Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Fixture Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Fixture Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Fixture Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Fixture Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xWidget @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xWidget @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Widget @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Widget @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Widget @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Widget @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Widget @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Widget @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xFlux @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xFlux @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Flux @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Flux @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Flux @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Flux @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Flux @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Flux @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xBox7 Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xBox7 Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Box7 Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Box7 Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Box7 Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Box7 Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Box7 Item @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Box7 Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xXylophone @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xXylophone @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Xylophone @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Xylophone @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Xylophone @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Xylophone @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Xylophone @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Xylophone @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xAx×Bx @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xAx×Bx @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Ax×Bx @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Ax×Bx @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Ax×Bx @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Ax×Bx @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Ax×Bx @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Ax×Bx @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2xFlux Box @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2xFlux Box @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Flux Box @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 x Flux Box @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2×Flux Box @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2×Flux Box @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 × Flux Box @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": false
+  },
+  {
+    "text": "2 × Flux Box @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "whole-owned-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nBox Itemx2 @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": false
+  },
+  {
+    "text": "Box Itemx2 @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nXanaxx2 @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": false
+  },
+  {
+    "text": "Xanaxx2 @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nFixture Itemx2 @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": false
+  },
+  {
+    "text": "Fixture Itemx2 @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nWidgetx2 @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": false
+  },
+  {
+    "text": "Widgetx2 @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nFluxx2 @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": false
+  },
+  {
+    "text": "Fluxx2 @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nBox7 Itemx2 @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": false
+  },
+  {
+    "text": "Box7 Itemx2 @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "compact-terminal-name",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 0x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 0x2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 0x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 0x2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 0x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 0x2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 0x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 0x2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 0X2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 0X2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 0X2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 0X2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 0X2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 0X2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 0X2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 0X2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 0×2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 0×2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 0×2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 0×2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 0×2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 0×2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 0×2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 0×2 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 1e3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 1e3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 1e3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 1e3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 1e3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 1e3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 1e3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 1e3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2x3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2x3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2x3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2x3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2x3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2x3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2x3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2x3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2×3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2×3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2×3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2×3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2×3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2×3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2×3 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2×3 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2;garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2;garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2;garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2;garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2;garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2;garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2;garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2;garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2:garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2:garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2:garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2:garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2:garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2:garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2:garbage @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2:garbage @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2(garbage) @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2(garbage) @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2(garbage) @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2(garbage) @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2:: @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2:: @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2:: @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2:: @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2:: @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2:: @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2:: @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2:: @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2|| @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2|| @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2|| @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2|| @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2|| @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2|| @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2|| @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2|| @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2/**/ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2/**/ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2/**/ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2/**/ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2/**/ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2/**/ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2/**/ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2/**/ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2​ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2​ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2​ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2​ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2​ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2​ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2​ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2​ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2⁠ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2⁠ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2⁠ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2⁠ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2⁠ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2⁠ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2⁠ @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2⁠ @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2\u0000 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2\u0000 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2\u0000 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2\u0000 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2\u0000 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2\u0000 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2\u0000 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2\u0000 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2.0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2.0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2.0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2.0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2.0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2.0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2.0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2.0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2e+0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2e+0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2e+0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2e+0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2e+0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2e+0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2e+0 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2e+0 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2,000,00 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2,000,00 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 2,000,00 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 2,000,00 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2,000,00 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2,000,00 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 2,000,00 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 2,000,00 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 9007199254740993 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 9007199254740993 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 9007199254740993 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 9007199254740993 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 9007199254740993 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 9007199254740993 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 9007199254740993 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 9007199254740993 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999 @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x + @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x + @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x + @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x + @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × + @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × + @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × + @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × + @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x - @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x - @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x - @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x - @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × - @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × - @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item × - @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item × - @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x  @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x  @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x  @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item x  @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item ×  @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item ×  @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item ×  @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": false
+  },
+  {
+    "text": "Other Item ×  @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "whole-quantity-fence",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 = 2 × Other Item @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "early-marker",
+    "first": false
+  },
+  {
+    "text": "2 = 2 × Other Item @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "early-marker",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 @ 2 × Other Item @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "early-marker",
+    "first": false
+  },
+  {
+    "text": "2 @ 2 × Other Item @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "early-marker",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 $2 × Other Item @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "early-marker",
+    "first": false
+  },
+  {
+    "text": "2 $2 × Other Item @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "early-marker",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x Other Item x2 @ $1 = $2",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": false
+  },
+  {
+    "text": "2 x Other Item x2 @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item xbad @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": false
+  },
+  {
+    "text": "Other Item xbad @ $1234 = $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n+ × Other Item @ $1 = $2",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": false
+  },
+  {
+    "text": "+ × Other Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n- × Other Item @ $1 = $2",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": false
+  },
+  {
+    "text": "- × Other Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n× Other Item @ $1 = $2",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": false
+  },
+  {
+    "text": "× Other Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\n2 x3 × Other Item @ $1 = $2",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": false
+  },
+  {
+    "text": "2 x3 × Other Item @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "competing-or-malformed-anchors",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x2; @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "genuine-separator",
+    "first": false
+  },
+  {
+    "text": "Other Item x2; @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "genuine-separator",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x2: @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "genuine-separator",
+    "first": false
+  },
+  {
+    "text": "Other Item x2: @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "genuine-separator",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x2 | @ $1 = $2",
+    "expected": "PRICE_CAPTURE",
+    "group": "genuine-separator",
+    "first": false
+  },
+  {
+    "text": "Other Item x2 | @ $1 = $2\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "genuine-separator",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nThanks x marks the shop; cash budget $Infinity is prose.",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": false
+  },
+  {
+    "text": "Thanks x marks the shop; cash budget $Infinity is prose.\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nBudget $Infinity; x marks the shop.",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": false
+  },
+  {
+    "text": "Budget $Infinity; x marks the shop.\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nReceipt: \"Other Item x0 @ $Infinity\" is a quoted example.",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": false
+  },
+  {
+    "text": "Receipt: \"Other Item x0 @ $Infinity\" is a quoted example.\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nhttps://example.test/Other?x=$Infinity",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": false
+  },
+  {
+    "text": "https://example.test/Other?x=$Infinity\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nTotal: $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": false
+  },
+  {
+    "text": "Total: $2468\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "no-row-anchor",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 $0",
+    "expected": "UNSUCCESSFUL_ZERO_CHECK",
+    "group": "zero-standalone"
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nFixture Item x2 $0",
+    "expected": "REJECT",
+    "group": "mixed-zero",
+    "first": false
+  },
+  {
+    "text": "Fixture Item x2 $0\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "group": "mixed-zero",
+    "first": true
+  },
+  {
+    "text": "Fixture Item x2 @ $1234 = $2468\r\nOther Item x2 $100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "expected": "PRICE_CAPTURE",
+    "group": "finite309",
+    "first": false
+  },
+  {
+    "text": "Other Item x2 $100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\r\nFixture Item x2 @ $1234 = $2468",
+    "expected": "PRICE_CAPTURE",
+    "group": "finite309",
+    "first": true
+  },
+  {
+    "text": "Other Item x2 @ $1.20 = $2.40\nOther Item x2 @ $1.20 = $2.40",
+    "expected": "PRICE_CAPTURE",
+    "group": "dedup-identical",
+    "first": false
+  },
+  {
+    "text": "Other Item x2 @ $1.20 = $2.40\nOther Item x2 @ $1.21 = $2.42",
+    "expected": "REJECT",
+    "group": "dedup-amount-collision",
+    "first": false
+  },
+  {
+    "text": "Other Item x2 @ $1.20 = $2.40\nOther Item x2 @ $1.25 = $2.40",
+    "expected": "REJECT",
+    "group": "dedup-unit-collision",
+    "first": false
+  },
+  {
+    "text": "Other Item x2 @ $1.20 = $2.40\nOther Item x2 @ $1.20 = $2.40",
+    "expected": "PRICE_CAPTURE",
+    "group": "dedup-identical",
+    "first": true
+  },
+  {
+    "text": "Other Item x2 @ $1.21 = $2.42\nOther Item x2 @ $1.20 = $2.40",
+    "expected": "REJECT",
+    "group": "dedup-amount-collision",
+    "first": true
+  },
+  {
+    "text": "Other Item x2 @ $1.25 = $2.40\nOther Item x2 @ $1.20 = $2.40",
+    "expected": "REJECT",
+    "group": "dedup-unit-collision",
+    "first": true
+  }
+]

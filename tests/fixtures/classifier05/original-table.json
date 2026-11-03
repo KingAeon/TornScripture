@@ -1,0 +1,334 @@
+[
+  {
+    "line": "Other Item x2 @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2 × Other Item @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Itemx2 $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2xWidget $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item x2; @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item x2: @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item x2 | @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item x2 @ 1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item x2 @ $1234 = 2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item x2 @ $1,234 (total $2,468)",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item × 2,000 @ $2 = $4000",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2 × Cash Item @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2 × Receipt: Other Item @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Box Item x2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "+ × Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "- × Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "× Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2;garbage @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2:: @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2e0 x Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2 @ Infinity = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2 @ $1234 =",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Cash Item x0 @ $Infinity",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Receipt: Other Item x0 @ $Infinity",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Widgetx-2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Thanks x marks the shop; cash budget $Infinity is prose.",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Receipt: prices below",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Buyer: Example $100",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Budget is $Infinity for this example.",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Receipt: \"Other Item x0 @ $Infinity\" is a quoted example.",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Cash: “Other Item x0 @ $NaN” is a quoted example.",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Receipt: Other Item is quoted here; quantity x price is documentation, budget $Infinity.",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "https://example.test/Other%20Item?x=$Infinity",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "Thanks for Other Item purchase; x marks the shop, budget $Infinity.",
+    "expected": "NON_ITEM"
+  },
+  {
+    "line": "2 = 2 × Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2 @ 2 × Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item xbad @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2 $2 × Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2 @ $1234 = $NaN",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x2 @ $$1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2:garbage × Other Item @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2 x Fixture Item @ $1,234 = $2,468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2xFixture Item @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2xBox Item @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Box Itemx2 @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2xXanax @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Xanaxx2 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2xWidget @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item x2 $100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Fixture Item x2 $0",
+    "expected": "VALID_ZERO_ONLY_OBSERVATION"
+  },
+  {
+    "line": "2 x Other Item x2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 0x2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 0x2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 0X2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 0X2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 0×2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 0×2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 2x3 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 2x3 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 1e3 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 1e3 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 2/1 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 2/1 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 2;garbage @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 2;garbage @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 2:garbage @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 2:garbage @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 2(garbage) @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x + @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × + @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x - @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × - @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item x  @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item ×  @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 0x2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "Other Item × 2 @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "2xFixture Item @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Widgetx2 @ $1234 = $2468",
+    "expected": "VALID_POSITIVE_ITEM"
+  },
+  {
+    "line": "Other Item × 0X2 @ $1234 = $2468",
+    "expected": "REJECT"
+  },
+  {
+    "line": "2 x @ $1234 = $2468",
+    "expected": "REJECT"
+  }
+]

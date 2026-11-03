@@ -1,0 +1,86 @@
+[
+  {
+    "line": "2xBox7 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7",
+    "operator": 1,
+    "literal": 4
+  },
+  {
+    "line": "2 x Box7 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7",
+    "operator": 2,
+    "literal": 6
+  },
+  {
+    "line": "2×Box7 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7",
+    "operator": 1,
+    "literal": 4
+  },
+  {
+    "line": "2 × Box7 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7",
+    "operator": 2,
+    "literal": 6
+  },
+  {
+    "line": "2 x Box7 @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7",
+    "operator": 2,
+    "literal": 6
+  },
+  {
+    "line": "2xBox7 Item @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box7 Item",
+    "operator": 1,
+    "literal": 4
+  },
+  {
+    "line": "2xBox Item @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Box Item",
+    "operator": 1,
+    "literal": 4
+  },
+  {
+    "line": "2xXanax @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Xanax",
+    "operator": 1,
+    "literal": 6
+  },
+  {
+    "line": "2xFixture Item @ $1 = $2",
+    "expected": "VALID_POSITIVE_ITEM",
+    "identity": "Fixture Item",
+    "operator": 1,
+    "literal": 4
+  },
+  {
+    "line": "2 x Other Item x2 @ $1234 = $2468",
+    "expected": "REJECT",
+    "originalIndex": 52,
+    "completeRival": true
+  },
+  {
+    "line": "2 x Other Item xbad @ $1 = $2",
+    "expected": "REJECT",
+    "completeRival": true
+  },
+  {
+    "line": "2xBox Item xbad @ $1 = $2",
+    "expected": "REJECT",
+    "completeRival": true
+  },
+  {
+    "line": "2 x Other Item x @ $1 = $2",
+    "expected": "REJECT",
+    "completeRival": true
+  }
+]
