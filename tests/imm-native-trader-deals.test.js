@@ -28,15 +28,28 @@ function createImm() {
     __TS_IMM_TEST_MODE__: true,
     document: {
       getElementById(id) { return elements.get(id) || null; },
-      createElement() {
-        return {
+      createElement(tagName) {
+        const element = {
+          tagName,
+          id: '',
           style: {},
+          textContent: '',
           remove() {},
           select() {},
         };
+        return element;
       },
       querySelector() { return null; },
-      body: { appendChild() {} },
+      head: {
+        appendChild(element) {
+          if (element.id) elements.set(element.id, element);
+        },
+      },
+      body: {
+        appendChild(element) {
+          if (element.id) elements.set(element.id, element);
+        },
+      },
     },
     window: { __TSIMM_WATCHLIST_API__: {} },
     localStorage: { getItem() { return null; }, setItem() {} },
@@ -172,6 +185,35 @@ test('native Deals matches Report v0.2.4 calculations on a 340-price fixture', (
     JSON.parse(JSON.stringify(nativeCounts)),
     { all: 340, deals: 204, premium: 68, strong: 68, near: 68, withhold: 68, unknown: 68, owned: 34 },
   );
+});
+
+test('native Deals keeps all 200 long-list rows at intrinsic height in its scrollable grid', () => {
+  const fixtureItems = Array.from({ length: 200 }, (_, index) => ({
+    itemId: index + 1,
+    itemName: `Long-list fixture ${index + 1}`,
+    unitPrice: 990,
+  }));
+  const catalogItems = fixtureItems.map((item) => ({
+    id: item.itemId,
+    name: item.itemName,
+    marketPrice: 1000,
+  }));
+  const { imm, elements } = createImm();
+  const trader = makeTrader('long-list-trader', 'Long-list Trader', fixtureItems);
+  setTraderData(imm, trader, catalogItems);
+
+  imm.injectStyles();
+  const style = elements.get('tornscripture-imm-style');
+  assert.ok(style);
+  const listRule = style.textContent.match(/\.tsimm-trader-deals-list\{[^}]*\}/)?.[0] || '';
+  assert.match(listRule, /display:grid/);
+  assert.match(listRule, /grid-auto-rows:max-content/);
+  assert.match(listRule, /overflow-y:auto/);
+
+  const html = imm.traderDealsHtml(trader.id);
+  assert.equal((html.match(/class="tsimm-trader-deals-row /g) || []).length, 200);
+  assert.match(html, /class="tsimm-trader-deals-list"/);
+  assert.doesNotMatch(html, /Load \d+ more/);
 });
 
 test('native Deals handles bucket boundaries, configurable near floor, and zero or missing market values', () => {
