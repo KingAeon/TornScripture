@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TornScripture - Item Market Margin
 // @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.38
+// @version      0.19.39
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -21,8 +21,8 @@
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.38' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.38' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.39' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.39' });
   }
 
 
@@ -322,7 +322,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.38
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.39
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -343,7 +343,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.38',
+    version: '0.19.39',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -357,6 +357,7 @@
     ledgerOverlayId: 'tornscripture-imm-ledger',
     ledgerReconcileStyleId: 'tornscripture-imm-ledger-reconcile-style',
     traderOverlayId: 'tornscripture-imm-traders',
+    traderReportStyleId: 'tornscripture-imm-trader-report-style',
     receiptAuditOverlayId: 'tornscripture-imm-receipt-audit',
     apiTradeRecoveryOverlayId: 'tornscripture-imm-api-trade-recovery',
     tornExchangePanelId: 'tsimm-tx-panel',
@@ -709,6 +710,16 @@
       sort: initialTraderView.sort,
       mode: initialTraderView.mode || null,
       activeDossierId: '',
+      activeDealsId: '',
+      deals: {
+        bucket: 'deals',
+        nearFloor: 97,
+        ownedOnly: false,
+        search: '',
+        sort: 'pct',
+        limit: 200,
+        controlsOpen: false,
+      },
       renderGeneration: 0,
     },
     pendingTraderCapture: normalizePendingTraderCapture(loadJson(APP.pendingTraderCaptureStorageKey, null)),
@@ -13639,6 +13650,255 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     `;
   }
 
+  function traderDealsAddonActive() {
+    return Boolean(document.getElementById(APP.traderReportStyleId));
+  }
+
+  function traderDealsButtonHtml(trader) {
+    if (traderDealsAddonActive()) return '';
+    return `<button type="button" class="tsimm-trader-deals-button tsimm-report-deals-button" data-tsimm-action="trader-deals-open" data-tsimm-deals-open="1" data-tsimm-trader-id="${escapeHtml(trader.id)}">Deals</button>`;
+  }
+
+  function traderDealsRows(trader) {
+    const holdings = { byId: new Map(), byName: new Map() };
+    const addHolding = (map, key, quantity) => {
+      if (!key) return;
+      map.set(key, (map.get(key) || 0) + quantity);
+    };
+    for (const lot of state.ledger.lots || []) {
+      const quantity = Math.max(0, Math.floor(Number(lot?.remainingQuantity) || 0));
+      if (!quantity) continue;
+      const itemId = Number(lot.itemId) > 0 ? String(Number(lot.itemId)) : '';
+      addHolding(holdings.byId, itemId, quantity);
+      addHolding(holdings.byName, normalizeName(lot.itemName), quantity);
+    }
+
+    return (trader?.pricePageItems || []).map((item) => {
+      const price = Math.max(0, Number(item?.unitPrice) || 0);
+      const itemName = normalizeWhitespace(item?.itemName);
+      const itemId = Number(item?.itemId) > 0 ? Number(item.itemId) : null;
+      const catalogItem = catalogItemFor(itemName, itemId);
+      const market = Math.max(0, Number(catalogItem?.marketPrice) || 0);
+      const normalizedName = normalizeName(itemName);
+      const holding = (itemId ? holdings.byId.get(String(itemId)) : null)
+        ?? holdings.byName.get(normalizedName)
+        ?? 0;
+      const percent = market > 0 ? price / market * 100 : null;
+      return {
+        itemId,
+        itemName,
+        normalizedName,
+        price,
+        market,
+        percent,
+        differenceVsMarket: market > 0 ? price - market : null,
+        differenceVs99: market > 0 ? price - Math.floor(market * 0.99) : null,
+        owned: Math.max(0, Number(holding) || 0),
+        bucket: percent === null ? 'unknown'
+          : percent >= 100 ? 'premium'
+            : percent >= 99 ? 'strong'
+              : percent >= state.traderUi.deals.nearFloor ? 'near' : 'withhold',
+      };
+    }).filter((row) => row.itemName && row.price > 0);
+  }
+
+  function traderDealsCounts(rows) {
+    const counts = { all: rows.length, deals: 0, premium: 0, strong: 0, near: 0, withhold: 0, unknown: 0, owned: 0 };
+    for (const row of rows) {
+      if (Object.prototype.hasOwnProperty.call(counts, row.bucket)) counts[row.bucket] += 1;
+      if (['premium', 'strong', 'near'].includes(row.bucket)) counts.deals += 1;
+      if (row.owned > 0) counts.owned += 1;
+    }
+    return counts;
+  }
+
+  function filteredTraderDealsRows(rows) {
+    const ui = state.traderUi.deals;
+    let output = [...rows];
+    if (ui.bucket === 'deals') output = output.filter((row) => ['premium', 'strong', 'near'].includes(row.bucket));
+    else if (ui.bucket !== 'all') output = output.filter((row) => row.bucket === ui.bucket);
+    if (ui.ownedOnly) output = output.filter((row) => row.owned > 0);
+    const query = normalizeName(ui.search);
+    if (query) {
+      output = output.filter((row) => row.normalizedName.includes(query) || String(row.itemId || '').includes(query));
+    }
+    const percent = (row, fallback) => row.percent === null ? fallback : Number(row.percent);
+    output.sort((left, right) => {
+      if (ui.sort === 'pct-asc') return percent(left, Infinity) - percent(right, Infinity);
+      if (ui.sort === 'market') return Number(right.differenceVsMarket ?? -Infinity) - Number(left.differenceVsMarket ?? -Infinity);
+      if (ui.sort === 'route99') return Number(right.differenceVs99 ?? -Infinity) - Number(left.differenceVs99 ?? -Infinity);
+      if (ui.sort === 'price') return right.price - left.price;
+      if (ui.sort === 'name') return left.itemName.localeCompare(right.itemName);
+      return percent(right, -Infinity) - percent(left, -Infinity);
+    });
+    return output;
+  }
+
+  function traderDealsSummaryButton(bucket, label, count, className = '') {
+    const active = state.traderUi.deals.bucket === bucket && !state.traderUi.deals.ownedOnly ? ' active' : '';
+    return `<button type="button" class="${escapeHtml(className)}${active}" data-tsimm-action="trader-deals-filter" data-tsimm-deals-bucket="${escapeHtml(bucket)}"><strong>${formatInteger(count)}</strong><span>${escapeHtml(label)}</span></button>`;
+  }
+
+  function traderDealsRowHtml(row) {
+    const owned = row.owned
+      ? `<div class="tsimm-trader-deals-owned">OWNED ${formatInteger(row.owned)} · EST. RETURN ${formatMoney(row.owned * row.price)} <small>Estimated at the listed trader price; not Ledger profit.</small></div>`
+      : '';
+    const market = row.market > 0 ? formatMoney(row.market) : 'UNKNOWN';
+    const differenceVsMarket = row.differenceVsMarket === null
+      ? 'n/a'
+      : `${row.differenceVsMarket >= 0 ? '+' : ''}${formatMoney(row.differenceVsMarket)}`;
+    const differenceVs99 = row.differenceVs99 === null
+      ? 'n/a'
+      : `${row.differenceVs99 >= 0 ? '+' : ''}${formatMoney(row.differenceVs99)}`;
+    const bucketLabel = {
+      premium: 'PREMIUM 100%+',
+      strong: 'STRONG 99%+',
+      near: `NEAR ${formatPercent(state.traderUi.deals.nearFloor)}+`,
+      withhold: 'WITHHOLD',
+      unknown: 'UNKNOWN',
+    }[row.bucket] || 'UNKNOWN';
+    return `
+      <article class="tsimm-trader-deals-row ${escapeHtml(row.bucket)}">
+        <button type="button" class="tsimm-trader-deals-row-toggle" data-tsimm-action="trader-deals-row" aria-expanded="false">
+          <span aria-hidden="true">›</span>
+          <span><strong>${escapeHtml(row.itemName)}</strong><small>TRADER ${formatMoney(row.price)} · MARKET ${escapeHtml(market)} · VS 99% ${escapeHtml(differenceVs99)}</small></span>
+          <b>${escapeHtml(bucketLabel)}</b>
+        </button>
+        <div class="tsimm-trader-deals-row-details" hidden>
+          <div class="tsimm-trader-deals-grid">
+            <span>TRADER PAYS</span><strong>${formatMoney(row.price)}</strong>
+            <span>MARKET VALUE</span><strong>${escapeHtml(market)}</strong>
+            <span>PERCENT OF MARKET</span><strong>${row.percent === null ? 'UNKNOWN' : formatPercent(row.percent)}</strong>
+            <span>VS MARKET</span><strong>${escapeHtml(differenceVsMarket)}</strong>
+            <span>VS 99% ROUTE</span><strong>${escapeHtml(differenceVs99)}</strong>
+          </div>
+          ${owned}
+        </div>
+      </article>
+    `;
+  }
+
+  function traderDealsHtml(requestedId) {
+    const trader = state.traders.find((entry) => entry.id === requestedId);
+    const priceItems = Array.isArray(trader?.pricePageItems) ? trader.pricePageItems : [];
+    const missingTrader = !trader;
+    const missingPrices = Boolean(trader) && !priceItems.length;
+    const rows = missingTrader || missingPrices ? [] : traderDealsRows(trader);
+    const counts = traderDealsCounts(rows);
+    const filtered = filteredTraderDealsRows(rows);
+    const limit = Math.max(50, Number(state.traderUi.deals.limit) || 200);
+    const shown = filtered.slice(0, limit);
+    const name = trader?.name || 'Trader unavailable';
+    const issue = missingTrader
+      ? 'This Trader Book record could not be resolved by its stable ID. No prices were applied.'
+      : missingPrices
+        ? 'No saved price-page rows are available for this trader. Capture or save a price list in Trader Book first.'
+        : '';
+    return `
+      <div class="tsimm-trader-shell tsimm-trader-deals-shell">
+        <div class="tsimm-ledger-head">
+          <div><strong>Trader Deals · ${escapeHtml(name)}</strong><small>${formatInteger(priceItems.length)} saved prices · read-only</small></div>
+          <button type="button" data-tsimm-action="traders-close" aria-label="Close Trader Book">×</button>
+        </div>
+        <div class="tsimm-trader-deals-toolbar">
+          <button type="button" data-tsimm-action="trader-deals-back">← Back to Trader Book</button>
+          ${trader?.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Open price list</a>` : ''}
+          ${!issue ? '<button type="button" data-tsimm-action="trader-deals-copy">Copy filtered deals</button>' : ''}
+        </div>
+        ${issue ? `<div class="tsimm-trader-deals-message" role="status">${escapeHtml(issue)}</div>` : `
+          <nav class="tsimm-trader-deals-summary" aria-label="Deal filters">
+            ${traderDealsSummaryButton('deals', 'DEALS', counts.deals, 'deals')}
+            ${traderDealsSummaryButton('premium', 'PREMIUM', counts.premium, 'premium')}
+            ${traderDealsSummaryButton('strong', 'STRONG', counts.strong, 'strong')}
+            ${traderDealsSummaryButton('near', 'NEAR', counts.near, 'near')}
+            ${traderDealsSummaryButton('withhold', 'WITHHOLD', counts.withhold, 'withhold')}
+            <button type="button" class="owned${state.traderUi.deals.ownedOnly ? ' active' : ''}" data-tsimm-action="trader-deals-owned"><strong>${formatInteger(counts.owned)}</strong><span>OWNED</span></button>
+          </nav>
+          <div class="tsimm-trader-deals-controls">
+            <button type="button" data-tsimm-action="trader-deals-controls">${state.traderUi.deals.controlsOpen ? 'Hide filters' : 'Filters'}</button>
+          </div>
+          ${state.traderUi.deals.controlsOpen ? `
+            <section class="tsimm-trader-deals-filter-panel">
+              <input type="search" data-tsimm-deals-search placeholder="Search item or ID" value="${escapeHtml(state.traderUi.deals.search)}">
+              <select data-tsimm-deals-sort aria-label="Sort deals">
+                <option value="pct" ${state.traderUi.deals.sort === 'pct' ? 'selected' : ''}>Payout % high</option>
+                <option value="pct-asc" ${state.traderUi.deals.sort === 'pct-asc' ? 'selected' : ''}>Payout % low</option>
+                <option value="market" ${state.traderUi.deals.sort === 'market' ? 'selected' : ''}>Best vs market</option>
+                <option value="route99" ${state.traderUi.deals.sort === 'route99' ? 'selected' : ''}>Best vs 99%</option>
+                <option value="price" ${state.traderUi.deals.sort === 'price' ? 'selected' : ''}>Trader price high</option>
+                <option value="name" ${state.traderUi.deals.sort === 'name' ? 'selected' : ''}>Item name</option>
+              </select>
+              <label>Near floor <input type="number" min="0" max="99" step="0.5" value="${escapeHtml(state.traderUi.deals.nearFloor)}" data-tsimm-deals-near> %</label>
+              <label><input type="checkbox" data-tsimm-deals-owned ${state.traderUi.deals.ownedOnly ? 'checked' : ''}> Owned only</label>
+              <button type="button" data-tsimm-action="trader-deals-all">Show all ${formatInteger(counts.all)}</button>
+              ${counts.unknown ? `<button type="button" data-tsimm-action="trader-deals-unknown">Unknown market ${formatInteger(counts.unknown)}</button>` : ''}
+            </section>
+          ` : ''}
+          <main class="tsimm-trader-deals-list">
+            ${shown.length ? shown.map(traderDealsRowHtml).join('') : '<div class="tsimm-ledger-empty">No items match this filter.</div>'}
+            ${filtered.length > shown.length ? `<button type="button" class="tsimm-trader-deals-more" data-tsimm-action="trader-deals-more">Load ${formatInteger(Math.min(200, filtered.length - shown.length))} more</button>` : ''}
+          </main>
+        `}
+      </div>
+    `;
+  }
+
+  function openTraderDeals(id) {
+    if (traderDealsAddonActive()) return;
+    const traderId = normalizeWhitespace(id) || '__missing_trader__';
+    state.traderUi.activeDossierId = '';
+    state.traderUi.activeDealsId = traderId;
+    state.traderUi.deals = {
+      ...state.traderUi.deals,
+      bucket: 'deals',
+      ownedOnly: false,
+      search: '',
+      sort: 'pct',
+      limit: 200,
+      controlsOpen: false,
+    };
+    renderTraders();
+  }
+
+  function closeTraderDeals() {
+    state.traderUi.activeDealsId = '';
+    renderTraders();
+  }
+
+  async function copyTraderDeals() {
+    const trader = state.traders.find((entry) => entry.id === state.traderUi.activeDealsId);
+    if (!trader) return;
+    const rows = filteredTraderDealsRows(traderDealsRows(trader));
+    const text = [
+      `${trader.name} deals`,
+      `Near floor: ${formatPercent(state.traderUi.deals.nearFloor)}`,
+      '',
+      'Group\tItem\tTrader\tMarket\tPayout %\tVs market\tVs 99%\tOwned',
+      ...rows.map((row) => [
+        row.bucket.toUpperCase(),
+        row.itemName,
+        row.price,
+        row.market || '',
+        row.percent === null ? '' : row.percent.toFixed(2),
+        row.differenceVsMarket ?? '',
+        row.differenceVs99 ?? '',
+        row.owned,
+      ].join('\t')),
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(area);
+      area.select();
+      const copied = document.execCommand('copy');
+      area.remove();
+      if (!copied) toast('Could not copy the filtered Trader Deals list.');
+    }
+  }
+
 
   function traderCompactRowHtml(trader) {
     const stats = traderStats(trader);
@@ -13698,6 +13958,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
               ${disposition === 'normal' && autoRecaptureAvailable ? `<button type="button" data-tsimm-action="trader-open-recapture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open & recapture</button>` : ''}
               ${disposition === 'normal' ? `<button type="button" data-tsimm-action="trader-arm-capture" data-tsimm-trader-id="${escapeHtml(trader.id)}">Arm price capture</button>` : ''}
               ${dispositionActions}
+              ${traderDealsButtonHtml(trader)}
               <button type="button" data-tsimm-action="trader-edit" data-tsimm-trader-id="${escapeHtml(trader.id)}">Edit</button>
               <button type="button" data-tsimm-action="trader-delete" data-tsimm-trader-id="${escapeHtml(trader.id)}">Delete</button>
             </div>
@@ -13745,6 +14006,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         ${trader.notes ? `<div class="tsimm-trader-notes">${escapeHtml(trader.notes)}</div>` : ''}
         <div class="tsimm-trader-actions">
           <button type="button" class="tsimm-btn-gold" data-tsimm-action="trader-dossier-open" data-tsimm-trader-id="${escapeHtml(trader.id)}">Open dossier</button>
+          ${traderDealsButtonHtml(trader)}
           ${disposition === 'normal' && trader.tradeUrl && priceItemCount ? `<button type="button" class="tsimm-priced-trade-start" data-tsimm-action="trader-start-priced-trade" data-tsimm-trader-id="${escapeHtml(trader.id)}">Start priced trade</button>` : (disposition === 'normal' && trader.tradeUrl ? `<a href="${escapeHtml(trader.tradeUrl)}">Start trade</a>` : '')}
           ${trader.profileUrl ? `<a href="${escapeHtml(trader.profileUrl)}">Profile</a>` : ''}
           ${trader.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Open prices</a>` : ''}
@@ -13991,6 +14253,11 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     const overlay = document.getElementById(APP.traderOverlayId);
     if (!overlay) return;
     const renderGeneration = advanceTraderBookRenderGeneration(overlay);
+    if (state.traderUi.activeDealsId && !traderDealsAddonActive()) {
+      overlay.innerHTML = traderDealsHtml(state.traderUi.activeDealsId);
+      return;
+    }
+    if (state.traderUi.activeDealsId) state.traderUi.activeDealsId = '';
     const activeDossier = state.traders.find((trader) => trader.id === state.traderUi.activeDossierId);
     if (activeDossier) {
       overlay.innerHTML = traderDossierHtml(activeDossier);
@@ -14041,6 +14308,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
   function closeTraders() {
     const overlay = document.getElementById(APP.traderOverlayId);
     if (!overlay) return;
+    state.traderUi.activeDealsId = '';
     advanceTraderBookRenderGeneration(overlay);
     removeTraderBookDecorations(overlay);
     overlay.remove();
@@ -14302,6 +14570,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .tsimm-trader-dossier-shell{width:min(760px,100%)}.tsimm-dossier-scroll{min-width:0;min-height:0;max-width:100%;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:8px;display:grid;gap:8px}.tsimm-dossier-back button{min-height:38px;border:1px solid #675c43;border-radius:7px;background:#332d23;color:#fff;padding:7px 10px;font-weight:800}.tsimm-dossier-hero{position:relative;display:flex;align-items:center;gap:10px;min-width:0;padding:9px;border:1px solid #746442;border-radius:9px;background:#29251e;overflow:hidden}.tsimm-dossier-hero>img{width:150px;max-width:36%;height:58px;border-radius:6px;object-fit:cover}.tsimm-dossier-hero>div{display:grid;gap:2px;min-width:0}.tsimm-dossier-hero strong{overflow-wrap:anywhere;word-break:break-word;color:#fff;font-size:16px}.tsimm-dossier-hero span,.tsimm-dossier-hero small{min-width:0;overflow-wrap:anywhere;word-break:break-word}.tsimm-dossier-hero span{color:#f4c95d;font-weight:800}.tsimm-dossier-hero small{color:#bdb4c8}
       .tsimm-dossier-actions,.tsimm-dossier-inline-actions{display:flex;flex-wrap:wrap;gap:6px}.tsimm-dossier-actions a,.tsimm-dossier-actions button,.tsimm-dossier-inline-actions a,.tsimm-dossier-inline-actions button{flex:1;min-width:105px;min-height:38px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px solid #675c43;border-radius:7px;background:#3a3326;color:#fff;padding:7px;text-align:center;text-decoration:none;font:700 11px/1.2 Arial,sans-serif}.tsimm-dossier-section{min-width:0;padding:9px;border:1px solid #4f4858;border-radius:9px;background:#25212a}.tsimm-dossier-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}.tsimm-dossier-section-head strong{color:#f4c95d;font-size:13px}.tsimm-dossier-section-head span{color:#9f96a8;font-size:9px;text-align:right}.tsimm-dossier-role{display:grid;grid-template-columns:minmax(0,1fr) minmax(145px,auto);align-items:center;gap:8px;color:#bdb4c8;font-weight:700}
       .tsimm-dossier-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px}.tsimm-dossier-summary>div{display:grid;gap:2px;min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1b181f}.tsimm-dossier-summary span{color:#a79eaf;font-size:9px;text-transform:uppercase}.tsimm-dossier-summary strong{overflow-wrap:anywhere}.tsimm-dossier-warning{margin-top:7px;padding:7px;border:1px solid #9a6d1f;border-radius:7px;background:#2c230f;color:#ffd166}.tsimm-dossier-sales,.tsimm-dossier-journal,.tsimm-dossier-items{display:grid;gap:6px;margin-top:7px}.tsimm-dossier-sale,.tsimm-dossier-journal article,.tsimm-dossier-items>div{min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1d1a21}.tsimm-dossier-sale.partial{border-color:#9a6d1f}.tsimm-dossier-row-head,.tsimm-dossier-items>div{display:flex;justify-content:space-between;gap:8px}.tsimm-dossier-row-head span,.tsimm-dossier-items span{color:#aaa1b7;text-align:right}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:3px 8px;margin:6px 0}.tsimm-dossier-sale-grid span,.tsimm-dossier-price-meta span{color:#aaa1b7}.tsimm-dossier-sale-grid strong,.tsimm-dossier-price-meta strong{text-align:right;overflow-wrap:anywhere}.tsimm-dossier-sale>small{display:block;color:#aaa1b7;overflow-wrap:anywhere}.tsimm-dossier-inline-actions{margin-top:6px}.tsimm-dossier-freshness-fresh{color:#63df9f}.tsimm-dossier-freshness-stale{color:#ffd166}.tsimm-dossier-freshness-outdated,.tsimm-dossier-freshness-missing{color:#ff7c85}.tsimm-dossier-journal article{display:grid;gap:4px}.tsimm-dossier-journal time,.tsimm-dossier-journal small{color:#918899;font-size:9px}.tsimm-dossier-journal p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+      .tsimm-trader-deals-button{background:#332d23!important;border-color:#a98532!important;color:#ffe29a!important}
+      .tsimm-trader-deals-shell{width:min(760px,100%)}.tsimm-trader-deals-toolbar,.tsimm-trader-deals-controls{display:flex;flex-wrap:wrap;gap:5px;padding:6px 8px}.tsimm-trader-deals-toolbar button,.tsimm-trader-deals-toolbar a,.tsimm-trader-deals-controls button,.tsimm-trader-deals-filter-panel button,.tsimm-trader-deals-filter-panel input,.tsimm-trader-deals-filter-panel select,.tsimm-trader-deals-filter-panel label{min-width:0;max-width:100%;min-height:36px;border:1px solid #675c43;border-radius:7px;background:#29251e;color:#fff;padding:6px 8px;font:700 10px/1.25 Arial,sans-serif;text-decoration:none}.tsimm-trader-deals-summary{display:flex;gap:4px;max-width:100%;overflow-x:auto;padding:5px 6px;flex:0 0 auto}.tsimm-trader-deals-summary button{min-width:68px;display:grid;gap:0;padding:4px 7px;border:1px solid #494250;border-radius:7px;background:#24212a;color:#c9c2d0;text-align:left;font:inherit}.tsimm-trader-deals-summary button strong{font-size:14px}.tsimm-trader-deals-summary button span{font-size:9px}.tsimm-trader-deals-summary button.active{border-color:#b98c2c;background:#3a3020;color:#ffe29a}.tsimm-trader-deals-filter-panel{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:0 8px 8px}.tsimm-trader-deals-filter-panel input[type=search]{width:100%}.tsimm-trader-deals-filter-panel label{display:flex;align-items:center;gap:6px;overflow-wrap:anywhere}.tsimm-trader-deals-list{min-width:0;min-height:0;flex:1 1 auto;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:6px 8px 10px;display:grid;align-content:start;gap:5px}.tsimm-trader-deals-row{min-width:0;border:1px solid #4d6548;border-radius:8px;background:#20251f;overflow:hidden}.tsimm-trader-deals-row.premium{border-left:3px solid #8dff72}.tsimm-trader-deals-row.strong{border-left:3px solid #59d9c8}.tsimm-trader-deals-row.near{border-left:3px solid #e6b84a}.tsimm-trader-deals-row.withhold{border-left:3px solid #99424b}.tsimm-trader-deals-row.unknown{border-left:3px solid #707780}.tsimm-trader-deals-row-toggle{width:100%;min-height:44px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:7px;border:0;background:transparent;color:#f4f1f8;padding:7px 8px;text-align:left;font:inherit;touch-action:manipulation}.tsimm-trader-deals-row-toggle>span:nth-child(2){display:grid;min-width:0;gap:2px}.tsimm-trader-deals-row-toggle strong,.tsimm-trader-deals-row-toggle small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trader-deals-row-toggle small{color:#aaa1b7;font-size:9px}.tsimm-trader-deals-row-toggle>b{font-size:8px;white-space:nowrap}.tsimm-trader-deals-row-details[hidden]{display:none!important}.tsimm-trader-deals-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:7px 9px}.tsimm-trader-deals-grid span,.tsimm-trader-deals-owned small{color:#aaa1b7;font-size:9px}.tsimm-trader-deals-grid strong{text-align:right;overflow-wrap:anywhere}.tsimm-trader-deals-owned{padding:5px 9px;border-top:1px dashed #514a59;color:#8bd9ff;font-size:9px}.tsimm-trader-deals-owned small{display:block;margin-top:2px}.tsimm-trader-deals-message{margin:10px;padding:10px;border:1px solid #9a6d1f;border-radius:8px;background:#2c230f;color:#ffd166}.tsimm-trader-deals-more{min-height:38px;border:1px solid #675c43;border-radius:7px;background:#332d23;color:#fff;padding:7px;font-weight:700}
+      @media(max-width:560px){.tsimm-trader-deals-filter-panel{grid-template-columns:minmax(0,1fr)}.tsimm-trader-deals-toolbar>*{flex:1 1 auto;text-align:center}.tsimm-trader-deals-row-toggle{grid-template-columns:auto minmax(0,1fr)}.tsimm-trader-deals-row-toggle>b{grid-column:2;justify-self:start}}
       @media(max-width:600px){.tsimm-trader-shell{width:100%;max-height:100%;border-radius:10px}.tsimm-trader-dossier-shell{width:100%}.tsimm-trader-book-compact>.tsimm-ledger-head{padding:7px 9px}.tsimm-trader-book-compact>.tsimm-ledger-head small{display:none}.tsimm-trader-view-toolbar{align-items:stretch;flex-wrap:wrap}.tsimm-trader-view-toolbar .tsimm-trader-sort{flex:1 1 220px;justify-content:space-between}.tsimm-trader-mode{flex:0 0 auto}}
       @media(max-width:430px){.tsimm-trader-top,.tsimm-dossier-section-head,.tsimm-dossier-row-head,.tsimm-dossier-items>div{align-items:stretch;flex-direction:column}.tsimm-trader-view-toolbar{display:grid}.tsimm-trader-sort{display:grid;justify-content:stretch}.tsimm-trader-sort select{width:100%}.tsimm-trader-mode>div{display:grid;grid-template-columns:1fr 1fr}.tsimm-trader-mode button{width:100%}.tsimm-trader-compact-head{grid-template-columns:minmax(0,1fr) auto}.tsimm-dossier-hero>img{width:86px;max-width:30%}.tsimm-dossier-role{grid-template-columns:1fr}.tsimm-dossier-role select{width:100%}.tsimm-dossier-summary{grid-template-columns:1fr 1fr}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr)}.tsimm-dossier-row-head span,.tsimm-dossier-items span{text-align:left}}
       #${APP.receiptAuditOverlayId}{position:fixed;inset:0;z-index:${IMM_LAYERS.receiptAudit};background:#000c;display:flex;align-items:center;justify-content:center;padding:8px;font:12px/1.35 Arial,sans-serif;color:#f4f1f8}
@@ -14689,6 +14960,48 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         closeTraders();
       } else if (action === 'traders-set-mode') {
         setTraderBookMode(button.dataset.tsimmTraderMode);
+      } else if (action === 'trader-deals-open') {
+        if (!traderDealsAddonActive()) openTraderDeals(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-deals-back') {
+        closeTraderDeals();
+      } else if (action === 'trader-deals-filter') {
+        const bucket = button.dataset.tsimmDealsBucket;
+        if (['deals', 'premium', 'strong', 'near', 'withhold'].includes(bucket)) {
+          state.traderUi.deals.bucket = bucket;
+          state.traderUi.deals.ownedOnly = false;
+          state.traderUi.deals.limit = 200;
+          renderTraders();
+        }
+      } else if (action === 'trader-deals-owned') {
+        state.traderUi.deals.ownedOnly = !state.traderUi.deals.ownedOnly;
+        state.traderUi.deals.limit = 200;
+        renderTraders();
+      } else if (action === 'trader-deals-controls') {
+        state.traderUi.deals.controlsOpen = !state.traderUi.deals.controlsOpen;
+        renderTraders();
+      } else if (action === 'trader-deals-row') {
+        const row = button.closest('.tsimm-trader-deals-row');
+        const details = row?.querySelector('.tsimm-trader-deals-row-details');
+        if (details) {
+          const expanded = button.getAttribute('aria-expanded') !== 'true';
+          details.hidden = !expanded;
+          button.setAttribute('aria-expanded', String(expanded));
+        }
+      } else if (action === 'trader-deals-all') {
+        state.traderUi.deals.bucket = 'all';
+        state.traderUi.deals.ownedOnly = false;
+        state.traderUi.deals.limit = 200;
+        renderTraders();
+      } else if (action === 'trader-deals-unknown') {
+        state.traderUi.deals.bucket = 'unknown';
+        state.traderUi.deals.ownedOnly = false;
+        state.traderUi.deals.limit = 200;
+        renderTraders();
+      } else if (action === 'trader-deals-more') {
+        state.traderUi.deals.limit += 200;
+        renderTraders();
+      } else if (action === 'trader-deals-copy') {
+        copyTraderDeals();
       } else if (action === 'trader-save-current') {
         saveCurrentTrader();
       } else if (action === 'trader-capture-profile') {
@@ -14914,6 +15227,30 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         setTraderBookSort(traderSort.value);
         return;
       }
+      const dealsOwned = event.target.closest('[data-tsimm-deals-owned]');
+      if (dealsOwned) {
+        state.traderUi.deals.ownedOnly = dealsOwned.checked;
+        state.traderUi.deals.limit = 200;
+        renderTraders();
+        return;
+      }
+      const dealsSort = event.target.closest('[data-tsimm-deals-sort]');
+      if (dealsSort) {
+        state.traderUi.deals.sort = ['pct', 'pct-asc', 'market', 'route99', 'price', 'name'].includes(dealsSort.value)
+          ? dealsSort.value
+          : 'pct';
+        state.traderUi.deals.limit = 200;
+        renderTraders();
+        return;
+      }
+      const dealsNear = event.target.closest('[data-tsimm-deals-near]');
+      if (dealsNear) {
+        const value = Number(dealsNear.value);
+        state.traderUi.deals.nearFloor = Math.min(99, Math.max(0, Number.isFinite(value) ? value : 97));
+        state.traderUi.deals.limit = 200;
+        renderTraders();
+        return;
+      }
       const traderRole = event.target.closest('[data-tsimm-trader-role]');
       if (traderRole) {
         setTraderRelationshipRoles(traderRole.dataset.tsimmTraderId, traderRole.value);
@@ -14973,6 +15310,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         state.ledgerUi.search = ledgerSearch.value;
         renderLedger();
         const replacement = document.querySelector(`#${APP.ledgerOverlayId} [data-tsimm-ledger-search]`);
+        if (replacement) {
+          replacement.focus();
+          replacement.setSelectionRange(cursor, cursor);
+        }
+        return;
+      }
+      const dealsSearch = event.target.closest('[data-tsimm-deals-search]');
+      if (dealsSearch) {
+        const cursor = dealsSearch.selectionStart ?? dealsSearch.value.length;
+        state.traderUi.deals.search = dealsSearch.value;
+        state.traderUi.deals.limit = 200;
+        renderTraders();
+        const replacement = document.querySelector(`#${APP.traderOverlayId} [data-tsimm-deals-search]`);
         if (replacement) {
           replacement.focus();
           replacement.setSelectionRange(cursor, cursor);
@@ -15153,6 +15503,19 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       normalizeName,
       catalogItemFor,
       catalogItemForId,
+      traderDealsAddonActive,
+      traderDealsButtonHtml,
+      traderDealsRows,
+      traderDealsCounts,
+      filteredTraderDealsRows,
+      traderDealsHtml,
+      openTraderDeals,
+      copyTraderDeals,
+      closeTraderDeals,
+      renderTraders,
+      closeTraders,
+      traderCompactRowHtml,
+      traderCardHtml,
       ledgerSalePlan,
       recordTradeSale,
       normalizeApiTradeListEntry,

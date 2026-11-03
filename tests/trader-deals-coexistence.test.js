@@ -56,6 +56,7 @@ function createEnvironment(scripts, extraStorage = [], options = {}) {
         if (value === '.tsimm-trader-card') return this.className.split(/\s+/).includes('tsimm-trader-card');
         if (value === '.tsimm-trader-actions') return this.className.split(/\s+/).includes('tsimm-trader-actions');
         if (value === '[data-tsimm-trader-id]') return Boolean(this.dataset.tsimmTraderId);
+        if (value === '[data-tsimm-deals-open]') return Boolean(this.dataset.tsimmDealsOpen);
         if (value === '[data-tsimm-action="trader-edit"]') return this.dataset.tsimmAction === 'trader-edit';
         if (value === '[data-tsimm-action="trader-edit"][data-tsimm-trader-id]') {
           return this.dataset.tsimmAction === 'trader-edit' && Boolean(this.dataset.tsimmTraderId);
@@ -158,6 +159,15 @@ function createEnvironment(scripts, extraStorage = [], options = {}) {
     edit.dataset.tsimmAction = 'trader-edit';
     edit.dataset.tsimmTraderId = options.cardTraderId || savedTrader.recordId;
     actions.appendChild(edit);
+    if (options.nativeDealsButton) {
+      const nativeDeals = document.createElement('button');
+      nativeDeals.className = 'tsimm-trader-deals-button tsimm-report-deals-button';
+      nativeDeals.dataset.tsimmDealsOpen = '1';
+      nativeDeals.dataset.tsimmAction = 'trader-deals-open';
+      nativeDeals.dataset.tsimmTraderId = savedTrader.recordId;
+      nativeDeals.textContent = 'Deals';
+      actions.appendChild(nativeDeals);
+    }
     return card;
   }
 
@@ -255,6 +265,20 @@ test('Report alone decorates and opens one styled Report button', () => {
   const overlay = env.document.getElementById('tornscripture-imm-trader-deals-addon');
   assert.ok(overlay);
   assert.match(overlay.innerHTML, /TRADER ONE_DEALS/);
+});
+
+test('Report adopts one native IMM Deals control without duplicating it', () => {
+  const env = createEnvironment(['report'], [], { nativeDealsButton: true });
+  const button = env.book.querySelector('[data-tsimm-deals-open]');
+  assert.ok(button);
+  assert.equal(buttonCount(env.book, '[data-tsimm-deals-open]'), 1);
+  assert.equal(button.dataset.tsimmAction, 'trader-deals-open');
+  assert.equal(button.dataset.tsimmTraderId, trader.recordId);
+  assert.equal(button.className, 'tsimm-trader-deals-button tsimm-report-deals-button');
+  assert.equal(env.intervals.length, 1);
+  env.click(button);
+  assert.ok(env.document.getElementById('tornscripture-imm-trader-deals-addon'));
+  assert.equal(env.document.getElementById('tornscripture-imm-trader-deals'), null);
 });
 
 test('legacy Deals alone retains its settings and opens one styled legacy button', () => {
