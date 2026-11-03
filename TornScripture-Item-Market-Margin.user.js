@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         TornScripture - Item Market Margin
-// @namespace    https://github.com/KingAeon/TornScripture
+// @name         TornScripture - Item Market Margin TEST (Act IV-A)
+// @namespace    https://github.com/KingAeon/TornScripture/isolated/act-iv-a
 // @version      0.19.39
-// @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
+// @description  TEST BUILD (not released). Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
 // @match        https://weav3r.dev/pricelist/*
@@ -13,8 +13,6 @@
 // @run-at       document-start
 // @license      MIT
 // @homepageURL  https://github.com/KingAeon/TornScripture
-// @downloadURL  https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-Item-Market-Margin.user.js
-// @updateURL    https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-Item-Market-Margin.user.js
 // ==/UserScript==
 
 (() => {
