@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         TornScripture - Item Market Margin
-// @namespace    https://github.com/KingAeon/TornScripture
-// @version      0.19.39
+// @name         TornScripture - Item Market Margin (Act IV-B Test Build)
+// @namespace    https://github.com/KingAeon/TornScripture/act-iv-b-test
+// @version      0.19.40
 // @description  Item-market and overseas profit overlays with Quick MAX, single-item trader exits, curated watchlists, market-velocity learning, compact tap-expandable Priced Trade badges with reliable Qty-adjacent MAX filling and a compact header, trader dossiers, classified trader controls, trader capture, Trade Exit Audit, purchase history, cross-channel purchase dedupe, reversible duplicate-ledger cleanup, capital-source lot tracking, and receipt audits.
 // @author       KingAeon
 // @match        https://www.torn.com/*
@@ -13,16 +13,14 @@
 // @run-at       document-start
 // @license      MIT
 // @homepageURL  https://github.com/KingAeon/TornScripture
-// @downloadURL  https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-Item-Market-Margin.user.js
-// @updateURL    https://raw.githubusercontent.com/KingAeon/TornScripture/main/TornScripture-Item-Market-Margin.user.js
 // ==/UserScript==
 
 (() => {
   'use strict';
 
   if (typeof window !== 'undefined') {
-    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.39' });
-    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.39' });
+    window.__TSIMM_CORE_TX_CAPTURE__ = Object.freeze({ owner: 'core', version: '0.19.40' });
+    window.__TSIMM_CORE_WATCHLISTS__ = Object.freeze({ owner: 'core', version: '0.19.40' });
   }
 
 
@@ -322,7 +320,7 @@
   const EARLY_CAPTURE_NOTICE = consumeEarlyCaptureNotice() || consumeEarlyBridgeFailureNotice();
 
   /*
-   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.39
+   * TORNSCRIPTURE - ITEM MARKET MARGIN v0.19.40
    *
    * SAFETY BOUNDARY
    * - Reads item names, lowest prices, market values, NPC store buyback values, visible listing rows, price pages, and trade manifests.
@@ -343,7 +341,7 @@
     shortName: 'IMM',
     brandName: 'GOBLIN GOD',
     brandSubtitle: 'IMM engine',
-    version: '0.19.39',
+    version: '0.19.40',
     panelId: 'tornscripture-imm-panel',
     styleId: 'tornscripture-imm-style',
     badgeClass: 'tsimm-margin-badge',
@@ -377,6 +375,8 @@
     apiKeyProfileStorageKey: 'tornscripture-imm-api-key-profile-v1',
     inventoryReconcileIntentStorageKey: 'tornscripture-imm-inventory-reconcile-intent-v1',
     tradersStorageKey: 'tornscripture-imm-traders-v1',
+    traderPriceIndexStorageKey: 'tornscripture-imm-trader-price-index-v1',
+    nativeTraderLinkUndoStorageKey: 'tornscripture-imm-native-trader-link-undo-v1',
     traderViewStorageKey: 'tornscripture-imm-trader-view-v1',
     pendingTraderCaptureStorageKey: 'tornscripture-imm-pending-trader-capture-v1',
     priceRecaptureSessionKey: 'tornscripture-imm-price-recapture-v1',
@@ -705,6 +705,7 @@
     sellPriority: normalizeSellPriority(loadJson(APP.sellPriorityStorageKey, {})),
     keyProfile: normalizeApiKeyProfile(loadJson(APP.apiKeyProfileStorageKey, {})),
     traders: normalizeTraders(loadJson(APP.tradersStorageKey, [])),
+    traderStorageVersion: readStorageString(APP.tradersStorageKey),
     showHiddenTraders: initialTraderView.showHidden,
     traderUi: {
       sort: initialTraderView.sort,
@@ -719,6 +720,8 @@
         sort: 'pct',
         limit: 200,
         controlsOpen: false,
+        manageOpen: false,
+        linkMessage: '',
       },
       renderGeneration: 0,
     },
@@ -780,6 +783,14 @@
       return parsed && typeof parsed === typeof fallback ? parsed : structuredCloneSafe(fallback);
     } catch {
       return structuredCloneSafe(fallback);
+    }
+  }
+
+  function readStorageString(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return undefined;
     }
   }
 
@@ -1349,6 +1360,168 @@
   function saveTraders() {
     state.traders = normalizeTraders(state.traders);
     saveJson(APP.tradersStorageKey, state.traders);
+    state.traderStorageVersion = readStorageString(APP.tradersStorageKey);
+  }
+
+  const TRADER_PRICE_LINK_FIELDS = Object.freeze([
+    'pricePageUrl',
+    'pricingPageUrl',
+    'receiptPageUrl',
+    'previousPricePageUrl',
+    'pricePageProvider',
+    'pricingProvider',
+    'pricePageTitle',
+    'pricingPageTitle',
+    'pricePageItems',
+    'pricingItems',
+    'pricePageCapturedAt',
+    'pricesCapturedAt',
+    'pricePageLastCheckedAt',
+    'pricePageCaptureCount',
+    'pricePageLastChangedCount',
+    'pricePageLastResult',
+  ]);
+  const TRADER_PRICE_URL_FIELDS = Object.freeze(['pricePageUrl', 'pricingPageUrl', 'receiptPageUrl']);
+  const TRADER_PRICE_ITEM_FIELDS = Object.freeze(['pricePageItems', 'pricingItems']);
+
+  function stableStoredTraderId(record) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return '';
+    const candidates = [];
+    for (const field of ['recordId', 'uuid']) {
+      if (!Object.hasOwn(record, field) || record[field] === null || record[field] === '') continue;
+      if (typeof record[field] !== 'string' || record[field].trim() !== record[field]) return '';
+      candidates.push(record[field]);
+    }
+    if (typeof record.id === 'string' && record.id !== '') {
+      if (record.id.trim() !== record.id) return '';
+      candidates.push(record.id);
+    }
+    return candidates.length && candidates.every((id) => id === candidates[0]) ? candidates[0] : '';
+  }
+
+  function parseTraderLinkStore(raw) {
+    if (typeof raw !== 'string' || !raw) throw new Error('Trader storage is unavailable or empty.');
+    let root;
+    try {
+      root = JSON.parse(raw);
+    } catch {
+      throw new Error('Trader storage is malformed. No pricelist changes were made.');
+    }
+    const records = Array.isArray(root)
+      ? root
+      : root && typeof root === 'object' && Array.isArray(root.traders)
+        ? root.traders
+        : null;
+    if (!records) throw new Error('Trader storage has an unsupported shape. No pricelist changes were made.');
+    const ids = new Set();
+    const indexed = records.map((record) => {
+      const id = stableStoredTraderId(record);
+      if (!id) throw new Error('Every Trader Book record must have one unambiguous stable ID.');
+      if (ids.has(id)) throw new Error(`Duplicate Trader Book stable ID: ${id}.`);
+      ids.add(id);
+      return { id, record };
+    });
+    return { root, records, indexed };
+  }
+
+  function priceLinkAliasValue(record, fields, label, normalize = (value) => value) {
+    const values = fields
+      .filter((field) => Object.hasOwn(record, field) && record[field] !== null)
+      .map((field) => {
+        if (typeof record[field] !== 'string') throw new Error(`The saved ${label} is malformed.`);
+        const value = record[field].trim();
+        return normalize(value);
+      });
+    if (values.some((value) => value === null)) throw new Error(`The saved ${label} is malformed.`);
+    if (values.some((value) => value !== values[0])) throw new Error(`The saved ${label} aliases conflict.`);
+    return values[0] ?? '';
+  }
+
+  function validateTraderPriceLink(record) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      throw new Error('A Trader Book record has an unexpected shape.');
+    }
+    const urls = priceLinkAliasValue(
+      record,
+      TRADER_PRICE_URL_FIELDS,
+      'price-page URL',
+      (value) => value ? normalizeHttpUrl(value) || null : '',
+    );
+    const provider = priceLinkAliasValue(record, ['pricePageProvider', 'pricingProvider'], 'provider', (value) => value.toLowerCase());
+    const title = priceLinkAliasValue(record, ['pricePageTitle', 'pricingPageTitle'], 'title');
+    const itemFields = TRADER_PRICE_ITEM_FIELDS.filter((field) => Object.hasOwn(record, field) && record[field] !== null);
+    let items = [];
+    if (itemFields.length) {
+      if (itemFields.some((field) => !Array.isArray(record[field]))) {
+        throw new Error('The saved pricelist items are malformed.');
+      }
+      const firstItems = JSON.stringify(record[itemFields[0]]);
+      if (itemFields.some((field) => JSON.stringify(record[field]) !== firstItems)) {
+        throw new Error('The saved pricelist item aliases conflict.');
+      }
+      items = record[itemFields[0]];
+      if (items.some((item) => !normalizeTraderPriceItem(item))) {
+        throw new Error('The saved pricelist contains a malformed item.');
+      }
+    }
+    const previousUrl = Object.hasOwn(record, 'previousPricePageUrl') && record.previousPricePageUrl !== null
+      ? typeof record.previousPricePageUrl === 'string'
+        ? record.previousPricePageUrl.trim() ? normalizeHttpUrl(record.previousPricePageUrl) || null : ''
+        : null
+      : '';
+    if (previousUrl === null) throw new Error('The previous price-page URL is malformed.');
+    const capturedAtValues = ['pricePageCapturedAt', 'pricesCapturedAt']
+      .filter((field) => Object.hasOwn(record, field) && record[field] !== null)
+      .map((field) => record[field]);
+    if (capturedAtValues.some((value) => !['string', 'number'].includes(typeof value))
+      || capturedAtValues.some((value) => value !== capturedAtValues[0])) {
+      throw new Error('Saved price capture timestamp aliases conflict or are malformed.');
+    }
+    for (const field of ['pricePageCapturedAt', 'pricesCapturedAt', 'pricePageLastCheckedAt']) {
+      const value = record[field];
+      if (value !== undefined && value !== null && typeof value !== 'string' && !(typeof value === 'number' && Number.isFinite(value))) {
+        throw new Error('A saved price capture timestamp is malformed.');
+      }
+      if (typeof value === 'string' && value.trim() && !Number.isFinite(Date.parse(value))) {
+        throw new Error('A saved price capture timestamp is malformed.');
+      }
+    }
+    for (const field of ['pricePageCaptureCount', 'pricePageLastChangedCount']) {
+      const value = record[field];
+      if (value !== undefined && value !== null && (!Number.isInteger(Number(value)) || Number(value) < 0)) {
+        throw new Error('A saved price capture count is malformed.');
+      }
+    }
+    if (record.pricePageLastResult !== undefined && record.pricePageLastResult !== null && typeof record.pricePageLastResult !== 'string') {
+      throw new Error('The saved price capture result is malformed.');
+    }
+    return {
+      url: urls,
+      previousUrl,
+      provider,
+      title,
+      items,
+      hasPayload: Boolean(
+        urls || previousUrl || provider || title || items.length
+        || record.pricePageCapturedAt || record.pricesCapturedAt || record.pricePageLastCheckedAt
+        || Number(record.pricePageCaptureCount) || Number(record.pricePageLastChangedCount)
+        || record.pricePageLastResult,
+      ),
+    };
+  }
+
+  function clearTraderPriceLink(record) {
+    const next = { ...record };
+    for (const field of TRADER_PRICE_LINK_FIELDS) delete next[field];
+    return next;
+  }
+
+  function applyTraderPriceLink(record, source) {
+    const next = clearTraderPriceLink(record);
+    for (const field of TRADER_PRICE_LINK_FIELDS) {
+      if (Object.hasOwn(source, field)) next[field] = structuredCloneSafe(source[field]);
+    }
+    return next;
   }
 
 
@@ -2250,6 +2423,509 @@
     const request = normalizePriceRecaptureRequest(loadSessionJson(APP.priceRecaptureSessionKey, null));
     if (!request) saveSessionJson(APP.priceRecaptureSessionKey, null);
     return request;
+  }
+
+  async function traderStoreSha256(raw) {
+    if (!globalThis.crypto?.subtle || typeof TextEncoder !== 'function') {
+      throw new Error('Secure local recovery verification is unavailable in this browser.');
+    }
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  function writeStorageString(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return readStorageString(key) === value;
+    } catch {
+      return false;
+    }
+  }
+
+  function removeStorageString(key) {
+    try {
+      localStorage.removeItem(key);
+      return readStorageString(key) === null;
+    } catch {
+      return false;
+    }
+  }
+
+  function restoreStorageString(key, value) {
+    const current = readStorageString(key);
+    if (current === value) return true;
+    if (current === undefined) return false;
+    return value === null ? removeStorageString(key) : writeStorageString(key, value);
+  }
+
+  function restoreStorageStringIfCurrent(key, expected, value) {
+    const current = readStorageString(key);
+    if (current === value) return true;
+    if (current !== expected || current === undefined) return false;
+    return restoreStorageString(key, value);
+  }
+
+  function parseNativeTraderLinkUndo(raw) {
+    if (typeof raw !== 'string' || !raw) throw new Error('No native pricelist undo snapshot is available.');
+    let snapshot;
+    try {
+      snapshot = JSON.parse(raw);
+    } catch {
+      throw new Error('The native pricelist undo snapshot is corrupt. Keep the Report backup and recover from an IMM JSON export.');
+    }
+    if (
+      !snapshot
+      || snapshot.schema !== 'tornscripture-imm-native-trader-link-undo'
+      || snapshot.schemaVersion !== 1
+      || !['move', 'disconnect'].includes(snapshot.operation)
+      || typeof snapshot.beforeRaw !== 'string'
+      || !/^[a-f0-9]{64}$/.test(snapshot.beforeSha256 || '')
+      || !/^[a-f0-9]{64}$/.test(snapshot.afterSha256 || '')
+      || !Array.isArray(snapshot.affectedTraderIds)
+      || !snapshot.affectedTraderIds.length
+      || snapshot.affectedTraderIds.length !== (snapshot.operation === 'move' ? 2 : 1)
+      || snapshot.affectedTraderIds.some((id) => typeof id !== 'string' || !id)
+      || new Set(snapshot.affectedTraderIds).size !== snapshot.affectedTraderIds.length
+    ) {
+      throw new Error('The native pricelist undo snapshot is incomplete or unsupported. No data was changed.');
+    }
+    const before = parseTraderLinkStore(snapshot.beforeRaw);
+    if (snapshot.affectedTraderIds.some((id) => !before.indexed.some((entry) => entry.id === id))) {
+      throw new Error('The native pricelist undo snapshot does not contain its affected traders. No data was changed.');
+    }
+    return snapshot;
+  }
+
+  async function verifyPreviousNativeUndo(snapshot, currentRaw) {
+    if (!snapshot) return;
+    const [beforeHash, afterHash] = await Promise.all([
+      traderStoreSha256(snapshot.beforeRaw),
+      traderStoreSha256(currentRaw),
+    ]);
+    if (beforeHash !== snapshot.beforeSha256 || afterHash !== snapshot.afterSha256) {
+      throw new Error('The prior native undo snapshot is stale or corrupt. Export your Trader Book JSON and resolve it before another link change.');
+    }
+  }
+
+  function activePendingLinkConflict(traderIds, parsedStore) {
+    const now = Date.now();
+    const affectedRecords = parsedStore.indexed
+      .filter((entry) => traderIds.includes(entry.id))
+      .map((entry) => entry.record);
+    const conflicts = (candidate) => {
+      const traderId = typeof candidate?.traderId === 'string' ? candidate.traderId : '';
+      if (traderId && traderIds.includes(traderId)) return true;
+      const userId = Number(candidate?.userId);
+      if (userId > 0 && affectedRecords.some((record) => Number(record.userId ?? record.tornId) === userId)) return true;
+      const candidateName = normalizeName(candidate?.name);
+      return Boolean(candidateName && affectedRecords.some((record) => normalizeName(record.name ?? record.username) === candidateName));
+    };
+    const pendingRaw = readStorageString(APP.pendingTraderCaptureStorageKey);
+    if (pendingRaw === undefined) throw new Error('IMM could not verify pending trader capture state.');
+    if (pendingRaw !== null) {
+      let pending;
+      try {
+        pending = JSON.parse(pendingRaw);
+      } catch {
+        throw new Error('Pending trader capture state is malformed. Finish or clear capture before changing a pricelist.');
+      }
+      if (!pending || typeof pending !== 'object' || Array.isArray(pending)) {
+        throw new Error('Pending trader capture state is malformed. Finish or clear capture before changing a pricelist.');
+      }
+      const hasIdentity = Boolean(pending.traderId || Number(pending.userId) || normalizeWhitespace(pending.name));
+      const explicitExpiry = Number(pending.expiresAt);
+      const armedAt = Number(pending.armedAt);
+      const expiresAt = Number.isFinite(explicitExpiry) && explicitExpiry > 0
+        ? explicitExpiry
+        : Number.isFinite(armedAt) && armedAt > 0
+          ? armedAt + APP.traderCaptureMaxAgeMs
+          : NaN;
+      if (!Number.isFinite(expiresAt)) {
+        if (hasIdentity) throw new Error('Pending trader capture expiry is ambiguous. Finish or clear it before changing a pricelist.');
+        throw new Error('Pending trader capture state is malformed. Finish or clear it before changing a pricelist.');
+      }
+      if (expiresAt > now) {
+        if (!hasIdentity) throw new Error('Pending trader capture identity is ambiguous. Finish or clear it before changing a pricelist.');
+        if (conflicts(pending)) {
+          throw new Error('A price capture is pending for one of these traders. Finish or clear it before changing the link.');
+        }
+      }
+    }
+
+    const sessionRaw = (() => {
+      try {
+        return sessionStorage.getItem(APP.priceRecaptureSessionKey);
+      } catch {
+        return undefined;
+      }
+    })();
+    if (sessionRaw === undefined) throw new Error('IMM could not verify pending price-recapture state.');
+    if (sessionRaw !== null) {
+      let request;
+      try {
+        request = JSON.parse(sessionRaw);
+      } catch {
+        throw new Error('Pending price-recapture state is malformed. Finish or cancel it before changing a pricelist.');
+      }
+      if (!request || typeof request !== 'object' || Array.isArray(request)) {
+        throw new Error('Pending price-recapture state is malformed. Finish or cancel it before changing a pricelist.');
+      }
+      const explicitExpiry = Number(request.expiresAt);
+      const requestedAt = Number(request.requestedAt);
+      const expiresAt = Number.isFinite(explicitExpiry) && explicitExpiry > 0
+        ? explicitExpiry
+        : Number.isFinite(requestedAt) && requestedAt > 0
+          ? requestedAt + (15 * 60 * 1000)
+          : NaN;
+      if (!Number.isFinite(expiresAt)) {
+        if (request.traderId || request.url) throw new Error('Pending price-recapture expiry is ambiguous. Finish or cancel it before changing a pricelist.');
+        throw new Error('Pending price-recapture state is malformed. Finish or cancel it before changing a pricelist.');
+      }
+      if (expiresAt > now) {
+        if (traderIds.includes(String(request.traderId || ''))) {
+          throw new Error('A price recapture is pending for one of these traders. Finish or cancel it before changing the link.');
+        }
+        if (!request.traderId || !normalizeHttpUrl(request.url)) {
+          throw new Error('Pending price-recapture identity is ambiguous. Finish or cancel it before changing a pricelist.');
+        }
+      }
+    }
+    if (state.pendingTraderCapture && Number(state.pendingTraderCapture.expiresAt) > now) {
+      const hasIdentity = Boolean(
+        state.pendingTraderCapture.traderId
+        || Number(state.pendingTraderCapture.userId)
+        || normalizeWhitespace(state.pendingTraderCapture.name),
+      );
+      if (!hasIdentity) throw new Error('In-memory trader capture identity is ambiguous. Finish or clear it before changing a pricelist.');
+      if (conflicts(state.pendingTraderCapture)) {
+        throw new Error('A price capture is pending for one of these traders. Finish or clear it before changing the link.');
+      }
+    }
+  }
+
+  function traderLinkViewMatchesRaw(view, record) {
+    const normalized = normalizeTrader(record);
+    if (!normalized) return false;
+    return [
+      'pricePageUrl',
+      'previousPricePageUrl',
+      'pricePageProvider',
+      'pricePageTitle',
+      'pricePageItems',
+      'pricePageCapturedAt',
+      'pricePageLastCheckedAt',
+      'pricePageCaptureCount',
+      'pricePageLastChangedCount',
+      'pricePageLastResult',
+    ].every((field) => JSON.stringify(view[field]) === JSON.stringify(normalized[field]));
+  }
+
+  function resolveTraderLinkMutation(operation, sourceId, targetId = '') {
+    if (traderDealsAddonActive()) throw new Error('Trader Report currently owns Manage Link. Disable Report to use IMM controls.');
+    if (typeof sourceId !== 'string' || !sourceId || sourceId !== state.traderUi.activeDealsId) {
+      throw new Error('The selected Trader Book view is stale. Reopen this trader by its stable ID and try again.');
+    }
+    if (operation === 'move' && (typeof targetId !== 'string' || !targetId || targetId === sourceId)) {
+      throw new Error('Choose a different destination trader by its stable ID.');
+    }
+    const raw = readStorageString(APP.tradersStorageKey);
+    if (raw === undefined) throw new Error('IMM could not read Trader Book storage.');
+    if (state.traderStorageVersion !== raw) {
+      throw new Error('Trader Book changed after this view was loaded. Reopen Trader Book before changing a pricelist.');
+    }
+    const parsed = parseTraderLinkStore(raw);
+    const sourceEntries = parsed.indexed.filter((entry) => entry.id === sourceId);
+    const targetEntries = operation === 'move' ? parsed.indexed.filter((entry) => entry.id === targetId) : [];
+    if (sourceEntries.length !== 1 || (operation === 'move' && targetEntries.length !== 1)) {
+      throw new Error('The source or destination trader is missing or ambiguous. No data was changed.');
+    }
+    const sourceView = state.traders.filter((trader) => trader.id === sourceId);
+    const targetView = operation === 'move' ? state.traders.filter((trader) => trader.id === targetId) : [];
+    if (
+      sourceView.length !== 1
+      || (operation === 'move' && targetView.length !== 1)
+      || normalizeWhitespace(sourceEntries[0].record.name ?? sourceEntries[0].record.username) !== sourceView[0].name
+      || (operation === 'move' && normalizeWhitespace(targetEntries[0].record.name ?? targetEntries[0].record.username) !== targetView[0].name)
+      || !traderLinkViewMatchesRaw(sourceView[0], sourceEntries[0].record)
+      || (operation === 'move' && !traderLinkViewMatchesRaw(targetView[0], targetEntries[0].record))
+    ) {
+      throw new Error('The selected trader view does not match the saved stable-ID records. Reopen Trader Book before retrying.');
+    }
+    const sourcePayload = validateTraderPriceLink(sourceEntries[0].record);
+    if (!sourcePayload.hasPayload) throw new Error('The selected trader has no captured pricelist to change.');
+    const targetPayload = operation === 'move' ? validateTraderPriceLink(targetEntries[0].record) : null;
+    const nativeUndoRaw = readStorageString(APP.nativeTraderLinkUndoStorageKey);
+    if (nativeUndoRaw === undefined) throw new Error('IMM could not verify its prior undo snapshot.');
+    const previousUndo = nativeUndoRaw !== null ? parseNativeTraderLinkUndo(nativeUndoRaw) : null;
+    return { raw, parsed, source: sourceEntries[0], target: targetEntries[0], sourcePayload, targetPayload, previousUndo, nativeUndoRaw };
+  }
+
+  function setTraderLinkMessage(message) {
+    state.traderUi.deals.linkMessage = message;
+    renderTraders();
+  }
+
+  function restoreMutationStorage({ afterRaw, beforeRaw, undoKeyRaw, candidateUndoRaw, priceIndexRaw, cacheWasCleared }) {
+    const currentTraderRaw = readStorageString(APP.tradersStorageKey);
+    const traderRestored = currentTraderRaw === beforeRaw
+      || (currentTraderRaw === afterRaw && restoreStorageString(APP.tradersStorageKey, beforeRaw));
+    const currentUndoRaw = readStorageString(APP.nativeTraderLinkUndoStorageKey);
+    const undoRestored = currentUndoRaw === undoKeyRaw
+      || (currentUndoRaw === candidateUndoRaw && restoreStorageString(APP.nativeTraderLinkUndoStorageKey, undoKeyRaw));
+    const currentPriceIndexRaw = readStorageString(APP.traderPriceIndexStorageKey);
+    const indexRestored = currentPriceIndexRaw === priceIndexRaw
+      || (cacheWasCleared && currentPriceIndexRaw === null && restoreStorageString(APP.traderPriceIndexStorageKey, priceIndexRaw));
+    return traderRestored && undoRestored && indexRestored;
+  }
+
+  async function commitTraderLinkMutation(operation, sourceId, targetId = '') {
+    let context;
+    try {
+      context = resolveTraderLinkMutation(operation, sourceId, targetId);
+      await verifyPreviousNativeUndo(context.previousUndo, context.raw);
+      activePendingLinkConflict(
+        operation === 'move' ? [sourceId, targetId] : [sourceId],
+        context.parsed,
+      );
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not verify the selected pricelist records.');
+      return false;
+    }
+
+    const sourceRecord = context.source.record;
+    const targetRecord = context.target?.record;
+    const sourceName = normalizeWhitespace(sourceRecord.name ?? sourceRecord.username);
+    const targetName = targetRecord ? normalizeWhitespace(targetRecord.name ?? targetRecord.username) : '';
+    const replaceCount = context.targetPayload?.items.length || 0;
+    const preview = operation === 'move'
+      ? `Move ${context.sourcePayload.items.length} captured prices from ${sourceName} [${sourceId}] to ${targetName} [${targetId}]?${context.targetPayload.hasPayload ? `\n\nThis replaces ${replaceCount} captured prices and the destination's current link.` : ''}\n\nOnly pricelist link fields move. Trader profiles, relationship history, ratings, disposition, sales, and Ledger records stay unchanged.`
+      : `Disconnect ${sourceName}'s captured pricelist [${sourceId}]?\n\nThis removes only its pricelist link and payload. Trader profile, relationship history, ratings, disposition, recorded sales, and Ledger records stay unchanged.`;
+    if (!confirm(preview)) return false;
+
+    let latest;
+    let priceIndexRaw;
+    try {
+      latest = resolveTraderLinkMutation(operation, sourceId, targetId);
+      if (latest.raw !== context.raw || latest.nativeUndoRaw !== context.nativeUndoRaw) {
+        throw new Error('Trader Book or its recovery snapshot changed during confirmation. Reopen the view and review again.');
+      }
+      await verifyPreviousNativeUndo(latest.previousUndo, latest.raw);
+      activePendingLinkConflict(
+        operation === 'move' ? [sourceId, targetId] : [sourceId],
+        latest.parsed,
+      );
+      priceIndexRaw = readStorageString(APP.traderPriceIndexStorageKey);
+      if (priceIndexRaw === undefined) throw new Error('IMM could not verify the trader price-index cache.');
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not revalidate the selected pricelist records.');
+      return false;
+    }
+
+    const records = [...latest.parsed.records];
+    const sourceIndex = latest.parsed.indexed.findIndex((entry) => entry.id === sourceId);
+    const source = records[sourceIndex];
+    if (operation === 'move') {
+      const targetIndex = latest.parsed.indexed.findIndex((entry) => entry.id === targetId);
+      records[sourceIndex] = clearTraderPriceLink(source);
+      records[targetIndex] = applyTraderPriceLink(records[targetIndex], source);
+    } else {
+      records[sourceIndex] = clearTraderPriceLink(source);
+    }
+    const afterRoot = Array.isArray(latest.parsed.root)
+      ? records
+      : { ...latest.parsed.root, traders: records };
+    const afterRaw = JSON.stringify(afterRoot);
+    let candidateUndoRaw;
+    try {
+      candidateUndoRaw = JSON.stringify({
+        schema: 'tornscripture-imm-native-trader-link-undo',
+        schemaVersion: 1,
+        operation,
+        savedAt: new Date().toISOString(),
+        affectedTraderIds: operation === 'move' ? [sourceId, targetId] : [sourceId],
+        beforeRaw: latest.raw,
+        beforeSha256: await traderStoreSha256(latest.raw),
+        afterSha256: await traderStoreSha256(afterRaw),
+      });
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not create a verified recovery fingerprint. No data was changed.');
+      return false;
+    }
+    const oldUndoRaw = latest.nativeUndoRaw;
+    if (!writeStorageString(APP.nativeTraderLinkUndoStorageKey, candidateUndoRaw)) {
+      const restored = restoreStorageStringIfCurrent(APP.nativeTraderLinkUndoStorageKey, candidateUndoRaw, oldUndoRaw);
+      setTraderLinkMessage(restored
+        ? 'IMM could not verify the recovery snapshot. The Trader Book and price-index cache were not changed.'
+        : 'IMM could not verify the recovery snapshot or safely restore its prior value. Trader Book and price-index data were not changed; preserve any recovery data for review.');
+      return false;
+    }
+    if (
+      readStorageString(APP.tradersStorageKey) !== latest.raw
+      || readStorageString(APP.nativeTraderLinkUndoStorageKey) !== candidateUndoRaw
+    ) {
+      const restored = restoreStorageStringIfCurrent(APP.nativeTraderLinkUndoStorageKey, candidateUndoRaw, oldUndoRaw);
+      setTraderLinkMessage(restored
+        ? 'Trader Book changed while recovery was being secured. No pricelist changes were applied.'
+        : 'Trader Book changed while recovery was being secured, and the recovery snapshot changed unexpectedly. No pricelist changes were applied; review local storage before retrying.');
+      return false;
+    }
+    if (!writeStorageString(APP.tradersStorageKey, afterRaw)) {
+      const restored = restoreMutationStorage({
+        afterRaw,
+        beforeRaw: latest.raw,
+        undoKeyRaw: oldUndoRaw,
+        candidateUndoRaw,
+        priceIndexRaw,
+        cacheWasCleared: false,
+      });
+      setTraderLinkMessage(restored
+        ? 'IMM could not verify the Trader Book write. The original trader data, undo snapshot, and price-index cache were restored.'
+        : 'IMM could not verify the Trader Book write or fully restore storage. Keep the recovery snapshot and export the Trader Book JSON before continuing.');
+      return false;
+    }
+    if (readStorageString(APP.traderPriceIndexStorageKey) !== priceIndexRaw) {
+      const restored = restoreMutationStorage({
+        afterRaw,
+        beforeRaw: latest.raw,
+        undoKeyRaw: oldUndoRaw,
+        candidateUndoRaw,
+        priceIndexRaw,
+        cacheWasCleared: false,
+      });
+      setTraderLinkMessage(restored
+        ? 'The trader price-index cache changed concurrently. The Trader Book and recovery snapshot were restored; review the view and retry.'
+        : 'The trader price-index cache changed concurrently and storage could not be fully restored. Keep the recovery snapshot and export Trader Book JSON.');
+      return false;
+    }
+    if (!removeStorageString(APP.traderPriceIndexStorageKey)) {
+      const restored = restoreMutationStorage({
+        afterRaw,
+        beforeRaw: latest.raw,
+        undoKeyRaw: oldUndoRaw,
+        candidateUndoRaw,
+        priceIndexRaw,
+        cacheWasCleared: readStorageString(APP.traderPriceIndexStorageKey) === null,
+      });
+      setTraderLinkMessage(restored
+        ? 'IMM could not invalidate the trader price-index cache. The trader data and recovery snapshot were restored.'
+        : 'Price-index invalidation failed and storage could not be fully restored. Keep the recovery snapshot and export Trader Book JSON before continuing.');
+      return false;
+    }
+
+    state.traders = normalizeTraders(afterRoot);
+    state.traderStorageVersion = afterRaw;
+    state.traderUi.deals.linkMessage = operation === 'move'
+      ? `Pricelist moved from ${sourceName} to ${targetName}. Undo is available in Manage Link.`
+      : `Pricelist disconnected from ${sourceName}. Undo is available in Manage Link.`;
+    try {
+      window.dispatchEvent(new CustomEvent('tsimm:trader-price-index-updated', { detail: { source: 'imm-native-trader-link' } }));
+    } catch {}
+    renderTraders();
+    return true;
+  }
+
+  async function moveTraderPricelist(sourceId, targetId) {
+    return commitTraderLinkMutation('move', sourceId, targetId);
+  }
+
+  async function disconnectTraderPricelist(sourceId) {
+    return commitTraderLinkMutation('disconnect', sourceId);
+  }
+
+  async function undoTraderPricelistLink() {
+    if (traderDealsAddonActive()) {
+      setTraderLinkMessage('Trader Report currently owns Manage Link. Disable Report to use IMM controls.');
+      return false;
+    }
+    let snapshotRaw = readStorageString(APP.nativeTraderLinkUndoStorageKey);
+    let liveRaw = readStorageString(APP.tradersStorageKey);
+    let indexRaw = readStorageString(APP.traderPriceIndexStorageKey);
+    let snapshot;
+    let liveStore;
+    try {
+      if (snapshotRaw === undefined || liveRaw === undefined || indexRaw === undefined) {
+        throw new Error('IMM could not verify the native undo snapshot or current Trader Book.');
+      }
+      snapshot = parseNativeTraderLinkUndo(snapshotRaw);
+      if (state.traderStorageVersion !== liveRaw) {
+        throw new Error('Trader Book changed after this view was loaded. Reopen Trader Book before undoing.');
+      }
+      liveStore = parseTraderLinkStore(liveRaw);
+      if (snapshot.affectedTraderIds.some((id) => !liveStore.indexed.some((entry) => entry.id === id))) {
+        throw new Error('An affected trader is missing from the current Trader Book. Undo was refused.');
+      }
+      const [beforeHash, afterHash] = await Promise.all([
+        traderStoreSha256(snapshot.beforeRaw),
+        traderStoreSha256(liveRaw),
+      ]);
+      if (beforeHash !== snapshot.beforeSha256) {
+        throw new Error('The native before-image failed its recovery fingerprint. Keep the Report backup and recover from an IMM JSON export.');
+      }
+      if (afterHash !== snapshot.afterSha256) {
+        throw new Error('Trader Book changed after this link operation. Undo was refused to protect unrelated edits. Export JSON and review before recovery.');
+      }
+      activePendingLinkConflict(snapshot.affectedTraderIds, liveStore);
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not verify the native undo snapshot.');
+      return false;
+    }
+    if (!confirm(`Undo the last native ${snapshot.operation} of trader pricelist links?\n\nRestore the exact saved Trader Book before-image for ${snapshot.affectedTraderIds.join(', ')}? Unrelated or later edits must be reviewed separately.`)) {
+      return false;
+    }
+    try {
+      if (
+        traderDealsAddonActive()
+        || readStorageString(APP.nativeTraderLinkUndoStorageKey) !== snapshotRaw
+        || readStorageString(APP.tradersStorageKey) !== liveRaw
+        || readStorageString(APP.traderPriceIndexStorageKey) !== indexRaw
+      ) {
+        throw new Error('Trader Report ownership, Trader Book, or its recovery snapshot changed during confirmation. Undo was refused.');
+      }
+      activePendingLinkConflict(snapshot.affectedTraderIds, liveStore);
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not revalidate the native undo snapshot.');
+      return false;
+    }
+    if (!writeStorageString(APP.tradersStorageKey, snapshot.beforeRaw)) {
+      const current = readStorageString(APP.tradersStorageKey);
+      const restored = current === liveRaw
+        || (current === snapshot.beforeRaw && restoreStorageString(APP.tradersStorageKey, liveRaw));
+      setTraderLinkMessage(restored
+        ? 'IMM could not verify the undo write. Trader Book data, recovery snapshot, and price-index cache were left unchanged.'
+        : 'Undo could not be verified and Trader Book storage may have changed. Keep the native recovery snapshot and export Trader Book JSON.');
+      return false;
+    }
+    if (readStorageString(APP.traderPriceIndexStorageKey) !== indexRaw) {
+      const current = readStorageString(APP.tradersStorageKey);
+      const restored = current === liveRaw
+        || (current === snapshot.beforeRaw && restoreStorageString(APP.tradersStorageKey, liveRaw));
+      setTraderLinkMessage(restored
+        ? 'The trader price-index cache changed concurrently. The before-image was rolled back and the undo snapshot remains available.'
+        : 'The trader price-index cache changed concurrently and Trader Book storage could not be restored. Keep the recovery snapshot and export Trader Book JSON.');
+      return false;
+    }
+    if (!removeStorageString(APP.traderPriceIndexStorageKey)) {
+      const current = readStorageString(APP.tradersStorageKey);
+      const restored = current === liveRaw
+        || (current === snapshot.beforeRaw && restoreStorageString(APP.tradersStorageKey, liveRaw));
+      const indexRestored = readStorageString(APP.traderPriceIndexStorageKey) === indexRaw
+        || (readStorageString(APP.traderPriceIndexStorageKey) === null && restoreStorageString(APP.traderPriceIndexStorageKey, indexRaw));
+      setTraderLinkMessage(restored && indexRestored
+        ? 'IMM could not invalidate the trader price-index cache. The before-image was rolled back and the undo snapshot remains available.'
+        : 'Undo cache invalidation failed and storage could not be fully restored. Keep the native recovery snapshot and export Trader Book JSON.');
+      return false;
+    }
+    const snapshotCleared = removeStorageString(APP.nativeTraderLinkUndoStorageKey);
+    state.traders = normalizeTraders(JSON.parse(snapshot.beforeRaw));
+    state.traderStorageVersion = snapshot.beforeRaw;
+    state.traderUi.deals.linkMessage = snapshotCleared
+      ? 'The last native pricelist change was undone.'
+      : 'The last native pricelist change was restored, but its snapshot could not be cleared. A repeated undo will be refused as stale.';
+    try {
+      window.dispatchEvent(new CustomEvent('tsimm:trader-price-index-updated', { detail: { source: 'imm-native-trader-link' } }));
+    } catch {}
+    renderTraders();
+    return true;
   }
 
   function isTornPageUrl(value) {
@@ -13702,6 +14378,31 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
     }).filter((row) => row.itemName && row.price > 0);
   }
 
+  function traderLinkManagementHtml(trader) {
+    const undoRaw = readStorageString(APP.nativeTraderLinkUndoStorageKey);
+    const targets = state.traders
+      .filter((entry) => entry.id !== trader.id)
+      .map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.name)}${entry.pricePageItems.length ? ` · replaces ${formatInteger(entry.pricePageItems.length)} prices` : ''}</option>`)
+      .join('');
+    return `
+      <section class="tsimm-trader-deals-filter-panel" aria-label="Manage pricelist link">
+        <strong>PRICELIST LINK</strong>
+        <small>Move or disconnect only this captured pricelist. Trader history and Ledger records stay unchanged.</small>
+        <label>Move to saved trader
+          <select data-tsimm-link-target aria-label="Move pricelist to trader">
+            <option value="">Choose destination…</option>
+            ${targets}
+          </select>
+        </label>
+        <button type="button" data-tsimm-action="trader-link-move">Move pricelist</button>
+        <button type="button" data-tsimm-action="trader-link-disconnect">Disconnect pricelist</button>
+        ${undoRaw !== null && undoRaw !== undefined ? '<button type="button" data-tsimm-action="trader-link-undo">Undo last native link change</button>' : ''}
+        ${state.traderUi.deals.linkMessage ? `<div class="tsimm-trader-deals-message" role="status">${escapeHtml(state.traderUi.deals.linkMessage)}</div>` : ''}
+        <small>The native undo snapshot is separate from Trader Report’s existing backup.</small>
+      </section>
+    `;
+  }
+
   function traderDealsCounts(rows) {
     const counts = { all: rows.length, deals: 0, premium: 0, strong: 0, near: 0, withhold: 0, unknown: 0, owned: 0 };
     for (const row of rows) {
@@ -13804,6 +14505,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
           <button type="button" data-tsimm-action="trader-deals-back">← Back to Trader Book</button>
           ${trader?.pricePageUrl ? `<a href="${escapeHtml(trader.pricePageUrl)}">Open price list</a>` : ''}
           ${!issue ? '<button type="button" data-tsimm-action="trader-deals-copy">Copy filtered deals</button>' : ''}
+          ${trader && !traderDealsAddonActive() ? `<button type="button" data-tsimm-action="trader-link-manage">${state.traderUi.deals.manageOpen ? 'Close Manage Link' : 'Manage Link'}</button>` : ''}
         </div>
         ${issue ? `<div class="tsimm-trader-deals-message" role="status">${escapeHtml(issue)}</div>` : `
           <nav class="tsimm-trader-deals-summary" aria-label="Deal filters">
@@ -13839,6 +14541,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
             ${filtered.length > shown.length ? `<button type="button" class="tsimm-trader-deals-more" data-tsimm-action="trader-deals-more">Load ${formatInteger(Math.min(200, filtered.length - shown.length))} more</button>` : ''}
           </main>
         `}
+        ${trader && !traderDealsAddonActive() && state.traderUi.deals.manageOpen ? traderLinkManagementHtml(trader) : ''}
       </div>
     `;
   }
@@ -14962,6 +15665,23 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         setTraderBookMode(button.dataset.tsimmTraderMode);
       } else if (action === 'trader-deals-open') {
         if (!traderDealsAddonActive()) openTraderDeals(button.dataset.tsimmTraderId);
+      } else if (action === 'trader-link-manage') {
+        state.traderUi.deals.manageOpen = !state.traderUi.deals.manageOpen;
+        state.traderUi.deals.linkMessage = '';
+        renderTraders();
+      } else if (action === 'trader-link-move') {
+        const targetId = normalizeWhitespace(document.querySelector(`#${APP.traderOverlayId} [data-tsimm-link-target]`)?.value);
+        moveTraderPricelist(state.traderUi.activeDealsId, targetId).catch((error) => {
+          setTraderLinkMessage(error?.message || 'IMM could not move this pricelist.');
+        });
+      } else if (action === 'trader-link-disconnect') {
+        disconnectTraderPricelist(state.traderUi.activeDealsId).catch((error) => {
+          setTraderLinkMessage(error?.message || 'IMM could not disconnect this pricelist.');
+        });
+      } else if (action === 'trader-link-undo') {
+        undoTraderPricelistLink().catch((error) => {
+          setTraderLinkMessage(error?.message || 'IMM could not undo this pricelist change.');
+        });
       } else if (action === 'trader-deals-back') {
         closeTraderDeals();
       } else if (action === 'trader-deals-filter') {
@@ -15510,6 +16230,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       traderDealsCounts,
       filteredTraderDealsRows,
       traderDealsHtml,
+      traderLinkManagementHtml,
+      moveTraderPricelist,
+      disconnectTraderPricelist,
+      undoTraderPricelistLink,
       openTraderDeals,
       copyTraderDeals,
       closeTraderDeals,

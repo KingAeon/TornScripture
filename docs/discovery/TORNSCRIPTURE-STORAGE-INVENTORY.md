@@ -170,7 +170,7 @@ It also owns:
 
 This makes the current shared-browser-storage coupling explicit: moving IMM data into a TornPDA per-script namespace would make this companion unable to read it unless packaging/ownership changes.
 
-### `TornScripture-IMM-Trader-Report.user.js` v0.2.3
+### `TornScripture-IMM-Trader-Report.user.js` v0.2.4
 
 Reads shared IMM data from browser `localStorage` and declares:
 
@@ -182,7 +182,11 @@ Reads shared IMM data from browser `localStorage` and declares:
 - `tornscripture-imm-trader-price-index-v1`
 - `tornscripture-imm-trader-link-backup-v1`
 
-The last two need exact call-site/consequence review before classification.
+Report clears the price-index key after link changes. The link-backup key belongs to Report's own before-image/Undo path and is not shared with native IMM recovery.
+
+### IMM Act IV-B native pricelist recovery
+
+The isolated IMM v0.19.40 test build owns `tornscripture-imm-native-trader-link-undo-v1`. Its single-use snapshot stores the exact pre-mutation Trader Book JSON plus SHA-256 fingerprints of both the before-image and resulting JSON, so Undo can verify its recovery image and refuse stale or concurrent edits without retaining a second full copy of the book. IMM never reads, overwrites, or consumes Report's `tornscripture-imm-trader-link-backup-v1`; successful native link changes invalidate only the Report-owned price-index cache key above.
 
 ## 6. Cross-script dependency finding
 
