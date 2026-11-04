@@ -2524,30 +2524,68 @@
     return { kind: 'stale', snapshot };
   }
 
-  function downloadNativeTraderLinkUndoSnapshot(snapshotRaw, kind) {
-    if (typeof Blob !== 'function' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
-      throw new Error('This browser cannot securely export the native recovery snapshot. It was not retired.');
+  async function copyTraderPricelistUndoSnapshot() {
+    if (traderDealsAddonActive()) {
+      setTraderLinkMessage('Trader Report currently owns Manage Link. Disable Report to use IMM controls.');
+      return false;
     }
-    const link = document.createElement('a');
-    if (typeof link?.click !== 'function' || typeof document.body?.appendChild !== 'function') {
-      throw new Error('This browser cannot securely export the native recovery snapshot. It was not retired.');
+    const snapshotRaw = readStorageString(APP.nativeTraderLinkUndoStorageKey);
+    const liveRaw = readStorageString(APP.tradersStorageKey);
+    if (snapshotRaw === undefined || liveRaw === undefined || snapshotRaw === null) {
+      setTraderLinkMessage('No readable native Undo snapshot is available to copy. Nothing was retired.');
+      return false;
     }
-    const isJson = kind !== 'corrupt';
-    const objectUrl = URL.createObjectURL(new Blob([snapshotRaw], { type: isJson ? 'application/json' : 'text/plain' }));
+    if (state.traderStorageVersion !== liveRaw) {
+      setTraderLinkMessage('Trader Book changed after this view was loaded. Reopen before copying its recovery snapshot.');
+      return false;
+    }
     try {
-      link.href = objectUrl;
-      link.download = `tornscripture-imm-native-link-undo-${kind}-${Date.now()}.${isJson ? 'json' : 'txt'}`;
-      document.body.appendChild(link);
-      link.click();
-    } finally {
-      try {
-        link.remove?.();
-      } catch {}
-      try {
-        URL.revokeObjectURL(objectUrl);
-      } catch {}
+      const classification = await classifyNativeTraderLinkUndo(snapshotRaw, liveRaw);
+      if (classification.kind === 'intact-after') {
+        setTraderLinkMessage('Undo is still valid. Use Undo rather than retiring the recovery snapshot.');
+        return false;
+      }
+    } catch (error) {
+      setTraderLinkMessage(error?.message || 'IMM could not verify the current Trader Book. Undo was retained.');
+      return false;
     }
+    // TornPDA blob downloads are asynchronous. Copy the original bytes instead.
+    // Clipboard success alone NEVER authorizes retirement.
+    let copied = false;
+    try {
+      if (typeof navigator?.clipboard?.writeText === 'function') {
+        await navigator.clipboard.writeText(snapshotRaw);
+        copied = true;
+      }
+    } catch {}
+    if (!copied) {
+      let area;
+      try {
+        area = document.createElement('textarea');
+        area.value = snapshotRaw;
+        area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+        document.body.appendChild(area);
+        area.select();
+        copied = Boolean(document.execCommand?.('copy'));
+      } catch {} finally {
+        try { area?.remove?.(); } catch {}
+      }
+    }
+    if (!copied) {
+      setTraderLinkMessage('Clipboard copy failed. Undo was retained. Do not retire this snapshot.');
+      return false;
+    }
+    if (traderDealsAddonActive()
+      || readStorageString(APP.nativeTraderLinkUndoStorageKey) !== snapshotRaw
+      || readStorageString(APP.tradersStorageKey) !== liveRaw) {
+      setTraderLinkMessage('Trader Book or Undo changed during copying. The copy may be outdated. Undo was retained; reopen and retry.');
+      return false;
+    }
+    setTraderLinkMessage('Private Undo snapshot copied. Save it as a separate .txt or .json file outside TornPDA. OPEN that saved file, copy its entire contents, then use Verify saved copy and retire. Undo remains stored.');
+    renderTraders();
+    return true;
   }
+
 
   function activePendingLinkConflict(traderIds, parsedStore) {
     const now = Date.now();
@@ -2900,7 +2938,6 @@
       setTraderLinkMessage('Trader Book changed after this view was loaded. Reopen Trader Book before resolving its undo snapshot.');
       return false;
     }
-
     let classification;
     try {
       classification = await classifyNativeTraderLinkUndo(snapshotRaw, liveRaw);
@@ -2912,45 +2949,43 @@
       setTraderLinkMessage('The native Undo snapshot still matches the current Trader Book. Use Undo or make the next confirmed link change; it was not retired.');
       return false;
     }
-
-    const stateDescription = classification.kind === 'orphaned-before'
-      ? 'Trader Book still matches the verified before-image; the interrupted native operation did not commit.'
-      : classification.kind === 'stale'
-        ? 'Trader Book changed after the native operation; this Undo can no longer be applied safely.'
-        : 'The native Undo snapshot is malformed or its before-image fingerprint cannot be verified.';
-    if (!confirm(`${stateDescription}\n\nDownload a private copy of the exact native recovery snapshot, then retire it so native Move and Disconnect can resume? This will not change Trader Book data. The download may contain your full Trader Book before-image. Retiring removes this snapshot from IMM; keep the downloaded file for owner-reviewed recovery. Trader Report’s backup is not affected.`)) {
+    // Independent saved-file readback, not a download click or clipboard receipt.
+    const readback = prompt('OPEN the independently saved Undo recovery file outside TornPDA. Copy ALL text FROM THAT FILE and paste it here. Do not paste straight from the Copy button. Cancel keeps Undo.');
+    if (readback === null) {
+      setTraderLinkMessage('Saved-file verification cancelled. Native Undo was retained.');
       return false;
     }
-
-    try {
-      downloadNativeTraderLinkUndoSnapshot(snapshotRaw, classification.kind);
-    } catch (error) {
-      setTraderLinkMessage(error?.message || 'IMM could not export the native recovery snapshot. It was not retired.');
+    if (readback !== snapshotRaw) {
+      setTraderLinkMessage('The pasted file does not exactly match this recovery snapshot. Undo was retained. Open the saved file and retry.');
       return false;
     }
-    if (
-      traderDealsAddonActive()
+    if (!confirm('The submitted file matches the exact stored Undo snapshot. RETIRE it now? This removes the Undo option. Trader Book and Ledger will not be changed.')) {
+      setTraderLinkMessage('Retirement cancelled. The native Undo snapshot was retained.');
+      return false;
+    }
+    if (traderDealsAddonActive()
+      || state.traderStorageVersion !== liveRaw
       || readStorageString(APP.nativeTraderLinkUndoStorageKey) !== snapshotRaw
-      || readStorageString(APP.tradersStorageKey) !== liveRaw
-    ) {
-      setTraderLinkMessage('The native snapshot or Trader Book changed during recovery. The snapshot was exported but not retired; reload and review before retrying.');
+      || readStorageString(APP.tradersStorageKey) !== liveRaw) {
+      setTraderLinkMessage('Trader Book or Undo changed during verification. Nothing was retired; reopen and retry.');
       return false;
     }
     if (!removeStorageString(APP.nativeTraderLinkUndoStorageKey)) {
-      setTraderLinkMessage('IMM could not verify removal of the native Undo snapshot. Trader Book data was not changed; keep the exported recovery file and review storage before retrying.');
+      setTraderLinkMessage('IMM could not verify removal of Undo. Trader Book data was not changed; keep the saved recovery file.');
       return false;
     }
     if (readStorageString(APP.tradersStorageKey) !== liveRaw) {
       const restored = restoreStorageStringIfCurrent(APP.nativeTraderLinkUndoStorageKey, null, snapshotRaw);
       setTraderLinkMessage(restored
-        ? 'Trader Book changed during recovery. Its native Undo snapshot was restored; reload before continuing.'
-        : 'Trader Book changed during recovery and the snapshot could not be restored safely. Keep the downloaded recovery file and review storage before continuing.');
+        ? 'Trader Book changed during recovery. The native Undo was restored; reload before continuing.'
+        : 'Trader Book changed and Undo could not be restored safely. Keep the saved recovery file for review.');
       return false;
     }
-    setTraderLinkMessage(`The ${classification.kind === 'orphaned-before' ? 'interrupted' : classification.kind === 'stale' ? 'stale' : 'corrupt'} native Undo snapshot was exported and retired. Trader Book data was not changed; native pricelist management can resume.`);
+    setTraderLinkMessage('Saved recovery copy verified byte-for-byte; native Undo snapshot retired. Trader Book and Ledger remain unchanged.');
     renderTraders();
     return true;
   }
+
 
   async function undoTraderPricelistLink() {
     if (traderDealsAddonActive()) {
@@ -14517,8 +14552,9 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
         <button type="button" data-tsimm-action="trader-link-move">Move pricelist</button>
         <button type="button" data-tsimm-action="trader-link-disconnect">Disconnect pricelist</button>
         ${undoRaw !== null && undoRaw !== undefined ? '<button type="button" data-tsimm-action="trader-link-undo">Undo last native link change</button>' : ''}
-        ${undoRaw !== null && undoRaw !== undefined ? '<button type="button" data-tsimm-action="trader-link-resolve">Export &amp; resolve stale Undo</button>' : ''}
-        <small>Only resolve after Undo refuses. IMM exports the exact recovery snapshot before retiring a stale, interrupted, or corrupt snapshot; Trader Book data is not changed.</small>
+        ${undoRaw !== null && undoRaw !== undefined ? '<button type="button" data-tsimm-action="trader-link-export">1. Copy private Undo snapshot</button>' : ''}
+        ${undoRaw !== null && undoRaw !== undefined ? '<button type="button" data-tsimm-action="trader-link-resolve">2. Verify saved copy &amp; retire</button>' : ''}
+        <small>Only after Undo refuses: copy the private snapshot, save it outside TornPDA, then OPEN the saved file and paste its exact contents to verify. Cancellation or mismatch keeps Undo. No automatic download is trusted.</small>
         ${state.traderUi.deals.linkMessage ? `<div class="tsimm-trader-deals-message" role="status">${escapeHtml(state.traderUi.deals.linkMessage)}</div>` : ''}
         <small>Native changes are blocked while Trader Report’s whole-book Undo backup exists or cannot be checked.</small>
       </section>
@@ -15397,6 +15433,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       .tsimm-dossier-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px}.tsimm-dossier-summary>div{display:grid;gap:2px;min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1b181f}.tsimm-dossier-summary span{color:#a79eaf;font-size:9px;text-transform:uppercase}.tsimm-dossier-summary strong{overflow-wrap:anywhere}.tsimm-dossier-warning{margin-top:7px;padding:7px;border:1px solid #9a6d1f;border-radius:7px;background:#2c230f;color:#ffd166}.tsimm-dossier-sales,.tsimm-dossier-journal,.tsimm-dossier-items{display:grid;gap:6px;margin-top:7px}.tsimm-dossier-sale,.tsimm-dossier-journal article,.tsimm-dossier-items>div{min-width:0;padding:7px;border:1px solid #4d4655;border-radius:7px;background:#1d1a21}.tsimm-dossier-sale.partial{border-color:#9a6d1f}.tsimm-dossier-row-head,.tsimm-dossier-items>div{display:flex;justify-content:space-between;gap:8px}.tsimm-dossier-row-head span,.tsimm-dossier-items span{color:#aaa1b7;text-align:right}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:3px 8px;margin:6px 0}.tsimm-dossier-sale-grid span,.tsimm-dossier-price-meta span{color:#aaa1b7}.tsimm-dossier-sale-grid strong,.tsimm-dossier-price-meta strong{text-align:right;overflow-wrap:anywhere}.tsimm-dossier-sale>small{display:block;color:#aaa1b7;overflow-wrap:anywhere}.tsimm-dossier-inline-actions{margin-top:6px}.tsimm-dossier-freshness-fresh{color:#63df9f}.tsimm-dossier-freshness-stale{color:#ffd166}.tsimm-dossier-freshness-outdated,.tsimm-dossier-freshness-missing{color:#ff7c85}.tsimm-dossier-journal article{display:grid;gap:4px}.tsimm-dossier-journal time,.tsimm-dossier-journal small{color:#918899;font-size:9px}.tsimm-dossier-journal p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
       .tsimm-trader-deals-button{background:#332d23!important;border-color:#a98532!important;color:#ffe29a!important}
       .tsimm-trader-deals-shell{width:min(760px,100%)}.tsimm-trader-deals-toolbar,.tsimm-trader-deals-controls{display:flex;flex-wrap:wrap;gap:5px;padding:6px 8px}.tsimm-trader-deals-toolbar button,.tsimm-trader-deals-toolbar a,.tsimm-trader-deals-controls button,.tsimm-trader-deals-filter-panel button,.tsimm-trader-deals-filter-panel input,.tsimm-trader-deals-filter-panel select,.tsimm-trader-deals-filter-panel label{min-width:0;max-width:100%;min-height:36px;border:1px solid #675c43;border-radius:7px;background:#29251e;color:#fff;padding:6px 8px;font:700 10px/1.25 Arial,sans-serif;text-decoration:none}.tsimm-trader-deals-summary{display:flex;gap:4px;max-width:100%;overflow-x:auto;padding:5px 6px;flex:0 0 auto}.tsimm-trader-deals-summary button{min-width:68px;display:grid;gap:0;padding:4px 7px;border:1px solid #494250;border-radius:7px;background:#24212a;color:#c9c2d0;text-align:left;font:inherit}.tsimm-trader-deals-summary button strong{font-size:14px}.tsimm-trader-deals-summary button span{font-size:9px}.tsimm-trader-deals-summary button.active{border-color:#b98c2c;background:#3a3020;color:#ffe29a}.tsimm-trader-deals-filter-panel{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;padding:0 8px 8px}.tsimm-trader-deals-filter-panel input[type=search]{width:100%}.tsimm-trader-deals-filter-panel label{display:flex;align-items:center;gap:6px;overflow-wrap:anywhere}      .tsimm-trader-deals-list{min-width:0;min-height:0;flex:1 1 auto;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:6px 8px 10px;display:grid;grid-auto-rows:max-content;align-content:start;gap:5px}.tsimm-trader-deals-row{min-width:0;border:1px solid #4d6548;border-radius:8px;background:#20251f;overflow:hidden}.tsimm-trader-deals-row.premium{border-left:3px solid #8dff72}.tsimm-trader-deals-row.strong{border-left:3px solid #59d9c8}.tsimm-trader-deals-row.near{border-left:3px solid #e6b84a}.tsimm-trader-deals-row.withhold{border-left:3px solid #99424b}.tsimm-trader-deals-row.unknown{border-left:3px solid #707780}.tsimm-trader-deals-row-toggle{width:100%;min-height:44px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:7px;border:0;background:transparent;color:#f4f1f8;padding:7px 8px;text-align:left;font:inherit;touch-action:manipulation}.tsimm-trader-deals-row-toggle>span:nth-child(2){display:grid;min-width:0;gap:2px}.tsimm-trader-deals-row-toggle strong,.tsimm-trader-deals-row-toggle small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tsimm-trader-deals-row-toggle small{color:#aaa1b7;font-size:9px}.tsimm-trader-deals-row-toggle>b{font-size:8px;white-space:nowrap}.tsimm-trader-deals-row-details[hidden]{display:none!important}.tsimm-trader-deals-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:7px 9px}.tsimm-trader-deals-grid span,.tsimm-trader-deals-owned small{color:#aaa1b7;font-size:9px}.tsimm-trader-deals-grid strong{text-align:right;overflow-wrap:anywhere}.tsimm-trader-deals-owned{padding:5px 9px;border-top:1px dashed #514a59;color:#8bd9ff;font-size:9px}.tsimm-trader-deals-owned small{display:block;margin-top:2px}.tsimm-trader-deals-message{margin:10px;padding:10px;border:1px solid #9a6d1f;border-radius:8px;background:#2c230f;color:#ffd166}.tsimm-trader-deals-more{min-height:38px;border:1px solid #675c43;border-radius:7px;background:#332d23;color:#fff;padding:7px;font-weight:700}
+      /* Owner-device-verified touch scrolling for Manage Link below the deal list. */
+      .tsimm-trader-deals-shell{overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+      .tsimm-trader-deals-shell>*{flex-shrink:0}
+      .tsimm-trader-deals-shell .tsimm-trader-deals-list{flex:0 0 auto;max-height:30dvh}
       @media(max-width:560px){.tsimm-trader-deals-filter-panel{grid-template-columns:minmax(0,1fr)}.tsimm-trader-deals-toolbar>*{flex:1 1 auto;text-align:center}.tsimm-trader-deals-row-toggle{grid-template-columns:auto minmax(0,1fr)}.tsimm-trader-deals-row-toggle>b{grid-column:2;justify-self:start}}
       @media(max-width:600px){.tsimm-trader-shell{width:100%;max-height:100%;border-radius:10px}.tsimm-trader-dossier-shell{width:100%}.tsimm-trader-book-compact>.tsimm-ledger-head{padding:7px 9px}.tsimm-trader-book-compact>.tsimm-ledger-head small{display:none}.tsimm-trader-view-toolbar{align-items:stretch;flex-wrap:wrap}.tsimm-trader-view-toolbar .tsimm-trader-sort{flex:1 1 220px;justify-content:space-between}.tsimm-trader-mode{flex:0 0 auto}}
       @media(max-width:430px){.tsimm-trader-top,.tsimm-dossier-section-head,.tsimm-dossier-row-head,.tsimm-dossier-items>div{align-items:stretch;flex-direction:column}.tsimm-trader-view-toolbar{display:grid}.tsimm-trader-sort{display:grid;justify-content:stretch}.tsimm-trader-sort select{width:100%}.tsimm-trader-mode>div{display:grid;grid-template-columns:1fr 1fr}.tsimm-trader-mode button{width:100%}.tsimm-trader-compact-head{grid-template-columns:minmax(0,1fr) auto}.tsimm-dossier-hero>img{width:86px;max-width:30%}.tsimm-dossier-role{grid-template-columns:1fr}.tsimm-dossier-role select{width:100%}.tsimm-dossier-summary{grid-template-columns:1fr 1fr}.tsimm-dossier-sale-grid,.tsimm-dossier-price-meta{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr)}.tsimm-dossier-row-head span,.tsimm-dossier-items span{text-align:left}}
@@ -15803,6 +15843,10 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       } else if (action === 'trader-link-undo') {
         undoTraderPricelistLink().catch((error) => {
           setTraderLinkMessage(error?.message || 'IMM could not undo this pricelist change.');
+        });
+      } else if (action === 'trader-link-export') {
+        copyTraderPricelistUndoSnapshot().catch((error) => {
+          setTraderLinkMessage(error?.message || 'IMM could not copy its native Undo snapshot.');
         });
       } else if (action === 'trader-link-resolve') {
         resolveTraderPricelistUndo().catch((error) => {
@@ -16359,6 +16403,7 @@ This changes only the funding label. Quantities, prices, cost basis, and sales a
       traderLinkManagementHtml,
       moveTraderPricelist,
       disconnectTraderPricelist,
+      copyTraderPricelistUndoSnapshot,
       resolveTraderPricelistUndo,
       undoTraderPricelistLink,
       openTraderDeals,
