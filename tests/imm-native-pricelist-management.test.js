@@ -93,10 +93,12 @@ function createEnvironment(options = {}) {
   const prompts = [];
   const errors = [];
   const downloads = [];
+  const copies = [];
   const failSetKeys = new Set();
   const failRemoveKeys = new Set();
   const failGetKeys = new Set();
   let confirmHandler = options.confirm || (() => true);
+  let promptHandler = options.prompt || (() => null);
   const localStorage = {
     getItem(key) {
       if (failGetKeys.has(key)) throw new Error(`synthetic read failure for ${key}`);
@@ -154,7 +156,7 @@ function createEnvironment(options = {}) {
     localStorage,
     sessionStorage,
     location: { href: 'https://www.torn.com/index.php', hostname: 'www.torn.com', hash: '' },
-    navigator: {},
+    navigator: { clipboard: { async writeText(value) { if (options.failClipboard) throw new Error('clipboard denied'); copies.push(String(value)); } } },
     URL: TestURL,
     Blob,
     crypto: crypto.webcrypto,
@@ -163,6 +165,10 @@ function createEnvironment(options = {}) {
     confirm(message) {
       prompts.push(message);
       return confirmHandler(message, environment);
+    },
+    prompt(message) {
+      prompts.push(message);
+      return promptHandler(message, environment);
     },
     setConfirm(handler) { confirmHandler = handler; },
     console: { error(...args) { errors.push(args); } },
@@ -185,7 +191,9 @@ function createEnvironment(options = {}) {
     failRemoveKeys,
     failGetKeys,
     downloads,
+    copies,
     setConfirm(handler) { confirmHandler = handler; },
+    setPrompt(handler) { promptHandler = handler; },
     snapshotStorage() { return [...storage.entries()].sort(([a], [b]) => a.localeCompare(b)); },
     traderRoot() { return JSON.parse(storage.get(TRADERS_KEY)); },
   };
@@ -487,74 +495,85 @@ test('native Move and Disconnect refuse an unresolved or unreadable Report whole
   });
 });
 
-test('stale Undo can be exported, retired, and native management resumed across reloads', async () => {
+test('stale Undo requires independent exact saved-file readback before retirement; reload and reuse work', async () => {
   const env = createEnvironment();
   const beforeRaw = env.storage.get(TRADERS_KEY);
+  const ledgerRaw = env.storage.get(LEDGER_KEY);
   assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
-
   const edited = env.traderRoot();
   edited.traders[1].notes = 'ordinary Trader Book edit';
   const editedRaw = JSON.stringify(edited);
   env.storage.set(TRADERS_KEY, editedRaw);
   env.imm.state.traderStorageVersion = editedRaw;
   assert.equal(await env.imm.undoTraderPricelistLink(), false);
-  assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
-
   const snapshotRaw = env.storage.get(UNDO_KEY);
+
+  // Explicit stage one can copy the exact snapshot but cannot retire it.
+  assert.equal(await env.imm.copyTraderPricelistUndoSnapshot(), true);
+  assert.equal(env.copies.length, 1);
+  assert.equal(env.copies[0], snapshotRaw);
+  assert.equal(env.storage.get(UNDO_KEY), snapshotRaw);
+  assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
+  assert.equal(env.storage.get(LEDGER_KEY), ledgerRaw);
+
+  // No independent readback: fail closed, even if copy claimed success.
+  assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+  assert.equal(env.storage.get(UNDO_KEY), snapshotRaw);
+  env.setPrompt(() => 'wrong saved file');
+  assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+  assert.equal(env.storage.get(UNDO_KEY), snapshotRaw);
+  assert.match(env.imm.state.traderUi.deals.linkMessage, /does not exactly match/);
+
+  // Only exact readback plus a separate explicit confirmation may retire.
+  env.setPrompt(() => snapshotRaw);
   assert.equal(await env.imm.resolveTraderPricelistUndo(), true);
   assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
+  assert.equal(env.storage.get(LEDGER_KEY), ledgerRaw);
   assert.equal(env.storage.has(UNDO_KEY), false);
   assert.equal(env.storage.has(REPORT_BACKUP_KEY), false);
-  assert.equal(env.downloads.length, 1);
-  assert.match(env.downloads[0].download, /stale/);
-  assert.equal(await env.downloads[0].blob.text(), snapshotRaw);
-  assert.match(env.imm.state.traderUi.deals.linkMessage, /exported and retired/);
+  assert.equal(env.downloads.length, 0);
+  assert.match(env.imm.state.traderUi.deals.linkMessage, /verified byte-for-byte/);
 
   assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
   env.imm.state.traderUi.activeDealsId = 'target-1';
   assert.equal(await env.imm.moveTraderPricelist('target-1', 'source-1'), true);
   const reloaded = createEnvironment({ storage: env.storage });
-  assert.equal(reloaded.imm.state.traderStorageVersion, reloaded.storage.get(TRADERS_KEY));
   assert.ok(reloaded.storage.has(UNDO_KEY));
   reloaded.imm.state.traderUi.activeDealsId = 'source-1';
   assert.equal(await reloaded.imm.undoTraderPricelistLink(), true);
   assert.equal(reloaded.storage.get(TRADERS_KEY), editedRaw);
-  assert.equal(await reloaded.imm.undoTraderPricelistLink(), false);
-  assert.equal(reloaded.storage.get(TRADERS_KEY), editedRaw);
   assert.notEqual(beforeRaw, editedRaw);
 });
 
-test('orphaned before-state snapshot can be exported and retired without restoring Trader Book', async () => {
+test('orphaned-before snapshot requires verified copied backup without changing Trader Book', async () => {
   const env = createEnvironment();
   const beforeRaw = env.storage.get(TRADERS_KEY);
   assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
   const snapshotRaw = env.storage.get(UNDO_KEY);
-
   env.storage.set(TRADERS_KEY, beforeRaw);
   env.imm.state.traderStorageVersion = beforeRaw;
+  assert.equal(await env.imm.copyTraderPricelistUndoSnapshot(), true);
+  assert.equal(env.copies[0], snapshotRaw);
+  assert.equal(env.storage.get(UNDO_KEY), snapshotRaw);
+  env.setPrompt(() => snapshotRaw);
   assert.equal(await env.imm.resolveTraderPricelistUndo(), true);
   assert.equal(env.storage.get(TRADERS_KEY), beforeRaw);
   assert.equal(env.storage.has(UNDO_KEY), false);
-  assert.match(env.downloads[0].download, /orphaned-before/);
-  assert.equal(await env.downloads[0].blob.text(), snapshotRaw);
-
-  assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
   const reloaded = createEnvironment({ storage: env.storage });
   assert.equal(await reloaded.imm.moveTraderPricelist('source-1', 'target-1'), true);
 });
 
-test('native Undo retirement refuses intact snapshots and cancellation preserves stale evidence', async (t) => {
-  await t.test('an intact after-state keeps its available Undo', async () => {
+test('intact Undo, cancelled readback, refused retirement, and clipboard failure preserve evidence', async (t) => {
+  await t.test('intact after-state keeps Undo instead of prompting for retirement', async () => {
     const env = createEnvironment();
     assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
     const snapshot = env.storage.get(UNDO_KEY);
+    assert.equal(await env.imm.copyTraderPricelistUndoSnapshot(), false);
     assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
     assert.equal(env.storage.get(UNDO_KEY), snapshot);
-    assert.equal(env.downloads.length, 0);
-    assert.match(env.imm.state.traderUi.deals.linkMessage, /still matches.*Use Undo/);
+    assert.equal(env.copies.length, 0);
   });
-
-  await t.test('cancelled retirement leaves data, snapshot, and downloaded files unchanged', async () => {
+  await t.test('cancelled readback and cancelled confirmation both keep Undo', async () => {
     const env = createEnvironment();
     assert.equal(await env.imm.moveTraderPricelist('source-1', 'target-1'), true);
     const edited = env.traderRoot();
@@ -563,67 +582,76 @@ test('native Undo retirement refuses intact snapshots and cancellation preserves
     env.storage.set(TRADERS_KEY, editedRaw);
     env.imm.state.traderStorageVersion = editedRaw;
     const snapshot = env.storage.get(UNDO_KEY);
+    assert.equal(await env.imm.copyTraderPricelistUndoSnapshot(), true);
+    assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
+    assert.equal(env.storage.get(UNDO_KEY), snapshot);
+    env.setPrompt(() => snapshot);
     env.setConfirm(() => false);
     assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
-    assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
     assert.equal(env.storage.get(UNDO_KEY), snapshot);
-    assert.equal(env.downloads.length, 0);
+    assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
+  });
+  await t.test('clipboard and fallback copy failures never retire Undo', async () => {
+    const env = createEnvironment({ extraStorage: [[UNDO_KEY, 'not-json-snapshot']], failClipboard: true });
+    assert.equal(await env.imm.copyTraderPricelistUndoSnapshot(), false);
+    assert.equal(env.storage.get(UNDO_KEY), 'not-json-snapshot');
+    assert.equal(env.copies.length, 0);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /Clipboard copy failed/);
   });
 });
 
-test('corrupt native Undo is exported before retirement; failed and concurrent retirement preserve the snapshot', async (t) => {
-  await t.test('corrupt snapshot is preserved as exact exported evidence', async () => {
+test('corrupt recovery snapshot: verified proof gates removal; failed or concurrent deletion preserves it', async (t) => {
+  await t.test('corrupt bytes are copied verbatim and retired only after matching readback', async () => {
     const env = createEnvironment({ extraStorage: [[UNDO_KEY, 'not-json-snapshot']] });
     const liveRaw = env.storage.get(TRADERS_KEY);
+    assert.equal(await env.imm.copyTraderPricelistUndoSnapshot(), true);
+    assert.equal(env.copies[0], 'not-json-snapshot');
+    assert.equal(env.storage.get(UNDO_KEY), 'not-json-snapshot');
+    env.setPrompt(() => 'not-json-snapshot');
     assert.equal(await env.imm.resolveTraderPricelistUndo(), true);
     assert.equal(env.storage.get(TRADERS_KEY), liveRaw);
     assert.equal(env.storage.has(UNDO_KEY), false);
-    assert.match(env.downloads[0].download, /corrupt/);
-    assert.equal(await env.downloads[0].blob.text(), 'not-json-snapshot');
   });
-
-  await t.test('failed snapshot removal leaves exported evidence and key available', async () => {
+  await t.test('failed removal never claims successful retirement', async () => {
     const env = createEnvironment({ extraStorage: [[UNDO_KEY, 'not-json-snapshot']] });
     const liveRaw = env.storage.get(TRADERS_KEY);
+    env.setPrompt(() => 'not-json-snapshot');
     env.failRemoveKeys.add(UNDO_KEY);
     assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
-    env.failRemoveKeys.clear();
     assert.equal(env.storage.get(TRADERS_KEY), liveRaw);
     assert.equal(env.storage.get(UNDO_KEY), 'not-json-snapshot');
-    assert.equal(env.downloads.length, 1);
     assert.match(env.imm.state.traderUi.deals.linkMessage, /could not verify removal/);
   });
-
-  await t.test('malformed current Trader Book prevents corrupt-snapshot retirement', async () => {
-    const env = createEnvironment({
-      store: 'not-a-trader-book',
-      extraStorage: [[UNDO_KEY, 'not-json-snapshot']],
-    });
+  await t.test('malformed Trader Book blocks both recovery stages', async () => {
+    const env = createEnvironment({ store: 'not-a-trader-book', extraStorage: [[UNDO_KEY, 'not-json-snapshot']] });
     const before = env.snapshotStorage();
+    assert.equal(await env.imm.copyTraderPricelistUndoSnapshot(), false);
     assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
     assert.deepEqual(env.snapshotStorage(), before);
-    assert.equal(env.downloads.length, 0);
-    assert.match(env.imm.state.traderUi.deals.linkMessage, /Trader Book|trader/i);
+    assert.equal(env.copies.length, 0);
   });
-
-  await t.test('Trader Book changed during confirmation prevents retirement', async () => {
+  await t.test('concurrent Trader Book edit during confirmation stops retirement', async () => {
     let editedRaw;
-    const env = createEnvironment({
-      extraStorage: [[UNDO_KEY, 'not-json-snapshot']],
-      confirm(message, current) {
-        const changed = current.traderRoot();
-        changed.traders[0].notes = 'concurrent recovery edit';
-        editedRaw = JSON.stringify(changed);
-        current.storage.set(TRADERS_KEY, editedRaw);
-        return true;
-      },
+    const env = createEnvironment({ extraStorage: [[UNDO_KEY, 'not-json-snapshot']] });
+    env.setPrompt(() => 'not-json-snapshot');
+    env.setConfirm((message, current) => {
+      const changed = current.traderRoot();
+      changed.traders[0].notes = 'concurrent recovery edit';
+      editedRaw = JSON.stringify(changed);
+      current.storage.set(TRADERS_KEY, editedRaw);
+      return true;
     });
     assert.equal(await env.imm.resolveTraderPricelistUndo(), false);
     assert.equal(env.storage.get(TRADERS_KEY), editedRaw);
     assert.equal(env.storage.get(UNDO_KEY), 'not-json-snapshot');
-    assert.equal(env.downloads.length, 1);
-    assert.match(env.imm.state.traderUi.deals.linkMessage, /changed during recovery.*not retired/);
+    assert.match(env.imm.state.traderUi.deals.linkMessage, /changed during verification/);
   });
+});
+
+test('mobile Trader Deals shell supports scrolling to the native Undo controls', () => {
+  assert.match(source, /\.tsimm-trader-deals-shell\{overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y/);
+  assert.match(source, /\.tsimm-trader-deals-shell>\*\{flex-shrink:0\}/);
+  assert.match(source, /\.tsimm-trader-deals-shell \.tsimm-trader-deals-list\{flex:0 0 auto;max-height:30dvh\}/);
 });
 
 test('Act IV-B branch metadata identifies an isolated test build without live update URLs', () => {
