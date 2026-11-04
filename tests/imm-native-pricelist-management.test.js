@@ -633,3 +633,14 @@ test('Act IV-B branch metadata identifies an isolated test build without live up
   assert.doesNotMatch(source, /^\/\/ @(?:downloadURL|updateURL)\b/m);
   assert.match(source, /version: '0\.19\.40'/);
 });
+
+test('TornPDA userscript injection adaptation must preserve valid startup syntax', () => {
+  // Mirror TornPDA UserScriptsProvider.adaptSource: API-key substitution,
+  // closure wrapping, and global curly quote normalization.
+  const normalized = source
+    .replaceAll('###PDA-APIKEY###', 'TEST_KEY')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'");
+  const injected = `(function() { const PDA_storage = undefined; ${normalized} }());`;
+  assert.doesNotThrow(() => new vm.Script(injected, { filename: 'TornPDA-adapted-IMM.user.js' }));
+});
