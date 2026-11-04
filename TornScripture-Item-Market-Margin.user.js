@@ -2666,7 +2666,7 @@
     if (traderDealsAddonActive()) throw new Error('Trader Report currently owns Manage Link. Disable Report to use IMM controls.');
     const reportBackupRaw = readStorageString(APP.legacyTraderLinkBackupStorageKey);
     if (reportBackupRaw === undefined) {
-      throw new Error('IMM could not check Trader Report’s saved whole-book Undo. Resolve or export that backup before changing a native pricelist.');
+      throw new Error('IMM could not check the saved Trader Report whole-book Undo. Resolve or export that backup before changing a native pricelist.');
     }
     if (reportBackupRaw !== null) {
       throw new Error('Trader Report has a saved whole-book Undo that could overwrite newer edits. Use Report Undo or manually review its backup before changing a native pricelist; IMM will not clear it.');
